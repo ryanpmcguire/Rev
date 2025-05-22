@@ -56,74 +56,6 @@ export namespace WebGpu {
         }
     };
 
-    struct Surface {
-
-        GLFWwindow* window = nullptr;
-
-        WGPUSurfaceConfiguration config;
-        WGPUSurface surface;
-
-        // Create
-        Surface(WGPUInstance& instance, GLFWwindow* window) {
-            this->window = window;
-            surface = glfwGetWGPUSurface(instance, window);
-        }
-
-        // Destroy
-        ~Surface() {
-            wgpuSurfaceUnconfigure(surface);
-            wgpuSurfaceRelease(surface);
-        }
-
-        void configure(WGPUAdapter& adapter, WGPUSurfaceConfiguration conf) {
-            this->config = conf;
-            config.format = wgpuSurfaceGetPreferredFormat(surface, adapter);
-            wgpuSurfaceConfigure(surface, &config);
-        }
-
-        void refit() {
-
-            // Get dimensions of framebuffer
-            int width, height;
-            glfwGetFramebufferSize(window, &width, &height);
-            if (height == 0 || width == 0) { return; }
-
-            // Set and reconfigure
-            config.width = width; config.height = height;
-            wgpuSurfaceUnconfigure(surface);
-            wgpuSurfaceConfigure(surface, &config);
-        }
-
-        WGPUTextureView getNextTextureView() {
-
-            WGPUSurfaceTexture surfaceTexture;
-            wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
-            if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_Success) { return nullptr; }
-
-            // Create view
-            WGPUTextureViewDescriptor viewDescriptor = {
-                .nextInChain = nullptr,
-                .label = "Surface Texture View",
-                .format = wgpuTextureGetFormat(surfaceTexture.texture),
-                .dimension = WGPUTextureViewDimension_2D,
-                .baseMipLevel = 0,
-                .mipLevelCount = 1,
-                .baseArrayLayer = 0,
-                .arrayLayerCount = 1,
-                .aspect = WGPUTextureAspect_All
-            };
-
-            WGPUTextureView targetView = wgpuTextureCreateView(surfaceTexture.texture, &viewDescriptor);
-
-            return targetView;
-        }
-
-        // Present surface
-        void present() {
-            wgpuSurfacePresent(surface);
-        }
-    };
-
     // CommandEncoder wrapper
     struct CommandEncoder {
 
@@ -179,39 +111,57 @@ export namespace WebGpu {
             wgpuCommandBufferRelease(commandBuffer);
         }
     };
-    
+
     struct Instance {
 
-        // Provided
-        GLFWwindow* window;
         WGPUInstance instance;
 
+        // Create
+        Instance() {
+            instance = wgpuCreateInstance(nullptr);
+        }
+
+        // Destroy
+        ~Instance() {
+            wgpuInstanceRelease(instance);
+        }
+    };
+
+    struct Surface {
+
+        GLFWwindow* window = nullptr;
+
+        WGPUSurfaceConfiguration config;
+        WGPUSurface surface;
+
         // Managed
+        Instance* instance;
         Adapter* adapter;
         Device* device;
-        Surface* surface;
 
         struct Flags {
-            bool refit = false;
+            bool fit = false;
         };
 
         Flags flags;
 
         // Create
-        Instance(GLFWwindow* window) {
+        Surface(GLFWwindow* window) {
 
             this->window = window;
 
-            // Instance and surface
-            instance = wgpuCreateInstance(nullptr);
-            surface = new Surface(instance, window);
+            // Get instance
+            Instance* instance = new Instance();
+
+            // Get surface based on window
+            surface = glfwGetWGPUSurface(instance->instance, window);
 
             // Create adapter
-            adapter = new Adapter(instance, {
-                .nextInChain = nullptr, .compatibleSurface = surface->surface
+            adapter = new Adapter(instance->instance, {
+                .nextInChain = nullptr, .compatibleSurface = surface
             });
 
-            // Create surface
+            // Create device
             device = new Device(adapter->adapter, {
                 
                 .nextInChain = nullptr,
@@ -225,34 +175,67 @@ export namespace WebGpu {
                 }
             });
 
-            // Create
-            surface->configure(adapter->adapter, {
+            config = {
                 .nextInChain = nullptr,
                 .device = device->device,
+                .format = wgpuSurfaceGetPreferredFormat(surface, adapter->adapter),
                 .usage = WGPUTextureUsage_RenderAttachment,
                 .viewFormatCount = 0,
                 .alphaMode = WGPUCompositeAlphaMode_Auto,
-                .width = 640, .height = 480,
                 .presentMode = WGPUPresentMode_Fifo
-            });
+            };
+
+            this->fit();
         }
 
         // Destroy
-        ~Instance() {
-
-            delete surface;
-            delete device;
-            delete adapter;
-
-            wgpuInstanceRelease(instance);
+        ~Surface() {
+            wgpuSurfaceUnconfigure(surface);
+            wgpuSurfaceRelease(surface);
         }
 
-        // Draw
+        void fit() {
+
+            // Get dimensions of framebuffer
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            if (height == 0 || width == 0) { return; }
+
+            // Set and reconfigure
+            config.width = width; config.height = height;
+            wgpuSurfaceUnconfigure(surface);
+            wgpuSurfaceConfigure(surface, &config);
+        }
+
+        WGPUTextureView getNextTextureView() {
+
+            WGPUSurfaceTexture surfaceTexture;
+            wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
+            if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_Success) { return nullptr; }
+
+            // Create view
+            WGPUTextureViewDescriptor viewDescriptor = {
+                .nextInChain = nullptr,
+                .label = "Surface Texture View",
+                .format = wgpuTextureGetFormat(surfaceTexture.texture),
+                .dimension = WGPUTextureViewDimension_2D,
+                .baseMipLevel = 0,
+                .mipLevelCount = 1,
+                .baseArrayLayer = 0,
+                .arrayLayerCount = 1,
+                .aspect = WGPUTextureAspect_All
+            };
+
+            WGPUTextureView targetView = wgpuTextureCreateView(surfaceTexture.texture, &viewDescriptor);
+
+            return targetView;
+        }
+
         void draw() {
 
-            if (flags.refit) { surface->refit(); }
+            if (flags.fit) { this->fit(); }
 
-            WGPUTextureView targetView = surface->getNextTextureView();
+            WGPUTextureView targetView = this->getNextTextureView();
             if (!targetView) { return; }
 
             dbg("[WebGpu] Drawing");
@@ -284,13 +267,18 @@ export namespace WebGpu {
             });
 
             device->submit(&commandBuffer->commandBuffer);
-            surface->present();
+            this->present();
 
             delete commandBuffer;
             delete renderPass;
             delete encoder;
 
             wgpuTextureViewRelease(targetView);
+        }
+
+        // Present surface
+        void present() {
+            wgpuSurfacePresent(surface);
         }
     };
 }

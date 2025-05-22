@@ -6,21 +6,27 @@ module;
 export module Application;
 
 import Window;
+import WebGpu;
 
 export namespace Rev {
 
     struct Application {
 
         std::vector<Window*> windows;
+        WebGpu::Instance* webgpu;
 
         // Create
         Application() {
 
             glfwInit();
+
+            webgpu = new WebGpu::Instance();
         }
 
         // Destroy
         ~Application() {
+            
+            delete webgpu;
             
             glfwTerminate();
         }

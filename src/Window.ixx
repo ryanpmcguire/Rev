@@ -28,7 +28,7 @@ export namespace Rev {
         Details details;
 
         // Webgpu
-        WebGpu::Instance* wgpuInstance;
+        WebGpu::Surface* surface;
 
         bool shouldClose = false;
 
@@ -60,7 +60,7 @@ export namespace Rev {
             // WebGpu
             //--------------------------------------------------
 
-            wgpuInstance = new WebGpu::Instance(window);
+            surface = new WebGpu::Surface(window);
 
             group.push_back(this);
         }
@@ -68,7 +68,7 @@ export namespace Rev {
         // Destroy
         ~Window() {
 
-            delete wgpuInstance;
+            delete surface;
 
             glfwDestroyWindow(window);
         }
@@ -85,7 +85,7 @@ export namespace Rev {
         virtual void onRefresh() {
             //dbg("Refresh");
 
-            wgpuInstance->draw();
+            surface->draw();
         }
 
         // When the content scale changes
@@ -112,13 +112,13 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            wgpuInstance->draw();
+            surface->draw();
         }
 
         // When the window is resized
         virtual void onResize(int width, int height) {
             //dbg("Resize: (%i, %i)", width, height);
-            wgpuInstance->flags.refit = true;
+            surface->flags.fit = true;
         }
 
         // When the window is maximized
