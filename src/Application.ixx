@@ -29,11 +29,11 @@ export namespace Rev {
 
             while (true) {
 
-                if (windows.empty()) { break; }
-
                 for (Window*& window : windows) {
                     if (window->shouldClose) { removeWindow(window); }
                 }
+
+                if (windows.empty()) { break; }
 
                 glfwWaitEvents();
             }

@@ -1,3 +1,0 @@
-C:/Users/Ryan/Desktop/Rev/build/CMakeFiles/HelloWorld.dir
-C:/Users/Ryan/Desktop/Rev/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/Ryan/Desktop/Rev/build/CMakeFiles/ZERO_CHECK.dir
