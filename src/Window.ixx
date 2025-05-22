@@ -9,6 +9,8 @@ module;
 
 export module Window;
 
+import WebGpu;
+
 export namespace Rev {
 
     struct Window {
@@ -21,8 +23,12 @@ export namespace Rev {
             bool resizable = true;
         };
 
+        // Glfw
         GLFWwindow* window = nullptr;
         Details details;
+
+        // Webgpu
+        WebGpu::Instance* wgpuInstance;
 
         bool shouldClose = false;
 
@@ -30,6 +36,9 @@ export namespace Rev {
         Window(std::vector<Window*>& group, Details details = {}) {
 
             this->details = details;
+
+            // GLFW
+            //--------------------------------------------------
 
             // Create window
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -48,24 +57,40 @@ export namespace Rev {
             glfwSetWindowMaximizeCallback(window, handleMaximize);
             glfwSetWindowCloseCallback(window, handleClose);
 
+            // WebGpu
+            //--------------------------------------------------
+
+            wgpuInstance = new WebGpu::Instance(window);
+
             group.push_back(this);
         }
 
         // Destroy
         ~Window() {
+
+            delete wgpuInstance;
+
             glfwDestroyWindow(window);
         }
 
+        // Overridable callbacks
+        //--------------------------------------------------
+
+        // When the framebuffer resizes
         virtual void onFramebufferResize(int width, int height) {
-            dbg("Framebuffer: (%i, %i)", width, height);
+            //dbg("Framebuffer: (%i, %i)", width, height);
         }
 
+        // When the content needs to be redrawn
         virtual void onRefresh() {
-            dbg("Refresh");
+            //dbg("Refresh");
+
+            wgpuInstance->draw();
         }
 
+        // When the content scale changes
         virtual void onContentScale(float xscale, float yscale) {
-            dbg("Content scale: (%f, %f)", xscale, yscale);
+            //dbg("Content scale: (%f, %f)", xscale, yscale);
         }
 
         // When the window gains or loses focus
@@ -76,22 +101,24 @@ export namespace Rev {
 
         // When the window gains focus
         virtual void onFocus() {
-            dbg("Focus");
+            //dbg("Focus");
         }
 
         // When the window loses focus
         virtual void onDefocus() {
-            dbg("Defocus");
+            //dbg("Defocus");
         }
 
         // When the window changes position
         virtual void onMove(int x, int y) {
-            dbg("Move: (%i, %i)", x, y);
+            //dbg("Move: (%i, %i)", x, y);
+            wgpuInstance->draw();
         }
 
         // When the window is resized
         virtual void onResize(int width, int height) {
-            dbg("Resize: (%i, %i)", width, height);
+            //dbg("Resize: (%i, %i)", width, height);
+            wgpuInstance->flags.refit = true;
         }
 
         // When the window is maximized
@@ -101,11 +128,11 @@ export namespace Rev {
         }
 
         virtual void onMaximize() {
-            dbg("Maximize");
+            //dbg("Maximize");
         }
 
         virtual void onDemaximize() {
-            dbg("Demaximize");
+            //dbg("Demaximize");
         }
 
         // When the window is minimized
@@ -115,17 +142,20 @@ export namespace Rev {
         }
 
         virtual void onMinimize() {
-            dbg("Minimize");
+            //dbg("Minimize");
         }
         
         virtual void onDeminimize() {
-            dbg("Deminimize");
+            //dbg("Deminimize");
         }
 
         void onClose() {
-            dbg("Close");
+            //dbg("Close");
             shouldClose = true;
         }
+
+        // Static callbacks for GLFW
+        //--------------------------------------------------
 
         static Window* self(GLFWwindow* win) {
             return static_cast<Window*>(glfwGetWindowUserPointer(win));

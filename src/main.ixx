@@ -9,7 +9,7 @@ int main() {
 
     Application* application = new Application();
     Window* window = new Window(application->windows, { 640, 480, "Window 1" });
-    Window* window_2 = new Window(application->windows, { 640, 480, "Window 2" });
+    Window* window2 = new Window(application->windows, { 640, 480, "Window 2" });
 
     application->run();
 
