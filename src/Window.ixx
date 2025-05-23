@@ -10,6 +10,7 @@ module;
 export module Window;
 
 import WebGpu;
+import Triangle;
 
 export namespace Rev {
 
@@ -63,6 +64,11 @@ export namespace Rev {
             surface = new WebGpu::Surface(window);
 
             group.push_back(this);
+
+            // Test children
+            //--------------------------------------------------
+
+            WebGpu::Triangle* triangle = new WebGpu::Triangle(surface);
         }
 
         // Destroy
@@ -112,7 +118,7 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            surface->draw();
+            //surface->draw();
         }
 
         // When the window is resized

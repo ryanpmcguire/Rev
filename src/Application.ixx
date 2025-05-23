@@ -19,14 +19,10 @@ export namespace Rev {
         Application() {
 
             glfwInit();
-
-            webgpu = new WebGpu::Instance();
         }
 
         // Destroy
         ~Application() {
-            
-            delete webgpu;
             
             glfwTerminate();
         }

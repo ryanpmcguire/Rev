@@ -9,11 +9,25 @@ set(CMAKE_CXX_STANDARD 23)
 # Define source and external directories
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
 set(EXT_DIR ${CMAKE_SOURCE_DIR}/external)
+set(RCS_DIR ${CMAKE_SOURCE_DIR}/resources)
+
+# Custom command to run the resource embedding script
+add_custom_command(
+    OUTPUT ${RCS_DIR}/.modules/timestamp
+    COMMAND ${CMAKE_COMMAND} -E echo "Running resource embed script..."
+    COMMAND ${CMAKE_COMMAND} -E env bash ${CMAKE_SOURCE_DIR}/scripts/Create_Resource_Modules.sh
+    COMMAND ${CMAKE_COMMAND} -E touch ${RCS_DIR}/.modules/timestamp
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS ${RCS_DIR}/embed.sh
+    COMMENT "Embedding resources with embed.sh"
+)
+add_custom_target(EmbedResources ALL DEPENDS ${RCS_DIR}/.modules/timestamp)
 
 # Get sources
 file(GLOB_RECURSE SOURCES
     ${SRC_DIR}/**.c ${SRC_DIR}/**.cpp ${SRC_DIR}/**.ixx
     ${EXT_DIR}/**.c ${EXT_DIR}/**.cpp ${EXT_DIR}/**.ixx
+    ${RCS_DIR}/.modules/**.ixx
 )
 
 # Set libraries to link
@@ -29,6 +43,7 @@ set(COPY
 
 # Create target, include, link
 add_executable(${PROJECT_NAME} ${SOURCES})
+add_dependencies(${PROJECT_NAME} EmbedResources)
 target_include_directories(${PROJECT_NAME} PRIVATE ${EXT_DIR})
 target_link_libraries(${PROJECT_NAME} ${LINK})
 

@@ -18,24 +18,74 @@ export namespace WebGpu {
             .mappedAtCreation = false
         };
 
+        WGPUVertexAttribute attrib = {
+            .format = WGPUVertexFormat_Float32x2,
+            .offset = 0,
+            .shaderLocation = 0
+        };
+
+        WGPUVertexBufferLayout layout = {
+            .arrayStride = sizeof(Vertex),
+            .stepMode = WGPUVertexStepMode_Vertex,
+            .attributeCount = 1,
+            .attributes = &attrib
+        };
+
+        WGPUDevice device = nullptr;
+        WGPUBuffer buffer = nullptr;
+
         std::vector<Vertex> data;
         bool dirty = true;
 
         // Create
-        VertexBuffer() {
+        VertexBuffer(WGPUDevice device) {
 
+            bool test = true;
         }
 
         // Destroy
         ~VertexBuffer() {
 
+            // Free buffer if needed
+            if (buffer) {
+                wgpuBufferDestroy(buffer);
+                wgpuBufferRelease(buffer);
+            }
         }
 
         // Sync with gpu
-        void sync() {
+        void sync(WGPUDevice& device) {
 
-            if (!dirty) { return; }
+            if (!dirty || data.empty()) { return; }
+            size_t bufferSize = data.size() * sizeof(Vertex);
 
+            // Recreate buffer if needed
+            if (!buffer || desc.size != bufferSize) {
+
+                if (buffer) {
+                    wgpuBufferDestroy(buffer);
+                    wgpuBufferRelease(buffer);
+                }
+
+                desc.size = bufferSize;
+                buffer = wgpuDeviceCreateBuffer(device, &desc);
+            }
+
+            // Upload data
+            wgpuQueueWriteBuffer(
+                wgpuDeviceGetQueue(device),
+                buffer,
+                0,
+                data.data(),
+                bufferSize
+            );
+
+            dirty = false;
+        }
+
+        void bind(WGPURenderPassEncoder& encoder, uint32_t slot = 0) {
+            if (!buffer) { return; }
+            wgpuRenderPassEncoderSetVertexBuffer(encoder, slot, buffer, 0, WGPU_WHOLE_SIZE);
         }
     };
 };
