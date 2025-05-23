@@ -301,20 +301,21 @@ export namespace WebGpu {
             if (flags.compute) { this->compute(); }
             if (flags.sync) { this->sync(); }
 
+            // Get target view (what we're drawing to)
             WGPUTextureView targetView = this->getNextTextureView();
             if (!targetView) { return; }
 
+            // Set color attachment view and record
             colorAttachment.view = targetView;
             colorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
             if (flags.record) { this->record(); }
 
             dbg("[WebGpu] Drawing");
 
+            // Present surface, release texture view, poll device
             wgpuSurfacePresent(surface);
-
-            wgpuDevicePoll(device->device, false, nullptr);
-
             wgpuTextureViewRelease(targetView);
+            wgpuDevicePoll(device->device, false, nullptr);
         }
     };
 }

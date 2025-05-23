@@ -7,11 +7,19 @@ export module VertexBuffer;
 
 export namespace WebGpu {
 
-    struct Vertex {
-        float x, y;
-    };
-
     struct VertexBuffer {
+
+        struct Vertex {
+            float x, y;
+        };
+
+        enum class Topology {
+            PointList = WGPUPrimitiveTopology_PointList,
+            LineList = WGPUPrimitiveTopology_LineList,
+            LineStrip = WGPUPrimitiveTopology_LineStrip,
+            TriangleList = WGPUPrimitiveTopology_TriangleList,
+            TriangleStrip = WGPUPrimitiveTopology_TriangleStrip,
+        };
 
         WGPUBufferDescriptor desc = {
             .usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
@@ -34,13 +42,13 @@ export namespace WebGpu {
         WGPUDevice device = nullptr;
         WGPUBuffer buffer = nullptr;
 
+        Topology topology;
         std::vector<Vertex> data;
         bool dirty = true;
 
         // Create
-        VertexBuffer(WGPUDevice device) {
-
-            bool test = true;
+        VertexBuffer(WGPUDevice device, Topology topology) {
+            this->topology = topology;
         }
 
         // Destroy

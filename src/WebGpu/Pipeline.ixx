@@ -32,7 +32,7 @@ export namespace WebGpu {
         };
 
         WGPUPrimitiveState primitive = {
-            .topology = WGPUPrimitiveTopology_TriangleList,
+            //.topology = WGPUPrimitiveTopology_TriangleList,
             .stripIndexFormat = WGPUIndexFormat_Undefined,
             .frontFace = WGPUFrontFace_CCW,
             .cullMode = WGPUCullMode_None
@@ -47,7 +47,7 @@ export namespace WebGpu {
         WGPURenderPipelineDescriptor desc = {
             .label = "Pipeline",
             //.vertex = vertex,
-            .primitive = primitive,
+            //.primitive = primitive,
             .depthStencil = nullptr,
             .multisample = multisample,
             .fragment = &fragment,
@@ -63,6 +63,7 @@ export namespace WebGpu {
             fragment.module = shader->shader;
             vertex.buffers = &vertexBuffer->layout;
             vertex.bufferCount = 1;
+            desc.primitive.topology = static_cast<WGPUPrimitiveTopology>(vertexBuffer->topology);
             desc.vertex = vertex;
 
             pipeline = wgpuDeviceCreateRenderPipeline(surface->device->device, &desc);

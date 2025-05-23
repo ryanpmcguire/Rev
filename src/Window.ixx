@@ -118,7 +118,7 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            //surface->draw();
+            surface->draw();
         }
 
         // When the window is resized

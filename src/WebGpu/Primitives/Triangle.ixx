@@ -28,7 +28,7 @@ export namespace WebGpu {
             // Create resources
             //--------------------------------------------------
             
-            vertices = new VertexBuffer(surface->device->device);
+            vertices = new VertexBuffer(surface->device->device, VertexBuffer::Topology::TriangleList);
             shader = new Shader(surface->device->device, Triangle_wgsl);
 
             if (!pipeline) {
