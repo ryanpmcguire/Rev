@@ -34,5 +34,13 @@ export namespace Rev {
             for (Element* child : children) { delete child; }
             children.clear();
         }
+        
+        // Compute attributes
+        virtual void compute() {
+
+            for (Element* child : children) {
+                child->compute();
+            }
+        }
     };
 }

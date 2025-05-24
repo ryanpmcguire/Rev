@@ -9,6 +9,7 @@ import Primitive;
 import Shader;
 import VertexBuffer;
 import AttributeBuffer;
+import Transform;
 import Pipeline;
 import Resources.Shaders.Triangles_wgsl;
 
@@ -17,23 +18,29 @@ export namespace WebGpu {
     struct Triangles : public Primitive {
 
         Surface* surface = nullptr;
-        VertexBuffer* vertices;
-        AttributeBuffer* colors;
-        Shader* shader;
+        WGPUDevice device = nullptr;
+
+        Transform* transform = nullptr;
+        VertexBuffer* vertices = nullptr;
+        AttributeBuffer* colors = nullptr;
+        Shader* shader = nullptr;
 
         inline static Pipeline* pipeline = nullptr;
 
         Triangles(Surface* surface, Topology topology) : Primitive(topology) {
 
             this->surface = surface;
+            this->device = surface->device->device;
 
             // Create resources
             //--------------------------------------------------
-            
-            vertices = new VertexBuffer(surface->device->device, 0);
-            colors = new AttributeBuffer(surface->device->device, 1);
 
-            shader = new Shader(surface->device->device, Triangles_wgsl);
+
+            transform = new Transform(device, 0);
+            vertices = new VertexBuffer(device, 0);
+            colors = new AttributeBuffer(device, 1);
+
+            shader = new Shader(device, Triangles_wgsl);
 
             if (!pipeline) {
                 pipeline = new Pipeline(surface, shader, topology, { vertices }, { colors });
@@ -49,24 +56,6 @@ export namespace WebGpu {
             delete colors;
         }
 
-        // Compute data
-        void compute() override {
-
-            vertices->dirty = true;
-            vertices->members = {
-                { -0.5f, -0.5f },
-                {  0.5f, -0.5f },
-                {  0.0f,  0.5f }
-            };
-
-            colors->dirty = true;
-            colors->members = {
-                { 1, 0, 0, 1 },
-                { 0, 1, 0, 1 },
-                { 0, 0, 1, 1 }
-            };
-        }
-
         // Sync data
         void sync(WGPUDevice& device) override {
 
@@ -78,10 +67,11 @@ export namespace WebGpu {
         void record(WGPURenderPassEncoder& pass) override {
 
             pipeline->bind(pass);
-            vertices->bind(pass, 0);
-            colors->bind(pass, 1);
+            vertices->bind(pass);
+            colors->bind(pass);
 
-            wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+
+            wgpuRenderPassEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
         }
     };
 }

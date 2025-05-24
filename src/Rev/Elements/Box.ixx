@@ -36,6 +36,26 @@ export namespace Rev {
         // Destroy
         ~Box() {
 
-        }        
+            delete triangles;
+        }
+
+        void compute() override {
+
+            triangles->vertices->dirty = true;
+            triangles->vertices->members = {
+                { -0.5f, -0.5f },
+                {  0.5f, -0.5f },
+                {  0.0f,  0.5f }
+            };
+
+            triangles->colors->dirty = true;
+            triangles->colors->members = {
+                { 1, 0, 0, 1 },
+                { 0, 1, 0, 1 },
+                { 0, 0, 1, 1 }
+            };
+
+            Element::compute();
+        }
     };
 };

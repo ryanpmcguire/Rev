@@ -24,8 +24,12 @@ export namespace WebGpu {
         bool dirty = true;
 
         // Create
-        Buffer(WGPUDevice device) {
+        Buffer(WGPUDevice device, void* data = nullptr, size_t size = 0) {
+
             this->device = device;
+            this->data = data;
+            this->size = size;
+
             this->queue = wgpuDeviceGetQueue(device);
         }
 
@@ -62,7 +66,7 @@ export namespace WebGpu {
         }
 
         // To be overridden
-        virtual void bind(WGPURenderPassEncoder& encoder, uint32_t slot = 0) {
+        virtual void bind(WGPURenderPassEncoder& encoder) {
 
         }
     };

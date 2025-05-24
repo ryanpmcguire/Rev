@@ -73,6 +73,15 @@ export namespace Rev {
             glfwDestroyWindow(window);
         }
 
+        // Draw
+        //--------------------------------------------------
+
+        void draw() {
+
+            this->compute();
+            surface->draw();
+        }
+
         // Overridable callbacks
         //--------------------------------------------------
 
@@ -85,7 +94,7 @@ export namespace Rev {
         virtual void onRefresh() {
             //dbg("Refresh");
 
-            surface->draw();
+            this->draw();
         }
 
         // When the content scale changes
@@ -112,7 +121,7 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            surface->draw();
+            this->draw();
         }
 
         // When the window is resized

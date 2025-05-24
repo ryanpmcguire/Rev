@@ -11,6 +11,12 @@ export namespace WebGpu {
 
     struct Shader {
 
+        // For visibility
+        enum class Stage {
+            Vertex = WGPUShaderStage_Vertex,
+            Fragment = WGPUShaderStage_Fragment
+        };
+
         Resource file;
         WGPUShaderModule shader = nullptr;
 

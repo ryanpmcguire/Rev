@@ -48,8 +48,8 @@ export namespace WebGpu {
             Buffer::sync(device);
         }
 
-        void bind(WGPURenderPassEncoder& encoder, uint32_t slot = 0) override {
-            wgpuRenderPassEncoderSetVertexBuffer(encoder, slot, buffer, 0, WGPU_WHOLE_SIZE);
+        void bind(WGPURenderPassEncoder& encoder) override {
+            wgpuRenderPassEncoderSetVertexBuffer(encoder, attrib.shaderLocation, buffer, 0, WGPU_WHOLE_SIZE);
         }
     };
 };
