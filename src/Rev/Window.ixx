@@ -9,14 +9,14 @@ module;
 
 export module Window;
 
+import Rev;
+import Element;
+
 import WebGpu;
-import Primitive;
-import Triangles;
-import Topology;
 
 export namespace Rev {
 
-    struct Window {
+    struct Window : public Element {
 
         struct Details {
 
@@ -29,9 +29,6 @@ export namespace Rev {
         // Glfw
         GLFWwindow* window = nullptr;
         Details details;
-
-        // Webgpu
-        WebGpu::Surface* surface;
 
         bool shouldClose = false;
 
@@ -66,11 +63,6 @@ export namespace Rev {
             surface = new WebGpu::Surface(window);
 
             group.push_back(this);
-
-            // Test children
-            //--------------------------------------------------
-
-            WebGpu::Triangles* triangles = new WebGpu::Triangles(surface, WebGpu::Topology::TriangleList);
         }
 
         // Destroy
