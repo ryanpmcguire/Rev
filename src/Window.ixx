@@ -10,7 +10,9 @@ module;
 export module Window;
 
 import WebGpu;
-import Triangle;
+import Primitive;
+import Triangles;
+import Topology;
 
 export namespace Rev {
 
@@ -68,7 +70,7 @@ export namespace Rev {
             // Test children
             //--------------------------------------------------
 
-            WebGpu::Triangle* triangle = new WebGpu::Triangle(surface);
+            WebGpu::Triangles* triangles = new WebGpu::Triangles(surface, WebGpu::Topology::TriangleList);
         }
 
         // Destroy

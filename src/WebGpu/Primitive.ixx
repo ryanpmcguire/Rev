@@ -4,13 +4,17 @@ module;
 
 export module Primitive;
 
+import Topology;
+
 export namespace WebGpu {
 
     struct Primitive {
 
-        // Create
-        Primitive() {
+        Topology topology;
 
+        // Create
+        Primitive(Topology topology) {
+            this->topology = topology;
         }
 
         // Destroy

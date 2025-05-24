@@ -1,12 +1,16 @@
 module;
 
+#include <vector>
 #include <webgpu/wgpu.h>
 
 export module Pipeline;
 
 import WebGpu;
 import VertexBuffer;
+import AttributeBuffer;
 import Shader;
+import Primitive;
+import Topology;
 
 export namespace WebGpu {
 
@@ -56,16 +60,32 @@ export namespace WebGpu {
         WGPURenderPipeline pipeline;
 
         // Create
-        Pipeline(Surface* surface, Shader* shader, VertexBuffer* vertexBuffer) {
+        Pipeline(Surface* surface, Shader* shader, Topology topology,
+            std::vector<VertexBuffer*> vertexBuffers = {},
+            std::vector<AttributeBuffer*> attribBuffers = {}) {
 
-            colorTarget.format = surface->config.format;
+            // Vertex-related
+            //--------------------------------------------------
+
+            std::vector<WGPUVertexBufferLayout> bufferLayouts;
+
+            for (VertexBuffer* vb : vertexBuffers) { bufferLayouts.push_back(vb->layout); }
+            for (AttributeBuffer* ab : attribBuffers) { bufferLayouts.push_back(ab->layout); }
+
             vertex.module = shader->shader;
-            fragment.module = shader->shader;
-            vertex.buffers = &vertexBuffer->layout;
-            vertex.bufferCount = 1;
-            desc.primitive.topology = static_cast<WGPUPrimitiveTopology>(vertexBuffer->topology);
+            vertex.buffers = bufferLayouts.data();
+            vertex.bufferCount = static_cast<uint32_t>(bufferLayouts.size());
             desc.vertex = vertex;
 
+            // Fragment-related
+            //--------------------------------------------------
+
+            fragment.module = shader->shader;
+            colorTarget.format = surface->config.format;
+
+            desc.primitive.topology = static_cast<WGPUPrimitiveTopology>(topology);
+
+            // Create pipeline considering all prior
             pipeline = wgpuDeviceCreateRenderPipeline(surface->device->device, &desc);
         }
 
