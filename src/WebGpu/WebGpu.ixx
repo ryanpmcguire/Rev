@@ -17,6 +17,27 @@ export module WebGpu;
 import Primitive;
 
 export namespace WebGpu {
+    
+    struct Instance {
+
+        WGPUInstance instance;
+
+        // Singleton
+        static Instance* Ptr() {
+            static Instance singleton;
+            return &singleton;
+        }
+
+        // Create
+        Instance() {
+            instance = wgpuCreateInstance(nullptr);
+        }
+
+        // Destroy
+        ~Instance() {
+            wgpuInstanceRelease(instance);
+        }
+    };
 
     // Adapter wrapper
     struct Adapter {
@@ -115,24 +136,74 @@ export namespace WebGpu {
         }
     };
 
-    struct Instance {
+    // Texture + view manager
+    struct TextureSurface {
+        
+        int width, height;
+        uint32_t sampleCount = 4;
 
-        WGPUInstance instance;
+        // Managed
+        WGPUDevice device = nullptr;
+        WGPUTexture texture = nullptr;
+        WGPUTextureView view = nullptr;
+        
+        // Texture descriptor
+        WGPUTextureDescriptor textureDesc = {
+            .nextInChain = nullptr,
+            .usage = WGPUTextureUsage_RenderAttachment,
+            .dimension = WGPUTextureDimension_2D,
+            //.size = { uint32_t(width), uint32_t(height), 1 },
+            //.format = config.format,
+            .mipLevelCount = 1,
+            .sampleCount = sampleCount,
+        };
 
-        // Singleton
-        static Instance* Ptr() {
-            static Instance singleton;
-            return &singleton;
-        }
+        // View descriptor
+        WGPUTextureViewDescriptor viewDesc = {
+            .nextInChain = nullptr,
+            //.format = config.format,
+            .dimension = WGPUTextureViewDimension_2D,
+            .baseMipLevel = 0,
+            .mipLevelCount = 1,
+            .baseArrayLayer = 0,
+            .arrayLayerCount = 1,
+            .aspect = WGPUTextureAspect_All
+        };
 
         // Create
-        Instance() {
-            instance = wgpuCreateInstance(nullptr);
+        TextureSurface(WGPUDevice device, WGPUTextureFormat format, int sampleCount) {
+
+            this->sampleCount = sampleCount;
+            this->device = device;
+
+            // Set initial configuration (format, samples, etc...)
+            textureDesc.format = format;
+            viewDesc.format = format;
         }
 
         // Destroy
-        ~Instance() {
-            wgpuInstanceRelease(instance);
+        ~TextureSurface() {
+
+            // Destroy and release resources
+            wgpuTextureDestroy(texture);
+            wgpuTextureRelease(texture);
+            wgpuTextureViewRelease(view);
+        }
+
+        void resize(int width, int height) {
+
+            this->width = width; this->height = height;
+
+            textureDesc.size = { uint32_t(width), uint32_t(height), 1 };
+
+            if (texture) {
+                wgpuTextureDestroy(texture);
+                wgpuTextureRelease(texture);
+                wgpuTextureViewRelease(view);
+            }
+
+            texture = wgpuDeviceCreateTexture(device, &textureDesc);
+            view = wgpuTextureCreateView(texture, &viewDesc);
         }
     };
 
@@ -146,12 +217,13 @@ export namespace WebGpu {
         // Managed
         Instance* instance = nullptr;
         Adapter* adapter = nullptr;
-        inline static Device* device = nullptr;;
+        inline static Device* device = nullptr;
+        TextureSurface* msaaTextureSurface = nullptr;
         RenderPass* renderPass = nullptr;
 
         WGPURenderPassColorAttachment colorAttachment = {
             //.view = targetView,
-            .resolveTarget = nullptr,
+            //.resolveTarget = nullptr,
             .loadOp = WGPULoadOp_Clear,
             .storeOp = WGPUStoreOp_Store,
             //.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 }
@@ -211,11 +283,19 @@ export namespace WebGpu {
                 .presentMode = WGPUPresentMode_Fifo
             };
 
+            msaaTextureSurface = new TextureSurface(device->device, config.format, 4);
+
             this->fit();
         }
 
         // Destroy
         ~Surface() {
+
+            delete adapter;
+            delete instance;
+            delete msaaTextureSurface;
+            delete renderPass;
+
             wgpuSurfaceUnconfigure(surface);
             wgpuSurfaceRelease(surface);
         }
@@ -231,6 +311,13 @@ export namespace WebGpu {
             config.width = width; config.height = height;
             wgpuSurfaceUnconfigure(surface);
             wgpuSurfaceConfigure(surface, &config);
+
+            // Msaa color texture and view
+            //--------------------------------------------------
+
+            msaaTextureSurface->resize(width, height);
+
+            flags.fit = false;
         }
 
         WGPUTextureView getNextTextureView() {
@@ -306,7 +393,8 @@ export namespace WebGpu {
             if (!targetView) { return; }
 
             // Set color attachment view and record
-            colorAttachment.view = targetView;
+            colorAttachment.view = msaaTextureSurface->view;
+            colorAttachment.resolveTarget = targetView;
             colorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
             if (flags.record) { this->record(); }
 

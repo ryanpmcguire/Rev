@@ -39,7 +39,7 @@ export namespace WebGpu {
         };
 
         WGPUMultisampleState multisample = {
-            .count = 1,
+            .count = 4,
             .mask = ~0u,
             .alphaToCoverageEnabled = false
         };
