@@ -1,5 +1,7 @@
 module;
 
+#include <vector>
+
 export module Box;
 
 import Rev;
@@ -9,6 +11,8 @@ import WebGpu;
 import Topology;
 import Primitive;
 import Triangles;
+import Vertex;
+import Color;
 
 export namespace Rev {
 
@@ -19,7 +23,6 @@ export namespace Rev {
         Triangles* triangles = nullptr;
         
         struct Rect { float x, y, w, h; };
-        struct Color { float r, g, b, a; };
         struct Radii { float tl, tr, bl, br; };
 
         Rect rect;
@@ -41,18 +44,36 @@ export namespace Rev {
 
         void compute() override {
 
-            triangles->vertices->dirty = true;
-            triangles->vertices->members = {
-                { -0.5f, -0.5f },
-                {  0.5f, -0.5f },
-                {  0.0f,  0.5f }
+            // Test rect
+            this->rect = {
+                0, 0,
+                50, 50
             };
 
+            // Compute left, right, top bottom
+            float l = rect.x, r = rect.x + rect.w;
+            float t = rect.y, b = rect.y + rect.h;
+
+            // Corner vertices
+            Vertex tlv = { l, t }, trv = { r, t };
+            Vertex blv = { l, b }, brv = { r, b };
+
+            // Corner colors
+            Color tlc = { 1, 0, 0, 1 }, trc = { 0, 1, 0, 1};
+            Color blc = { 1, 0, 0, 1 }, brc = { 0, 1, 0, 1};
+
+            // Set vertex positions
+            triangles->vertices->dirty = true;
+            triangles->vertices->members = {
+                tlv, trv, blv,
+                blv, trv, brv
+            };
+
+            // Set vertex colors
             triangles->colors->dirty = true;
             triangles->colors->members = {
-                { 1, 0, 0, 1 },
-                { 0, 1, 0, 1 },
-                { 0, 0, 1, 1 }
+                tlc, trc, blc,
+                blc, trc, brc
             };
 
             Element::compute();

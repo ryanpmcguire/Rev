@@ -8,6 +8,7 @@ export module Pipeline;
 import WebGpu;
 import VertexBuffer;
 import AttributeBuffer;
+import UniformBuffer;
 import Shader;
 import Primitive;
 import Topology;
@@ -62,7 +63,25 @@ export namespace WebGpu {
         // Create
         Pipeline(Surface* surface, Shader* shader, Topology topology,
             std::vector<VertexBuffer*> vertexBuffers = {},
-            std::vector<AttributeBuffer*> attribBuffers = {}) {
+            std::vector<AttributeBuffer*> attribBuffers = {},
+            std::vector<UniformBuffer*> uniformBuffers = {}
+        ) {
+
+            // Uniform buffers
+            //--------------------------------------------------
+
+            std::vector<WGPUBindGroupLayout> bindGroupLayouts;
+
+            for (UniformBuffer* ub : uniformBuffers) {
+                bindGroupLayouts.push_back(ub->layout);
+            }
+
+            WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {
+                .bindGroupLayoutCount = static_cast<uint32_t>(bindGroupLayouts.size()),
+                .bindGroupLayouts = bindGroupLayouts.data()
+            };
+
+            desc.layout = wgpuDeviceCreatePipelineLayout(surface->device->device, &pipelineLayoutDesc);
 
             // Vertex-related
             //--------------------------------------------------

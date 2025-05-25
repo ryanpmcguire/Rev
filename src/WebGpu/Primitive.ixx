@@ -5,16 +5,25 @@ module;
 export module Primitive;
 
 import Topology;
+import Transform;
 
 export namespace WebGpu {
 
     struct Primitive {
 
+        WGPUDevice device = nullptr;
         Topology topology;
 
+        Transform* transform = nullptr;
+        Transform* computedTransform = nullptr;
+
         // Create
-        Primitive(Topology topology) {
+        Primitive(WGPUDevice device, Topology topology) {
+
+            this->device = device;
             this->topology = topology;
+
+            transform = new Transform(device, 0);
         }
 
         // Destroy
@@ -23,7 +32,7 @@ export namespace WebGpu {
         }
 
         virtual void compute() {
-
+            transform->compute();
         }
 
         virtual void sync(WGPUDevice& device) {
@@ -31,7 +40,7 @@ export namespace WebGpu {
         }
 
         virtual void record(WGPURenderPassEncoder& pass) {
-
+        
         }
     };
 };

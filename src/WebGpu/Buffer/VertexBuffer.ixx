@@ -6,14 +6,11 @@ module;
 export module VertexBuffer;
 
 import Buffer;
+import Vertex;
 
 export namespace WebGpu {
 
     struct VertexBuffer : public Buffer {
-
-        struct Vertex {
-            float x, y;
-        };
 
         WGPUVertexAttribute attrib = {
             .format = WGPUVertexFormat_Float32x2,

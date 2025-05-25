@@ -4,7 +4,6 @@ module;
 
 export module UniformBuffer;
 
-import WebGpu;
 import Shader;
 import Buffer;
 
@@ -36,7 +35,9 @@ export namespace WebGpu {
                 .binding = 0,
                 .visibility = static_cast<WGPUShaderStageFlags>(stage),
                 .buffer = {
-                    .type = WGPUBufferBindingType_Uniform
+                    .type = WGPUBufferBindingType_Uniform,
+                    .hasDynamicOffset = false,
+                    .minBindingSize = size
                 }
             };
     
@@ -68,8 +69,8 @@ export namespace WebGpu {
 
         }
 
-        virtual void bind(WGPURenderPassEncoder& encoder) {
-
+        virtual void bind(WGPURenderPassEncoder& encoder) override {
+            wgpuRenderPassEncoderSetBindGroup(encoder, index, bindGroup, 0, nullptr);
         }
     };
 };

@@ -20,14 +20,13 @@ export namespace WebGpu {
         Surface* surface = nullptr;
         WGPUDevice device = nullptr;
 
-        Transform* transform = nullptr;
         VertexBuffer* vertices = nullptr;
         AttributeBuffer* colors = nullptr;
-        Shader* shader = nullptr;
-
+        
+        inline static Shader* shader = nullptr;
         inline static Pipeline* pipeline = nullptr;
 
-        Triangles(Surface* surface, Topology topology) : Primitive(topology) {
+        Triangles(Surface* surface, Topology topology) : Primitive(surface->device->device, topology) {
 
             this->surface = surface;
             this->device = surface->device->device;
@@ -35,23 +34,17 @@ export namespace WebGpu {
             // Create resources
             //--------------------------------------------------
 
-
-            transform = new Transform(device, 0);
             vertices = new VertexBuffer(device, 0);
             colors = new AttributeBuffer(device, 1);
 
-            shader = new Shader(device, Triangles_wgsl);
-
-            if (!pipeline) {
-                pipeline = new Pipeline(surface, shader, topology, { vertices }, { colors });
-            }
+            if (!shader) { shader = new Shader(device, Triangles_wgsl); }
+            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { colors }, { transform }); }
 
             surface->primitives.push_back(this);
         }
 
         ~Triangles() {
 
-            delete shader;
             delete vertices;
             delete colors;
         }
@@ -59,6 +52,7 @@ export namespace WebGpu {
         // Sync data
         void sync(WGPUDevice& device) override {
 
+            transform->sync(device);
             vertices->sync(device);
             colors->sync(device);
         }
@@ -67,9 +61,9 @@ export namespace WebGpu {
         void record(WGPURenderPassEncoder& pass) override {
 
             pipeline->bind(pass);
+            transform->bind(pass);
             vertices->bind(pass);
             colors->bind(pass);
-
 
             wgpuRenderPassEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
         }

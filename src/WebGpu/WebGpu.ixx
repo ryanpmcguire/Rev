@@ -318,6 +318,10 @@ export namespace WebGpu {
             msaaTextureSurface->resize(width, height);
 
             flags.fit = false;
+
+            // BAD: WE FORCE COMPUTE AND SYNC TO ALSO RUN
+            flags.compute = true;
+            flags.sync = true;
         }
 
         WGPUTextureView getNextTextureView() {
@@ -346,6 +350,11 @@ export namespace WebGpu {
 
         // Compute all primitives
         void compute() {
+
+            // Resize transform
+            primitives[0]->transform->surfaceWidth = float(config.width);
+            primitives[0]->transform->surfaceHeight = float(config.height);
+
             for (Primitive* primitive : primitives) {
                 primitive->compute();
             }
@@ -373,7 +382,7 @@ export namespace WebGpu {
 
             // Record
             renderPass->begin();
-
+            
             for (Primitive* primitive : primitives) {
                 primitive->record(renderPass->renderPass);
             }

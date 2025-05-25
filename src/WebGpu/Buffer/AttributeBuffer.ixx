@@ -6,14 +6,11 @@ module;
 export module AttributeBuffer;
 
 import Buffer;
+import Color;
 
 export namespace WebGpu {
 
     struct AttributeBuffer : public Buffer {
-
-        struct Color {
-            float r, g, b, a;
-        };
 
         WGPUVertexAttribute attrib = {
             .format = WGPUVertexFormat_Float32x4,
