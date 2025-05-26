@@ -11,54 +11,69 @@ export namespace WebGpu {
 
     struct UniformBuffer : public Buffer {
 
-        Shader::Stage stage;
         uint32_t index = 0;
 
         WGPUBindGroup bindGroup = nullptr;
         WGPUBindGroupLayout layout = nullptr;
 
         // Create
-        UniformBuffer(WGPUDevice device, void* data, size_t size, Shader::Stage stage, uint32_t index) : Buffer(device, data, size) {
+        UniformBuffer(WGPUDevice device, void* data, size_t size, uint32_t index, size_t numBuffers = 1) : Buffer(device, data, size, numBuffers) {
             
-            this->stage = stage;
             this->index = index;
 
-            // We can create our buffer now since the size will be constant
             desc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
             desc.size = size;
-            buffer = wgpuDeviceCreateBuffer(device, &desc);
 
-            // Create layout info
+            // We can create our buffers now since the size is constant
+            for (WGPUBuffer& buffer : buffers) {
+                buffer = wgpuDeviceCreateBuffer(device, &desc);
+            }
+
+            // Layout entries
             //--------------------------------------------------
 
-            WGPUBindGroupLayoutEntry layoutEntry = {
-                .binding = 0,
-                .visibility = static_cast<WGPUShaderStageFlags>(stage),
-                .buffer = {
-                    .type = WGPUBufferBindingType_Uniform,
-                    .hasDynamicOffset = false,
-                    .minBindingSize = size
-                }
-            };
+            // Create entries for each buffer
+            std::vector<WGPUBindGroupLayoutEntry> layoutEntries(numBuffers);
+
+            for (uint32_t i = 0; i < numBuffers; ++i) {
+
+                layoutEntries[i] = {
+
+                    .binding = i,
+                    .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment | WGPUShaderStage_Compute,
+
+                    .buffer = {
+                        .type = WGPUBufferBindingType_Uniform,
+                        .hasDynamicOffset = false,
+                        .minBindingSize = size
+                    }
+                };
+            }
     
             WGPUBindGroupLayoutDescriptor layoutDesc = {
-                .entryCount = 1,
-                .entries = &layoutEntry
+                .entryCount = static_cast<uint32_t>(layoutEntries.size()),
+                .entries = layoutEntries.data()
             };
 
             layout = wgpuDeviceCreateBindGroupLayout(device, &layoutDesc);
 
-            WGPUBindGroupEntry groupEntry = {
-                .binding = 0,
-                .buffer = buffer,
-                .offset = 0,
-                .size = size
-            };
+            // Bind-group entries
+            //--------------------------------------------------
+
+            std::vector<WGPUBindGroupEntry> groupEntries(numBuffers);
+            for (uint32_t i = 0; i < numBuffers; ++i) {
+                groupEntries[i] = {
+                    .binding = i,
+                    .buffer = buffers[i],
+                    .offset = 0,
+                    .size = size
+                };
+            }
 
             WGPUBindGroupDescriptor groupDesc = {
                 .layout = layout,
-                .entryCount = 1,
-                .entries = &groupEntry
+                .entryCount = static_cast<uint32_t>(groupEntries.size()),
+                .entries = groupEntries.data()
             };
 
             bindGroup = wgpuDeviceCreateBindGroup(device, &groupDesc);
@@ -66,7 +81,8 @@ export namespace WebGpu {
 
         // Destroy
         ~UniformBuffer() {
-
+            if (bindGroup) wgpuBindGroupRelease(bindGroup);
+            if (layout) wgpuBindGroupLayoutRelease(layout);
         }
 
         virtual void bind(WGPURenderPassEncoder& encoder) override {

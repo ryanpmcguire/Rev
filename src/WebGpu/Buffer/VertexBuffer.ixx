@@ -46,7 +46,7 @@ export namespace WebGpu {
         }
 
         void bind(WGPURenderPassEncoder& encoder) override {
-            wgpuRenderPassEncoderSetVertexBuffer(encoder, attrib.shaderLocation, buffer, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetVertexBuffer(encoder, attrib.shaderLocation, buffers[0], 0, WGPU_WHOLE_SIZE);
         }
     };
 };

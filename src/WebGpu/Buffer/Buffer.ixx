@@ -1,5 +1,6 @@
 module;
 
+#include <vector>
 #include <webgpu/wgpu.h>
 
 export module Buffer;
@@ -11,7 +12,11 @@ export namespace WebGpu {
         
         WGPUDevice device = nullptr;
         WGPUQueue queue = nullptr;
-        WGPUBuffer buffer = nullptr;
+        
+        // We (may) have multiple buffers (usually one or two)
+        std::vector<WGPUBuffer> buffers;
+        size_t numBuffers = 1;
+        size_t currentBuffer = 0;
 
         WGPUBufferDescriptor desc = {
             // .usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
@@ -24,19 +29,19 @@ export namespace WebGpu {
         bool dirty = true;
 
         // Create
-        Buffer(WGPUDevice device, void* data = nullptr, size_t size = 0) {
+        Buffer(WGPUDevice device, void* data = nullptr, size_t size = 0, size_t numBuffers = 1) 
+            : device(device), data(data), size(size), numBuffers(numBuffers) {
 
-            this->device = device;
-            this->data = data;
-            this->size = size;
-
+            // Get queue, resize buffers
             this->queue = wgpuDeviceGetQueue(device);
+            this->buffers.resize(numBuffers);
         }
 
         // Destroy
         ~Buffer() {
 
-            if (buffer) {
+            // Destroy all buffers
+            for (WGPUBuffer& buffer : buffers) {
                 wgpuBufferDestroy(buffer);
                 wgpuBufferRelease(buffer);
             }
@@ -44,6 +49,10 @@ export namespace WebGpu {
 
         // Sync with device
         virtual void sync(WGPUDevice& device) {
+
+            // Get buffer, advance index
+            WGPUBuffer& buffer = buffers[currentBuffer];
+            currentBuffer = (currentBuffer + 1) % numBuffers;
 
             // If not dirty or size didn't change
             if (!dirty || !size) { return; }

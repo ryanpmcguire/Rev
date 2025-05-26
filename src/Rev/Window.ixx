@@ -9,7 +9,6 @@ module;
 
 export module Window;
 
-import Rev;
 import Element;
 
 import WebGpu;
@@ -78,7 +77,8 @@ export namespace Rev {
 
         void draw() {
 
-            this->compute();
+            this->computeStyle();
+            this->computePrimitives();
             surface->draw();
         }
 

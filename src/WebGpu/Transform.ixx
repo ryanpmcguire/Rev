@@ -24,8 +24,8 @@ export namespace WebGpu {
         static inline float surfaceWidth = 100.0, surfaceHeight = 100.0f;
         
         // Create
-        Transform(WGPUDevice device, uint32_t index, Shader::Stage stage = Shader::Stage::Vertex)
-        : UniformBuffer(device, &matrix, sizeof(Matrix), stage, index) {
+        Transform(WGPUDevice device, uint32_t index)
+        : UniformBuffer(device, &matrix, sizeof(Matrix), index) {
 
         }
 
@@ -40,12 +40,12 @@ export namespace WebGpu {
             float w = surfaceWidth;
             float h = surfaceHeight;
 
-            // Build the matrix
-            matrix.m[0] = 2.0f / w;
-            matrix.m[5] = 2.0f / h;
+            // Build orthographic projection matrix with Y flipped
+            matrix.m[0] =  2.0f / w;
+            matrix.m[5] = -2.0f / h;
             matrix.m[10] = 1.0f;
             matrix.m[12] = (2.0f * x / w) - 1.0f;
-            matrix.m[13] = (2.0f * y / h) - 1.0f;
+            matrix.m[13] = 1.0f - (2.0f * y / h);
             matrix.m[15] = 1.0f;
 
             dirty = true;

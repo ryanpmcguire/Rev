@@ -4,8 +4,11 @@ module;
 
 export module Element;
 
-import Rev;
 import WebGpu;
+
+import Rect;
+import Style;
+import Computed;
 
 export namespace Rev {
 
@@ -17,6 +20,8 @@ export namespace Rev {
         std::vector<Element*> children;
         
         Rect rect;
+        Style style;
+        Computed computed;
 
         // Create
         Element(Element* parent = nullptr) {
@@ -34,12 +39,23 @@ export namespace Rev {
             for (Element* child : children) { delete child; }
             children.clear();
         }
-        
-        // Compute attributes
-        virtual void compute() {
+
+        // Comptue style
+        void computeStyle() {
+
+            // For now, simply set
+            computed.style = style;
 
             for (Element* child : children) {
-                child->compute();
+                child->computeStyle();
+            }
+        }
+        
+        // Compute attributes
+        virtual void computePrimitives() {
+
+            for (Element* child : children) {
+                child->computePrimitives();
             }
         }
     };
