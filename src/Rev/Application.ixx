@@ -3,9 +3,9 @@ module;
 #include <vector>
 #include <GLFW/glfw3.h>
 
-export module Application;
+export module Rev.Application;
 
-import Window;
+import Rev.Window;
 import WebGpu;
 
 export namespace Rev {

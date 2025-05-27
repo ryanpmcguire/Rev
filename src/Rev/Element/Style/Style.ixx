@@ -2,7 +2,7 @@ module;
 
 #include <vector>
 
-export module Style;
+export module Rev.Style;
 
 export namespace Rev {
 

@@ -1,6 +1,6 @@
 module;
 
-export module Pos;
+export module Rev.Pos;
 
 export namespace Rev {
 

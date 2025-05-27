@@ -3,15 +3,14 @@ module;
 #include <vector>
 #include <webgpu/wgpu.h>
 
-export module Pipeline;
+export module WebGpu.Pipeline;
 
 import WebGpu;
-import VertexBuffer;
-import AttributeBuffer;
-import UniformBuffer;
-import Shader;
-import Primitive;
-import Topology;
+import WebGpu.VertexBuffer;
+import WebGpu.UniformBuffer;
+import WebGpu.Shader;
+import WebGpu.Primitive;
+import WebGpu.Topology;
 
 export namespace WebGpu {
 
@@ -36,18 +35,19 @@ export namespace WebGpu {
             .writeMask = WGPUColorWriteMask_All
         };
 
-        WGPUFragmentState fragment = {
-            //Set: .module = shader->shader,
-            .entryPoint = "fs_main",
-            .targetCount = 1,
-            .targets = &colorTarget
-        };
-
         WGPUVertexState vertex = {
             //Set: .module = shader->shader,
             .entryPoint = "vs_main",
             //.bufferCount = 1,
             //Set: .buffers = &layout
+        };
+
+
+        WGPUFragmentState fragment = {
+            //Set: .module = shader->shader,
+            .entryPoint = "fs_main",
+            .targetCount = 1,
+            .targets = &colorTarget
         };
 
         WGPUPrimitiveState primitive = {
@@ -72,12 +72,12 @@ export namespace WebGpu {
             .fragment = &fragment,
         };
 
-        WGPURenderPipeline pipeline;
+        WGPURenderPipeline renderPipeline;
+        WGPUComputePipeline computePipeline;
 
         // Create
         Pipeline(Surface* surface, Shader* shader, Topology topology,
             std::vector<VertexBuffer*> vertexBuffers = {},
-            std::vector<AttributeBuffer*> attribBuffers = {},
             std::vector<UniformBuffer*> uniformBuffers = {}
         ) {
 
@@ -97,13 +97,23 @@ export namespace WebGpu {
 
             desc.layout = wgpuDeviceCreatePipelineLayout(surface->device->device, &pipelineLayoutDesc);
 
+            // Compute-related
+            //--------------------------------------------------
+
+            WGPUComputePipelineDescriptor computeDesc = {
+                .layout = desc.layout,
+                .compute = {
+                    .module = shader->shader,
+                    .entryPoint = "cs_main"
+                }
+            };
+
             // Vertex-related
             //--------------------------------------------------
 
             std::vector<WGPUVertexBufferLayout> bufferLayouts;
 
             for (VertexBuffer* vb : vertexBuffers) { bufferLayouts.push_back(vb->layout); }
-            for (AttributeBuffer* ab : attribBuffers) { bufferLayouts.push_back(ab->layout); }
 
             vertex.module = shader->shader;
             vertex.buffers = bufferLayouts.data();
@@ -119,16 +129,22 @@ export namespace WebGpu {
             desc.primitive.topology = static_cast<WGPUPrimitiveTopology>(topology);
 
             // Create pipeline considering all prior
-            pipeline = wgpuDeviceCreateRenderPipeline(surface->device->device, &desc);
+            renderPipeline = wgpuDeviceCreateRenderPipeline(surface->device->device, &desc);
+            computePipeline = wgpuDeviceCreateComputePipeline(surface->device->device, &computeDesc);
         }
 
         // Destroy
         ~Pipeline() {
-            wgpuRenderPipelineRelease(pipeline);
+            wgpuRenderPipelineRelease(renderPipeline);
+            wgpuComputePipelineRelease(computePipeline);
         }
 
         inline void bind(WGPURenderPassEncoder& pass) {
-            wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+            wgpuRenderPassEncoderSetPipeline(pass, renderPipeline);
+        }
+
+        inline void bind(WGPUComputePassEncoder& pass) {
+            wgpuComputePassEncoderSetPipeline(pass, computePipeline);
         }
     };
 };

@@ -2,10 +2,10 @@ module;
 
 #include <chrono>
 
-export module Event;
+export module Rev.Event;
 
-import GlobalTime;
-import Pos;
+import Rev.GlobalTime;
+import Rev.Pos;
 
 export namespace Rev {
 

@@ -2,9 +2,9 @@ module;
 
 #include <webgpu/wgpu.h>
 
-export module Transform;
+export module WebGpu.Transform;
 
-import UniformBuffer;
+import WebGpu.UniformBuffer;
 
 export namespace WebGpu {
 

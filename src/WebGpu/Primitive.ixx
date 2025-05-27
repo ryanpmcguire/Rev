@@ -2,11 +2,11 @@ module;
 
 #include <webgpu/wgpu.h>
 
-export module Primitive;
+export module WebGpu.Primitive;
 
-import Topology;
-import GlobalTimeBuffer;
-import Transform;
+import WebGpu.Topology;
+import WebGpu.GlobalTimeBuffer;
+import WebGpu.Transform;
 
 export namespace WebGpu {
 

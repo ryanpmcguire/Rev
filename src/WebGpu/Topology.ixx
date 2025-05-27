@@ -2,7 +2,7 @@ module;
 
 #include <webgpu/wgpu.h>
 
-export module Topology;
+export module WebGpu.Topology;
 
 export namespace WebGpu {
 

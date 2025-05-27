@@ -1,6 +1,6 @@
 module;
 
-export module Vertex;
+export module WebGpu.Vertex;
 
 export namespace WebGpu {
 

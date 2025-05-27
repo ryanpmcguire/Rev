@@ -5,20 +5,20 @@ module;
 #define DEBUG true
 #include <dbg.hpp>
 
-export module Box;
+export module Rev.Box;
 
-import Element;
+import Rev.Element;
+import Rev.Style;
+import Rev.Rect;
 
 import WebGpu;
-import Topology;
-import Primitive;
-import UniformBuffer;
-import RoundedBox;
-import Vertex;
-import Style;
-import Shader;
-import Color;
-import Rect;
+import WebGpu.Shader;
+import WebGpu.Topology;
+import WebGpu.Primitive;
+import WebGpu.UniformBuffer;
+import WebGpu.RoundedBox;
+import WebGpu.Vertex;
+import WebGpu.Color;
 
 export namespace Rev {
 
@@ -67,24 +67,6 @@ export namespace Rev {
                 styleRef.border.bl.radius.val + 1, styleRef.border.br.radius.val + 1,
 
                 0, 0, 1, 1
-            };
-
-            // Box quad
-            //--------------------------------------------------
-
-            // Compute left, right, top bottom
-            float l = rect.x, r = rect.x + rect.w;
-            float t = rect.y, b = rect.y + rect.h;
-
-            // Corner vertices (nominal)
-            Vertex tlv = { l, t }, trv = { r, t };
-            Vertex blv = { l, b }, brv = { r, b };
-
-            // Set vertex positions
-            roundedBox->vertices->dirty = true;
-            roundedBox->vertices->members = {
-                tlv, trv, blv,
-                blv, trv, brv
             };
 
             Element::computePrimitives(e);

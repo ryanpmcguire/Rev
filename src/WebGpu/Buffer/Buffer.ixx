@@ -3,7 +3,7 @@ module;
 #include <vector>
 #include <webgpu/wgpu.h>
 
-export module Buffer;
+export module WebGpu.Buffer;
 
 export namespace WebGpu {
 

@@ -1,8 +1,8 @@
 module;
 
-export module Rect;
+export module Rev.Rect;
 
-import Pos;
+import Rev.Pos;
 
 export namespace Rev {
 

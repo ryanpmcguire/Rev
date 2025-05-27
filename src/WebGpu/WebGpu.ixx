@@ -14,8 +14,8 @@ module;
 
 export module WebGpu;
 
-import GlobalTime;
-import Primitive;
+import Rev.GlobalTime;
+import WebGpu.Primitive;
 
 export namespace WebGpu {
     
@@ -303,6 +303,8 @@ export namespace WebGpu {
 
         void fit() {
 
+            dbg("[WebGpu] Fitting");
+
             // Get dimensions of framebuffer
             int width, height;
             glfwGetFramebufferSize(window, &width, &height);
@@ -323,6 +325,7 @@ export namespace WebGpu {
             // BAD: WE FORCE COMPUTE AND SYNC TO ALSO RUN
             flags.compute = true;
             flags.sync = true;
+            flags.record = true;
         }
 
         WGPUTextureView getNextTextureView() {
@@ -352,6 +355,8 @@ export namespace WebGpu {
         // Compute all primitives
         void compute(uint32_t time) {
 
+            dbg("[WebGpu] Computing");
+
             // Resize transform
             primitives[0]->transform->surfaceWidth = float(config.width);
             primitives[0]->transform->surfaceHeight = float(config.height);
@@ -359,17 +364,26 @@ export namespace WebGpu {
             for (Primitive* primitive : primitives) {
                 primitive->compute(time);
             }
+
+            flags.compute = false;
         }
 
         // Sync all primitives
         void sync(uint32_t time) {
+
+            dbg("[WebGpu] Syncing");
+
             for (Primitive* primitive : primitives) {
                 primitive->sync(device->device, time);
             }
+
+            flags.sync = false;
         }
 
         // Record all primitives
         void record() {
+
+            dbg("[WebGpu] Recording");
 
             if (renderPass) { delete renderPass; }
 
@@ -392,6 +406,8 @@ export namespace WebGpu {
             }
 
             renderPass->end();
+
+            flags.record = false;
         }
 
         void draw(uint32_t time) {
@@ -400,6 +416,9 @@ export namespace WebGpu {
             if (flags.fit) { this->fit(); }
             if (flags.compute) { this->compute(time); }
             if (flags.sync) { this->sync(time); }
+
+            //wgpuSurfaceUnconfigure(surface);
+            wgpuSurfaceConfigure(surface, &config);
 
             // Get target view (what we're drawing to)
             WGPUTextureView targetView = this->getNextTextureView();

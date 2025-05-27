@@ -3,10 +3,10 @@ module;
 #include <vector>
 #include <webgpu/wgpu.h>
 
-export module VertexBuffer;
+export module WebGpu.VertexBuffer;
 
-import Buffer;
-import Vertex;
+import WebGpu.Buffer;
+import WebGpu.Vertex;
 
 export namespace WebGpu {
 
@@ -28,9 +28,23 @@ export namespace WebGpu {
         std::vector<Vertex> members;
 
         // Create
-        VertexBuffer(WGPUDevice device, uint32_t location = 0) : Buffer(device) {
+        struct Params { WGPUDevice device; uint32_t location; size_t size = 0; size_t memberSize = sizeof(Vertex); };
+        VertexBuffer(Params params) : Buffer(params.device) {
+
             desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-            attrib.shaderLocation = location;
+            attrib.shaderLocation = params.location;
+
+            // If there is a defined size, we can create our buffers immediately
+            if (params.size) {
+
+                members.resize(params.size);
+                this->size = params.size;
+                this->data = members.data();                
+
+                for (WGPUBuffer& buffer : buffers) {
+                    buffer = wgpuDeviceCreateBuffer(device, &desc);
+                }
+            }
         }
 
         // Destroy

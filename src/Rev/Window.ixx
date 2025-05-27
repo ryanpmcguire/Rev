@@ -7,9 +7,9 @@ module;
 #define DEBUG true
 #include <dbg.hpp>
 
-export module Window;
+export module Rev.Window;
 
-import Element;
+import Rev.Element;
 
 import WebGpu;
 
@@ -81,12 +81,18 @@ export namespace Rev {
         // Draw
         //--------------------------------------------------
 
+        int didDraw = 0;
+
         void draw() {
 
             event.resetBeforeDispatch();
 
+            if (didDraw < 10) {
             this->computeStyle(event);
             this->computePrimitives(event);
+            }
+
+            didDraw += 1;
 
             surface->draw(event.time);
         }

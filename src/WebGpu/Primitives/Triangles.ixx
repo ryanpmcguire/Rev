@@ -5,12 +5,12 @@ module;
 export module Triangles;
 
 import WebGpu;
-import Primitive;
-import Shader;
-import VertexBuffer;
-import AttributeBuffer;
-import Transform;
-import Pipeline;
+import WebGpu.Primitive;
+import WebGpu.Shader;
+import WebGpu.VertexBuffer;
+import WebGpu.Transform;
+import WebGpu.Pipeline;
+import WebGpu.Color;
 import Resources.Shaders.Triangles_wgsl;
 
 export namespace WebGpu {
@@ -21,7 +21,7 @@ export namespace WebGpu {
         WGPUDevice device = nullptr;
 
         VertexBuffer* vertices = nullptr;
-        AttributeBuffer* colors = nullptr;
+        VertexBuffer* colors = nullptr;
         
         inline static Shader* shader = nullptr;
         inline static Pipeline* pipeline = nullptr;
@@ -34,11 +34,11 @@ export namespace WebGpu {
             // Create resources
             //--------------------------------------------------
 
-            vertices = new VertexBuffer(device, 0);
-            colors = new AttributeBuffer(device, 1);
+            vertices = new VertexBuffer({ .device = device, .location = 0 });
+            colors = new VertexBuffer({ .device = device, .location = 1, .memberSize = sizeof(Color) });
 
             if (!shader) { shader = new Shader(device, Triangles_wgsl); }
-            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { colors }, { globalTimeBuffer, transform }); }
+            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices, colors }, { globalTimeBuffer, transform }); }
 
             surface->primitives.push_back(this);
         }

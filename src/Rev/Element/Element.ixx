@@ -2,14 +2,14 @@ module;
 
 #include <vector>
 
-export module Element;
+export module Rev.Element;
 
 import WebGpu;
 
-import Rect;
-import Style;
-import Computed;
-import Event;
+import Rev.Rect;
+import Rev.Style;
+import Rev.Computed;
+import Rev.Event;
 
 export namespace Rev {
 

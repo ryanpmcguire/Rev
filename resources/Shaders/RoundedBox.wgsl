@@ -17,7 +17,15 @@ struct BoxData {
 };
 
 @group(2) @binding(0) var<uniform> box : BoxData;
-@group(2) @binding(1) var<uniform> boxB : BoxData;
+
+// Compute
+//--------------------------------------------------
+
+@compute @workgroup_size(1)
+fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    // No-op compute shader.
+    // This is a placeholder for future vertex generation, animation, etc.
+}
 
 // Vertex
 //--------------------------------------------------
@@ -28,12 +36,40 @@ struct VertexOutput {
 };
 
 @vertex
-fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+
+    // Define quad in clockwise triangles:
+    // 0: top-left     (tl)
+    // 1: top-right    (tr)
+    // 2: bottom-left  (bl)
+    // 3: bottom-left  (bl)
+    // 4: top-right    (tr)
+    // 5: bottom-right (br)
+
+    // Unpack box.rect
+    let rectPos = box.rect.xy;
+    let rectSize = box.rect.zw;
+
+    // Compute corners
+    let l = rectPos.x;
+    let r = rectPos.x + rectSize.x;
+    let t = rectPos.y;
+    let b = rectPos.y + rectSize.y;
+
+    var pos: vec2<f32>;
+    switch vertexIndex {
+        case 0u: { pos = vec2<f32>(l, t); } // top-left
+        case 1u: { pos = vec2<f32>(r, t); } // top-right
+        case 2u: { pos = vec2<f32>(l, b); } // bottom-left
+        case 3u: { pos = vec2<f32>(l, b); } // bottom-left
+        case 4u: { pos = vec2<f32>(r, t); } // top-right
+        case 5u: { pos = vec2<f32>(r, b); } // bottom-right
+        default: { pos = vec2<f32>(0.0); }
+    }
 
     var out: VertexOutput;
     out.fragPos = pos;
     out.position = transform * vec4<f32>(pos, 0.0, 1.0);
-    
     return out;
 }
 

@@ -3,7 +3,7 @@ module;
 #include <cstring>
 #include <webgpu/wgpu.h>
 
-export module Shader;
+export module WebGpu.Shader;
 
 import Resource;
 

@@ -2,9 +2,9 @@ module;
 
 #include <webgpu/wgpu.h>
 
-export module GlobalTimeBuffer;
+export module WebGpu.GlobalTimeBuffer;
 
-import UniformBuffer;
+import WebGpu.UniformBuffer;
 
 export namespace WebGpu {
 

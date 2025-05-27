@@ -1,6 +1,6 @@
 module;
 
-export module Color;
+export module WebGpu.Color;
 
 export namespace WebGpu {
   

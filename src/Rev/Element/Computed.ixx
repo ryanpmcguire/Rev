@@ -1,8 +1,8 @@
 module;
 
-export module Computed;
+export module Rev.Computed;
 
-import Style;
+import Rev.Style;
 
 export namespace Rev {
 

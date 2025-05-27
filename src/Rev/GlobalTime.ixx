@@ -2,7 +2,7 @@ module;
 
 #include <chrono>
 
-export module GlobalTime;
+export module Rev.GlobalTime;
 
 export namespace Rev {
 

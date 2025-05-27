@@ -2,10 +2,10 @@ module;
 
 #include <webgpu/wgpu.h>
 
-export module UniformBuffer;
+export module WebGpu.UniformBuffer;
 
-import Shader;
-import Buffer;
+import WebGpu.Shader;
+import WebGpu.Buffer;
 
 export namespace WebGpu {
 

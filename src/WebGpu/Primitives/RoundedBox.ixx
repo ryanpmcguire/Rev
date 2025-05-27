@@ -2,15 +2,15 @@ module;
 
 #include <webgpu/wgpu.h>
 
-export module RoundedBox;
+export module WebGpu.RoundedBox;
 
 import WebGpu;
-import Primitive;
-import Shader;
-import VertexBuffer;
-import AttributeBuffer;
-import Transform;
-import Pipeline;
+import WebGpu.Primitive;
+import WebGpu.Shader;
+import WebGpu.VertexBuffer;
+import WebGpu.Transform;
+import WebGpu.Pipeline;
+
 import Resources.Shaders.RoundedBox_wgsl;
 
 export namespace WebGpu {
@@ -44,17 +44,17 @@ export namespace WebGpu {
             //--------------------------------------------------
             
             boxDataBuffer = new UniformBuffer({
-                .device = device, 
-                .data = &boxData, 
-                .size = sizeof(BoxData), 
-                .group = 2, 
-                .count = 2
+                .device = device,
+                .data = &boxData,
+                .size = sizeof(BoxData),
+                .group = 2,
+                .count = 1
             });
 
-            vertices = new VertexBuffer(device, 0);
+            vertices = new VertexBuffer({ .device = device, .location = 0, .size = 6 });
 
             if (!shader) { shader = new Shader(device, RoundedBox_wgsl); }
-            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { }, { transform, globalTimeBuffer, boxDataBuffer }); }
+            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { transform, globalTimeBuffer, boxDataBuffer }); }
 
             surface->primitives.push_back(this);
         }
