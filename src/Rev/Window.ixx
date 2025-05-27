@@ -25,6 +25,9 @@ export namespace Rev {
             bool resizable = true;
         };
 
+        // Persistent event
+        Event event;
+
         // Glfw
         GLFWwindow* window = nullptr;
         Details details;
@@ -43,9 +46,9 @@ export namespace Rev {
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
             window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);
-
-            // Set user pointer and callbacks
             glfwSetWindowUserPointer(window, this);
+
+            // Window callbacks
             glfwSetFramebufferSizeCallback(window, handleFramebufferResize);
             glfwSetWindowRefreshCallback(window, handleRefresh);
             glfwSetWindowContentScaleCallback(window, handleContentScale);
@@ -55,6 +58,9 @@ export namespace Rev {
             glfwSetWindowIconifyCallback(window, handleMinimize);
             glfwSetWindowMaximizeCallback(window, handleMaximize);
             glfwSetWindowCloseCallback(window, handleClose);
+
+            // Mouse / keyboard callbacks
+            glfwSetMouseButtonCallback(window, handleMouseButton);
 
             // WebGpu
             //--------------------------------------------------
@@ -77,9 +83,12 @@ export namespace Rev {
 
         void draw() {
 
-            this->computeStyle();
-            this->computePrimitives();
-            surface->draw();
+            event.resetBeforeDispatch();
+
+            this->computeStyle(event);
+            this->computePrimitives(event);
+
+            surface->draw(event.time);
         }
 
         // Overridable callbacks
@@ -163,6 +172,41 @@ export namespace Rev {
             shouldClose = true;
         }
 
+        // Mouse/keyboard callbacks (window only)
+        //--------------------------------------------------
+
+        enum ButtonAction {
+            Press = GLFW_PRESS,
+            Release = GLFW_RELEASE
+        };
+
+        enum MouseButton {
+            Left = GLFW_MOUSE_BUTTON_LEFT,
+            Right = GLFW_MOUSE_BUTTON_RIGHT,
+            Middle = GLFW_MOUSE_BUTTON_MIDDLE,
+            Button4 = GLFW_MOUSE_BUTTON_4,
+            Button5 = GLFW_MOUSE_BUTTON_5,
+            Button6 = GLFW_MOUSE_BUTTON_6,
+            Button7 = GLFW_MOUSE_BUTTON_7,
+            Button8 = GLFW_MOUSE_BUTTON_8
+        };
+
+        void onMouseButton(int button, int action) {
+
+            // Get mouse position
+            double x, y; glfwGetCursorPos(window, &x, &y);
+            event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
+
+            event.resetBeforeDispatch();
+            event.propagate = true;
+
+            if (action == ButtonAction::Press) { this->mouseDown(event); }
+
+            if (event.causedRefresh) {
+                this->draw();
+            }
+        }
+
         // Static callbacks for GLFW
         //--------------------------------------------------
 
@@ -170,6 +214,7 @@ export namespace Rev {
             return static_cast<Window*>(glfwGetWindowUserPointer(win));
         }
 
+        // Window callbacks
         static void handleFramebufferResize(GLFWwindow* win, int width, int height) { self(win)->onFramebufferResize(width, height); }
         static void handleRefresh(GLFWwindow* win) { self(win)->onRefresh(); }
         static void handleContentScale(GLFWwindow* win, float xscale, float yscale) { self(win)->onContentScale(xscale, yscale);}
@@ -179,5 +224,8 @@ export namespace Rev {
         static void handleMaximize(GLFWwindow* win, int maximized) { self(win)->onMaximizeChange(maximized); }
         static void handleMinimize(GLFWwindow* win, int minimized) { self(win)->onMinimizeChange(minimized); }
         static void handleClose(GLFWwindow* win) { self(win)->onClose(); }
+
+        // Mouse / keyboard callbacks
+        static void handleMouseButton(GLFWwindow* win, int button, int action, int mods) { self(win)->onMouseButton(button, action); }
     };
 }

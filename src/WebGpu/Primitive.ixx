@@ -5,6 +5,7 @@ module;
 export module Primitive;
 
 import Topology;
+import GlobalTimeBuffer;
 import Transform;
 
 export namespace WebGpu {
@@ -14,6 +15,7 @@ export namespace WebGpu {
         WGPUDevice device = nullptr;
         Topology topology;
 
+        inline static GlobalTimeBuffer* globalTimeBuffer = nullptr;
         Transform* transform = nullptr;
         Transform* computedTransform = nullptr;
 
@@ -24,6 +26,7 @@ export namespace WebGpu {
             this->topology = topology;
 
             transform = new Transform(device, 0);
+            if (!globalTimeBuffer) { globalTimeBuffer = new GlobalTimeBuffer(device, 1); }
         }
 
         // Destroy
@@ -31,11 +34,11 @@ export namespace WebGpu {
             
         }
 
-        virtual void compute() {
-            transform->compute();
+        virtual void compute(uint32_t time) {
+            transform->compute(time);
         }
 
-        virtual void sync(WGPUDevice& device) {
+        virtual void sync(WGPUDevice& device, uint32_t time) {
 
         }
 

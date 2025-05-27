@@ -1,20 +1,23 @@
-// Structs and layout
-//--------------------------------------------------
-
 // Transform matrix
 @group(0) @binding(0)
 var<uniform> transform : mat4x4<f32>;
 
+// Global time
+struct GlobalTime { time: u32, t2: u32, t3: u32, t4: u32 };
+
+// Global time
+@group(1) @binding(0)
+var<uniform> globalTime : GlobalTime;
+
 struct BoxData {
-    rect_x: f32, rect_y: f32,
-    rect_w: f32, rect_h: f32,
-    rad_tl: f32, rad_tr: f32,
-    rad_bl: f32, rad_br: f32,
-    fill_r: f32, fill_g: f32, fill_b: f32, fill_a: f32
+    rect: vec4<f32>,
+    radius: vec4<f32>,
+    color: vec4<f32>,
+    time: vec4<u32>
 };
 
-@group(1) @binding(0)
-var<uniform> box : BoxData;
+@group(2) @binding(0) var<uniform> box : BoxData;
+@group(2) @binding(1) var<uniform> boxB : BoxData;
 
 // Vertex
 //--------------------------------------------------
@@ -26,9 +29,11 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
+
     var out: VertexOutput;
-    out.position = transform * vec4<f32>(pos, 0.0, 1.0);
     out.fragPos = pos;
+    out.position = transform * vec4<f32>(pos, 0.0, 1.0);
+    
     return out;
 }
 
@@ -36,30 +41,33 @@ fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
 //--------------------------------------------------
 
 fn roundedBoxSDF(p: vec2<f32>, halfSize: vec2<f32>, radius: vec4<f32>) -> f32 {
+
     let r = mix(
         mix(radius.x, radius.w, select(1.0, 0.0, p.x > 0.0)),
         mix(radius.y, radius.z, select(1.0, 0.0, p.x > 0.0)),
         select(1.0, 0.0, p.y > 0.0)
     );
+
     let d = abs(p) - (halfSize - vec2<f32>(r));
+
     return length(max(d, vec2<f32>(0.0))) - r;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    
-    let rect = vec4<f32>(box.rect_x, box.rect_y, box.rect_w, box.rect_h);
-    let radius = vec4<f32>(box.rad_tl, box.rad_tr, box.rad_br, box.rad_bl);
-    let fillColor = vec4<f32>(box.fill_r, box.fill_g, box.fill_b, box.fill_a);
 
-    let halfSize = rect.zw * 0.5;
-    let center = rect.xy + halfSize;
+    let halfSize = box.rect.zw * 0.5;
+    let center = box.rect.xy + halfSize;
     let localPos = in.fragPos - center;
 
-    let dist = roundedBoxSDF(localPos, halfSize, radius);
+    // Rounded box edge mask
+    let sdf = roundedBoxSDF(localPos, halfSize, box.radius);
+    let aa = 0.75;
+    let edgeAlpha = smoothstep(aa, -aa, sdf); // 1.0 inside shape, fades out at edge
 
-    let aa = 1.0;
-    let alpha = smoothstep(aa, -aa, dist);
+    // Time-based decay
+    //let t = f32(globalTime.time) * 0.001; // convert ms to seconds
+    //let decay = exp(-0.693 * t);          // 1-second half-life
 
-    return vec4<f32>(fillColor.rgb, fillColor.a * alpha);
+    return vec4<f32>(box.color.rgb, box.color.a * edgeAlpha);
 }

@@ -17,25 +17,26 @@ export namespace WebGpu {
         WGPUBindGroupLayout layout = nullptr;
 
         // Create
-        UniformBuffer(WGPUDevice device, void* data, size_t size, uint32_t index, size_t numBuffers = 1) : Buffer(device, data, size, numBuffers) {
+        struct Params { WGPUDevice device; void* data; size_t size; uint32_t group; size_t count = 1; };
+        UniformBuffer(Params params) : Buffer(params.device, params.data, params.size, params.count) {
             
-            this->index = index;
+            this->index = params.group;
 
             desc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-            desc.size = size;
+            desc.size = params.size;
 
             // We can create our buffers now since the size is constant
             for (WGPUBuffer& buffer : buffers) {
-                buffer = wgpuDeviceCreateBuffer(device, &desc);
+                buffer = wgpuDeviceCreateBuffer(params.device, &desc);
             }
 
             // Layout entries
             //--------------------------------------------------
 
             // Create entries for each buffer
-            std::vector<WGPUBindGroupLayoutEntry> layoutEntries(numBuffers);
+            std::vector<WGPUBindGroupLayoutEntry> layoutEntries(params.count);
 
-            for (uint32_t i = 0; i < numBuffers; ++i) {
+            for (uint32_t i = 0; i < params.count; ++i) {
 
                 layoutEntries[i] = {
 
@@ -55,13 +56,13 @@ export namespace WebGpu {
                 .entries = layoutEntries.data()
             };
 
-            layout = wgpuDeviceCreateBindGroupLayout(device, &layoutDesc);
+            layout = wgpuDeviceCreateBindGroupLayout(params.device, &layoutDesc);
 
             // Bind-group entries
             //--------------------------------------------------
 
-            std::vector<WGPUBindGroupEntry> groupEntries(numBuffers);
-            for (uint32_t i = 0; i < numBuffers; ++i) {
+            std::vector<WGPUBindGroupEntry> groupEntries(params.count);
+            for (uint32_t i = 0; i < params.count; ++i) {
                 groupEntries[i] = {
                     .binding = i,
                     .buffer = buffers[i],

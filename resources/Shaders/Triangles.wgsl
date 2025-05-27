@@ -4,8 +4,16 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
 };
 
-// Transform matrix uniform
+struct GlobalTime {
+    time: i64
+};
+
+// Global time
 @group(0) @binding(0)
+var<uniform> globalTime : GlobalTime;
+
+// Transform matrix uniform
+@group(1) @binding(0)
 var<uniform> transform : mat4x4<f32>;
 
 @vertex

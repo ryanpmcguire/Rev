@@ -38,7 +38,7 @@ export namespace WebGpu {
             colors = new AttributeBuffer(device, 1);
 
             if (!shader) { shader = new Shader(device, Triangles_wgsl); }
-            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { colors }, { transform }); }
+            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { colors }, { globalTimeBuffer, transform }); }
 
             surface->primitives.push_back(this);
         }
@@ -50,7 +50,7 @@ export namespace WebGpu {
         }
 
         // Sync data
-        void sync(WGPUDevice& device) override {
+        void sync(WGPUDevice& device, uint32_t time) override {
 
             transform->sync(device);
             vertices->sync(device);

@@ -29,6 +29,7 @@ export namespace WebGpu {
             float rect_x, rect_y, rect_w, rect_h;   // Rect
             float rad_tl, rad_tr, rad_bl, rad_br;   // Radii
             float fill_r, fill_g, fill_b, fill_a;   // Color
+            uint32_t time, transition, a, b;              // Time of last update
         };
 
         BoxData boxData;
@@ -42,12 +43,18 @@ export namespace WebGpu {
             // Create resources
             //--------------------------------------------------
             
-            boxDataBuffer = new UniformBuffer(device, &boxData, sizeof(BoxData), 1, 1);
+            boxDataBuffer = new UniformBuffer({
+                .device = device, 
+                .data = &boxData, 
+                .size = sizeof(BoxData), 
+                .group = 2, 
+                .count = 2
+            });
 
             vertices = new VertexBuffer(device, 0);
 
             if (!shader) { shader = new Shader(device, RoundedBox_wgsl); }
-            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { }, { transform, boxDataBuffer }); }
+            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { }, { transform, globalTimeBuffer, boxDataBuffer }); }
 
             surface->primitives.push_back(this);
         }
@@ -57,7 +64,7 @@ export namespace WebGpu {
         }
 
         // Sync data
-        void sync(WGPUDevice& device) override {
+        void sync(WGPUDevice& device, uint32_t time) override {
 
             transform->sync(device);
             boxDataBuffer->sync(device);
@@ -67,11 +74,11 @@ export namespace WebGpu {
         // Record commands
         void record(WGPURenderPassEncoder& pass) override {
 
-            pipeline->bind(pass);
             transform->bind(pass);
             boxDataBuffer->bind(pass);
             vertices->bind(pass);
-
+            pipeline->bind(pass);
+            
             wgpuRenderPassEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
         }
     };

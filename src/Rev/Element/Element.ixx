@@ -9,6 +9,7 @@ import WebGpu;
 import Rect;
 import Style;
 import Computed;
+import Event;
 
 export namespace Rev {
 
@@ -20,8 +21,12 @@ export namespace Rev {
         std::vector<Element*> children;
         
         Rect rect;
+
         Style style;
+        std::vector<Style*> styles;
+        
         Computed computed;
+        bool dirty = true;
 
         // Create
         Element(Element* parent = nullptr) {
@@ -41,21 +46,42 @@ export namespace Rev {
         }
 
         // Comptue style
-        void computeStyle() {
+        void computeStyle(Event& e) {
 
-            // For now, simply set
-            computed.style = style;
+            // Apply other styles, then own style
+            computed.style.apply(styles);
+            computed.style.apply(style);
 
             for (Element* child : children) {
-                child->computeStyle();
+                child->computeStyle(e);
             }
         }
         
         // Compute attributes
-        virtual void computePrimitives() {
+        virtual void computePrimitives(Event& e) {
 
             for (Element* child : children) {
-                child->computePrimitives();
+                child->computePrimitives(e);
+            }
+        }
+
+        // Event
+        //--------------------------------------------------
+
+        virtual void refresh(Event& e) {
+            this->dirty = true;
+            e.causedRefresh = true;
+        }
+
+        virtual bool contains(Event& e) {
+            return rect.contains(e.mouse.pos);
+        }
+
+        virtual void mouseDown(Event& e) {
+
+            for (Element* child : children) {
+                if (child->contains(e)) { child->mouseDown(e); }
+                if (!e.propagate) { break; }
             }
         }
     };

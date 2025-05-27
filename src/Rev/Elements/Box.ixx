@@ -2,6 +2,9 @@ module;
 
 #include <vector>
 
+#define DEBUG true
+#include <dbg.hpp>
+
 export module Box;
 
 import Element;
@@ -24,6 +27,9 @@ export namespace Rev {
     struct Box : public Element {
 
         RoundedBox* roundedBox = nullptr;
+
+        // Test variable
+        bool shouldRound = false;
         
         // Create
         Box(Element* parent) : Element(parent) {
@@ -36,7 +42,7 @@ export namespace Rev {
             delete roundedBox;
         }
 
-        void computePrimitives() override {
+        void computePrimitives(Event& e) override {
 
             Style& styleRef = computed.style;
 
@@ -45,6 +51,26 @@ export namespace Rev {
                 100, 100,
                 styleRef.size.width.val, styleRef.size.height.val
             };
+            
+            // Box data
+            //--------------------------------------------------
+
+            RoundedBox::BoxData& boxData = roundedBox->boxData;
+
+            roundedBox->boxDataBuffer->dirty = true;
+            roundedBox->boxData = {
+
+                rect.x, rect.y,
+                rect.w, rect.h,
+
+                styleRef.border.tl.radius.val + 1, styleRef.border.tr.radius.val + 1,
+                styleRef.border.bl.radius.val + 1, styleRef.border.br.radius.val + 1,
+
+                0, 0, 1, 1
+            };
+
+            // Box quad
+            //--------------------------------------------------
 
             // Compute left, right, top bottom
             float l = rect.x, r = rect.x + rect.w;
@@ -61,7 +87,39 @@ export namespace Rev {
                 blv, trv, brv
             };
 
-            Element::computePrimitives();
+            Element::computePrimitives(e);
+        }
+
+        // Events
+        //--------------------------------------------------
+
+        Style roundedStyle = {
+            .border = {
+                .tl = { .radius = Px(20) },
+                .tr = { .radius = Px(20) },
+                .bl = { .radius = Px(20) },
+                .br = { .radius = Px(20) }
+            }
+        };
+
+        Style unRoundedStyle = {
+            .border = {
+                .tl = { .radius = Px(0) },
+                .tr = { .radius = Px(0) },
+                .bl = { .radius = Px(0) },
+                .br = { .radius = Px(0) }
+            }
+        };
+
+        void mouseDown(Event& e) override {
+
+            // Toggle
+            shouldRound = !shouldRound;
+            style.apply(shouldRound ? roundedStyle : unRoundedStyle);
+
+            refresh(e);
+
+            dbg("[Box] MouseClick!");
         }
     };
 };

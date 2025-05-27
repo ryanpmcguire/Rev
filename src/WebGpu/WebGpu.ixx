@@ -14,6 +14,7 @@ module;
 
 export module WebGpu;
 
+import GlobalTime;
 import Primitive;
 
 export namespace WebGpu {
@@ -349,21 +350,21 @@ export namespace WebGpu {
         }
 
         // Compute all primitives
-        void compute() {
+        void compute(uint32_t time) {
 
             // Resize transform
             primitives[0]->transform->surfaceWidth = float(config.width);
             primitives[0]->transform->surfaceHeight = float(config.height);
 
             for (Primitive* primitive : primitives) {
-                primitive->compute();
+                primitive->compute(time);
             }
         }
 
         // Sync all primitives
-        void sync() {
+        void sync(uint32_t time) {
             for (Primitive* primitive : primitives) {
-                primitive->sync(device->device);
+                primitive->sync(device->device, time);
             }
         }
 
@@ -382,6 +383,9 @@ export namespace WebGpu {
 
             // Record
             renderPass->begin();
+
+            // Bind globals
+            primitives[0]->globalTimeBuffer->bind(renderPass->renderPass);
             
             for (Primitive* primitive : primitives) {
                 primitive->record(renderPass->renderPass);
@@ -390,16 +394,21 @@ export namespace WebGpu {
             renderPass->end();
         }
 
-        void draw() {
+        void draw(uint32_t time) {
 
             // Process flags
             if (flags.fit) { this->fit(); }
-            if (flags.compute) { this->compute(); }
-            if (flags.sync) { this->sync(); }
+            if (flags.compute) { this->compute(time); }
+            if (flags.sync) { this->sync(time); }
 
             // Get target view (what we're drawing to)
             WGPUTextureView targetView = this->getNextTextureView();
             if (!targetView) { return; }
+
+            // Sync global before draw
+            primitives[0]->globalTimeBuffer->data.time = time;
+            primitives[0]->globalTimeBuffer->dirty = true;
+            primitives[0]->globalTimeBuffer->sync(device->device);
 
             // Set color attachment view and record
             colorAttachment.view = msaaTextureSurface->view;

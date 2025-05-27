@@ -25,7 +25,7 @@ export namespace WebGpu {
         
         // Create
         Transform(WGPUDevice device, uint32_t index)
-        : UniformBuffer(device, &matrix, sizeof(Matrix), index) {
+        : UniformBuffer({device, &matrix, sizeof(Matrix), index }) {
 
         }
 
@@ -34,7 +34,7 @@ export namespace WebGpu {
 
         }
 
-        void compute() {
+        void compute(uint32_t time) {
 
             float x = 0, y = 0;
             float w = surfaceWidth;

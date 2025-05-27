@@ -17,8 +17,22 @@ export namespace WebGpu {
 
     struct Pipeline {
 
+        WGPUBlendState blendState = {
+            .color = {
+                .operation = WGPUBlendOperation_Add,
+                .srcFactor = WGPUBlendFactor_SrcAlpha,
+                .dstFactor = WGPUBlendFactor_OneMinusSrcAlpha,
+            },
+            .alpha = {
+                .operation = WGPUBlendOperation_Add,
+                .srcFactor = WGPUBlendFactor_One,
+                .dstFactor = WGPUBlendFactor_OneMinusSrcAlpha,
+            }
+        };
+
         WGPUColorTargetState colorTarget = {
             //Set: .format = format,
+            .blend = &blendState,
             .writeMask = WGPUColorWriteMask_All
         };
 
