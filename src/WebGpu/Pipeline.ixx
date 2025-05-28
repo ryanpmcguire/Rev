@@ -8,6 +8,7 @@ export module WebGpu.Pipeline;
 import WebGpu;
 import WebGpu.VertexBuffer;
 import WebGpu.UniformBuffer;
+import WebGpu.AnimatedBuffer;
 import WebGpu.Shader;
 import WebGpu.Primitive;
 import WebGpu.Topology;
@@ -78,30 +79,38 @@ export namespace WebGpu {
         // Create
         Pipeline(Surface* surface, Shader* shader, Topology topology,
             std::vector<VertexBuffer*> vertexBuffers = {},
-            std::vector<UniformBuffer*> uniformBuffers = {}
+            std::vector<UniformBuffer*> uniformBuffers = {},
+            std::vector<AnimatedBuffer*> animatedBuffers = {}
         ) {
 
-            // Uniform buffers
+            // Bindable buffers
             //--------------------------------------------------
 
-            std::vector<WGPUBindGroupLayout> bindGroupLayouts;
+            std::vector<WGPUBindGroupLayout> renderBindGroupLayouts;
+            std::vector<WGPUBindGroupLayout> computeBindGroupLayouts;
 
-            for (UniformBuffer* ub : uniformBuffers) {
-                bindGroupLayouts.push_back(ub->layout);
-            }
+            for (UniformBuffer* ub : uniformBuffers) { renderBindGroupLayouts.push_back(ub->layout); }
+            for (UniformBuffer* ub : uniformBuffers) { computeBindGroupLayouts.push_back(ub->layout); }
+            for (AnimatedBuffer* ab : animatedBuffers) { renderBindGroupLayouts.push_back(ab->renderLayout); }
+            for (AnimatedBuffer* ab : animatedBuffers) { computeBindGroupLayouts.push_back(ab->computeLayout); }
 
-            WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {
-                .bindGroupLayoutCount = static_cast<uint32_t>(bindGroupLayouts.size()),
-                .bindGroupLayouts = bindGroupLayouts.data()
+            WGPUPipelineLayoutDescriptor renderPipelineLayoutDesc = {
+                .bindGroupLayoutCount = static_cast<uint32_t>(renderBindGroupLayouts.size()),
+                .bindGroupLayouts = renderBindGroupLayouts.data()
             };
 
-            desc.layout = wgpuDeviceCreatePipelineLayout(surface->device->device, &pipelineLayoutDesc);
+            WGPUPipelineLayoutDescriptor computePipelineLayoutDesc = {
+                .bindGroupLayoutCount = static_cast<uint32_t>(computeBindGroupLayouts.size()),
+                .bindGroupLayouts = computeBindGroupLayouts.data()
+            };
+
+            desc.layout = wgpuDeviceCreatePipelineLayout(surface->device->device, &renderPipelineLayoutDesc);
 
             // Compute-related
             //--------------------------------------------------
 
             WGPUComputePipelineDescriptor computeDesc = {
-                .layout = desc.layout,
+                .layout = wgpuDeviceCreatePipelineLayout(surface->device->device, &computePipelineLayoutDesc),
                 .compute = {
                     .module = shader->shader,
                     .entryPoint = "cs_main"
@@ -129,8 +138,8 @@ export namespace WebGpu {
             desc.primitive.topology = static_cast<WGPUPrimitiveTopology>(topology);
 
             // Create pipeline considering all prior
-            renderPipeline = wgpuDeviceCreateRenderPipeline(surface->device->device, &desc);
             computePipeline = wgpuDeviceCreateComputePipeline(surface->device->device, &computeDesc);
+            renderPipeline = wgpuDeviceCreateRenderPipeline(surface->device->device, &desc);
         }
 
         // Destroy

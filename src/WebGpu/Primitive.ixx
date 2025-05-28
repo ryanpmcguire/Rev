@@ -25,8 +25,8 @@ export namespace WebGpu {
             this->device = device;
             this->topology = topology;
 
-            transform = new Transform(device, 0);
-            if (!globalTimeBuffer) { globalTimeBuffer = new GlobalTimeBuffer(device, 1); }
+            if (!globalTimeBuffer) { globalTimeBuffer = new GlobalTimeBuffer(device, 0); }
+            transform = new Transform(device, 1);
         }
 
         // Destroy

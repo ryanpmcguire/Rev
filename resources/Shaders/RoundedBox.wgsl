@@ -1,13 +1,21 @@
-// Transform matrix
-@group(0) @binding(0)
-var<uniform> transform : mat4x4<f32>;
-
 // Global time
 struct GlobalTime { time: u32, t2: u32, t3: u32, t4: u32 };
 
 // Global time
-@group(1) @binding(0)
+@group(0) @binding(0)
 var<uniform> globalTime : GlobalTime;
+
+// Animated transform
+//--------------------------------------------------
+
+// Transform matrix
+@group(1) @binding(0) var<uniform> transformA : mat4x4<f32>;
+@group(1) @binding(1) var<uniform> transformB : mat4x4<f32>;
+@group(1) @binding(2) var<storage, read_write> transformInterp : mat4x4<f32>;
+@group(1) @binding(3) var<storage, read> transform : mat4x4<f32>;
+
+// Animated box data
+//--------------------------------------------------
 
 struct BoxData {
     rect: vec4<f32>,
@@ -16,16 +24,27 @@ struct BoxData {
     time: vec4<u32>
 };
 
-@group(2) @binding(0) var<uniform> box : BoxData;
+@group(2) @binding(0) var<uniform> boxA : BoxData;
+@group(2) @binding(1) var<uniform> boxB : BoxData;
+@group(2) @binding(2) var<storage, read_write> boxInterp : BoxData;
+@group(2) @binding(3) var<storage, read> box : BoxData;
 
 // Compute
 //--------------------------------------------------
 
 @compute @workgroup_size(1)
 fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    // No-op compute shader.
-    // This is a placeholder for future vertex generation, animation, etc.
+    
+    // Copy boxA into boxInterp
+    boxInterp.rect = boxA.rect;
+    boxInterp.radius = boxA.radius;
+    boxInterp.color = boxA.color;
+    boxInterp.time = boxA.time;
+
+    // Copy transformA into transformInterp
+    transformInterp = transformA;
 }
+
 
 // Vertex
 //--------------------------------------------------

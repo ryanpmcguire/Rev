@@ -4,11 +4,11 @@ module;
 
 export module WebGpu.Transform;
 
-import WebGpu.UniformBuffer;
+import WebGpu.AnimatedBuffer;
 
 export namespace WebGpu {
 
-    struct Transform : public UniformBuffer {
+    struct Transform : public AnimatedBuffer {
 
         struct Matrix {
             float m[16] = {
@@ -25,7 +25,7 @@ export namespace WebGpu {
         
         // Create
         Transform(WGPUDevice device, uint32_t index)
-        : UniformBuffer({device, &matrix, sizeof(Matrix), index }) {
+        : AnimatedBuffer({device, &matrix, sizeof(Matrix), index }) {
 
         }
 

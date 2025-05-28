@@ -33,7 +33,7 @@ export namespace WebGpu {
         };
 
         BoxData boxData;
-        UniformBuffer* boxDataBuffer;
+        AnimatedBuffer* boxDataBuffer;
 
         RoundedBox(Surface* surface) : Primitive(surface->device->device, Topology::TriangleList) {
 
@@ -43,18 +43,17 @@ export namespace WebGpu {
             // Create resources
             //--------------------------------------------------
             
-            boxDataBuffer = new UniformBuffer({
+            boxDataBuffer = new AnimatedBuffer({
                 .device = device,
                 .data = &boxData,
                 .size = sizeof(BoxData),
-                .group = 2,
-                .count = 1
+                .group = 2
             });
 
             vertices = new VertexBuffer({ .device = device, .location = 0, .size = 6 });
 
             if (!shader) { shader = new Shader(device, RoundedBox_wgsl); }
-            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { transform, globalTimeBuffer, boxDataBuffer }); }
+            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { globalTimeBuffer }, { transform, boxDataBuffer }); }
 
             surface->primitives.push_back(this);
         }
