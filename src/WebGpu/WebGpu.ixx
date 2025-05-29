@@ -189,7 +189,7 @@ export namespace WebGpu {
         // Texture descriptor
         WGPUTextureDescriptor textureDesc = {
             .nextInChain = nullptr,
-            .usage = WGPUTextureUsage_RenderAttachment,
+            .usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc,
             .dimension = WGPUTextureDimension_2D,
             //.size = { uint32_t(width), uint32_t(height), 1 },
             //.format = config.format,
@@ -217,6 +217,7 @@ export namespace WebGpu {
 
             // Set initial configuration (format, samples, etc...)
             textureDesc.format = format;
+            textureDesc.sampleCount = sampleCount;
             viewDesc.format = format;
         }
 
@@ -257,7 +258,9 @@ export namespace WebGpu {
         Instance* instance = nullptr;
         Adapter* adapter = nullptr;
         inline static Device* device = nullptr;
+
         TextureSurface* msaaTextureSurface = nullptr;
+        TextureSurface* resolveTextureSurface = nullptr;
         
         ComputePass* computePass = nullptr;
         RenderPass* renderPass = nullptr;
@@ -318,13 +321,14 @@ export namespace WebGpu {
                 .nextInChain = nullptr,
                 .device = device->device,
                 .format = wgpuSurfaceGetPreferredFormat(surface, adapter->adapter),
-                .usage = WGPUTextureUsage_RenderAttachment,
+                .usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopyDst,
                 .viewFormatCount = 0,
                 .alphaMode = WGPUCompositeAlphaMode_Auto,
                 .presentMode = WGPUPresentMode_Fifo
             };
 
             msaaTextureSurface = new TextureSurface(device->device, config.format, 4);
+            resolveTextureSurface = new TextureSurface(device->device, config.format, 1);
 
             this->fit();
         }
@@ -335,6 +339,7 @@ export namespace WebGpu {
             delete adapter;
             delete instance;
             delete msaaTextureSurface;
+            delete resolveTextureSurface;
             delete renderPass;
 
             wgpuSurfaceUnconfigure(surface);
@@ -359,6 +364,7 @@ export namespace WebGpu {
             //--------------------------------------------------
 
             msaaTextureSurface->resize(width, height);
+            resolveTextureSurface->resize(width, height);
 
             flags.fit = false;
 
@@ -368,7 +374,8 @@ export namespace WebGpu {
             flags.record = true;
         }
 
-        WGPUTextureView getNextTextureView() {
+        struct TextureAndView { WGPUTexture texture; WGPUTextureView view; };
+        TextureAndView getNextTextureView() {
 
             WGPUSurfaceTexture surfaceTexture;
             wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
@@ -377,7 +384,7 @@ export namespace WebGpu {
 
                 dbg("Failed to get texture");
 
-                return nullptr;
+                return { nullptr, nullptr };
             }
 
             // Create view
@@ -395,7 +402,7 @@ export namespace WebGpu {
 
             WGPUTextureView targetView = wgpuTextureCreateView(surfaceTexture.texture, &viewDescriptor);
 
-            return targetView;
+            return { surfaceTexture.texture, targetView };
         }
 
         // Compute all primitives
@@ -472,13 +479,6 @@ export namespace WebGpu {
             if (flags.compute) { this->compute(time); }
             if (flags.sync) { this->sync(time); }
 
-            //wgpuSurfaceUnconfigure(surface);
-            //wgpuSurfaceConfigure(surface, &config);
-
-            // Get target view (what we're drawing to)
-            WGPUTextureView targetView = this->getNextTextureView();
-            if (!targetView) { return; }
-
             // Sync global before draw
             primitives[0]->globalTimeBuffer->data.time = time;
             primitives[0]->globalTimeBuffer->dirty = true;
@@ -486,15 +486,53 @@ export namespace WebGpu {
 
             // Set color attachment view and record
             colorAttachment.view = msaaTextureSurface->view;
-            colorAttachment.resolveTarget = targetView;
+            colorAttachment.resolveTarget = resolveTextureSurface->view;
             colorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
             if (flags.record) { this->record(); }
 
             dbg("[WebGpu] Drawing");
 
+            // Acquire swapchain view and texture
+            TextureAndView swapchainTarget = getNextTextureView();
+            if (!swapchainTarget.texture || !swapchainTarget.view) return;
+
+            // Command encoder to copy the texture
+            WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device->device, nullptr);
+
+            WGPUImageCopyTexture src = {
+                .texture = resolveTextureSurface->texture,
+                .mipLevel = 0,
+                .origin = {0, 0, 0},
+                .aspect = WGPUTextureAspect_All
+            };
+
+            WGPUImageCopyTexture dst = {
+                .texture = swapchainTarget.texture,
+                .mipLevel = 0,
+                .origin = {0, 0, 0},
+                .aspect = WGPUTextureAspect_All
+            };
+
+            WGPUExtent3D copySize = {
+                .width = static_cast<uint32_t>(config.width),
+                .height = static_cast<uint32_t>(config.height),
+                .depthOrArrayLayers = 1
+            };
+
+            // Do the copy
+            wgpuCommandEncoderCopyTextureToTexture(encoder, &src, &dst, &copySize);
+
+            // Finish and submit
+            WGPUCommandBuffer copyCommands = wgpuCommandEncoderFinish(encoder, nullptr);
+            device->submit(copyCommands);
+
+            // Cleanup
+            wgpuCommandBufferRelease(copyCommands);
+            wgpuCommandEncoderRelease(encoder);
+
             // Present surface, release texture view, poll device
             wgpuSurfacePresent(surface);
-            wgpuTextureViewRelease(targetView);
+            wgpuTextureViewRelease(swapchainTarget.view);
             wgpuDevicePoll(device->device, false, nullptr);
         }
     };
