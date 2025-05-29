@@ -82,10 +82,6 @@ export namespace WebGpu {
                     .binding = 2, .visibility = WGPUShaderStage_Compute,
                     .buffer = { .type = WGPUBufferBindingType_Storage, .hasDynamicOffset = false, .minBindingSize = size }
                 },
-                {
-                    .binding = 3, .visibility = WGPUShaderStage_Compute,
-                    .buffer = { .type = WGPUBufferBindingType_ReadOnlyStorage, .hasDynamicOffset = false, .minBindingSize = size }
-                }
             };
 
             WGPUBindGroupLayoutEntry renderEntries[4] = {
@@ -101,19 +97,15 @@ export namespace WebGpu {
                     .binding = 2, .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment,
                     .buffer = { .type = WGPUBufferBindingType_ReadOnlyStorage, .hasDynamicOffset = false, .minBindingSize = size }
                 },
-                {
-                    .binding = 3, .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment,
-                    .buffer = { .type = WGPUBufferBindingType_ReadOnlyStorage, .hasDynamicOffset = false, .minBindingSize = size }
-                }
             };
 
             WGPUBindGroupLayoutDescriptor computeLayoutDesc = {
-                .entryCount = 4,
+                .entryCount = 3,
                 .entries = computeEntries
             };
 
             WGPUBindGroupLayoutDescriptor renderLayoutDesc = {
-                .entryCount = 4,
+                .entryCount = 3,
                 .entries = renderEntries
             };
 
@@ -127,11 +119,10 @@ export namespace WebGpu {
                 { .binding = 0, .buffer = buff_a, .offset = 0, .size = size },
                 { .binding = 1, .buffer = buff_b, .offset = 0, .size = size },
                 { .binding = 2, .buffer = interp, .offset = 0, .size = size },
-                { .binding = 3, .buffer = interp, .offset = 0, .size = size },
             };
             
-            WGPUBindGroupDescriptor computeGroupDesc = { .layout = computeLayout, .entryCount = 4, .entries = groupEntries };
-            WGPUBindGroupDescriptor renderGroupDesc = { .layout = renderLayout, .entryCount = 4, .entries = groupEntries };
+            WGPUBindGroupDescriptor computeGroupDesc = { .layout = computeLayout, .entryCount = 3, .entries = groupEntries };
+            WGPUBindGroupDescriptor renderGroupDesc = { .layout = renderLayout, .entryCount = 3, .entries = groupEntries };
             
             computeBindGroup = wgpuDeviceCreateBindGroup(device, &computeGroupDesc);
             renderBindGroup = wgpuDeviceCreateBindGroup(device, &renderGroupDesc);

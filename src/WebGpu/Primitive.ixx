@@ -42,8 +42,8 @@ export namespace WebGpu {
 
         }
 
-        virtual void record(WGPURenderPassEncoder& pass) {
-        
-        }
+        // Record render / compute
+        virtual void record(WGPURenderPassEncoder& pass) {}
+        virtual void record(WGPUComputePassEncoder& pass) {}
     };
 };

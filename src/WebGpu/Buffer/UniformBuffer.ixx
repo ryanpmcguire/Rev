@@ -86,6 +86,10 @@ export namespace WebGpu {
             if (layout) wgpuBindGroupLayoutRelease(layout);
         }
 
+        virtual void bind(WGPUComputePassEncoder& encoder) override {
+            wgpuComputePassEncoderSetBindGroup(encoder, index, bindGroup, 0, nullptr);
+        }
+
         virtual void bind(WGPURenderPassEncoder& encoder) override {
             wgpuRenderPassEncoderSetBindGroup(encoder, index, bindGroup, 0, nullptr);
         }

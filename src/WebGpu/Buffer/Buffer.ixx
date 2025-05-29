@@ -75,8 +75,7 @@ export namespace WebGpu {
         }
 
         // To be overridden
-        virtual void bind(WGPURenderPassEncoder& encoder) {
-
-        }
+        virtual void bind(WGPUComputePassEncoder& encoder) {}
+        virtual void bind(WGPURenderPassEncoder& encoder) {}
     };
 };

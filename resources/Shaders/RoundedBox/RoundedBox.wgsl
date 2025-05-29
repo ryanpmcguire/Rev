@@ -11,8 +11,7 @@ var<uniform> globalTime : GlobalTime;
 // Transform matrix
 @group(1) @binding(0) var<uniform> transformA : mat4x4<f32>;
 @group(1) @binding(1) var<uniform> transformB : mat4x4<f32>;
-@group(1) @binding(2) var<storage, read_write> transformInterp : mat4x4<f32>;
-@group(1) @binding(3) var<storage, read> transform : mat4x4<f32>;
+@group(1) @binding(2) var<storage, read_write> transform : mat4x4<f32>;
 
 // Animated box data
 //--------------------------------------------------
@@ -26,8 +25,7 @@ struct BoxData {
 
 @group(2) @binding(0) var<uniform> boxA : BoxData;
 @group(2) @binding(1) var<uniform> boxB : BoxData;
-@group(2) @binding(2) var<storage, read_write> boxInterp : BoxData;
-@group(2) @binding(3) var<storage, read> box : BoxData;
+@group(2) @binding(2) var<storage, read_write> box : BoxData;
 
 // Compute
 //--------------------------------------------------
@@ -36,13 +34,13 @@ struct BoxData {
 fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     
     // Copy boxA into boxInterp
-    boxInterp.rect = boxA.rect;
-    boxInterp.radius = boxA.radius;
-    boxInterp.color = boxA.color;
-    boxInterp.time = boxA.time;
+    box.rect = boxA.rect;
+    box.radius = boxA.radius;
+    box.color = boxA.color;
+    box.time = boxA.time;
 
     // Copy transformA into transformInterp
-    transformInterp = transformA;
+    transform = transformA;
 }
 
 

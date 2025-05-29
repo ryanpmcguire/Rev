@@ -83,6 +83,44 @@ export namespace WebGpu {
     };
 
     // RenderPass wrapper
+    struct ComputePass {
+
+        Device* device = nullptr;
+
+        WGPUComputePassDescriptor description;
+        WGPUComputePassEncoder computePass;
+
+        WGPUCommandEncoderDescriptor commandEncoderDesc = {};
+        WGPUCommandEncoder encoder = nullptr;
+
+        WGPUCommandBufferDescriptor commandBufferDesc = {};
+        WGPUCommandBuffer commandBuffer = nullptr;
+
+        // Create
+        ComputePass(Device* device, WGPUComputePassDescriptor desc) {
+            this->device = device;
+            this->description = desc;
+        }
+
+        // Destroy
+        ~ComputePass() {
+            wgpuComputePassEncoderRelease(computePass);
+            wgpuCommandEncoderRelease(encoder);
+        }
+
+        void begin() {
+            encoder = wgpuDeviceCreateCommandEncoder(device->device, &commandEncoderDesc);
+            computePass = wgpuCommandEncoderBeginComputePass(encoder, &description);
+        }
+
+        void end() {
+            wgpuComputePassEncoderEnd(computePass);
+            commandBuffer = wgpuCommandEncoderFinish(encoder, &commandBufferDesc);
+            device->submit(commandBuffer);
+        }
+    };
+
+    // RenderPass wrapper
     struct RenderPass {
 
         Device* device = nullptr;
@@ -220,6 +258,8 @@ export namespace WebGpu {
         Adapter* adapter = nullptr;
         inline static Device* device = nullptr;
         TextureSurface* msaaTextureSurface = nullptr;
+        
+        ComputePass* computePass = nullptr;
         RenderPass* renderPass = nullptr;
 
         WGPURenderPassColorAttachment colorAttachment = {
@@ -332,7 +372,13 @@ export namespace WebGpu {
 
             WGPUSurfaceTexture surfaceTexture;
             wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
-            if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_Success) { return nullptr; }
+            
+            if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
+
+                dbg("Failed to get texture");
+
+                return nullptr;
+            }
 
             // Create view
             WGPUTextureViewDescriptor viewDescriptor = {
@@ -385,7 +431,12 @@ export namespace WebGpu {
 
             dbg("[WebGpu] Recording");
 
+            if (computePass) { delete computePass; }
             if (renderPass) { delete renderPass; }
+
+            computePass = new ComputePass(device, {
+                
+            });
 
             renderPass = new RenderPass(device, {
                 .nextInChain = nullptr,
@@ -396,15 +447,19 @@ export namespace WebGpu {
             });
 
             // Record
+            computePass->begin();
             renderPass->begin();
 
             // Bind globals
+            primitives[0]->globalTimeBuffer->bind(computePass->computePass);
             primitives[0]->globalTimeBuffer->bind(renderPass->renderPass);
             
             for (Primitive* primitive : primitives) {
+                primitive->record(computePass->computePass);
                 primitive->record(renderPass->renderPass);
             }
 
+            computePass->end();
             renderPass->end();
 
             flags.record = false;
@@ -418,7 +473,7 @@ export namespace WebGpu {
             if (flags.sync) { this->sync(time); }
 
             //wgpuSurfaceUnconfigure(surface);
-            wgpuSurfaceConfigure(surface, &config);
+            //wgpuSurfaceConfigure(surface, &config);
 
             // Get target view (what we're drawing to)
             WGPUTextureView targetView = this->getNextTextureView();

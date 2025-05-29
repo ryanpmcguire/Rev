@@ -80,7 +80,7 @@ export namespace WebGpu {
             struct Shaders {
                 Shader* compute = nullptr;
                 Shader* vertex = nullptr;
-                Shader* fragment = nullptr;
+                Shader* compute = nullptr;
             };
 
             struct Buffers {
@@ -104,10 +104,10 @@ export namespace WebGpu {
             std::vector<WGPUBindGroupLayout> renderBindGroupLayouts;
             std::vector<WGPUBindGroupLayout> computeBindGroupLayouts;
 
-            for (UniformBuffer* ub : params.buffers.uniform) { renderBindGroupLayouts.push_back(ub->layout); }
-            for (UniformBuffer* ub : params.buffers.uniform) { computeBindGroupLayouts.push_back(ub->layout); }
-            for (AnimatedBuffer* ab : params.buffers.animated) { renderBindGroupLayouts.push_back(ab->renderLayout); }
-            for (AnimatedBuffer* ab : params.buffers.animated) { computeBindGroupLayouts.push_back(ab->computeLayout); }
+            for (UniformBuffer* ub : uniformBuffers) { renderBindGroupLayouts.push_back(ub->layout); }
+            for (UniformBuffer* ub : uniformBuffers) { computeBindGroupLayouts.push_back(ub->layout); }
+            for (AnimatedBuffer* ab : animatedBuffers) { renderBindGroupLayouts.push_back(ab->renderLayout); }
+            for (AnimatedBuffer* ab : animatedBuffers) { computeBindGroupLayouts.push_back(ab->computeLayout); }
 
             WGPUPipelineLayoutDescriptor renderPipelineLayoutDesc = {
                 .bindGroupLayoutCount = static_cast<uint32_t>(renderBindGroupLayouts.size()),
@@ -119,15 +119,15 @@ export namespace WebGpu {
                 .bindGroupLayouts = computeBindGroupLayouts.data()
             };
 
-            desc.layout = wgpuDeviceCreatePipelineLayout(params.surface->device->device, &renderPipelineLayoutDesc);
+            desc.layout = wgpuDeviceCreatePipelineLayout(surface->device->device, &renderPipelineLayoutDesc);
 
             // Compute-related
             //--------------------------------------------------
 
             WGPUComputePipelineDescriptor computeDesc = {
-                .layout = wgpuDeviceCreatePipelineLayout(params.surface->device->device, &computePipelineLayoutDesc),
+                .layout = wgpuDeviceCreatePipelineLayout(surface->device->device, &computePipelineLayoutDesc),
                 .compute = {
-                    .module = params.shaders.compute->shader,
+                    .module = shader->shader,
                     .entryPoint = "cs_main"
                 }
             };
@@ -137,9 +137,9 @@ export namespace WebGpu {
 
             std::vector<WGPUVertexBufferLayout> bufferLayouts;
 
-            for (VertexBuffer* vb : params.buffers.vertex) { bufferLayouts.push_back(vb->layout); }
+            for (VertexBuffer* vb : vertexBuffers) { bufferLayouts.push_back(vb->layout); }
 
-            vertex.module = params.shaders.vertex->shader;
+            vertex.module = shader->shader;
             vertex.buffers = bufferLayouts.data();
             vertex.bufferCount = static_cast<uint32_t>(bufferLayouts.size());
             desc.vertex = vertex;
@@ -147,14 +147,14 @@ export namespace WebGpu {
             // Fragment-related
             //--------------------------------------------------
 
-            fragment.module = params.shaders.fragment->shader;
-            colorTarget.format = params.surface->config.format;
+            fragment.module = shader->shader;
+            colorTarget.format = surface->config.format;
 
-            desc.primitive.topology = static_cast<WGPUPrimitiveTopology>(params.topology);
+            desc.primitive.topology = static_cast<WGPUPrimitiveTopology>(topology);
 
             // Create pipeline considering all prior
-            computePipeline = wgpuDeviceCreateComputePipeline(params.surface->device->device, &computeDesc);
-            renderPipeline = wgpuDeviceCreateRenderPipeline(params.surface->device->device, &desc);
+            computePipeline = wgpuDeviceCreateComputePipeline(surface->device->device, &computeDesc);
+            renderPipeline = wgpuDeviceCreateRenderPipeline(surface->device->device, &desc);
         }
 
         // Destroy

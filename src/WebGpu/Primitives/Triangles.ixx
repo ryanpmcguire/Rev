@@ -17,6 +17,7 @@ export namespace WebGpu {
 
     struct Triangles : public Primitive {
 
+        
         Surface* surface = nullptr;
         WGPUDevice device = nullptr;
 
@@ -37,8 +38,8 @@ export namespace WebGpu {
             vertices = new VertexBuffer({ .device = device, .location = 0 });
             colors = new VertexBuffer({ .device = device, .location = 1, .memberSize = sizeof(Color) });
 
-            if (!shader) { shader = new Shader(device, Triangles_wgsl); }
-            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices, colors }, { globalTimeBuffer }, { transform }); }
+            //if (!shader) { shader = new Shader(device, Triangles_wgsl); }
+            //if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices, colors }, { globalTimeBuffer }, { transform }); }
 
             surface->primitives.push_back(this);
         }

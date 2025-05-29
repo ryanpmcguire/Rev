@@ -11,19 +11,26 @@ import WebGpu.VertexBuffer;
 import WebGpu.Transform;
 import WebGpu.Pipeline;
 
-import Resources.Shaders.RoundedBox_wgsl;
+import Resources.Shaders.RoundedBox.Compute_wgsl;
+import Resources.Shaders.RoundedBox.Vertex_wgsl;
+import Resources.Shaders.RoundedBox.Fragment_wgsl;
 
 export namespace WebGpu {
 
     struct RoundedBox : public Primitive {
 
-        Surface* surface = nullptr;
-        WGPUDevice device = nullptr;
+        struct Shared {
+            
+            struct Shaders {
+                Shader* compute = nullptr;
+                Shader* vertex = nullptr;
+                Shader* fragment = nullptr;
+            };
 
-        VertexBuffer* vertices = nullptr;
-        
-        inline static Shader* shader = nullptr;
-        inline static Pipeline* pipeline = nullptr;
+            Shaders shaders;
+            Pipeline* pipeline = nullptr;
+            bool initialized = false;
+        };
 
         struct BoxData {
             float rect_x, rect_y, rect_w, rect_h;   // Rect
@@ -31,6 +38,13 @@ export namespace WebGpu {
             float fill_r, fill_g, fill_b, fill_a;   // Color
             uint32_t time, transition, a, b;              // Time of last update
         };
+
+        inline static Shared shared;
+
+        Surface* surface = nullptr;
+        WGPUDevice device = nullptr;
+
+        VertexBuffer* vertices = nullptr;
 
         BoxData boxData;
         AnimatedBuffer* boxDataBuffer;
@@ -52,8 +66,31 @@ export namespace WebGpu {
 
             vertices = new VertexBuffer({ .device = device, .location = 0, .size = 6 });
 
-            if (!shader) { shader = new Shader(device, RoundedBox_wgsl); }
-            if (!pipeline) { pipeline = new Pipeline(surface, shader, topology, { vertices }, { globalTimeBuffer }, { transform, boxDataBuffer }); }
+            // Create shared objects
+            if (!shared.initialized) {
+
+                shared.shaders.compute = new Shader(device, Compute_wgsl);
+                shared.shaders.vertex = new Shader(device, Vertex_wgsl);
+                shared.shaders.fragment = new Shader(device, Fragment_wgsl);
+
+                shared.pipeline = new Pipeline({
+
+                    .surface = surface, 
+                    .topology = topology,
+
+                    .shaders = {
+                        .compute = shared.shaders.compute,
+                        .vertex = shared.shaders.vertex,
+                        .fragment = shared.shaders.fragment
+                    },
+
+                    .buffers = {
+                        .vertex = { vertices },
+                        .uniform = { globalTimeBuffer },
+                        .animated = { transform, boxDataBuffer }
+                    },
+                });
+            }
 
             surface->primitives.push_back(this);
         }
@@ -70,13 +107,22 @@ export namespace WebGpu {
             vertices->sync(device);
         }
 
+        void record(WGPUComputePassEncoder& pass) override {
+
+            transform->bind(pass);
+            boxDataBuffer->bind(pass);
+            shared.pipeline->bind(pass);
+
+            wgpuComputePassEncoderDispatchWorkgroups(pass, 1, 1, 1);
+        }
+
         // Record commands
         void record(WGPURenderPassEncoder& pass) override {
 
             transform->bind(pass);
             boxDataBuffer->bind(pass);
             vertices->bind(pass);
-            pipeline->bind(pass);
+            shared.pipeline->bind(pass);
             
             wgpuRenderPassEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
         }
