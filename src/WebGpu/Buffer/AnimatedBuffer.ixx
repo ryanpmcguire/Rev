@@ -157,5 +157,9 @@ export namespace WebGpu {
         virtual void bind(WGPUComputePassEncoder& encoder) {
             wgpuComputePassEncoderSetBindGroup(encoder, group, computeBindGroup, 0, nullptr);
         }
+        
+        virtual void bind(WGPURenderBundleEncoder& encoder) {
+            wgpuRenderBundleEncoderSetBindGroup(encoder, group, renderBindGroup, 0, nullptr);
+        }
     };
 };

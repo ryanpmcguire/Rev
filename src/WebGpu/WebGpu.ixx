@@ -164,6 +164,40 @@ export namespace WebGpu {
         }
     };
 
+    // RenderPass wrapper
+    struct RenderBundle {
+
+        Device* device = nullptr;
+
+        WGPURenderBundleEncoderDescriptor desc = {};
+        WGPURenderBundleEncoder encoder = nullptr;
+        WGPURenderBundle bundle = nullptr;
+
+        // Create
+        RenderBundle(Device* device, WGPURenderBundleEncoderDescriptor desc) {
+            this->device = device;
+            this->desc = desc;
+        }
+
+        // Destroy
+        ~RenderBundle() {
+            if (bundle) { wgpuRenderBundleRelease(bundle); }
+            if (encoder) { wgpuRenderBundleEncoderRelease(encoder); }
+        }
+
+        void begin() {
+            encoder = wgpuDeviceCreateRenderBundleEncoder(device->device, &desc);
+        }
+
+        void end() {
+            bundle = wgpuRenderBundleEncoderFinish(encoder, nullptr);
+        }
+
+        void execute(WGPURenderPassEncoder& pass) {
+            wgpuRenderPassEncoderExecuteBundles(pass, 1, &bundle);
+        }
+    };
+
     // Texture + view manager
     struct TextureSurface {
         
@@ -287,6 +321,7 @@ export namespace WebGpu {
         
         ComputePass* computePass = nullptr;
         RenderPass* renderPass = nullptr;
+        RenderBundle* renderBundle = nullptr;
 
         WGPURenderPassColorAttachment colorAttachment = {
             //.view = targetView,
@@ -455,16 +490,54 @@ export namespace WebGpu {
         }
 
         // Record all primitives
-        void record() {
+        void recordCompute() {
 
             dbg("[WebGpu] Recording");
 
             if (computePass) { delete computePass; }
-            if (renderPass) { delete renderPass; }
+            computePass = new ComputePass(device, {});
 
-            computePass = new ComputePass(device, {
-                
+            // Record
+            computePass->begin();
+
+            // Bind globals
+            primitives[0]->globalTimeBuffer->bind(computePass->computePass);
+            
+            for (Primitive* primitive : primitives) {
+                primitive->record(computePass->computePass);
+            }
+
+            computePass->end();
+        }
+
+        void recordBundle() {
+
+            if (renderBundle) { delete renderBundle; }
+
+            renderBundle = new RenderBundle(device, {
+                .nextInChain = nullptr,
+                .colorFormatCount = 1,
+                .colorFormats = &config.format,
+                .depthStencilFormat = WGPUTextureFormat_Undefined,
+                .sampleCount = msaaTextureSurface->sampleCount
             });
+
+            renderBundle->begin();
+
+            primitives[0]->globalTimeBuffer->bind(renderBundle->encoder);
+            
+            for (Primitive* primitive : primitives) {
+                primitive->record(renderBundle->encoder);
+            }
+
+            renderBundle->end();
+
+            flags.record = false;
+        }
+
+        void recordRender() {
+
+            if (renderPass) { delete renderPass; }
 
             renderPass = new RenderPass(device, {
                 .nextInChain = nullptr,
@@ -474,29 +547,15 @@ export namespace WebGpu {
                 .timestampWrites = nullptr,
             });
 
-            // Record
-            computePass->begin();
             renderPass->begin();
-
-            // Bind globals
-            primitives[0]->globalTimeBuffer->bind(computePass->computePass);
-            primitives[0]->globalTimeBuffer->bind(renderPass->renderPass);
-            
-            for (Primitive* primitive : primitives) {
-                primitive->record(computePass->computePass);
-                primitive->record(renderPass->renderPass);
-            }
-
-            computePass->end();
+            renderBundle->execute(renderPass->renderPass);
             renderPass->end();
-
-            flags.record = false;
         }
 
         void draw(uint32_t time) {
 
             // Process flags
-            if (flags.fit || true) { this->fit(); }
+            if (flags.fit || false) { this->fit(); }
             if (flags.compute || true) { this->compute(time); }
             if (flags.sync || true) { this->sync(time); }
 
@@ -509,7 +568,10 @@ export namespace WebGpu {
             colorAttachment.view = msaaTextureSurface->view;
             colorAttachment.resolveTarget = resolveTextureSurface->view;
             colorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
-            if (flags.record || true) { this->record(); }
+
+            if (flags.record || false) { this->recordBundle(); }
+            recordCompute();
+            recordRender();
 
             dbg("[WebGpu] Drawing");
             computePass->submit();

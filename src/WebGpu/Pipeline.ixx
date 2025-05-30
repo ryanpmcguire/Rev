@@ -163,6 +163,10 @@ export namespace WebGpu {
             wgpuComputePipelineRelease(computePipeline);
         }
 
+        inline void bind(WGPURenderBundleEncoder& pass) {
+            wgpuRenderBundleEncoderSetPipeline(pass, renderPipeline);
+        }
+
         inline void bind(WGPURenderPassEncoder& pass) {
             wgpuRenderPassEncoderSetPipeline(pass, renderPipeline);
         }

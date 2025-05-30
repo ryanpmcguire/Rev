@@ -93,5 +93,9 @@ export namespace WebGpu {
         virtual void bind(WGPURenderPassEncoder& encoder) override {
             wgpuRenderPassEncoderSetBindGroup(encoder, index, bindGroup, 0, nullptr);
         }
+
+        virtual void bind(WGPURenderBundleEncoder& encoder) override {
+            wgpuRenderBundleEncoderSetBindGroup(encoder, index, bindGroup, 0, nullptr);
+        }
     };
 };
