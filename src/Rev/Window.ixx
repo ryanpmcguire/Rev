@@ -87,10 +87,10 @@ export namespace Rev {
 
             event.resetBeforeDispatch();
 
-            if (didDraw < 10) {
+            //if (didDraw < 10) {
             this->computeStyle(event);
             this->computePrimitives(event);
-            }
+            //}
 
             didDraw += 1;
 

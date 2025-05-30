@@ -14,7 +14,7 @@ int main() {
     //for (int i = 0; i < 10000; i++) {
         Box* box = new Box(window);
         box->style = {
-            .size = { .width = Px(500), .height = Px(500) }
+            .size = { .width = Px(640/2), .height = Px(480/2) }
         };
     //}
 

@@ -145,6 +145,8 @@ export namespace WebGpu {
             std::swap(buff_a, buff_b);
 
             wgpuQueueWriteBuffer(queue, buff_a, 0, data, size);
+            wgpuQueueWriteBuffer(queue, buff_b, 0, data, size);
+
             dirty = false;
         }
 

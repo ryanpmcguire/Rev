@@ -38,5 +38,6 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
     var out: VertexOutput;
     out.fragPos = local; // Keep untransformed for SDF
     out.position = transform * vec4<f32>(local, 0.0, 1.0);
+    
     return out;
 }

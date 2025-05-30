@@ -19,9 +19,9 @@ export namespace WebGpu {
             };
         };
 
-        inline static Matrix matrix;
+        Matrix matrix;
 
-        static inline float surfaceWidth = 100.0, surfaceHeight = 100.0f;
+        float surfaceWidth = 100.0, surfaceHeight = 100.0f;
         
         // Create
         Transform(WGPUDevice device, uint32_t index)

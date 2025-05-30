@@ -116,6 +116,9 @@ export namespace WebGpu {
         void end() {
             wgpuComputePassEncoderEnd(computePass);
             commandBuffer = wgpuCommandEncoderFinish(encoder, &commandBufferDesc);
+        }
+
+        void submit() {
             device->submit(commandBuffer);
         }
     };
@@ -154,24 +157,10 @@ export namespace WebGpu {
         void end() {
             wgpuRenderPassEncoderEnd(renderPass);
             commandBuffer = wgpuCommandEncoderFinish(encoder, &commandBufferDesc);
+        }
+
+        void submit() {
             device->submit(commandBuffer);
-        }
-    };
-
-    struct CommandBuffer {
-
-        WGPUCommandBufferDescriptor description;
-        WGPUCommandBuffer commandBuffer;
-        
-        // Create
-        CommandBuffer(WGPUCommandEncoder& encoder, WGPUCommandBufferDescriptor desc) {
-            this->description = desc;
-            commandBuffer = wgpuCommandEncoderFinish(encoder, &description);
-        }
-        
-        // Destroy
-        ~CommandBuffer() {
-            wgpuCommandBufferRelease(commandBuffer);
         }
     };
 
@@ -380,37 +369,6 @@ export namespace WebGpu {
             wgpuSurfaceRelease(surface);
         }
 
-        void fit() {
-
-            // Get dimensions of framebuffer
-            int width, height;
-            glfwGetFramebufferSize(window, &width, &height);
-            if (height == 0 || width == 0) { return; }
-
-            // Set and reconfigure
-            config.width = width; config.height = height;
-            wgpuSurfaceUnconfigure(surface);
-            wgpuSurfaceConfigure(surface, &config);
-
-            // Msaa color texture and view
-            //--------------------------------------------------
-
-            bool didResize = msaaTextureSurface->resizeIfNeeded(width, height);
-            if (didResize) { resolveTextureSurface->resize(msaaTextureSurface->width, msaaTextureSurface->height); }
-
-            flags.fit = false;
-
-            // BAD: WE FORCE COMPUTE AND SYNC TO ALSO RUN
-            if (didResize) {
-
-                dbg("[WebGpu] Resized images");
-
-                flags.compute = true;
-                flags.sync = true;
-                flags.record = true;
-            }
-        }
-
         struct TextureAndView { WGPUTexture texture; WGPUTextureView view; };
         TextureAndView getNextTextureView() {
 
@@ -442,14 +400,40 @@ export namespace WebGpu {
             return { surfaceTexture.texture, targetView };
         }
 
+        void fit() {
+
+            // Get dimensions of framebuffer
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            if (height == 0 || width == 0) { return; }
+
+            // Set and reconfigure
+            config.width = width; config.height = height;
+            wgpuSurfaceUnconfigure(surface);
+            wgpuSurfaceConfigure(surface, &config);
+
+            // Msaa color texture and view
+            //--------------------------------------------------
+
+            bool didResize = msaaTextureSurface->resizeIfNeeded(width, height);
+            if (didResize) { resolveTextureSurface->resize(msaaTextureSurface->width, msaaTextureSurface->height); }
+
+            flags.fit = false;
+
+            if (didResize) {
+                dbg("[WebGpu] Resized images");
+                flags.record = true;
+            }
+        }
+
         // Compute all primitives
         void compute(uint32_t time) {
 
             dbg("[WebGpu] Computing");
 
             // Resize transform
-            primitives[0]->transform->surfaceWidth = float(config.width);
-            primitives[0]->transform->surfaceHeight = float(config.height);
+            primitives[0]->transform->surfaceWidth = float(msaaTextureSurface->width);
+            primitives[0]->transform->surfaceHeight = float(msaaTextureSurface->height);
 
             for (Primitive* primitive : primitives) {
                 primitive->compute(time);
@@ -512,9 +496,9 @@ export namespace WebGpu {
         void draw(uint32_t time) {
 
             // Process flags
-            if (flags.fit) { this->fit(); }
-            if (flags.compute) { this->compute(time); }
-            if (flags.sync) { this->sync(time); }
+            if (flags.fit || true) { this->fit(); }
+            if (flags.compute || true) { this->compute(time); }
+            if (flags.sync || true) { this->sync(time); }
 
             // Sync global before draw
             primitives[0]->globalTimeBuffer->data.time = time;
@@ -525,13 +509,17 @@ export namespace WebGpu {
             colorAttachment.view = msaaTextureSurface->view;
             colorAttachment.resolveTarget = resolveTextureSurface->view;
             colorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
-            if (flags.record) { this->record(); }
+            if (flags.record || true) { this->record(); }
 
             dbg("[WebGpu] Drawing");
+            computePass->submit();
+            renderPass->submit();
 
             // Acquire swapchain view and texture
             TextureAndView swapchainTarget = getNextTextureView();
             if (!swapchainTarget.texture || !swapchainTarget.view) return;
+
+            dbg("[WebGpu] Copying");
 
             // Command encoder to copy the texture
             WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device->device, nullptr);

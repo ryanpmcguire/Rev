@@ -6,6 +6,15 @@ struct VertexOutput {
     @location(0) fragPos: vec2<f32>,
 };
 
+// Bind interpolated box data (group 2)
+struct BoxData {
+    rect: vec4<f32>,
+    radius: vec4<f32>,
+    color: vec4<f32>,
+    time: vec4<u32>
+};
+@group(2) @binding(2) var<storage, read> box : BoxData;
+
 fn roundedBoxSDF(p: vec2<f32>, halfSize: vec2<f32>, radius: vec4<f32>) -> f32 {
 
     let r = mix(
@@ -22,5 +31,18 @@ fn roundedBoxSDF(p: vec2<f32>, halfSize: vec2<f32>, radius: vec4<f32>) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
-    return vec4<f32>(1, 1, 1, 1);
+    let halfSize = box.rect.zw * 0.5;
+    let center = box.rect.xy + halfSize;
+    let localPos = in.fragPos - center;
+
+    // Rounded box edge mask
+    let sdf = roundedBoxSDF(localPos, halfSize, box.radius);
+    let aa = 0.75;
+    let edgeAlpha = smoothstep(aa, -aa, sdf); // 1.0 inside shape, fades out at edge
+
+    // Time-based decay
+    //let t = f32(globalTime.time) * 0.001; // convert ms to seconds
+    //let decay = exp(-0.693 * t);          // 1-second half-life
+
+    return vec4<f32>(box.color.rgb, box.color.a * edgeAlpha);
 }

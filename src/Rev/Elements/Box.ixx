@@ -48,7 +48,7 @@ export namespace Rev {
 
             // Test rect
             this->rect = {
-                100, 100,
+                0, 0,
                 styleRef.size.width.val, styleRef.size.height.val
             };
             
