@@ -230,6 +230,40 @@ export namespace WebGpu {
             wgpuTextureViewRelease(view);
         }
 
+        // This allows us to resize only infrequently
+        bool resizeIfNeeded(int width, int height) {
+
+            // If we need to grow the image
+            bool growWidth = width > this->width;
+            bool growHeight = height > this->height;
+
+            // If we need to shrink the image
+            bool shrinkWidth = width < (this->width / 2);
+            bool shrinkHeight = height < (this->height / 2);
+
+            // If neither of these dimensions need to change, return
+            if (!(growWidth || growHeight || shrinkWidth || shrinkHeight)) { return false; }
+            
+            int newWidth = width, newHeight = height;
+
+            // Adjust width by a factor of 2
+            if (growWidth) { newWidth *= 2; }
+            else if (shrinkWidth) { newWidth /= 2; }
+
+            // Adjust height by a factor of 2
+            if (growHeight) { newHeight *= 2; }
+            else if (shrinkHeight) { newHeight /= 2; }
+
+            // One final guard for safety (should never be triggered)
+            if (newWidth < width) { newWidth = width; }
+            if (newHeight < height) { newHeight = height; }
+
+            // Do resize
+            resize(newWidth, newHeight);
+
+            return true;
+        }
+
         void resize(int width, int height) {
 
             this->width = width; this->height = height;
@@ -348,8 +382,6 @@ export namespace WebGpu {
 
         void fit() {
 
-            dbg("[WebGpu] Fitting");
-
             // Get dimensions of framebuffer
             int width, height;
             glfwGetFramebufferSize(window, &width, &height);
@@ -363,15 +395,20 @@ export namespace WebGpu {
             // Msaa color texture and view
             //--------------------------------------------------
 
-            msaaTextureSurface->resize(width, height);
-            resolveTextureSurface->resize(width, height);
+            bool didResize = msaaTextureSurface->resizeIfNeeded(width, height);
+            if (didResize) { resolveTextureSurface->resize(msaaTextureSurface->width, msaaTextureSurface->height); }
 
             flags.fit = false;
 
             // BAD: WE FORCE COMPUTE AND SYNC TO ALSO RUN
-            flags.compute = true;
-            flags.sync = true;
-            flags.record = true;
+            if (didResize) {
+
+                dbg("[WebGpu] Resized images");
+
+                flags.compute = true;
+                flags.sync = true;
+                flags.record = true;
+            }
         }
 
         struct TextureAndView { WGPUTexture texture; WGPUTextureView view; };
