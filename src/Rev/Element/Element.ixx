@@ -11,6 +11,10 @@ import Rev.Style;
 import Rev.Computed;
 import Rev.Event;
 
+import Dirty;
+
+using namespace Dirty;
+
 export namespace Rev {
 
     struct Element {
@@ -26,15 +30,21 @@ export namespace Rev {
         std::vector<Style*> styles;
         
         Computed computed;
-        bool dirty = true;
+        
+        DirtyFlag dirty;
 
         // Create
         Element(Element* parent = nullptr) {
 
             if (parent) {
+
                 parent->children.push_back(this);
                 surface = parent->surface;
+
+                dirty.tells(&parent->dirty);
             }
+
+            style.dirty.tells({ &dirty, &computed.style.dirty });
         }
         
         // Destroy
@@ -69,7 +79,7 @@ export namespace Rev {
         //--------------------------------------------------
 
         virtual void refresh(Event& e) {
-            this->dirty = true;
+            //this->dirty = true;
             e.causedRefresh = true;
         }
 

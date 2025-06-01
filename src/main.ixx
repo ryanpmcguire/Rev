@@ -13,9 +13,15 @@ int main() {
     
     //for (int i = 0; i < 10000; i++) {
         Box* box = new Box(window);
-        box->style = {
+
+        Style boxStyle = {
             .size = { .width = Px(640/2), .height = Px(480/2) }
         };
+        
+        box->style.apply(boxStyle);
+
+        // TO-DO
+        // Use old dirty flag on assignment - somehow prevent style copy
     //}
 
     application->run();

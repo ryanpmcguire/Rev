@@ -35,7 +35,7 @@ export namespace Rev {
         bool shouldClose = false;
 
         // Create
-        Window(std::vector<Window*>& group, Details details = {}) {
+        Window(std::vector<Window*>& group, Details details = {}) : Element() {
 
             this->details = details;
 
@@ -62,11 +62,14 @@ export namespace Rev {
             // Mouse / keyboard callbacks
             glfwSetMouseButtonCallback(window, handleMouseButton);
 
+            this->dirty.onClean([this]() {
+                this->draw();
+            });
+
             // WebGpu
             //--------------------------------------------------
 
             surface = new WebGpu::Surface(window);
-
             group.push_back(this);
         }
 
@@ -208,9 +211,7 @@ export namespace Rev {
 
             if (action == ButtonAction::Press) { this->mouseDown(event); }
 
-            if (event.causedRefresh) {
-                this->draw();
-            }
+            this->dirty.clean();
         }
 
         // Static callbacks for GLFW

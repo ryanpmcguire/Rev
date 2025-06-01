@@ -4,6 +4,10 @@ module;
 
 export module Rev.Style;
 
+import Dirty;
+
+using namespace Dirty;
+
 export namespace Rev {
 
     // Size: 6
@@ -16,11 +20,26 @@ export namespace Rev {
 
         Type type = Type::None;
         float val = -0.0f;
-        bool dirty = true;
+        bool dirty = false;
+
+        bool set(const Dist& other) {
+            
+            if (!other) { return false; }
+            dirty = dirty | *this != other;
+            
+            type = other.type;
+            val = other.val;
+
+            return dirty;
+        }
 
         // Dist is true if type is set
-        explicit operator bool() {
+        explicit operator bool() const {
             return type != None;
+        }
+
+        bool operator == (const Dist& other) const {
+            return type == other.type && val == other.val;
         }
     };
 
@@ -44,29 +63,53 @@ export namespace Rev {
 
     struct Color {
 
+        bool dirty = false;
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
-        
-        explicit operator bool() {
+
+        explicit operator bool() const {
             return (r != -0.0f || g != -0.0f || b != -0.0f || a != -0.0f);
+        }
+
+        bool operator == (const Color& other) const {
+            return r == other.r && g == other.g && b == other.b && a == other.a;
+        }
+
+        bool set(const Color& other) {
+            
+            if (!other) { return false; }
+            dirty = dirty | *this != other;
+            
+            r = other.r; g = other.g;
+            b = other.b; a = other.a;
+
+            return dirty;
         }
     };
 
     struct Size {
 
+        bool dirty = false;
         Dist width, height;
         
-        void apply(Size& size) {
-            if (size.width) { width = size.width; }
-            if (size.height) { height = size.height; }
+        bool apply(Size& other) {
+
+            if (other.width) { dirty = dirty | width.set(other.width); }
+            if (other.height) { dirty = dirty | height.set(other.height); }
+
+            return dirty;
         }
     };
 
     struct Background {
 
+        bool dirty = false;
         Color color;
 
-        void apply(Background& background) {
-            if (background.color) { color = background.color; }
+        bool apply(Background& other) {
+
+            if (other.color) { dirty = dirty | color.set(other.color); }
+
+            return dirty;
         }
     };
 
@@ -74,17 +117,24 @@ export namespace Rev {
 
         struct Corner {
 
+            bool dirty = false;
+
             Color color;
             Dist radius;
             Dist width;
 
             // Apply new style
-            void apply(Corner& corner) {
-                if (corner.color) { color = corner.color; }
-                if (corner.radius) { radius = corner.radius; }
-                if (corner.width) { radius = corner.width; }
+            bool apply(Corner& other) {
+
+                if (other.color) { dirty = dirty | color.set(other.color); }
+                if (other.radius) { dirty = dirty | radius.set(other.radius); }
+                if (other.width) { dirty = dirty | width.set(other.width); }
+
+                return dirty;
             }
         };
+
+        bool dirty = false;
 
         // Top-level
         Color color;
@@ -95,20 +145,24 @@ export namespace Rev {
         Corner tl, tr, bl, br;
 
         // Apply new style
-        void apply(Border& border) {
+        bool apply(Border& other) {
 
             // Apply to self
-            if (border.color) { color = border.color; }
-            if (border.radius) { radius = border.radius; }
-            if (border.width) { radius = border.width; }
+            if (other.color) { dirty = dirty | color.set(other.color); }
+            if (other.radius) { dirty = dirty | radius.set(other.radius); }
+            if (other.width) { dirty = dirty | width.set(other.width); }
 
             // Apply to corners
-            tl.apply(border.tl); tr.apply(border.tr);
-            bl.apply(border.bl); br.apply(border.br);
+            dirty = dirty | tl.apply(other.tl) | tr.apply(other.tr) |
+                             bl.apply(other.bl)| br.apply(other.br);
+
+            return dirty;
         }
     };
 
     struct Style {
+
+        DirtyFlag dirty;
 
         Size size;
         Background background;
@@ -117,21 +171,25 @@ export namespace Rev {
         int transition = 0; // Transition time
 
         // Apply single style
-        void apply(Style& style) {
+        bool apply(Style& style) {
 
             if (style.transition) { transition = style.transition; }
 
-            size.apply(style.size);
-            background.apply(style.background);
-            border.apply(style.border);
+            dirty = dirty | size.apply(style.size);
+            dirty = dirty | background.apply(style.background);
+            dirty = dirty | border.apply(style.border);
+
+            return dirty;
         }
 
         // Apply vector of styles
-        void apply(std::vector<Style*>& styles) {
+        bool apply(std::vector<Style*>& styles) {
 
             for (Style* style : styles) {
-                apply(*style);
+                dirty = dirty | apply(*style);
             }
+
+            return dirty;
         }
     };
 }

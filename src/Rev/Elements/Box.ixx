@@ -99,7 +99,7 @@ export namespace Rev {
             shouldRound = !shouldRound;
             style.apply(shouldRound ? roundedStyle : unRoundedStyle);
 
-            refresh(e);
+            //refresh(e);
 
             dbg("[Box] MouseClick!");
         }
