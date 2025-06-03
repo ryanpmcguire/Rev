@@ -11,7 +11,7 @@ int main() {
     Application* application = new Application();
     Window* window = new Window(application->windows, { 640, 480, "Window 1" });
     
-    //for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < 1000; i++) {
         Box* box = new Box(window);
 
         Style boxStyle = {
@@ -22,7 +22,7 @@ int main() {
 
         // TO-DO
         // Use old dirty flag on assignment - somehow prevent style copy
-    //}
+    }
 
     application->run();
 

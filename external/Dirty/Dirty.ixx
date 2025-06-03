@@ -40,7 +40,7 @@ export namespace Dirty {
             this->ask.insert(flag);
         }
 
-        void onClean(std::function<void()> func) {
+        void beforeClean(std::function<void()> func) {
             cleanFunc = func;
         }
 
@@ -56,6 +56,11 @@ export namespace Dirty {
             // Once all children are clean, we can execute onClean
             this->cleanFunc();
             dirty = false;
+
+            // Ask all parents to clean
+            for (DirtyFlag* parent : tell) {
+                parent->clean();
+            }
         }
 
         // Boolean conversion operator

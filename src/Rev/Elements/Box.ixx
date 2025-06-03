@@ -42,7 +42,7 @@ export namespace Rev {
             delete roundedBox;
         }
 
-        void computePrimitives(Event& e) override {
+        void computePrimitives() override {
 
             Style& styleRef = computed.style;
 
@@ -69,7 +69,7 @@ export namespace Rev {
                 0, 0, 1, 1
             };
 
-            Element::computePrimitives(e);
+            Element::computePrimitives();
         }
 
         // Events

@@ -45,6 +45,11 @@ export namespace Rev {
             }
 
             style.dirty.tells({ &dirty, &computed.style.dirty });
+
+            computed.style.dirty.beforeClean([this]() {
+                this->computeStyle();
+                this->computePrimitives();
+            });
         }
         
         // Destroy
@@ -56,23 +61,15 @@ export namespace Rev {
         }
 
         // Comptue style
-        void computeStyle(Event& e) {
+        void computeStyle() {
 
             // Apply other styles, then own style
             computed.style.apply(styles);
             computed.style.apply(style);
-
-            for (Element* child : children) {
-                child->computeStyle(e);
-            }
         }
         
         // Compute attributes
-        virtual void computePrimitives(Event& e) {
-
-            for (Element* child : children) {
-                child->computePrimitives(e);
-            }
+        virtual void computePrimitives() {
         }
 
         // Event

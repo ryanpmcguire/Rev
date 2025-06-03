@@ -62,7 +62,7 @@ export namespace Rev {
             // Mouse / keyboard callbacks
             glfwSetMouseButtonCallback(window, handleMouseButton);
 
-            this->dirty.onClean([this]() {
+            this->dirty.beforeClean([this]() {
                 this->draw();
             });
 
@@ -91,8 +91,8 @@ export namespace Rev {
             event.resetBeforeDispatch();
 
             //if (didDraw < 10) {
-            this->computeStyle(event);
-            this->computePrimitives(event);
+            //this->computeStyle(event);
+            //this->computePrimitives(event);
             //}
 
             didDraw += 1;
@@ -111,7 +111,7 @@ export namespace Rev {
         // When the content needs to be redrawn
         virtual void onRefresh() {
             //dbg("Refresh");
-
+            this->dirty.clean();
             this->draw();
         }
 
