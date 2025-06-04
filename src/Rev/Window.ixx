@@ -39,6 +39,8 @@ export namespace Rev {
 
             this->details = details;
 
+            topLevelDetails = new TopLevelDetails();
+
             // GLFW
             //--------------------------------------------------
 
@@ -65,15 +67,16 @@ export namespace Rev {
             // WebGpu
             //--------------------------------------------------
 
-            surface = new WebGpu::Surface(window);
-
+            topLevelDetails->surface = new WebGpu::Surface(window);
+            
             group.push_back(this);
         }
 
         // Destroy
         ~Window() {
 
-            delete surface;
+            delete topLevelDetails->surface;
+            delete topLevelDetails;
 
             glfwDestroyWindow(window);
         }
@@ -87,14 +90,18 @@ export namespace Rev {
 
             event.resetBeforeDispatch();
 
-            //if (didDraw < 10) {
-            this->computeStyle(event);
-            this->computePrimitives(event);
-            //}
+            // Recompute dirty elements
+            for (Element* element : topLevelDetails->dirtyElements) {
+                this->computeStyle(event);
+                this->computePrimitives(event);
+            }
+
+            // Resize but do not clear or realloc dirty elements
+            topLevelDetails->dirtyElements.resize(0);
 
             didDraw += 1;
 
-            surface->draw(event.time);
+            topLevelDetails->surface->draw(event.time);
         }
 
         // Overridable callbacks
@@ -142,7 +149,7 @@ export namespace Rev {
         // When the window is resized
         virtual void onResize(int width, int height) {
             //dbg("Resize: (%i, %i)", width, height);
-            surface->flags.fit = true;
+            topLevelDetails->surface->flags.fit = true;
         }
 
         // When the window is maximized

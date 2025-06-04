@@ -341,6 +341,7 @@ export namespace WebGpu {
         Flags flags;
 
         std::vector<Primitive*> primitives;
+        std::vector<Primitive*> dirtyPrimitives;
 
         // Create
         Surface(GLFWwindow* window) {
@@ -470,7 +471,7 @@ export namespace WebGpu {
             primitives[0]->transform->surfaceWidth = float(msaaTextureSurface->width);
             primitives[0]->transform->surfaceHeight = float(msaaTextureSurface->height);
 
-            for (Primitive* primitive : primitives) {
+            for (Primitive* primitive : dirtyPrimitives) {
                 primitive->compute(time);
             }
 
@@ -482,7 +483,7 @@ export namespace WebGpu {
 
             dbg("[WebGpu] Syncing");
 
-            for (Primitive* primitive : primitives) {
+            for (Primitive* primitive : dirtyPrimitives) {
                 primitive->sync(device->device, time);
             }
 
@@ -503,7 +504,7 @@ export namespace WebGpu {
             // Bind globals
             primitives[0]->globalTimeBuffer->bind(computePass->computePass);
             
-            for (Primitive* primitive : primitives) {
+            for (Primitive* primitive : dirtyPrimitives) {
                 primitive->record(computePass->computePass);
             }
 
@@ -576,6 +577,9 @@ export namespace WebGpu {
             dbg("[WebGpu] Drawing");
             computePass->submit();
             renderPass->submit();
+            
+            // Resize but do not clear or realloc dirtyPrimitives
+            dirtyPrimitives.resize(0);
 
             // Acquire swapchain view and texture
             TextureAndView swapchainTarget = getNextTextureView();

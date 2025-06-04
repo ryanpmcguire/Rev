@@ -34,7 +34,7 @@ export namespace Rev {
         // Create
         Box(Element* parent) : Element(parent) {
 
-            roundedBox = new RoundedBox(surface);
+            roundedBox = new RoundedBox(topLevelDetails->surface);
         }
 
         // Destroy
@@ -60,14 +60,22 @@ export namespace Rev {
             roundedBox->boxDataBuffer->dirty = true;
             roundedBox->boxData = {
 
+                // Rect
                 rect.x, rect.y,
                 rect.w, rect.h,
 
+                // Borders
                 styleRef.border.tl.radius.val + 1, styleRef.border.tr.radius.val + 1,
                 styleRef.border.bl.radius.val + 1, styleRef.border.br.radius.val + 1,
 
-                0, 0, 1, 1
+                // Color
+                0, 0, 1, 1,
+
+                // Transition
+                e.time, 10000
             };
+
+            topLevelDetails->surface->dirtyPrimitives.push_back(roundedBox);
 
             Element::computePrimitives(e);
         }

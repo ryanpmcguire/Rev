@@ -15,7 +15,12 @@ export namespace Rev {
 
     struct Element {
 
-        WebGpu::Surface* surface;
+        struct TopLevelDetails {
+            WebGpu::Surface* surface;
+            std::vector<Element*> dirtyElements;
+        };
+
+        TopLevelDetails* topLevelDetails = nullptr;
 
         Element* parent = nullptr;
         std::vector<Element*> children;
@@ -33,7 +38,8 @@ export namespace Rev {
 
             if (parent) {
                 parent->children.push_back(this);
-                surface = parent->surface;
+                topLevelDetails = parent->topLevelDetails;
+                topLevelDetails->dirtyElements.push_back(this);
             }
         }
         
@@ -69,8 +75,14 @@ export namespace Rev {
         //--------------------------------------------------
 
         virtual void refresh(Event& e) {
+
+            // Set self
             this->dirty = true;
             e.causedRefresh = true;
+            topLevelDetails->dirtyElements.push_back(this);
+
+            // Propagate upwards
+            if (parent && !parent->dirty) { parent->refresh(e); }
         }
 
         virtual bool contains(Event& e) {

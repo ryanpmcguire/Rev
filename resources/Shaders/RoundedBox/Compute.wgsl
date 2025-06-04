@@ -51,9 +51,9 @@ fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
     let duration = max(f32(boxA.time.y), 0.001);
     let alpha = clamp((now - start) / duration, 0.0, 1.0);
 
-    //transform = interpolate_mat4(transformA, transformB, alpha);
-    //box = interpolate_box(boxA, boxB, alpha);
+    transform = interpolate_mat4(transformA, transformB, alpha);
+    box = interpolate_box(boxA, boxB, alpha);
 
-    box = boxA;
-    transform = transformA;
+    //box = boxA;
+    //transform = transformA;
 }
