@@ -21,6 +21,7 @@ export namespace WebGpu {
     
     struct Instance {
 
+        WGPUInstanceDescriptor desc = {};
         WGPUInstance instance;
 
         // Singleton
@@ -31,7 +32,7 @@ export namespace WebGpu {
 
         // Create
         Instance() {
-            instance = wgpuCreateInstance(nullptr);
+            instance = wgpuCreateInstance(&desc);
         }
 
         // Destroy
@@ -467,6 +468,8 @@ export namespace WebGpu {
 
             dbg("[WebGpu] Computing");
 
+            if (primitives.empty()) { flags.compute = false; return; }
+
             // Resize transform
             primitives[0]->transform->surfaceWidth = float(msaaTextureSurface->width);
             primitives[0]->transform->surfaceHeight = float(msaaTextureSurface->height);
@@ -493,7 +496,7 @@ export namespace WebGpu {
         // Record all primitives
         void recordCompute() {
 
-            dbg("[WebGpu] Recording");
+            dbg("[WebGpu] Recording Compute Commands");
 
             if (computePass) { delete computePass; }
             computePass = new ComputePass(device, {});
@@ -502,7 +505,9 @@ export namespace WebGpu {
             computePass->begin();
 
             // Bind globals
-            primitives[0]->globalTimeBuffer->bind(computePass->computePass);
+            if (!primitives.empty()) {
+                primitives[0]->globalTimeBuffer->bind(computePass->computePass);
+            }
             
             for (Primitive* primitive : dirtyPrimitives) {
                 primitive->record(computePass->computePass);
@@ -512,6 +517,8 @@ export namespace WebGpu {
         }
 
         void recordBundle() {
+
+            dbg("[WebGpu] Recording Draw Commands");
 
             if (renderBundle) { delete renderBundle; }
 
@@ -525,9 +532,11 @@ export namespace WebGpu {
 
             renderBundle->begin();
 
-            primitives[0]->globalTimeBuffer->bind(renderBundle->encoder);
+            if (!primitives.empty()) {
+                primitives[0]->globalTimeBuffer->bind(renderBundle->encoder);
+            }
             
-            for (Primitive* primitive : primitives) {
+            for (Primitive* primitive : dirtyPrimitives) {
                 primitive->record(renderBundle->encoder);
             }
 
@@ -561,9 +570,11 @@ export namespace WebGpu {
             if (flags.sync || true) { this->sync(time); }
 
             // Sync global before draw
-            primitives[0]->globalTimeBuffer->data.time = time;
-            primitives[0]->globalTimeBuffer->dirty = true;
-            primitives[0]->globalTimeBuffer->sync(device->device);
+            if (!primitives.empty()) {
+                primitives[0]->globalTimeBuffer->data.time = time;
+                primitives[0]->globalTimeBuffer->dirty = true;
+                primitives[0]->globalTimeBuffer->sync(device->device);
+            }
 
             // Set color attachment view and record
             colorAttachment.view = msaaTextureSurface->view;

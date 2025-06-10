@@ -33,7 +33,6 @@ export namespace Rev {
         
         // Create
         Box(Element* parent) : Element(parent) {
-
             roundedBox = new RoundedBox(topLevelDetails->surface);
         }
 
@@ -57,7 +56,7 @@ export namespace Rev {
 
             RoundedBox::BoxData& boxData = roundedBox->boxData;
 
-            roundedBox->boxDataBuffer->dirty = true;
+            //roundedBox->boxDataBuffer->dirty = true;
             roundedBox->boxData = {
 
                 // Rect

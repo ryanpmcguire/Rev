@@ -88,7 +88,7 @@ export namespace Rev {
 
         void draw() {
 
-            event.resetBeforeDispatch();
+            /*event.resetBeforeDispatch();
 
             // Recompute dirty elements
             for (Element* element : topLevelDetails->dirtyElements) {
@@ -101,7 +101,7 @@ export namespace Rev {
 
             didDraw += 1;
 
-            topLevelDetails->surface->draw(event.time);
+            topLevelDetails->surface->draw(event.time);*/
         }
 
         // Overridable callbacks
