@@ -11,34 +11,19 @@ import Rev.Element;
 import Rev.Style;
 import Rev.Rect;
 
-import WebGpu;
-import WebGpu.Shader;
-import WebGpu.Topology;
-import WebGpu.Primitive;
-import WebGpu.UniformBuffer;
-import WebGpu.RoundedBox;
-import WebGpu.Vertex;
-import WebGpu.Color;
-
 export namespace Rev {
 
-    using namespace WebGpu;
-
     struct Box : public Element {
-
-        RoundedBox* roundedBox = nullptr;
 
         // Test variable
         bool shouldRound = false;
         
         // Create
         Box(Element* parent) : Element(parent) {
-            roundedBox = new RoundedBox(topLevelDetails->surface);
         }
 
         // Destroy
         ~Box() {
-            delete roundedBox;
         }
 
         void computePrimitives(Event& e) override {
@@ -51,30 +36,6 @@ export namespace Rev {
                 styleRef.size.width.val, styleRef.size.height.val
             };
             
-            // Box data
-            //--------------------------------------------------
-
-            RoundedBox::BoxData& boxData = roundedBox->boxData;
-
-            //roundedBox->boxDataBuffer->dirty = true;
-            roundedBox->boxData = {
-
-                // Rect
-                rect.x, rect.y,
-                rect.w, rect.h,
-
-                // Borders
-                styleRef.border.tl.radius.val + 1, styleRef.border.tr.radius.val + 1,
-                styleRef.border.bl.radius.val + 1, styleRef.border.br.radius.val + 1,
-
-                // Color
-                0, 0, 1, 1,
-
-                // Transition
-                e.time, 10000
-            };
-
-            topLevelDetails->surface->dirtyPrimitives.push_back(roundedBox);
 
             Element::computePrimitives(e);
         }

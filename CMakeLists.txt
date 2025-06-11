@@ -31,15 +31,10 @@ file(GLOB_RECURSE SOURCES
 )
 
 # Set libraries to link
-set(LINK
-    ${EXT_DIR}/webgpu/bin/windows-x86_64/wgpu_native.dll.lib
-    ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
-)
-
-# Set binaries to copy
-set(COPY
-    ${EXT_DIR}/webgpu/bin/windows-x86_64/wgpu_native.dll
-)
+#set(LINK
+#    ${EXT_DIR}/webgpu/bin/windows-x86_64/wgpu_native.dll.lib
+#    ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
+#)
 
 # Create target, include, link
 add_executable(${PROJECT_NAME} ${SOURCES})

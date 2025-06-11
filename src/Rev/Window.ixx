@@ -1,244 +1,86 @@
 module;
 
-#include <vector>
-#include <string>
-#include <GLFW/glfw3.h>
-
-#define DEBUG true
-#include <dbg.hpp>
+#define UNICODE
+#define _UNICODE
+#include <windows.h>
 
 export module Rev.Window;
 
-import Rev.Element;
-
-import WebGpu;
-
 export namespace Rev {
+ 
+    struct Window {
 
-    struct Window : public Element {
+        static constexpr const wchar_t* CLASS_NAME = L"RevWindowClass";
 
-        struct Details {
+        // Member variables
+        HINSTANCE hInstance = nullptr;
+        HWND hwnd = nullptr;
 
-            int width = 640, height = 480;
-            std::string name = "Hello World";
+        Window() {
 
-            bool resizable = true;
-        };
+            hInstance = GetModuleHandle(nullptr);
 
-        // Persistent event
-        Event event;
+            WNDCLASS wc = {};
+            wc.lpfnWndProc = WindowProc;
+            wc.hInstance = hInstance;
+            wc.lpszClassName = CLASS_NAME;
+            wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 
-        // Glfw
-        GLFWwindow* window = nullptr;
-        Details details;
+            RegisterClass(&wc);
 
-        bool shouldClose = false;
+            hwnd = CreateWindowEx(
+                0,
+                CLASS_NAME,
+                L"Hello World",
+                WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT, CW_USEDEFAULT, 800, 600,
+                nullptr,
+                nullptr,
+                hInstance,
+                nullptr
+            );
 
-        // Create
-        Window(std::vector<Window*>& group, Details details = {}) {
-
-            this->details = details;
-
-            topLevelDetails = new TopLevelDetails();
-
-            // GLFW
-            //--------------------------------------------------
-
-            // Create window
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-            glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
-            window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);
-            glfwSetWindowUserPointer(window, this);
-
-            // Window callbacks
-            glfwSetFramebufferSizeCallback(window, handleFramebufferResize);
-            glfwSetWindowRefreshCallback(window, handleRefresh);
-            glfwSetWindowContentScaleCallback(window, handleContentScale);
-            glfwSetWindowFocusCallback(window, handleFocus);
-            glfwSetWindowPosCallback(window, handleMove);
-            glfwSetWindowSizeCallback(window, handleResize);
-            glfwSetWindowIconifyCallback(window, handleMinimize);
-            glfwSetWindowMaximizeCallback(window, handleMaximize);
-            glfwSetWindowCloseCallback(window, handleClose);
-
-            // Mouse / keyboard callbacks
-            glfwSetMouseButtonCallback(window, handleMouseButton);
-
-            // WebGpu
-            //--------------------------------------------------
-
-            topLevelDetails->surface = new WebGpu::Surface(window);
-            
-            group.push_back(this);
+            if (hwnd) {
+                ShowWindow(hwnd, SW_SHOW);
+            } else {
+                MessageBox(nullptr, L"Window creation failed", L"Error", MB_OK | MB_ICONERROR);
+            }
         }
 
-        // Destroy
         ~Window() {
-
-            delete topLevelDetails->surface;
-            delete topLevelDetails;
-
-            glfwDestroyWindow(window);
-        }
-
-        // Draw
-        //--------------------------------------------------
-
-        int didDraw = 0;
-
-        void draw() {
-
-            /*event.resetBeforeDispatch();
-
-            // Recompute dirty elements
-            for (Element* element : topLevelDetails->dirtyElements) {
-                this->computeStyle(event);
-                this->computePrimitives(event);
-            }
-
-            // Resize but do not clear or realloc dirty elements
-            topLevelDetails->dirtyElements.resize(0);
-
-            didDraw += 1;
-
-            topLevelDetails->surface->draw(event.time);*/
-        }
-
-        // Overridable callbacks
-        //--------------------------------------------------
-
-        // When the framebuffer resizes
-        virtual void onFramebufferResize(int width, int height) {
-            //dbg("Framebuffer: (%i, %i)", width, height);
-        }
-
-        // When the content needs to be redrawn
-        virtual void onRefresh() {
-            //dbg("Refresh");
-
-            this->draw();
-        }
-
-        // When the content scale changes
-        virtual void onContentScale(float xscale, float yscale) {
-            //dbg("Content scale: (%f, %f)", xscale, yscale);
-        }
-
-        // When the window gains or loses focus
-        virtual void onFocusChange(int focused) {
-            if (focused) { this->onFocus(); }
-            else { this->onDefocus(); }
-        }
-
-        // When the window gains focus
-        virtual void onFocus() {
-            //dbg("Focus");
-        }
-
-        // When the window loses focus
-        virtual void onDefocus() {
-            //dbg("Defocus");
-        }
-
-        // When the window changes position
-        virtual void onMove(int x, int y) {
-            //dbg("Move: (%i, %i)", x, y);
-            this->draw();
-        }
-
-        // When the window is resized
-        virtual void onResize(int width, int height) {
-            //dbg("Resize: (%i, %i)", width, height);
-            topLevelDetails->surface->flags.fit = true;
-        }
-
-        // When the window is maximized
-        virtual void onMaximizeChange(int maximized) {
-            if (maximized) { this->onMaximize(); }
-            else { this->onDemaximize(); }
-        }
-
-        virtual void onMaximize() {
-            //dbg("Maximize");
-        }
-
-        virtual void onDemaximize() {
-            //dbg("Demaximize");
-        }
-
-        // When the window is minimized
-        virtual void onMinimizeChange(int minimized) {
-            if (minimized) { this->onMinimize(); }
-            else { this->onDeminimize(); }
-        }
-
-        virtual void onMinimize() {
-            //dbg("Minimize");
-        }
-        
-        virtual void onDeminimize() {
-            //dbg("Deminimize");
-        }
-
-        void onClose() {
-            //dbg("Close");
-            shouldClose = true;
-        }
-
-        // Mouse/keyboard callbacks (window only)
-        //--------------------------------------------------
-
-        enum ButtonAction {
-            Press = GLFW_PRESS,
-            Release = GLFW_RELEASE
-        };
-
-        enum MouseButton {
-            Left = GLFW_MOUSE_BUTTON_LEFT,
-            Right = GLFW_MOUSE_BUTTON_RIGHT,
-            Middle = GLFW_MOUSE_BUTTON_MIDDLE,
-            Button4 = GLFW_MOUSE_BUTTON_4,
-            Button5 = GLFW_MOUSE_BUTTON_5,
-            Button6 = GLFW_MOUSE_BUTTON_6,
-            Button7 = GLFW_MOUSE_BUTTON_7,
-            Button8 = GLFW_MOUSE_BUTTON_8
-        };
-
-        void onMouseButton(int button, int action) {
-
-            // Get mouse position
-            double x, y; glfwGetCursorPos(window, &x, &y);
-            event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
-
-            event.resetBeforeDispatch();
-            event.propagate = true;
-
-            if (action == ButtonAction::Press) { this->mouseDown(event); }
-
-            if (event.causedRefresh) {
-                this->draw();
+            if (hwnd) {
+                DestroyWindow(hwnd);
             }
         }
 
-        // Static callbacks for GLFW
-        //--------------------------------------------------
+        void run() {
 
-        static Window* self(GLFWwindow* win) {
-            return static_cast<Window*>(glfwGetWindowUserPointer(win));
+            MSG msg = {};
+
+            while (GetMessage(&msg, nullptr, 0, 0)) {
+
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
         }
 
-        // Window callbacks
-        static void handleFramebufferResize(GLFWwindow* win, int width, int height) { self(win)->onFramebufferResize(width, height); }
-        static void handleRefresh(GLFWwindow* win) { self(win)->onRefresh(); }
-        static void handleContentScale(GLFWwindow* win, float xscale, float yscale) { self(win)->onContentScale(xscale, yscale);}
-        static void handleFocus(GLFWwindow* win, int focused) { self(win)->onFocusChange(focused); }
-        static void handleMove(GLFWwindow* win, int x, int y) { self(win)->onMove(x, y); }
-        static void handleResize(GLFWwindow* win, int width, int height) { self(win)->onResize(width, height); }
-        static void handleMaximize(GLFWwindow* win, int maximized) { self(win)->onMaximizeChange(maximized); }
-        static void handleMinimize(GLFWwindow* win, int minimized) { self(win)->onMinimizeChange(minimized); }
-        static void handleClose(GLFWwindow* win) { self(win)->onClose(); }
+        static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
-        // Mouse / keyboard callbacks
-        static void handleMouseButton(GLFWwindow* win, int button, int action, int mods) { self(win)->onMouseButton(button, action); }
+            switch (uMsg) {
+
+            case WM_PAINT: {
+                PAINTSTRUCT ps;
+                HDC hdc = BeginPaint(hwnd, &ps);
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
+            
+            case WM_DESTROY:
+                PostQuitMessage(0);
+                return 0;
+            }
+    
+            return DefWindowProc(hwnd, uMsg, wParam, lParam);
+        }
     };
 }
