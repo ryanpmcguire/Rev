@@ -3,15 +3,13 @@ module;
 #include <vector>
 #include <string>
 #include <GLFW/glfw3.h>
-
-#define DEBUG true
 #include <dbg.hpp>
 
 export module Rev.Window;
 
+import Vulkan.Instance;
+import Vulkan.Surface;
 import Rev.Element;
-
-import WebGpu;
 
 export namespace Rev {
 
@@ -31,6 +29,9 @@ export namespace Rev {
         // Glfw
         GLFWwindow* window = nullptr;
         Details details;
+
+        inline static Vulkan::Instance* vulkan = nullptr;
+        Vulkan::Surface* surface = nullptr;
 
         bool shouldClose = false;
 
@@ -67,7 +68,10 @@ export namespace Rev {
             // WebGpu
             //--------------------------------------------------
 
-            topLevelDetails->surface = new WebGpu::Surface(window);
+            if (!vulkan) { vulkan = new Vulkan::Instance(); }
+            surface = new Vulkan::Surface(vulkan->instance, window);
+
+            //topLevelDetails->surface = new WebGpu::Surface(window);
             
             group.push_back(this);
         }
@@ -75,7 +79,9 @@ export namespace Rev {
         // Destroy
         ~Window() {
 
-            delete topLevelDetails->surface;
+            delete surface;
+            delete vulkan;
+
             delete topLevelDetails;
 
             glfwDestroyWindow(window);
@@ -149,7 +155,7 @@ export namespace Rev {
         // When the window is resized
         virtual void onResize(int width, int height) {
             //dbg("Resize: (%i, %i)", width, height);
-            topLevelDetails->surface->flags.fit = true;
+            //topLevelDetails->surface->flags.fit = true;
         }
 
         // When the window is maximized

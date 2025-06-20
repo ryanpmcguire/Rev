@@ -32,18 +32,24 @@ file(GLOB_RECURSE SOURCES
 
 # Set libraries to link
 set(LINK
-    ${EXT_DIR}/webgpu/bin/windows-x86_64/wgpu_native.dll.lib
     ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
 )
 
 # Set binaries to copy
 set(COPY
-    ${EXT_DIR}/webgpu/bin/windows-x86_64/wgpu_native.dll
+   
 )
 
 # Create target, include, link
 add_executable(${PROJECT_NAME} ${SOURCES})
 add_dependencies(${PROJECT_NAME} EmbedResources)
+
+# Add debug definition
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    $<$<CONFIG:Debug>:DEBUG>
+)
+
+# Add include, linked libraries
 target_include_directories(${PROJECT_NAME} PRIVATE ${EXT_DIR})
 target_link_libraries(${PROJECT_NAME} ${LINK})
 

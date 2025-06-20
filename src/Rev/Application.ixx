@@ -5,25 +5,23 @@ module;
 
 export module Rev.Application;
 
+import Vulkan.Instance;
 import Rev.Window;
-import WebGpu;
 
 export namespace Rev {
 
     struct Application {
 
+        Vulkan::Instance* vulkan = nullptr;
         std::vector<Window*> windows;
-        WebGpu::Instance* webgpu;
 
         // Create
         Application() {
-
             glfwInit();
         }
 
         // Destroy
         ~Application() {
-            
             glfwTerminate();
         }
 

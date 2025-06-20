@@ -1,8 +1,6 @@
 module;
 
 #include <vector>
-
-#define DEBUG true
 #include <dbg.hpp>
 
 export module Rev.Box;
@@ -11,34 +9,25 @@ import Rev.Element;
 import Rev.Style;
 import Rev.Rect;
 
-import WebGpu;
-import WebGpu.Shader;
-import WebGpu.Topology;
-import WebGpu.Primitive;
-import WebGpu.UniformBuffer;
-import WebGpu.RoundedBox;
-import WebGpu.Vertex;
-import WebGpu.Color;
-
 export namespace Rev {
 
-    using namespace WebGpu;
+    //using namespace WebGpu;
 
     struct Box : public Element {
 
-        RoundedBox* roundedBox = nullptr;
+        //RoundedBox* roundedBox = nullptr;
 
         // Test variable
         bool shouldRound = false;
         
         // Create
         Box(Element* parent) : Element(parent) {
-            roundedBox = new RoundedBox(topLevelDetails->surface);
+            //roundedBox = new RoundedBox(topLevelDetails->surface);
         }
 
         // Destroy
         ~Box() {
-            delete roundedBox;
+            //delete roundedBox;
         }
 
         void computePrimitives(Event& e) override {
@@ -54,10 +43,10 @@ export namespace Rev {
             // Box data
             //--------------------------------------------------
 
-            RoundedBox::BoxData& boxData = roundedBox->boxData;
+            //RoundedBox::BoxData& boxData = roundedBox->boxData;
 
             //roundedBox->boxDataBuffer->dirty = true;
-            roundedBox->boxData = {
+            /*roundedBox->boxData = {
 
                 // Rect
                 rect.x, rect.y,
@@ -72,9 +61,9 @@ export namespace Rev {
 
                 // Transition
                 e.time, 10000
-            };
+            };*/
 
-            topLevelDetails->surface->dirtyPrimitives.push_back(roundedBox);
+            //topLevelDetails->surface->dirtyPrimitives.push_back(roundedBox);
 
             Element::computePrimitives(e);
         }

@@ -4,7 +4,7 @@ module;
 
 export module Rev.Element;
 
-import WebGpu;
+//import WebGpu;
 
 import Rev.Rect;
 import Rev.Style;
@@ -16,7 +16,7 @@ export namespace Rev {
     struct Element {
 
         struct TopLevelDetails {
-            WebGpu::Surface* surface;
+            //WebGpu::Surface* surface;
             std::vector<Element*> dirtyElements;
         };
 
