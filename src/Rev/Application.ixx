@@ -5,14 +5,14 @@ module;
 
 export module Rev.Application;
 
-import Vulkan.Instance;
+//import Vulkan.Instance;
 import Rev.Window;
 
 export namespace Rev {
 
     struct Application {
 
-        Vulkan::Instance* vulkan = nullptr;
+        //Vulkan::Instance* vulkan = nullptr;
         std::vector<Window*> windows;
 
         // Create

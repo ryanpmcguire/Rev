@@ -7,8 +7,9 @@ module;
 
 export module Rev.Window;
 
-import Vulkan.Instance;
-import Vulkan.Surface;
+//import Vulkan.Instance;
+//import Vulkan.Surface;
+import Rev.Event;
 import Rev.Element;
 
 export namespace Rev {
@@ -30,13 +31,13 @@ export namespace Rev {
         GLFWwindow* window = nullptr;
         Details details;
 
-        inline static Vulkan::Instance* vulkan = nullptr;
-        Vulkan::Surface* surface = nullptr;
+        //inline static Vulkan::Instance* vulkan = nullptr;
+        //Vulkan::Surface* surface = nullptr;
 
         bool shouldClose = false;
 
         // Create
-        Window(std::vector<Window*>& group, Details details = {}) {
+        Window(std::vector<Window*>& group, Details details) {
 
             this->details = details;
 
@@ -68,8 +69,8 @@ export namespace Rev {
             // WebGpu
             //--------------------------------------------------
 
-            if (!vulkan) { vulkan = new Vulkan::Instance(); }
-            surface = new Vulkan::Surface(vulkan->instance, window);
+            //if (!vulkan) { vulkan = new Vulkan::Instance(); }
+            //surface = new Vulkan::Surface(vulkan->instance, window);
 
             //topLevelDetails->surface = new WebGpu::Surface(window);
             
@@ -79,8 +80,8 @@ export namespace Rev {
         // Destroy
         ~Window() {
 
-            delete surface;
-            delete vulkan;
+            //delete surface;
+            //delete vulkan;
 
             delete topLevelDetails;
 

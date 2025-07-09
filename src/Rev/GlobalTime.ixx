@@ -6,7 +6,7 @@ export module Rev.GlobalTime;
 
 export namespace Rev {
 
-    export struct GlobalTime {
+     struct GlobalTime {
 
         // Internal static data
         static inline uint64_t start = 0;
