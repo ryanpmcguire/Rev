@@ -70,8 +70,6 @@ export namespace Rev {
 
             if (!vulkan) { vulkan = new Vulkan::Instance(); }
             surface = new Vulkan::Surface(vulkan->instance, window);
-
-            //topLevelDetails->surface = new WebGpu::Surface(window);
             
             group.push_back(this);
         }

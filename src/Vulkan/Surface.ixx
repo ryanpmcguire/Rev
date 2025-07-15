@@ -11,6 +11,8 @@ export module Vulkan.Surface;
 
 import Vulkan.Device;
 import Vulkan.Swapchain;
+import Vulkan.RenderPass;
+import Vulkan.Framebuffers;
 
 export namespace Vulkan {
 
@@ -28,6 +30,8 @@ export namespace Vulkan {
 
         Device* device = nullptr;
         Swapchain* swapchain = nullptr;
+        RenderPass* renderPass = nullptr;
+        Framebuffers* framebuffers = nullptr;
 
         // Details
         Support support;
@@ -56,6 +60,8 @@ export namespace Vulkan {
             presentMode = getPresentMode();
             extent = getExtent();
 
+            renderPass = new RenderPass(device->device, format);
+
             // Create swapchain
             swapchain = new Swapchain(surface, device->device, format, device->presentQueue, {
 
@@ -74,6 +80,8 @@ export namespace Vulkan {
                 .clipped = VK_TRUE,
                 .oldSwapchain = VK_NULL_HANDLE
             });
+
+            framebuffers = new Framebuffers(device->device, swapchain->views, renderPass->renderPass, extent);
         }
 
         // Destroy
@@ -81,6 +89,8 @@ export namespace Vulkan {
 
             dbg("[Vulkan][Surface] Destroying surface");
 
+            delete framebuffers;
+            delete renderPass;
             delete swapchain;
             delete device;
             

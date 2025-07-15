@@ -41,7 +41,6 @@ export namespace Vulkan {
             this->device = device;
             this->info = info;
             
-
             // Create sync objects
             //--------------------------------------------------
 

@@ -33,6 +33,8 @@ file(GLOB_RECURSE SOURCES
 # Set libraries to link
 set(LINK
     ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
+    ${EXT_DIR}/skia/bin/win/x64/skia.lib
+    ${EXT_DIR}/vulkan/bin/win/x64/vulkan-1.lib
 )
 
 # Set binaries to copy
@@ -47,10 +49,12 @@ add_dependencies(${PROJECT_NAME} EmbedResources)
 # Add debug definition
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
+    SK_GL
+    SK_SUPPORT_GPU=1
 )
 
 # Add include, linked libraries
-target_include_directories(${PROJECT_NAME} PRIVATE ${EXT_DIR})
+target_include_directories(${PROJECT_NAME} PRIVATE ${EXT_DIR} ${EXT_DIR}/skia)
 target_link_libraries(${PROJECT_NAME} ${LINK})
 
 # Copy specified dlls
