@@ -33,12 +33,15 @@ export namespace Vulkan {
         std::vector<VkImage> images;
         std::vector<VkImageView> views;
 
+        uint32_t current = -1;
+
         // Create
         Swapchain(VkSurfaceKHR surface, VkDevice device, VkSurfaceFormatKHR format, VkQueue presentQueue, VkSwapchainCreateInfoKHR info) {
 
             dbg("[Vulkan][Swapchain] Creating swapchain");
 
             this->device = device;
+            this->presentQueue = presentQueue;
             this->info = info;
             
             // Create sync objects
@@ -109,6 +112,11 @@ export namespace Vulkan {
             vkDestroySwapchainKHR(device, swapchain, nullptr);
         }
 
+        void waitForFence() {
+            vkWaitForFences(device, 1, &(inFlightFence), VK_TRUE, UINT64_MAX);
+            vkResetFences(device, 1, &(inFlightFence));
+        }
+
         size_t getImages() {
         
             uint32_t imageCount = 0;
@@ -120,16 +128,15 @@ export namespace Vulkan {
         }
 
         uint32_t getNextImage() {
-        
+
             // Draw with vulkan
             vkWaitForFences(device, 1, &(inFlightFence), VK_TRUE, UINT64_MAX);
             vkResetFences(device, 1, &(inFlightFence));
         
-            uint32_t imageIndex;
-            VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+            VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &current);
             if (result != VK_SUCCESS) { throw std::runtime_error("Failed to acquire swapchain image!"); }
         
-            return imageIndex;
+            return current;
         }
         
         void presentImage(uint32_t imageIndex) {

@@ -13,6 +13,7 @@ import Vulkan.Device;
 import Vulkan.Swapchain;
 import Vulkan.RenderPass;
 import Vulkan.Framebuffers;
+import Vulkan.CommandPool;
 
 export namespace Vulkan {
 
@@ -24,6 +25,10 @@ export namespace Vulkan {
             std::vector<VkPresentModeKHR> presentModes;
         };
 
+        struct DirtyFlags {
+            bool record = true;
+        };
+
         GLFWwindow* window = nullptr;
         VkInstance instance = nullptr;
         VkSurfaceKHR surface = nullptr;
@@ -32,12 +37,15 @@ export namespace Vulkan {
         Swapchain* swapchain = nullptr;
         RenderPass* renderPass = nullptr;
         Framebuffers* framebuffers = nullptr;
+        CommandPool* commandPool = nullptr;
 
         // Details
         Support support;
         VkSurfaceFormatKHR format = { .format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
         VkExtent2D extent;
+
+        DirtyFlags dirtyFlags;
 
         // Create
         Surface(VkInstance instance, GLFWwindow* window) {
@@ -82,6 +90,8 @@ export namespace Vulkan {
             });
 
             framebuffers = new Framebuffers(device->device, swapchain->views, renderPass->renderPass, extent);
+
+            commandPool = new CommandPool(device->device, framebuffers->framebuffers, device->indices.graphicsFamily);
         }
 
         // Destroy
@@ -89,12 +99,83 @@ export namespace Vulkan {
 
             dbg("[Vulkan][Surface] Destroying surface");
 
+            delete commandPool;
             delete framebuffers;
             delete renderPass;
             delete swapchain;
             delete device;
             
             vkDestroySurfaceKHR(instance, surface, nullptr);
+        }
+
+        void record() {
+
+            dbg("[Vulkan][Surface] Recording...");
+
+            for (size_t i = 0; i < commandPool->commandBuffers.size(); i++) {
+
+                VkCommandBufferBeginInfo beginInfo{};
+                beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            
+                if (vkBeginCommandBuffer(commandPool->commandBuffers[i], &beginInfo) != VK_SUCCESS) {
+                    throw std::runtime_error("Failed to begin recording command buffer!");
+                }
+        
+                // Begin
+                VkClearValue clearColor = { {{1.0f, 0.0f, 0.0f, 1.0f}} };
+
+                VkRenderPassBeginInfo renderPassInfo = {
+                    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                    .renderPass = renderPass->renderPass,
+                    .framebuffer = framebuffers->framebuffers[i],
+                    .renderArea = { .offset = {0, 0}, .extent = extent },
+                    .clearValueCount = 1,
+                    .pClearValues = &clearColor
+                };
+            
+                vkCmdBeginRenderPass(commandPool->commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        
+                /*for (Primitive* primitive : primitives) {
+                    primitive->record(commandPool->commandBuffers[i]);
+                }*/
+        
+                vkCmdEndRenderPass(commandPool->commandBuffers[i]);
+            
+                if (vkEndCommandBuffer(commandPool->commandBuffers[i]) != VK_SUCCESS) {
+                    throw std::runtime_error("Failed to record command buffer!");
+                }
+            }
+        }
+
+        void draw() {
+
+            // Call functions as needed based on flags
+            if (dirtyFlags.record) { record(); dirtyFlags.record = false; }
+
+            dbg("[Vulkan][Surface] Drawing...");
+
+            uint32_t imageIndex = swapchain->getNextImage();
+
+            // Submit rendering
+            VkSubmitInfo submitInfo{};
+            VkSemaphore waitSemaphores[] = { swapchain->imageAvailableSemaphore };
+            VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+            VkSemaphore signalSemaphores[] = { swapchain->renderFinishedSemaphore };
+            
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = waitSemaphores;
+            submitInfo.pWaitDstStageMask = waitStages;
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &(commandPool->commandBuffers[imageIndex]);
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.pSignalSemaphores = signalSemaphores;
+
+            if (vkQueueSubmit(device->graphicsQueue, 1, &submitInfo, swapchain->inFlightFence) != VK_SUCCESS) {
+                throw std::runtime_error("Failed to submit draw command buffer!");
+            }
+
+            swapchain->presentImage(imageIndex);
         }
 
         Support getSupport() {

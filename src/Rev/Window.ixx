@@ -106,6 +106,8 @@ export namespace Rev {
             didDraw += 1;
 
             topLevelDetails->surface->draw(event.time);*/
+
+            surface->draw();
         }
 
         // Overridable callbacks
