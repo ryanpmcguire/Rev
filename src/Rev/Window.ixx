@@ -154,8 +154,7 @@ export namespace Rev {
 
         // When the window is resized
         virtual void onResize(int width, int height) {
-            //dbg("Resize: (%i, %i)", width, height);
-            //topLevelDetails->surface->flags.fit = true;
+            surface->flags.resize = true;
         }
 
         // When the window is maximized

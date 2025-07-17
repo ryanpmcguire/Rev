@@ -80,7 +80,7 @@ export namespace Vulkan {
             vkDestroyRenderPass(device, renderPass, nullptr);
         }
 
-        void resize() {
+        void recreate() {
 
             vkDestroyRenderPass(device, renderPass, nullptr);
 

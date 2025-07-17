@@ -54,7 +54,7 @@ export namespace Vulkan {
             }
         }
 
-        void resize(std::vector<VkImageView>& views, VkRenderPass renderPass, VkExtent2D extent) {
+        void recreate(std::vector<VkImageView>& views, VkRenderPass renderPass, VkExtent2D extent) {
 
             // Destroy old
             for (VkFramebuffer framebuffer : framebuffers) {

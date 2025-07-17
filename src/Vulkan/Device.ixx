@@ -118,6 +118,10 @@ export namespace Vulkan {
             vkDestroyDevice(device, nullptr);
         }
 
+        void waitIdle() {
+            vkDeviceWaitIdle(device);
+        }
+
         QueueFamilyIndices getQueueFamilies() {
 
             uint32_t queueFamilyCount = 0;

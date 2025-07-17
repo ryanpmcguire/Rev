@@ -85,6 +85,8 @@ export namespace Vulkan {
                 }
             };
 
+            this->viewInfo = viewInfo;
+
             size_t imageCount = this->getImages();
             views.resize(images.size());
 
@@ -110,6 +112,33 @@ export namespace Vulkan {
             // Destroy views and swapchain
             for (VkImageView& view : views) { vkDestroyImageView(device, view, nullptr); }
             vkDestroySwapchainKHR(device, swapchain, nullptr);
+        }
+
+        // Recreate the swapchain
+        void recreate(VkExtent2D& extent) {
+
+            info.imageExtent = extent;
+
+            // Destroy old
+            for (VkImageView& view : views) { vkDestroyImageView(device, view, nullptr); }
+            vkDestroySwapchainKHR(device, swapchain, nullptr);
+
+            // Recreate swapchain
+            vkCreateSwapchainKHR(device, &info, nullptr, &swapchain);
+
+            // Recreate images
+            //--------------------------------------------------
+
+            size_t imageCount = this->getImages();
+            views.resize(images.size());
+
+            for (size_t i = 0; i < imageCount; i++) {
+
+                viewInfo.image = images[i];
+
+                VkResult err = vkCreateImageView(device, &viewInfo, nullptr, &(views[i]));
+                if (err) { throw std::runtime_error("[Swapchain] Couldn't create image view!"); } 
+            }
         }
 
         void waitForFence() {

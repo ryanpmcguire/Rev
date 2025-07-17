@@ -25,7 +25,8 @@ export namespace Vulkan {
             std::vector<VkPresentModeKHR> presentModes;
         };
 
-        struct DirtyFlags {
+        struct Flags {
+            bool resize = false;
             bool record = true;
         };
 
@@ -45,7 +46,7 @@ export namespace Vulkan {
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
         VkExtent2D extent;
 
-        DirtyFlags dirtyFlags;
+        Flags flags;
 
         // Create
         Surface(VkInstance instance, GLFWwindow* window) {
@@ -68,8 +69,6 @@ export namespace Vulkan {
             presentMode = getPresentMode();
             extent = getExtent();
 
-            renderPass = new RenderPass(device->device, format);
-
             // Create swapchain
             swapchain = new Swapchain(surface, device->device, format, device->presentQueue, {
 
@@ -89,8 +88,8 @@ export namespace Vulkan {
                 .oldSwapchain = VK_NULL_HANDLE
             });
 
+            renderPass = new RenderPass(device->device, format);
             framebuffers = new Framebuffers(device->device, swapchain->views, renderPass->renderPass, extent);
-
             commandPool = new CommandPool(device->device, framebuffers->framebuffers, device->indices.graphicsFamily);
         }
 
@@ -99,6 +98,8 @@ export namespace Vulkan {
 
             dbg("[Vulkan][Surface] Destroying surface");
 
+            device->waitIdle();
+
             delete commandPool;
             delete framebuffers;
             delete renderPass;
@@ -106,6 +107,22 @@ export namespace Vulkan {
             delete device;
             
             vkDestroySurfaceKHR(instance, surface, nullptr);
+        }
+
+        void resize() {
+
+            dbg("[Vulkan][Surface] Resizing...");
+
+            device->waitIdle();
+
+            extent = getExtent();
+
+            swapchain->recreate(extent);
+            renderPass->recreate();
+            framebuffers->recreate(swapchain->views, renderPass->renderPass, extent);
+            commandPool->recreate(framebuffers->framebuffers);
+
+            flags.record = true;
         }
 
         void record() {
@@ -150,7 +167,8 @@ export namespace Vulkan {
         void draw() {
 
             // Call functions as needed based on flags
-            if (dirtyFlags.record) { record(); dirtyFlags.record = false; }
+            if (flags.resize) { resize(); flags.resize = false; }
+            if (flags.record) { record(); flags.record = false; }
 
             dbg("[Vulkan][Surface] Drawing...");
 
