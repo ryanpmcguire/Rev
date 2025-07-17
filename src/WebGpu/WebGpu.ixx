@@ -493,7 +493,7 @@ export namespace WebGpu {
         // Record all primitives
         void recordCompute() {
 
-            dbg("[WebGpu] Recording");
+            dbg("[WebGpu] Recording compute");
 
             if (computePass) { delete computePass; }
             computePass = new ComputePass(device, {});
@@ -512,6 +512,8 @@ export namespace WebGpu {
         }
 
         void recordBundle() {
+
+            dbg("[WebGpu] Recording bundle");
 
             if (renderBundle) { delete renderBundle; }
 
@@ -537,6 +539,8 @@ export namespace WebGpu {
         }
 
         void recordRender() {
+
+            dbg("[WebGpu] Recording render");
 
             if (renderPass) { delete renderPass; }
 
