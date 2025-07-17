@@ -111,33 +111,33 @@ export namespace WebGpu {
 
         void record(WGPUComputePassEncoder& pass) override {
 
-            //transform->bind(pass);
-            //boxDataBuffer->bind(pass);
-            //shared.pipeline->bind(pass);
+            transform->bind(pass);
+            boxDataBuffer->bind(pass);
+            shared.pipeline->bind(pass);
 
-            //wgpuComputePassEncoderDispatchWorkgroups(pass, 1, 1, 1);
+            wgpuComputePassEncoderDispatchWorkgroups(pass, 1, 1, 1);
         }
 
         // Record commands
         void record(WGPURenderPassEncoder& pass) override {
 
-            //transform->bind(pass);
-            //boxDataBuffer->bind(pass);
-            //vertices->bind(pass);
-            //shared.pipeline->bind(pass);
+            transform->bind(pass);
+            boxDataBuffer->bind(pass);
+            vertices->bind(pass);
+            shared.pipeline->bind(pass);
             
-            //wgpuRenderPassEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
+            wgpuRenderPassEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
         }
 
         // Record commands
         void record(WGPURenderBundleEncoder& pass) override {
 
-            //transform->bind(pass);
-            //boxDataBuffer->bind(pass);
-            //vertices->bind(pass);
-            //shared.pipeline->bind(pass);
+            transform->bind(pass);
+            boxDataBuffer->bind(pass);
+            vertices->bind(pass);
+            shared.pipeline->bind(pass);
             
-            //wgpuRenderBundleEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
+            wgpuRenderBundleEncoderDraw(pass, uint32_t(vertices->members.size()), 1, 0, 0);
         }
     };
 }

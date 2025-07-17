@@ -459,14 +459,14 @@ export namespace WebGpu {
 
             if (didResize) {
                 dbg("[WebGpu] Resized images");
-                flags.record = true;
+                //flags.record = true;
             }
         }
 
         // Compute all primitives
         void compute(uint32_t time) {
 
-            dbg("[WebGpu] Computing");
+            //dbg("[WebGpu] Computing");
 
             if (primitives.empty()) { flags.compute = false; return; }
 
@@ -484,7 +484,7 @@ export namespace WebGpu {
         // Sync all primitives
         void sync(uint32_t time) {
 
-            dbg("[WebGpu] Syncing");
+            //dbg("[WebGpu] Syncing");
 
             for (Primitive* primitive : dirtyPrimitives) {
                 primitive->sync(device->device, time);
@@ -496,7 +496,7 @@ export namespace WebGpu {
         // Record all primitives
         void recordCompute() {
 
-            dbg("[WebGpu] Recording Compute Commands");
+            //dbg("[WebGpu] Recording Compute Commands");
 
             if (computePass) { delete computePass; }
             computePass = new ComputePass(device, {});
@@ -518,7 +518,7 @@ export namespace WebGpu {
 
         void recordBundle() {
 
-            dbg("[WebGpu] Recording Draw Commands");
+            //dbg("[WebGpu] Recording Draw Commands");
 
             if (renderBundle) { delete renderBundle; }
 
@@ -585,7 +585,7 @@ export namespace WebGpu {
             recordCompute();
             recordRender();
 
-            dbg("[WebGpu] Drawing");
+            //dbg("[WebGpu] Drawing");
             computePass->submit();
             renderPass->submit();
             
@@ -596,7 +596,7 @@ export namespace WebGpu {
             TextureAndView swapchainTarget = getNextTextureView();
             if (!swapchainTarget.texture || !swapchainTarget.view) return;
 
-            dbg("[WebGpu] Copying");
+            //dbg("[WebGpu] Copying");
 
             // Command encoder to copy the texture
             WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device->device, nullptr);
