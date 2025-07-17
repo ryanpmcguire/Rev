@@ -7,9 +7,8 @@ module;
 
 export module Rev.Window;
 
-import Vulkan.Instance;
-import Vulkan.Surface;
 import Rev.Element;
+import Rev.CanvasOpenGL;
 
 export namespace Rev {
 
@@ -28,10 +27,8 @@ export namespace Rev {
 
         // Glfw
         GLFWwindow* window = nullptr;
+        Canvas* canvas;
         Details details;
-
-        inline static Vulkan::Instance* vulkan = nullptr;
-        Vulkan::Surface* surface = nullptr;
 
         bool shouldClose = false;
 
@@ -46,7 +43,13 @@ export namespace Rev {
             //--------------------------------------------------
 
             // Create window
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            //glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+            // Set OpenGL context hints
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
             glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
             window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);
             glfwSetWindowUserPointer(window, this);
@@ -65,11 +68,10 @@ export namespace Rev {
             // Mouse / keyboard callbacks
             glfwSetMouseButtonCallback(window, handleMouseButton);
 
-            // WebGpu
+            // Canvas
             //--------------------------------------------------
 
-            if (!vulkan) { vulkan = new Vulkan::Instance(); }
-            surface = new Vulkan::Surface(vulkan->instance, window);
+            canvas = new Canvas(window);
             
             group.push_back(this);
         }
@@ -77,9 +79,7 @@ export namespace Rev {
         // Destroy
         ~Window() {
 
-            delete surface;
-            delete vulkan;
-
+            delete canvas;
             delete topLevelDetails;
 
             glfwDestroyWindow(window);
@@ -107,7 +107,7 @@ export namespace Rev {
 
             topLevelDetails->surface->draw(event.time);*/
 
-            surface->draw();
+            canvas->draw();
         }
 
         // Overridable callbacks
@@ -154,7 +154,7 @@ export namespace Rev {
 
         // When the window is resized
         virtual void onResize(int width, int height) {
-            surface->flags.resize = true;
+            canvas->flags.resize = true;
         }
 
         // When the window is maximized

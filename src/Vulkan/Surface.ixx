@@ -25,11 +25,6 @@ export namespace Vulkan {
             std::vector<VkPresentModeKHR> presentModes;
         };
 
-        struct Flags {
-            bool resize = false;
-            bool record = true;
-        };
-
         GLFWwindow* window = nullptr;
         VkInstance instance = nullptr;
         VkSurfaceKHR surface = nullptr;
@@ -45,8 +40,6 @@ export namespace Vulkan {
         VkSurfaceFormatKHR format = { .format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
         VkExtent2D extent;
-
-        Flags flags;
 
         // Create
         Surface(VkInstance instance, GLFWwindow* window) {
@@ -121,8 +114,6 @@ export namespace Vulkan {
             renderPass->recreate();
             framebuffers->recreate(swapchain->views, renderPass->renderPass, extent);
             commandPool->recreate(framebuffers->framebuffers);
-
-            flags.record = true;
         }
 
         void record() {
@@ -165,10 +156,6 @@ export namespace Vulkan {
         }
 
         void draw() {
-
-            // Call functions as needed based on flags
-            if (flags.resize) { resize(); flags.resize = false; }
-            if (flags.record) { record(); flags.record = false; }
 
             dbg("[Vulkan][Surface] Drawing...");
 
