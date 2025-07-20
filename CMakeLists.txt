@@ -21,6 +21,7 @@ add_custom_command(
     DEPENDS ${RCS_DIR}/embed.sh
     COMMENT "Embedding resources with embed.sh"
 )
+
 add_custom_target(EmbedResources ALL DEPENDS ${RCS_DIR}/.modules/timestamp)
 
 # Get sources
@@ -33,7 +34,7 @@ file(GLOB_RECURSE SOURCES
 # Set libraries to link
 set(LINK
     ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
-    ${EXT_DIR}/skia/bin/win/x64/skia.lib
+    ${EXT_DIR}/glew/bin/win/x64/glew32.lib
     ${EXT_DIR}/vulkan/bin/win/x64/vulkan-1.lib
 )
 
@@ -53,9 +54,11 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     SK_SUPPORT_GPU=1
 )
 
+find_package(OpenGL REQUIRED)
+
 # Add include, linked libraries
 target_include_directories(${PROJECT_NAME} PRIVATE ${EXT_DIR} ${EXT_DIR}/skia)
-target_link_libraries(${PROJECT_NAME} ${LINK})
+target_link_libraries(${PROJECT_NAME} ${LINK} OpenGL::GL)
 
 # Copy specified dlls
 foreach(copy_file IN LISTS COPY)
