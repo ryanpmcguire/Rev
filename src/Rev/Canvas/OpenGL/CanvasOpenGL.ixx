@@ -2,10 +2,11 @@ module;
 
 #include <glew/glew.h>
 #include <GLFW/glfw3.h>
+#include <dbg.hpp>
 
 export module Rev.CanvasOpenGL;
 
-import Rev.OpenGL.VertexBuffer;
+import Rev.OpenGL.Triangles;
 
 export namespace Rev {
 
@@ -20,7 +21,7 @@ export namespace Rev {
 
         Flags flags;
 
-        VertexBuffer* vb = nullptr;
+        Triangles* triangles = nullptr;
 
         // Create
         Canvas(GLFWwindow* window = nullptr) {
@@ -31,19 +32,21 @@ export namespace Rev {
 
             // 2. Initialize GLEW
             glewExperimental = GL_TRUE; // Enable core profiles
-            if (glewInit() != GLEW_OK) {
-                //std::cerr << "GLEW initialization failed\n";
-                //std::exit(1);
-                bool test = true;
+            GLenum glewStatus = glewInit();
+
+            if (glewStatus != GLEW_OK) {
+                const GLubyte* errorStr = glewGetErrorString(glewStatus);
+                dbg("GLEW init failed: %s\n", errorStr);
+                //std::exit(1); // Optional, but recommended to bail
             }
 
-            vb = new VertexBuffer(100);
+            triangles = new Triangles();
         }
 
         // Destroy
         ~Canvas() {
             
-            delete vb;
+            delete triangles;
         }
 
         void draw() {

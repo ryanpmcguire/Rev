@@ -34,7 +34,7 @@ file(GLOB_RECURSE SOURCES
 # Set libraries to link
 set(LINK
     ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
-    ${EXT_DIR}/glew/bin/win/x64/glew32.lib
+    ${EXT_DIR}/glew/bin/win/x64/glew32s.lib
     ${EXT_DIR}/vulkan/bin/win/x64/vulkan-1.lib
 )
 
@@ -50,8 +50,7 @@ add_dependencies(${PROJECT_NAME} EmbedResources)
 # Add debug definition
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
-    SK_GL
-    SK_SUPPORT_GPU=1
+    GLEW_STATIC
 )
 
 find_package(OpenGL REQUIRED)
