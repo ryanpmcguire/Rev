@@ -65,6 +65,7 @@ export namespace Rev {
             glClear(GL_COLOR_BUFFER_BIT);
 
             // Draw your OpenGL content here
+            triangles->draw();
 
             // Present
             glfwSwapBuffers(window);

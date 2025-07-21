@@ -1,6 +1,6 @@
 module;
 
-export module Rev.Primitive;
+export module Rev.OpenGL.Primitive;
 
 export namespace Rev {
 
@@ -16,14 +16,9 @@ export namespace Rev {
             
         }
 
-        // Record commands
-        virtual void record() {
-
-        }
-
-        // Sync primitive data
-        virtual void sync() {
-
+        // Draw
+        virtual void draw() {
+            
         }
     };
 };

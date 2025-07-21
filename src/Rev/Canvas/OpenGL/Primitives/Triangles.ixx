@@ -1,9 +1,11 @@
 module;
 
+#include <vector>
 #include <glew/glew.h>
 
 export module Rev.OpenGL.Triangles;
 
+import Rev.OpenGL.Primitive;
 import Rev.OpenGL.VertexBuffer;
 import Rev.OpenGL.Pipeline;
 import Rev.OpenGL.Shader;
@@ -12,33 +14,42 @@ import Resources.Shaders.OpenGL.Triangles.Triangles_frag;
 
 export namespace Rev {
 
-    export struct Triangles {
+    export struct Triangles : public Primitive {
 
-        VertexBuffer* vb = nullptr;
         Shader* vert = nullptr;
         Shader* frag = nullptr;
         Pipeline* pipeline = nullptr;
+        VertexBuffer* vertices = nullptr;
 
         // Create
         Triangles() {
 
-            vb = new VertexBuffer(1);
             vert = new Shader(Triangles_vert, GL_VERTEX_SHADER);
             frag = new Shader(Triangles_frag, GL_FRAGMENT_SHADER);
             pipeline = new Pipeline(*vert, *frag);
+            vertices = new VertexBuffer(3);
+
+            vertices->set({
+                {  0.0f,  0.5f },  // top
+                { -0.5f, -0.5f },  // bottom left
+                {  0.5f, -0.5f }   // bottom right
+            });
         }
 
         // Destroy
         ~Triangles() {
 
-            delete vb;
             delete vert;
             delete frag;
             delete pipeline;
+            delete vertices;
         }
 
-        void draw() {
+        void draw() override {
 
+            pipeline->bind();
+            vertices->bind();
+            glDrawArrays(GL_TRIANGLES, 0, 3);
         }
     };
 };
