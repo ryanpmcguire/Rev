@@ -17,7 +17,7 @@ export namespace Rev {
         GLuint vaoID = 0;
         GLuint bufferID = 0;
 
-        Vertex* data = nullptr;
+        void* data = nullptr;
         size_t size = 0;
 
         VertexBuffer(size_t num) {
@@ -38,11 +38,11 @@ export namespace Rev {
             );
 
             // Map it
-            data = static_cast<Vertex*>(glMapBufferRange(GL_ARRAY_BUFFER, 0, size,
+            data = glMapBufferRange(GL_ARRAY_BUFFER, 0, size,
                 GL_MAP_WRITE_BIT |
                 GL_MAP_PERSISTENT_BIT |
                 GL_MAP_COHERENT_BIT
-            ));
+            );
 
             // Configure vertex attribute inside VAO
             glEnableVertexAttribArray(0);
