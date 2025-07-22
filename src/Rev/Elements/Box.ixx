@@ -10,6 +10,7 @@ import Rev.Style;
 import Rev.Rect;
 
 import Rev.OpenGL.Rectangle;
+import Rev.OpenGL.Lines;
 
 export namespace Rev {
 
@@ -18,15 +19,18 @@ export namespace Rev {
     struct Box : public Element {
 
         Rectangle* rectangle = nullptr;
+        Lines* lines = nullptr;
 
         // Create
         Box(Element* parent) : Element(parent) {
             rectangle = new Rectangle();
+            lines = new Lines(4);
         }
 
         // Destroy
         ~Box() {
             delete rectangle;
+            delete lines;
         }
 
         void computePrimitives(Event& e) override {
@@ -64,7 +68,14 @@ export namespace Rev {
         }
 
         void draw(Event& e) override {
-            rectangle->draw();
+            //rectangle->draw();
+
+            lines->dirty = true;
+            lines->points = {
+                {50, 50}, {100, 100}, {200, 50}, {300, 500}
+            };
+
+            lines->draw();
         }
 
         // Events

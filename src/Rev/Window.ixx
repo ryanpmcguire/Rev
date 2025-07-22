@@ -48,7 +48,7 @@ export namespace Rev {
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-            //glfwWindowHint(GLFW_SAMPLES, 4); // 4x MSAA
+            glfwWindowHint(GLFW_SAMPLES, 16); // 4x MSAA
             glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
 
             window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);

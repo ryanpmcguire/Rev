@@ -93,22 +93,25 @@ export namespace Rev {
             delete databuff;
         }
 
+        void compute() {
+
+            Data& data = (*this->data);
+
+            float& l = data.rect.x;
+            float& t = data.rect.y;
+            float r = l + data.rect.w;
+            float b = t + data.rect.h;
+
+            vertices->set({
+                {l, t}, {r, t},
+                {r, b}, {l, b}
+            });
+        }
+
         void draw() override {
 
             if (dirty) {
-
-                Data& data = (*this->data);
-
-                float& l = data.rect.x;
-                float& t = data.rect.y;
-                float r = l + data.rect.w;
-                float b = t + data.rect.h;
-
-                vertices->set({
-                    {l, t}, {r, t},
-                    {r, b}, {l, b}
-                });
-
+                this->compute();
                 dirty = false;
             }
          

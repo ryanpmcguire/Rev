@@ -63,6 +63,10 @@ export namespace Rev {
             }
         }
 
+        Vertex* verts() {
+            return static_cast<Vertex*>(data);
+        }
+
         void set(std::vector<Vertex> newVertices) {
             memcpy(data, newVertices.data(), size);
         }
