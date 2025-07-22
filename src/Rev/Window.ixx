@@ -8,7 +8,7 @@ module;
 export module Rev.Window;
 
 import Rev.Element;
-import Rev.CanvasOpenGL;
+import Rev.OpenGL.Canvas;
 
 export namespace Rev {
 
@@ -27,7 +27,6 @@ export namespace Rev {
 
         // Glfw
         GLFWwindow* window = nullptr;
-        Canvas* canvas;
         Details details;
 
         bool shouldClose = false;
@@ -72,7 +71,7 @@ export namespace Rev {
             // Canvas
             //--------------------------------------------------
 
-            canvas = new Canvas(window);
+            topLevelDetails->canvas = new Canvas(window);
             
             group.push_back(this);
         }
@@ -80,7 +79,7 @@ export namespace Rev {
         // Destroy
         ~Window() {
 
-            delete canvas;
+            delete topLevelDetails->canvas;
             delete topLevelDetails;
 
             glfwDestroyWindow(window);
@@ -89,11 +88,9 @@ export namespace Rev {
         // Draw
         //--------------------------------------------------
 
-        int didDraw = 0;
+        void draw(Event& e) override {
 
-        void draw() {
-
-            /*event.resetBeforeDispatch();
+            event.resetBeforeDispatch();
 
             // Recompute dirty elements
             for (Element* element : topLevelDetails->dirtyElements) {
@@ -101,14 +98,13 @@ export namespace Rev {
                 this->computePrimitives(event);
             }
 
-            // Resize but do not clear or realloc dirty elements
-            topLevelDetails->dirtyElements.resize(0);
+            topLevelDetails->dirtyElements.clear();
 
-            didDraw += 1;
+            topLevelDetails->canvas->draw();
 
-            topLevelDetails->surface->draw(event.time);*/
+            Element::draw(e);
 
-            canvas->draw();
+            topLevelDetails->canvas->flush();
         }
 
         // Overridable callbacks
@@ -123,7 +119,7 @@ export namespace Rev {
         virtual void onRefresh() {
             //dbg("Refresh");
 
-            this->draw();
+            this->draw(event);
         }
 
         // When the content scale changes
@@ -150,12 +146,12 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            this->draw();
+            this->draw(event);
         }
 
         // When the window is resized
         virtual void onResize(int width, int height) {
-            canvas->flags.resize = true;
+            topLevelDetails->canvas->flags.resize = true;
         }
 
         // When the window is maximized
@@ -222,7 +218,7 @@ export namespace Rev {
             if (action == ButtonAction::Press) { this->mouseDown(event); }
 
             if (event.causedRefresh) {
-                this->draw();
+                this->draw(event);
             }
         }
 

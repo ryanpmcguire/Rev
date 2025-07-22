@@ -9,25 +9,24 @@ import Rev.Element;
 import Rev.Style;
 import Rev.Rect;
 
+import Rev.OpenGL.Rectangle;
+
 export namespace Rev {
 
     //using namespace WebGpu;
 
     struct Box : public Element {
 
-        //RoundedBox* roundedBox = nullptr;
+        Rectangle* rectangle = nullptr;
 
-        // Test variable
-        bool shouldRound = false;
-        
         // Create
         Box(Element* parent) : Element(parent) {
-            //roundedBox = new RoundedBox(topLevelDetails->surface);
+            rectangle = new Rectangle();
         }
 
         // Destroy
         ~Box() {
-            //delete roundedBox;
+            delete rectangle;
         }
 
         void computePrimitives(Event& e) override {
@@ -43,29 +42,29 @@ export namespace Rev {
             // Box data
             //--------------------------------------------------
 
-            //RoundedBox::BoxData& boxData = roundedBox->boxData;
+            Rectangle::Data& data = *rectangle->data;
 
             //roundedBox->boxDataBuffer->dirty = true;
-            /*roundedBox->boxData = {
+            data = {
 
-                // Rect
-                rect.x, rect.y,
-                rect.w, rect.h,
+                .rect = {
+                    rect.x, rect.y,
+                    rect.w, rect.h
+                },
 
-                // Borders
-                styleRef.border.tl.radius.val + 1, styleRef.border.tr.radius.val + 1,
-                styleRef.border.bl.radius.val + 1, styleRef.border.br.radius.val + 1,
-
-                // Color
-                0, 0, 1, 1,
-
-                // Transition
-                e.time, 10000
-            };*/
-
-            //topLevelDetails->surface->dirtyPrimitives.push_back(roundedBox);
+                .color = { 1, 1, 1, 1 },
+                
+                .corners = {
+                    styleRef.border.tl.radius.val, styleRef.border.tr.radius.val,
+                    styleRef.border.bl.radius.val, styleRef.border.br.radius.val
+                }
+            };
 
             Element::computePrimitives(e);
+        }
+
+        void draw(Event& e) override {
+            rectangle->draw();
         }
 
         // Events
@@ -89,6 +88,8 @@ export namespace Rev {
             }
         };
 
+        bool shouldRound = false;
+        
         void mouseDown(Event& e) override {
 
             // Toggle

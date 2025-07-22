@@ -4,7 +4,7 @@ module;
 
 export module Rev.Element;
 
-//import WebGpu;
+import Rev.OpenGL.Canvas;
 
 import Rev.Rect;
 import Rev.Style;
@@ -18,6 +18,7 @@ export namespace Rev {
         struct TopLevelDetails {
             //WebGpu::Surface* surface;
             std::vector<Element*> dirtyElements;
+            Canvas* canvas = nullptr;
         };
 
         TopLevelDetails* topLevelDetails = nullptr;
@@ -68,6 +69,13 @@ export namespace Rev {
 
             for (Element* child : children) {
                 child->computePrimitives(e);
+            }
+        }
+
+        virtual void draw(Event& e) {
+
+            for (Element* child : children) {
+                child->draw(e);
             }
         }
 

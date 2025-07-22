@@ -1,13 +1,15 @@
 module;
 
+#include <vector>
 #include <glew/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <dbg.hpp>
 
-export module Rev.CanvasOpenGL;
+export module Rev.OpenGL.Canvas;
 
+import Rev.OpenGL.Primitive;
 import Rev.OpenGL.UniformBuffer;
 import Rev.OpenGL.Rectangle;
 
@@ -25,7 +27,11 @@ export namespace Rev {
         Flags flags;
 
         UniformBuffer* transform = nullptr;
+        
         Rectangle* rectangle = nullptr;
+        Rectangle* rect2 = nullptr;
+
+        std::vector<Primitive*> primitives;
 
         // Create
         Canvas(GLFWwindow* window = nullptr) {
@@ -48,8 +54,6 @@ export namespace Rev {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-            rectangle = new Rectangle();
-
             transform = new UniformBuffer(sizeof(glm::mat4));
         }
 
@@ -57,6 +61,10 @@ export namespace Rev {
         ~Canvas() {
             
             delete rectangle;
+        }
+
+        void draw(Primitive* primitive) {
+            primitives.push_back(primitive);
         }
 
         void draw() {
@@ -90,9 +98,15 @@ export namespace Rev {
             transform->bind(0);
 
             // Draw your OpenGL content here
-            rectangle->draw();
+            //rectangle->draw();
+            //rect2->draw();
 
-            // Present
+            for (Primitive* primitive : primitives) {
+                primitive->draw();
+            }
+        }
+
+        void flush() {
             glfwSwapBuffers(window);
         }
     };

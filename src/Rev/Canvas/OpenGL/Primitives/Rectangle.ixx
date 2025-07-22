@@ -17,6 +17,17 @@ export namespace Rev {
 
     export struct Rectangle : public Primitive {
 
+        // Shared across instances
+        struct Shared {
+
+            size_t refCount = 0;
+
+            Shader* vert = nullptr;
+            Shader* frag = nullptr;
+            Pipeline* pipeline = nullptr;
+        };
+
+        // Instance-specific data
         struct Data {
 
             struct Rect { float x, y, w, h; };
@@ -28,9 +39,8 @@ export namespace Rev {
             Corners corners;
         };
 
-        Shader* vert = nullptr;
-        Shader* frag = nullptr;
-        Pipeline* pipeline = nullptr;
+        inline static Shared* shared = nullptr;
+
         VertexBuffer* vertices = nullptr;
         UniformBuffer* databuff = nullptr;
 
@@ -40,28 +50,47 @@ export namespace Rev {
         // Create
         Rectangle() {
 
-            vert = new Shader(Rectangle_vert, GL_VERTEX_SHADER);
-            frag = new Shader(Rectangle_frag, GL_FRAGMENT_SHADER);
-            pipeline = new Pipeline(*vert, *frag);
-            vertices = new VertexBuffer(6);
+            // If we're first
+            if (!shared) {
+                
+                shared = new Shared();
+
+                shared->vert = new Shader(Rectangle_vert, GL_VERTEX_SHADER);
+                shared->frag = new Shader(Rectangle_frag, GL_FRAGMENT_SHADER);
+                shared->pipeline = new Pipeline(*(shared->vert), *(shared->frag));
+            }
+
+            shared->refCount += 1;
+
+            vertices = new VertexBuffer(4);
             databuff = new UniformBuffer(sizeof(Data));
             
             data = static_cast<Data*>(databuff->data);
 
             *data = {
                 .rect = { .x = 100, .y = 100, .w = 100, .h = 100 },
-                .color = { .r = 1, .g = 1, .b = 0, .a = 1 },
-                .corners = { 10, 10, 10, 10 }
+                .color = { .r = 1, .g = 1, .b = 1, .a = 1 },
+                .corners = { 5, 10, 15, 25 }
             };
         }
 
         // Destroy
         ~Rectangle() {
 
-            delete vert;
-            delete frag;
-            delete pipeline;
+            shared->refCount -= 1;
+
+            // If we're last
+            if (!shared->refCount) {
+
+                delete shared->pipeline;
+                delete shared->vert;
+                delete shared->frag;
+
+                delete shared;
+            }
+
             delete vertices;
+            delete databuff;
         }
 
         void draw() override {
@@ -76,16 +105,18 @@ export namespace Rev {
                 float b = t + data.rect.h;
 
                 vertices->set({
-                    {t, l}, {t, r}, {b, l},
-                    {b, l}, {t, r}, {b, r}
+                    {l, t}, {r, t},
+                    {r, b}, {l, b}
                 });
+
+                dirty = false;
             }
          
-            pipeline->bind();
+            shared->pipeline->bind();
             vertices->bind();
             databuff->bind(1);
 
-            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
         }
     };
 };
