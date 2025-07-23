@@ -1,5 +1,6 @@
 module;
 
+#include <string>
 #include <vector>
 #include <dbg.hpp>
 
@@ -22,9 +23,9 @@ export namespace Rev {
         Lines* lines = nullptr;
 
         // Create
-        Box(Element* parent) : Element(parent) {
+        Box(Element* parent, std::string name = "Box") : Element(parent, name) {
             rectangle = new Rectangle();
-            lines = new Lines(4);
+            lines = new Lines(10);
         }
 
         // Destroy
@@ -36,12 +37,6 @@ export namespace Rev {
         void computePrimitives(Event& e) override {
 
             Style& styleRef = computed.style;
-
-            // Test rect
-            this->rect = {
-                0, 0,
-                styleRef.size.width.val, styleRef.size.height.val
-            };
             
             // Box data
             //--------------------------------------------------
@@ -56,7 +51,10 @@ export namespace Rev {
                     rect.w, rect.h
                 },
 
-                .color = { 1, 1, 1, 1 },
+                .color = {
+                    styleRef.background.color.r, styleRef.background.color.g,
+                    styleRef.background.color.b, styleRef.background.color.a
+                },
                 
                 .corners = {
                     styleRef.border.tl.radius.val, styleRef.border.tr.radius.val,
@@ -64,18 +62,14 @@ export namespace Rev {
                 }
             };
 
+            rectangle->dirty = true;
+
             Element::computePrimitives(e);
         }
 
         void draw(Event& e) override {
-            //rectangle->draw();
-
-            lines->dirty = true;
-            lines->points = {
-                {50, 50}, {100, 100}, {200, 50}, {300, 500}
-            };
-
-            lines->draw();
+            
+            rectangle->draw();
         }
 
         // Events

@@ -39,6 +39,7 @@ export namespace Rev {
             this->window = window;
 
             glfwMakeContextCurrent(window);
+            glfwSwapInterval(1);
 
             // 2. Initialize GLEW
             glewExperimental = GL_TRUE; // Enable core profiles

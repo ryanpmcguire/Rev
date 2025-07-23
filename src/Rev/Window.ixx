@@ -34,6 +34,7 @@ export namespace Rev {
         // Create
         Window(std::vector<Window*>& group, Details details = {}) {
 
+            this->parent = this;
             this->details = details;
 
             topLevelDetails = new TopLevelDetails();
@@ -85,24 +86,83 @@ export namespace Rev {
             glfwDestroyWindow(window);
         }
 
+        // Layout
+        //--------------------------------------------------
+
+        // Pre-constructed queues of all children
+        std::vector<Element*> topDown;
+        std::vector<Element*> bottomUp;
+
+        // Calculate top-down call order
+        void calcTopDownQueue(Element* element) {
+
+            topDown.push_back(element);
+        
+            for (Element* child : element->children) {
+                calcTopDownQueue(child);
+            }
+        }
+
+        // Calculate bottom-up call order
+        void calcBottomUpQueue(Element* element) {
+
+            for (Element* child : element->children) {
+                calcBottomUpQueue(child);
+            }
+
+            bottomUp.push_back(element);
+        }
+
+        // Calculate top-down / bottom-up call orders
+        void calculateQueues() {
+
+            topDown.clear(); bottomUp.clear();
+            this->calcTopDownQueue(this);
+            this->calcBottomUpQueue(this);
+        }
+
+        // Top-level only
+        void calcFlexLayouts() {
+
+            // Resolve set dims and calculate layout
+            for (Element* element : topDown) { element->resolveNonFlexDims(); }
+            for (Element* element : bottomUp) { element->resolveLayout(); }
+
+            // Resolve flex dims then remeasure layout
+            for (Element* element : bottomUp) { element->promoteFlexDims(); }
+            for (Element* element : topDown) { element->resolveFlexDims(); }
+            for (Element* element : bottomUp) { element->remeasureLayout(); }
+
+            // Final step is to resolve rects (which includes alignment)
+            for (Element* element: topDown) { element->resolveRects(); }
+        }
+
         // Draw
         //--------------------------------------------------
 
         void draw(Event& e) override {
 
-            event.resetBeforeDispatch();
+            dbg("Drawing");
 
-            // Recompute dirty elements
-            for (Element* element : topLevelDetails->dirtyElements) {
-                this->computeStyle(event);
-                this->computePrimitives(event);
-            }
+            event.resetBeforeDispatch();
+            topLevelDetails->dirtyElements.clear();
+
+            this->calculateQueues();
+
+            for (Element* element : topDown) { element->computeStyle(e); }
+         
+            this->calcFlexLayouts();
+
+            for (Element* element : topDown) { element->computePrimitives(e); }
 
             topLevelDetails->dirtyElements.clear();
 
             topLevelDetails->canvas->draw();
 
-            Element::draw(e);
+            for (Element* element : topDown) {
+                if (element == this) { continue; }
+                element->draw(e);
+            }
 
             topLevelDetails->canvas->flush();
         }
@@ -151,6 +211,9 @@ export namespace Rev {
 
         // When the window is resized
         virtual void onResize(int width, int height) {
+
+            this->style.size = { .width = Px(width), .height = Px(height) };
+
             topLevelDetails->canvas->flags.resize = true;
         }
 

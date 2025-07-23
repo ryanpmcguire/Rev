@@ -51,14 +51,53 @@ export namespace Rev {
         }
     };
 
+    Color rgba(float r, float g, float b, float a) {
+        return { r, g, b, a };
+    }
+
+    Color rgb(float r, float g, float b) {
+        return { r, g, b, 1.0 };
+    }
+
     struct Size {
 
-        Dist width, height;
+        // Nominal
+        Dist width;
+        Dist height;
+        
+        // Min / max
+        Dist minWidth, maxWidth;
+        Dist minHeight, maxHeight;
         
         void apply(Size& size) {
             if (size.width) { width = size.width; }
             if (size.height) { height = size.height; }
         }
+    };
+
+    struct LrtbStyle {
+
+        Dist left, maxLeft, minLeft;
+        Dist right, maxRight, minRight;
+        Dist top, maxTop, minTop;
+        Dist bottom, maxBottom, minBottom;
+    };
+
+    enum Axis {
+        Horizontal,
+        Vertical
+    };
+
+    enum Align {
+        Start, End, Center,
+        SpaceAround, SpaceBetween
+    };
+
+    struct Alignment {
+
+        Axis direction = Axis::Vertical;
+        Align horizontal = Align::Start;
+        Align vertical = Align::Start;
     };
 
     struct Background {
@@ -68,6 +107,15 @@ export namespace Rev {
         void apply(Background& background) {
             if (background.color) { color = background.color; }
         }
+    };
+
+    export struct Shadow {
+
+        Color color;
+
+        Dist size;
+        Dist blur;
+        Dist x, y;
     };
 
     struct Border {
@@ -111,8 +159,12 @@ export namespace Rev {
     struct Style {
 
         Size size;
-        Background background;
+        LrtbStyle margin;
+        LrtbStyle padding;
+        Alignment alignment;
         Border border;
+        Background background;
+        Shadow shadow;
 
         int transition = 0; // Transition time
 
@@ -134,4 +186,37 @@ export namespace Rev {
             }
         }
     };
+
+    // For floating-point literals (e.g. 10.5_px)
+    constexpr Dist operator"" _px(long double value) {
+        return { Dist::Type::Abs, static_cast<float>(value) };
+    }
+
+    constexpr Dist operator"" _px(unsigned long long value) {
+        return { Dist::Type::Abs, static_cast<float>(value) };
+    }
+
+    constexpr Dist operator"" _pct(long double value) {
+        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _pct(unsigned long long value) {
+        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _grow(unsigned long long value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _grow(long double value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _shrink(unsigned long long value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _shrink(long double value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
 }
