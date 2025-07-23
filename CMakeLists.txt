@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)  # 4.0 is OK too
 
-project(HelloWorld LANGUAGES CXX)
+project(HelloWorld LANGUAGES CXX OBJCXX)
 
 set(CMAKE_EXPERIMENTAL_CXX_MODULE_CMAKE_API 1)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
@@ -46,6 +46,12 @@ file(GLOB_RECURSE CPP_SOURCES CONFIGURE_DEPENDS
     ${RCS_DIR}/.modules/*.cpp
 )
 
+# Collect sources
+file(GLOB_RECURSE OBJCPP_SOURCES CONFIGURE_DEPENDS
+    ${SRC_DIR}/*.mm
+    ${EXT_DIR}/*.mm
+)
+
 file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
     ${SRC_DIR}/*.ixx
     ${EXT_DIR}/*.ixx
@@ -57,7 +63,7 @@ add_executable(${PROJECT_NAME})
 
 # Add implementation sources
 target_sources(${PROJECT_NAME}
-    PUBLIC ${CPP_SOURCES}
+    PUBLIC ${CPP_SOURCES} ${OBJCPP_SOURCES}
 )
 
 # Add module interface sources
@@ -67,7 +73,7 @@ target_sources(${PROJECT_NAME}
 )
 
 # Link dependencies
-target_include_directories(${PROJECT_NAME} PUBLIC ${EXT_DIR} ${SRC_DIR})
+target_include_directories(${PROJECT_NAME} PUBLIC ${EXT_DIR} ${SRC_DIR} ${EXT_DIR}/metal-cpp)
 target_link_libraries(${PROJECT_NAME} PUBLIC
     ${EXT_DIR}/GLFW/bin/macos/x86_64/libglfw3.a
 )
@@ -77,12 +83,16 @@ if(APPLE)
     find_library(IOKIT_LIBRARY IOKit REQUIRED)
     find_library(CORE_FOUNDATION_LIBRARY CoreFoundation REQUIRED)
     find_library(CORE_VIDEO_LIBRARY CoreVideo REQUIRED)
+    find_library(QUARTZCORE_LIBRARY QuartzCore REQUIRED)
+    find_library(METAL_LIBRARY Metal REQUIRED)
 
     target_link_libraries(HelloWorld PRIVATE
         ${COCOA_LIBRARY}
         ${IOKIT_LIBRARY}
         ${CORE_FOUNDATION_LIBRARY}
         ${CORE_VIDEO_LIBRARY}
+        ${QUARTZCORE_LIBRARY}
+        ${METAL_LIBRARY}
     )
 endif()
 

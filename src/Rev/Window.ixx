@@ -3,12 +3,21 @@ module;
 #include <vector>
 #include <string>
 #include <GLFW/glfw3.h>
+#include <metal/metal.hpp> // metal-cpp
+#include <QuartzCore/CAMetalLayer.h>
+
+struct MetalDrawableInfo {
+    MTL::Drawable* drawable;
+    MTL::Texture* texture;
+};
+
+extern "C" void* createMetalLayer(GLFWwindow* window, void* device);
+extern "C" MetalDrawableInfo getNextDrawableWithTexture(void* metalLayer);
+
 #include <dbg.hpp>
 
 export module Rev.Window;
 
-//import Vulkan.Instance;
-//import Vulkan.Surface;
 import Rev.Event;
 import Rev.Element;
 
@@ -33,6 +42,9 @@ export namespace Rev {
 
         //inline static Vulkan::Instance* vulkan = nullptr;
         //Vulkan::Surface* surface = nullptr;
+        MTL::Device* device = nullptr;
+        MTL::CommandQueue* queue = nullptr;
+        void* layer = nullptr;
 
         bool shouldClose = false;
 
@@ -66,7 +78,7 @@ export namespace Rev {
             // Mouse / keyboard callbacks
             glfwSetMouseButtonCallback(window, handleMouseButton);
 
-            // WebGpu
+            // Graphics Backend
             //--------------------------------------------------
 
             //if (!vulkan) { vulkan = new Vulkan::Instance(); }
@@ -74,6 +86,10 @@ export namespace Rev {
 
             //topLevelDetails->surface = new WebGpu::Surface(window);
             
+            device = MTL::CreateSystemDefaultDevice();
+            queue = device->newCommandQueue();
+            layer = createMetalLayer(window, device->retain());
+
             group.push_back(this);
         }
 
@@ -83,7 +99,11 @@ export namespace Rev {
             //delete surface;
             //delete vulkan;
 
-            delete topLevelDetails;
+            //delete device;
+            //delete queue;
+            //delete layer;
+
+            //delete topLevelDetails;
 
             glfwDestroyWindow(window);
         }
@@ -95,20 +115,31 @@ export namespace Rev {
 
         void draw() {
 
-            /*event.resetBeforeDispatch();
+            using namespace MTL;
 
-            // Recompute dirty elements
-            for (Element* element : topLevelDetails->dirtyElements) {
-                this->computeStyle(event);
-                this->computePrimitives(event);
-            }
+            if (!layer) return;
 
-            // Resize but do not clear or realloc dirty elements
-            topLevelDetails->dirtyElements.resize(0);
+            MetalDrawableInfo info = getNextDrawableWithTexture(layer);
+            if (!info.drawable || !info.texture) return;
 
-            didDraw += 1;
+            // Render pass
+            RenderPassDescriptor* passDesc = RenderPassDescriptor::alloc()->init();
+            auto colorAttachment = passDesc->colorAttachments()->object(0);
+            colorAttachment->setTexture(info.texture);
+            colorAttachment->setLoadAction(LoadActionClear);
+            colorAttachment->setStoreAction(StoreActionStore);
+            colorAttachment->setClearColor(ClearColor::Make(1.0, 0.0, 0.0, 1.0)); // Red
 
-            topLevelDetails->surface->draw(event.time);*/
+            CommandBuffer* commandBuffer = queue->commandBuffer();
+            RenderCommandEncoder* encoder = commandBuffer->renderCommandEncoder(passDesc);
+
+            encoder->endEncoding();
+            commandBuffer->presentDrawable(info.drawable);
+            commandBuffer->commit();
+
+            passDesc->release();
+
+            didDraw++;
         }
 
         // Overridable callbacks
