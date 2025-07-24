@@ -6,16 +6,16 @@ export module Rev.Resolved;
 
 import Rev.Style;
 
-export namespace Rev {
+namespace Rev {
 
-    struct ResolvedDim {
+    export struct ResolvedDim {
 
         // -0.0f means "unset" or "unspecified"
         float val = -0.0f, min = -0.0f, max = -0.0f;
         bool growable = false;
         bool fit = true;
 
-        // Set Abs val
+        // Set Abs value
         void setAbs(Dist& newVal, Dist& newMin, Dist& newMax) {
 
             if (newVal.type == Dist::Type::Abs) { val = newVal.val; fit = false; }
@@ -44,39 +44,48 @@ export namespace Rev {
                 max = val;
             }
 
-            // Clamp vals
+            // Clamp values
             //this->clamp();
         }
 
-        void setNonFlex(Dist& newVal, Dist& newMin, Dist& newMax, float& compare) {
+        // Set Rel to other
+        void setMax(Dist& newMax, float& compareMax) {
+            if (newMax.type == Dist::Type::Abs) { max = newMax.val; }
+            if (newMax.type == Dist::Type::Rel) { max = newMax.val * compareMax; }
+        }
+
+        void setMin(Dist& newMin, float& compareMin) {
+            if (newMin.type == Dist::Type::Abs) { min = newMin.val; }
+            if (newMin.type == Dist::Type::Rel) { min = newMin.val * compareMin; }
+        }
+
+        void setNonFlex(Dist& newVal, Dist& newMin, Dist& newMax, float& compareMin, float& compareMax) {
 
             // Set new val
             switch (newVal.type) {
                 case (Dist::Type::Abs): { val = newVal.val; fit = false; break; }
-                case (Dist::Type::Rel): { val = newVal.val * compare; break; }
+                case (Dist::Type::Rel): { min = newVal.val * compareMin; max = newVal.val * compareMax; break; }
             }
 
             // Set new min (a set minimum means do not fit)
             switch (newMin.type) {
-                case (Dist::Type::Abs): { min = newMin.val;break; }
-                case (Dist::Type::Rel): { min = newMin.val * compare; fit = false; break; }
+                case (Dist::Type::Abs): { min = newMin.val; break; }
+                case (Dist::Type::Rel): { min = newMin.val * compareMin; fit = false; break; }
             }
 
             // Set new val
             switch (newMax.type) {
-                case (Dist::Type::Abs): { max = std::min(newMax.val, compare); break; }
-                case (Dist::Type::Rel): { max = newMax.val * compare; break; }
+                case (Dist::Type::Abs): { max = std::min(newMax.val, compareMax); break; }
+                case (Dist::Type::Rel): { max = newMax.val * compareMax; break; }
             }
 
-            // Any set val means min/max are also set
-            if (val) {
-                min = val;
-                max = val;
-            }
+            // Any set value means min/max are also set
+            if (val && !min) { min = val; }
+            if (val && !max) { max = val; }
         }
 
         // This is a special case, since min/max can't grow - they can only be set as abs/rel
-        void setGrow(Dist& newVal) {
+        void setGrow(Dist& newVal, float& maxGrow) {
 
             if (newVal.type == Dist::Type::Grow) {
 
@@ -84,12 +93,14 @@ export namespace Rev {
                 growable = true;
                 fit = false;
 
-                // If there is no existing max, we set it to a large val
+                if (maxGrow) { max = maxGrow; }
+
+                // If there is no existing max, we set it to a large value
                 if (!max) { max = 999999.0f; }
             }
         }
 
-        // Basically, "suggest" a val to the dimension (conditional override)
+        // Basically, "suggest" a value to the dimension (conditional override)
         void suggest(float newVal, float newMin, float newMax, bool newGrowable) {
 
             //if (!val) { val = newVal; }
@@ -98,10 +109,10 @@ export namespace Rev {
             if (!growable) { growable = newGrowable; }
         }
 
-        // Limit dimension based on resolved min/max vals
+        // Limit dimension based on resolved min/max values
         void clamp() {
             
-            // Restrict val to min/max vals
+            // Restrict val to min/max values
             if (max && val > max) { val = max; }
             if (min && val < min) { val = min; }
 
@@ -132,7 +143,7 @@ export namespace Rev {
         }
     };
 
-    struct ResolvedSize {
+    export struct ResolvedSize {
 
         ResolvedDim w, h;
 
@@ -148,14 +159,24 @@ export namespace Rev {
             h.setRel(size.height, size.minHeight, size.maxHeight, innerHeight);
         }
 
-        void setNonFlex(Size& size, float& innerWidth, float& innerHeight) {
-            w.setNonFlex(size.width, size.minWidth, size.maxWidth, innerWidth);
-            h.setNonFlex(size.height, size.minHeight, size.maxHeight, innerHeight);
+        void setMax(Size& size, float& maxInnerWidth, float& maxInnerHeight) {
+            w.setMax(size.width, maxInnerWidth);
+            h.setMax(size.height, maxInnerHeight);
         }
 
-        void setGrow(Size& size) {
-            w.setGrow(size.width);
-            h.setGrow(size.height);
+        void setMin(Size& size, float& minInnerWidth, float& minInnerHeight) {
+            w.setMin(size.width, minInnerWidth);
+            h.setMin(size.height, minInnerHeight);
+        }
+
+        void setNonFlex(Size& size, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
+            w.setNonFlex(size.width, size.minWidth, size.maxWidth, minInnerWidth, maxInnerWidth);
+            h.setNonFlex(size.height, size.minHeight, size.maxHeight, minInnerHeight, maxInnerHeight);
+        }
+
+        void setGrow(Size& size, float& max) {
+            w.setGrow(size.width, max);
+            h.setGrow(size.height, max);
         }
 
         // Clamp all dims
@@ -185,7 +206,7 @@ export namespace Rev {
         }
     };
 
-    struct ResolvedLrtb {
+    export struct ResolvedLrtb {
 
         ResolvedDim l, r, t, b;
 
@@ -206,17 +227,17 @@ export namespace Rev {
         }
 
         void setNonFlex(LrtbStyle& lrtb, ResolvedSize& size) {
-            l.setNonFlex(lrtb.left, lrtb.minLeft, lrtb.maxLeft, size.w.val);
-            r.setNonFlex(lrtb.right, lrtb.minRight, lrtb.maxRight, size.w.val);
-            t.setNonFlex(lrtb.top, lrtb.minTop, lrtb.maxTop, size.h.val);
-            b.setNonFlex(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom, size.h.val);
+            l.setNonFlex(lrtb.left, lrtb.minLeft, lrtb.maxLeft, size.w.val, size.h.max);
+            r.setNonFlex(lrtb.right, lrtb.minRight, lrtb.maxRight, size.w.val, size.h.max);
+            t.setNonFlex(lrtb.top, lrtb.minTop, lrtb.maxTop, size.h.val, size.h.max);
+            b.setNonFlex(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom, size.h.val, size.h.max);
         }
 
-        void setGrow(LrtbStyle& lrtb) {
-            l.setGrow(lrtb.left);
-            r.setGrow(lrtb.right);
-            t.setGrow(lrtb.top);
-            b.setGrow(lrtb.bottom);
+        void setGrow(LrtbStyle& lrtb, float& max) {
+            l.setGrow(lrtb.left, max);
+            r.setGrow(lrtb.right, max);
+            t.setGrow(lrtb.top, max);
+            b.setGrow(lrtb.bottom, max);
         }
         
         // Clamp all dims
@@ -270,7 +291,7 @@ export namespace Rev {
         }
     };
 
-    struct Resolved {
+    export struct Resolved {
 
         ResolvedSize size;
         ResolvedLrtb mar;

@@ -140,6 +140,11 @@ export namespace Rev {
         // Draw
         //--------------------------------------------------
 
+        void computeStyle(Event& e) override {
+            this->style.size = { .width = Px(details.width), .height = Px(details.height) };
+            Element::computeStyle(e);
+        }
+
         void draw(Event& e) override {
 
             dbg("Drawing");
@@ -212,7 +217,8 @@ export namespace Rev {
         // When the window is resized
         virtual void onResize(int width, int height) {
 
-            this->style.size = { .width = Px(width), .height = Px(height) };
+            details.width = width;
+            details.height = height;
 
             topLevelDetails->canvas->flags.resize = true;
         }

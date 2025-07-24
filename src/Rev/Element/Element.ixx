@@ -62,7 +62,7 @@ export namespace Rev {
         }
 
         // Comptue style
-        void computeStyle(Event& e) {
+        virtual void computeStyle(Event& e) {
 
             // Apply other styles, then own style
             computed.style.apply(styles);
@@ -146,15 +146,26 @@ export namespace Rev {
             // Get maximum inner width/height of parent
             float maxInnerWidth = parent->res.getMaxInner(Axis::Horizontal);
             float maxInnerHeight = parent->res.getMaxInner(Axis::Vertical);
+            
+            float minInnerWidth = parent->res.getMinInner(Axis::Horizontal);
+            float minInnerHeight = parent->res.getMinInner(Axis::Vertical);
+
+            // Hack for window size
+            if (this == parent) {
+                maxInnerWidth = style.size.width.val;
+                maxInnerHeight = style.size.height.val;
+                minInnerWidth = style.size.width.val;
+                minInnerHeight = style.size.height.val;
+            }
 
             // Set dimensions abs or relative to maximum occupiable dims
-            res.size.setNonFlex(style.size, maxInnerWidth, maxInnerHeight);
+            res.size.setNonFlex(style.size, minInnerWidth, minInnerHeight, maxInnerWidth, maxInnerHeight);
             res.mar.setNonFlex(style.margin, res.size);
             res.pad.setNonFlex(style.padding, res.size);
 
-            res.size.setGrow(style.size);
-            res.mar.setGrow(style.margin);
-            res.pad.setGrow(style.padding);
+            res.size.setGrow(style.size, maxInnerWidth);
+            res.mar.setGrow(style.margin, maxInnerWidth);
+            res.pad.setGrow(style.padding, maxInnerWidth);
 
             // Inherit maxima from parent if none
             if (!res.size.w.max) { res.size.w.max = maxInnerWidth; }
