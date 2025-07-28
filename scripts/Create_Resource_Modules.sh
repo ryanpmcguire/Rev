@@ -44,32 +44,34 @@ RESOURCE_MODULE_NAME="Resource"
 # Find and embed all files in Resources/
 find "$INPUT_DIR" -type f ! -path "$OUTPUT_DIR/*" | while read -r FILE; do
     REL_PATH="${FILE#$INPUT_DIR/}"
-    FILE_DIR=$(dirname "$REL_PATH")
-    FILE_NAME=$(basename "$REL_PATH")
+    FILE_DIR="${REL_PATH%/*}"
+    FILE_NAME="${REL_PATH##*/}"
     FILE_BASE="${FILE_NAME%.*}"
     FILE_EXT="${FILE_NAME##*.}"
     BASE_NAME="${FILE_BASE}_${FILE_EXT}"
+    OUT_FILE="$OUTPUT_DIR/$FILE_DIR/$BASE_NAME.ixx"
 
-    SYMBOL_NAME=$(echo "$BASE_NAME" | sed 's/[^a-zA-Z0-9_]/_/g')
-    MODULE_NAME=$(echo "Resources/$FILE_DIR/$BASE_NAME" | sed 's/[^a-zA-Z0-9/]/_/g' | tr '/' '.')
-    OUT_DIR="$OUTPUT_DIR/$FILE_DIR"
-    OUT_FILE="$OUT_DIR/$BASE_NAME.ixx"
-
-    mkdir -p "$OUT_DIR"
-
-    if [[ ! -f "$OUT_FILE" || "$FILE" -nt "$OUT_FILE" ]]; then
-        echo "🔧 Embedding: $REL_PATH → $MODULE_NAME"
-        {
-            echo "export module $MODULE_NAME;"
-            echo
-            echo "import $RESOURCE_MODULE_NAME;"
-            echo
-            echo "inline const unsigned char ${SYMBOL_NAME}_data[] = {"
-            xxd -i "$FILE" | grep -vE '^(unsigned char|unsigned int)'
-            echo
-            echo "export constinit Resource ${SYMBOL_NAME} = { &${SYMBOL_NAME}_data[0], sizeof(${SYMBOL_NAME}_data) };"
-        } > "$OUT_FILE"
-    else
+    # 🟢 Skip unchanged files quickly
+    if [[ -f "$OUT_FILE" && "$FILE" -ot "$OUT_FILE" ]]; then
         echo "✅ Skipping unchanged: $REL_PATH"
+        continue
     fi
+
+    echo "🔧 Embedding: $REL_PATH"
+
+    SYMBOL_NAME="${BASE_NAME//[^a-zA-Z0-9_]/_}"
+    MODULE_NAME=$(echo "Resources/$FILE_DIR/$BASE_NAME" | sed 's/[^a-zA-Z0-9/]/_/g' | tr '/' '.')
+
+    mkdir -p "$OUTPUT_DIR/$FILE_DIR"
+
+    {
+        echo "export module $MODULE_NAME;"
+        echo
+        echo "import $RESOURCE_MODULE_NAME;"
+        echo
+        echo "inline const unsigned char ${SYMBOL_NAME}_data[] = {"
+        xxd -i "$FILE" | grep -vE '^(unsigned char|unsigned int)'
+        echo
+        echo "export constinit Resource ${SYMBOL_NAME} = { &${SYMBOL_NAME}_data[0], sizeof(${SYMBOL_NAME}_data) };"
+    } > "$OUT_FILE"
 done

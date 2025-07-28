@@ -43,6 +43,16 @@ export namespace Rev {
 
             Rectangle::Data& data = *rectangle->data;
 
+            float tl, tr, bl, br;
+
+            float mainRad = styleRef.border.radius.val;
+            tl = tr = bl = br = mainRad;
+
+            if (styleRef.border.tl.radius.val) { tl = styleRef.border.tl.radius.val; }
+            if (styleRef.border.tr.radius.val) { tr = styleRef.border.tr.radius.val; }
+            if (styleRef.border.bl.radius.val) { bl = styleRef.border.bl.radius.val; }
+            if (styleRef.border.br.radius.val) { br = styleRef.border.br.radius.val; }
+
             //roundedBox->boxDataBuffer->dirty = true;
             data = {
 
@@ -57,8 +67,7 @@ export namespace Rev {
                 },
                 
                 .corners = {
-                    styleRef.border.tl.radius.val, styleRef.border.tr.radius.val,
-                    styleRef.border.bl.radius.val, styleRef.border.br.radius.val
+                    tl, tr, bl, br
                 }
             };
 

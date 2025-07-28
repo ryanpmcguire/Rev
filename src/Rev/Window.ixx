@@ -68,6 +68,7 @@ export namespace Rev {
 
             // Mouse / keyboard callbacks
             glfwSetMouseButtonCallback(window, handleMouseButton);
+            glfwSetCursorPosCallback(window, handleCursorPos);
 
             // Canvas
             //--------------------------------------------------
@@ -282,9 +283,22 @@ export namespace Rev {
             event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
 
             event.resetBeforeDispatch();
-            event.propagate = true;
 
             if (action == ButtonAction::Press) { this->mouseDown(event); }
+            if (action == ButtonAction::Release) { this->mouseUp(event); }
+
+            if (event.causedRefresh) {
+                this->draw(event);
+            }
+        }
+
+        void onCursorPos(float x, float y) {
+
+            event.mouse.pos = { x, y };
+
+            this->mouseMove(event);
+
+            this->draw(event);
 
             if (event.causedRefresh) {
                 this->draw(event);
@@ -311,5 +325,6 @@ export namespace Rev {
 
         // Mouse / keyboard callbacks
         static void handleMouseButton(GLFWwindow* win, int button, int action, int mods) { self(win)->onMouseButton(button, action); }
+        static void handleCursorPos(GLFWwindow* win, double xpos, double ypos) { self(win)->onCursorPos(static_cast<float>(xpos), static_cast<float>(ypos)); }
     };
 }

@@ -64,7 +64,7 @@ namespace Rev {
             // Set new val
             switch (newVal.type) {
                 case (Dist::Type::Abs): { val = newVal.val; fit = false; break; }
-                case (Dist::Type::Rel): { min = newVal.val * compareMin; max = newVal.val * compareMax; break; }
+                case (Dist::Type::Rel): { min = newVal.val * compareMin; max = newVal.val * compareMax; fit = false; break; }
             }
 
             // Set new min (a set minimum means do not fit)
@@ -93,7 +93,7 @@ namespace Rev {
                 growable = true;
                 fit = false;
 
-                if (maxGrow) { max = maxGrow; }
+                if (maxGrow && !max) { max = maxGrow; }
 
                 // If there is no existing max, we set it to a large value
                 if (!max) { max = 999999.0f; }
@@ -296,6 +296,7 @@ namespace Rev {
         ResolvedSize size;
         ResolvedLrtb mar;
         ResolvedLrtb pad;
+        ResolvedLrtb pos;
 
         // Clamp all dims
         void clamp() {

@@ -77,10 +77,9 @@ export namespace Rev {
 
     struct LrtbStyle {
 
-        Dist left, maxLeft, minLeft;
-        Dist right, maxRight, minRight;
-        Dist top, maxTop, minTop;
-        Dist bottom, maxBottom, minBottom;
+        Dist left, right, top, bottom;
+        Dist minLeft, minRight, minTop, minBottom;
+        Dist maxLeft, maxRight, maxTop, maxBottom;
     };
 
     enum Axis {
@@ -158,6 +157,7 @@ export namespace Rev {
 
     struct Style {
 
+        LrtbStyle position; bool absolute = false;
         Size size;
         LrtbStyle margin;
         LrtbStyle padding;

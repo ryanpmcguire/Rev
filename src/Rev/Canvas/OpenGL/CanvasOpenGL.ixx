@@ -39,7 +39,7 @@ export namespace Rev {
             this->window = window;
 
             glfwMakeContextCurrent(window);
-            glfwSwapInterval(1);
+            //glfwSwapInterval(1);
 
             // 2. Initialize GLEW
             glewExperimental = GL_TRUE; // Enable core profiles
@@ -93,7 +93,7 @@ export namespace Rev {
             }
 
             // Clear screen (customize as needed)
-            glClearColor(0.1f, 0.1f, 0.2f, 1.0f);
+            glClearColor(1, 1, 1, 1);
             glClear(GL_COLOR_BUFFER_BIT);
 
             transform->bind(0);

@@ -162,7 +162,9 @@ export namespace Rev {
             res.size.setNonFlex(style.size, minInnerWidth, minInnerHeight, maxInnerWidth, maxInnerHeight);
             res.mar.setNonFlex(style.margin, res.size);
             res.pad.setNonFlex(style.padding, res.size);
+            res.pos.setNonFlex(style.position, res.size);
 
+            // Set grow min/max, ignoring pos as that cannot grow
             res.size.setGrow(style.size, maxInnerWidth);
             res.mar.setGrow(style.margin, maxInnerWidth);
             res.pad.setGrow(style.padding, maxInnerWidth);
@@ -175,13 +177,6 @@ export namespace Rev {
         // Resolve layout (bottom up)
         // This is by far the slowest function
         void resolveLayout() {
-
-            // Note - for some reason we MUST do this, even with no children?
-            // Answer: because of the section after resolving the layout
-            // Requires children
-            //if (children.empty()) {
-            //    return;
-            //}
 
             // Reset layout
             layout = Layout();
@@ -259,12 +254,12 @@ export namespace Rev {
             // Inherit minima from children
             //--------------------------------------------------
 
-            if(layout.size.w.min + res.pad.l.min + res.pad.r.min > res.size.w.min) {
+            if(res.size.w.fit && layout.size.w.min + res.pad.l.min + res.pad.r.min > res.size.w.min) {
                 res.size.w.min = layout.size.w.min + res.pad.l.min + res.pad.r.min;
                 res.size.w.max = std::max(res.size.w.min, res.size.w.max);
             }
 
-            if(layout.size.h.min + res.pad.t.min + res.pad.b.min > res.size.h.min) {
+            if(res.size.h.fit && layout.size.h.min + res.pad.t.min + res.pad.b.min > res.size.h.min) {
                 res.size.h.min = layout.size.h.min + res.pad.t.min + res.pad.b.min;
                 res.size.h.max = std::max(res.size.h.min, res.size.h.max);
             }
@@ -300,9 +295,63 @@ export namespace Rev {
         // Resolve grow/shrink
         void resolveFlexDims() {
 
+            // Resolve own padding and position (relative)
+            //--------------------------------------------------
+
+            float width = res.size.w.val;
+            float height = res.size.h.val;
+
+            // Padding
+            if (style.padding.left.type == Dist::Type::Rel) { res.pad.l.val = style.padding.left.val * width; }
+            if (style.padding.right.type == Dist::Type::Rel) { res.pad.r.val = style.padding.right.val * width; }
+            if (style.padding.top.type == Dist::Type::Rel) { res.pad.t.val = style.padding.top.val * height; }
+            if (style.padding.bottom.type == Dist::Type::Rel) { res.pad.b.val = style.padding.bottom.val * height; }
+
+            // Position            
+            if (style.position.left.type == Dist::Type::Rel) { res.pos.l.val = style.position.left.val * width; }
+            if (style.position.right.type == Dist::Type::Rel) { res.pos.r.val = style.position.right.val * width; }
+            if (style.position.top.type == Dist::Type::Rel) { res.pos.t.val = style.position.top.val * height; }
+            if (style.position.bottom.type == Dist::Type::Rel) { res.pos.b.val = style.position.bottom.val * height; }
+
             // Requires children
             if (children.empty()) {
                 return;
+            }
+
+            // Resolve size and margin of children prior to flex grow
+            //--------------------------------------------------
+
+            float innerWidth = res.getInner(Axis::Horizontal);
+            float innerHeight = res.getInner(Axis::Vertical);
+
+            for (Row& row : layout.rows) {
+                
+                row.size.clamp();
+
+                for (Element* member : row.members) {
+                    
+                    Element& elem = *member;
+
+                    // Resolve relative width
+                    if (elem.style.size.width.type == Dist::Type::Rel) {
+                        elem.res.size.w.val = elem.style.size.width.val * innerWidth;
+                    }
+
+                    // Resolve relative height
+                    if (elem.style.size.height.type == Dist::Type::Rel) {
+                        elem.res.size.h.val = elem.style.size.height.val * innerHeight;
+                    }
+
+                    // Margins are resolved by the element width
+                    float elemWidth = elem.res.size.w.val;
+                    float elemHeight = elem.res.size.h.val;
+
+                    // Resolve margin
+                    if (elem.style.margin.left.type == Dist::Type::Rel) { elem.res.mar.l.val = elem.style.margin.left.val * elemWidth; }
+                    if (elem.style.margin.right.type == Dist::Type::Rel) { elem.res.mar.r.val = elem.style.margin.right.val * elemWidth; }
+                    if (elem.style.margin.top.type == Dist::Type::Rel) { elem.res.mar.t.val = elem.style.margin.top.val * elemHeight; }
+                    if (elem.style.margin.bottom.type == Dist::Type::Rel) { elem.res.mar.b.val = elem.style.margin.bottom.val * elemHeight; }
+                }
             }
 
             // Clamp all in layout
@@ -318,6 +367,8 @@ export namespace Rev {
                     member->res.size.clamp();
                 }
             }
+
+            remeasureLayout();
 
             // Grow growable dimensions (horizontal)
             //--------------------------------------------------
@@ -494,6 +545,14 @@ export namespace Rev {
                     member->rect.y = member->res.mar.t.val + row.rect.y;
 
                     runningX += member->rect.w + member->res.mar.l.val + member->res.mar.r.val;
+
+                    // Apply relative positions
+                    //--------------------------------------------------
+
+                    if (member->res.pos.l.val != -0.0f) { member->rect.x += member->res.pos.l.val; }
+                    if (member->res.pos.r.val != -0.0f) { member->rect.x += member->res.pos.r.val; }
+                    if (member->res.pos.t.val != -0.0f) { member->rect.y += member->res.pos.t.val; }
+                    if (member->res.pos.b.val != -0.0f) { member->rect.y += member->res.pos.b.val; }
                 }
 
                 runningY += row.rect.h;
@@ -502,6 +561,12 @@ export namespace Rev {
 
         // Event
         //--------------------------------------------------
+
+        enum State {
+            None, Hover, Press, Drag, Focus
+        };
+
+        State state;
 
         virtual void refresh(Event& e) {
 
@@ -524,6 +589,35 @@ export namespace Rev {
                 if (child->contains(e)) { child->mouseDown(e); }
                 if (!e.propagate) { break; }
             }
+        }
+
+        virtual void mouseUp(Event& e) {
+
+            for (Element* child : children) {
+                if (child->contains(e)) { child->mouseUp(e); }
+                if (!e.propagate) { break; }
+            }
+        }
+
+        virtual void mouseMove(Event& e) {
+
+            // Am I 
+
+            // Propagate
+            for (Element* child : children) {
+                if (child->contains(e)) { child->mouseMove(e); }
+                if (!e.propagate) { break; }
+            }
+        }
+
+        // These do not propagate
+        virtual void mouseEnter(Event& e) {
+
+        }
+
+        // These do not propagate
+        virtual void mouseLeave(Event& e) {
+
         }
     };
 }
