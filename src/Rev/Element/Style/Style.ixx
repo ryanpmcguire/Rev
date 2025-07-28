@@ -155,6 +155,20 @@ export namespace Rev {
         }
     };
 
+    enum Cursor {
+        Unset,
+        Arrow,
+        Caret,
+        Crosshair,
+        Hand,
+        NotAllowed,
+        ArrowsHorizontal,
+        ArrowsVertical,
+        ArrowsDiagonalUp,
+        ArrowsDiagonalDown,
+        ArrowsOmni
+    };
+
     struct Style {
 
         LrtbStyle position; bool absolute = false;
@@ -165,6 +179,7 @@ export namespace Rev {
         Border border;
         Background background;
         Shadow shadow;
+        Cursor cursor;
 
         int transition = 0; // Transition time
 

@@ -1,5 +1,7 @@
 module;
 
+#include <algorithm>
+
 export module Rev.Slider;
 
 import Rev.Element;
@@ -51,7 +53,7 @@ export namespace Rev {
         SliderData data;
 
         // Create
-        Slider(Element* parent, SliderData sliderData = SliderData()) : Box(parent) {
+        Slider(Element* parent, SliderData sliderData = SliderData()) : Box(parent, "Slider") {
 
             this->data = sliderData;
 
@@ -69,6 +71,34 @@ export namespace Rev {
         // Destroy
         ~Slider() {
 
+        }
+
+        bool setVal(float newVal) {
+
+            // Calc clamped value, check if anything changed
+            float clamped = std::clamp(newVal, data.min, data.max);
+            if (clamped == data.val) { return false; }
+            else { data.val = clamped; return true; }
+        }
+
+        float posToVal(Pos& pos) {
+            return (data.max - data.min) * track->rect.posWithin(pos).x;
+        }
+
+        void mouseDown(Event& e) override {
+
+            float newVal = posToVal(e.mouse.pos);
+            if (setVal(newVal)) { refresh(e); }
+
+            Element::mouseDown(e);
+        }
+
+        void mouseDrag(Event& e) override {
+
+            float newVal = posToVal(e.mouse.pos);
+            if (setVal(newVal)) { refresh(e); }
+
+            Element::mouseDrag(e);
         }
 
         void computeStyle(Event& e) {

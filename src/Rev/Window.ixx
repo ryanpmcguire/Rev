@@ -283,6 +283,12 @@ export namespace Rev {
             event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
 
             event.resetBeforeDispatch();
+            event.id += 1;
+
+            switch (button) {
+                case (MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
+                case (MouseButton::Right): { event.mouse.rb.set(action, event.mouse.pos); break; }
+            }
 
             if (action == ButtonAction::Press) { this->mouseDown(event); }
             if (action == ButtonAction::Release) { this->mouseUp(event); }
@@ -295,6 +301,7 @@ export namespace Rev {
         void onCursorPos(float x, float y) {
 
             event.mouse.pos = { x, y };
+            event.resetBeforeDispatch();
 
             this->mouseMove(event);
 
