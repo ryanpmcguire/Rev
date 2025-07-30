@@ -13,8 +13,8 @@ export namespace Rev {
 
         static inline Style sliderStyle = {
 
-            .size = { .width = Grow() },
-            .margin = { 4_px, 4_px },
+            .size = { .width = Grow(), .minWidth = 100_px },
+            .margin = { 4_px, 4_px, 4_px, 4_px },
             .padding = { 6_px, 6_px, 6_px, 6_px },
             .alignment = { Axis::Vertical, Align::Center, Align::Center },
             .border = { .radius = 4_px },

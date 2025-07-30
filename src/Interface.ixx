@@ -4,6 +4,7 @@ export module Interface;
 
 import Rev.Element;
 import Rev.Box;
+import Rev.TextBox;
 
 import Rev.Slider;
 
@@ -21,7 +22,7 @@ export namespace HelloWorld {
             this->style.background.color = Color(0.1, 0.1, 0.1, 1);
             this->style.size = { .width = 100_pct, .height = 100_pct };
 
-            // Red box
+            // Grey box
             Box* greyBox = new Box(this, "RedBox");
             greyBox->style = {
                 .size = { .width = Grow(), .height = Grow(), .maxWidth = 300_px, .maxHeight = 400_px },
@@ -30,12 +31,10 @@ export namespace HelloWorld {
                 .background { .color = Color(1, 1, 1, 0.1) },
             };
 
-            /*for (size_t i = 0; i < 2; i++) {
-                Slider* slider = new Slider(greyBox);
-            }*/
-
             Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
             Slider* sliderB = new Slider(greyBox, { .val = 1.0 });
+
+            TextBox* textBox = new TextBox(greyBox);
         }
 
         // Destroy

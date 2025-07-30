@@ -18,11 +18,15 @@ export namespace Rev {
         GLuint bufferID = 0;
 
         void* data = nullptr;
+        size_t vertSize = sizeof(Vertex);
+        size_t num = 0;
         size_t size = 0;
 
-        VertexBuffer(size_t num) {
+        VertexBuffer(size_t num, size_t vertSize = sizeof(Vertex)) {
 
-            this->size = num * sizeof(Vertex);
+            this->num = num;
+            this->vertSize = vertSize;
+            this->size = num * vertSize;
 
             glGenVertexArrays(1, &vaoID);
             glBindVertexArray(vaoID);
@@ -46,7 +50,7 @@ export namespace Rev {
 
             // Configure vertex attribute inside VAO
             glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+            glVertexAttribPointer(0, vertSize / sizeof(float), GL_FLOAT, GL_FALSE, vertSize, (void*)0);
 
             glBindVertexArray(0);
         }

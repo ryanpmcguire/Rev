@@ -26,9 +26,30 @@ export namespace Rev {
             Shader* vert = nullptr;
             Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
+
+            void create() {
+
+                refCount++;
+
+                // Create resources
+                vert = new Shader(Lines_vert, GL_VERTEX_SHADER);
+                frag = new Shader(Lines_frag, GL_FRAGMENT_SHADER);
+                pipeline = new Pipeline(*(vert), *(frag));
+            }
+
+            void destroy() {
+
+                // Subtract refcount, return if remaining
+                if (refCount--) { return; }
+
+                // Delete resources
+                delete pipeline;
+                delete vert;
+                delete frag;
+            }
         };
 
-        inline static Shared* shared = nullptr;
+        inline static Shared shared;
         VertexBuffer* vertices = nullptr;
         bool dirty = true;
 
@@ -42,17 +63,7 @@ export namespace Rev {
 
             this->num = num;
 
-            // If we're first
-            if (!shared) {
-                
-                shared = new Shared();
-
-                shared->vert = new Shader(Lines_vert, GL_VERTEX_SHADER);
-                shared->frag = new Shader(Lines_frag, GL_FRAGMENT_SHADER);
-                shared->pipeline = new Pipeline(*(shared->vert), *(shared->frag));
-            }
-
-            shared->refCount += 1;
+            shared.create();
 
             maxTriangles = 4 * num - 2;
             maxVertices = maxTriangles * 3;
@@ -65,17 +76,7 @@ export namespace Rev {
         // Destroy
         ~Lines() {
 
-            shared->refCount -= 1;
-
-            // If we're last
-            if (!shared->refCount) {
-
-                delete shared->pipeline;
-                delete shared->vert;
-                delete shared->frag;
-
-                delete shared;
-            }
+            shared.destroy();
 
             delete vertices;
         }
@@ -109,7 +110,7 @@ export namespace Rev {
                 dirty = false;
             }
 
-            shared->pipeline->bind();
+            shared.pipeline->bind();
             vertices->bind();
             glDrawArrays(GL_TRIANGLES, 0, vertexCount);
         }

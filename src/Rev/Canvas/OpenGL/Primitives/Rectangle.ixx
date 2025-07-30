@@ -25,6 +25,27 @@ export namespace Rev {
             Shader* vert = nullptr;
             Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
+
+            void create() {
+
+                refCount++;
+
+                // Create resources
+                vert = new Shader(Rectangle_vert, GL_VERTEX_SHADER);
+                frag = new Shader(Rectangle_frag, GL_FRAGMENT_SHADER);
+                pipeline = new Pipeline(*(vert), *(frag));
+            }
+
+            void destroy() {
+
+                // Subtract refcount, return if remaining
+                if (refCount--) { return; }
+
+                // Delete resources
+                delete pipeline;
+                delete vert;
+                delete frag;
+            }
         };
 
         // Instance-specific data
@@ -39,7 +60,7 @@ export namespace Rev {
             Corners corners;
         };
 
-        inline static Shared* shared = nullptr;
+        inline static Shared shared;
 
         VertexBuffer* vertices = nullptr;
         UniformBuffer* databuff = nullptr;
@@ -50,17 +71,7 @@ export namespace Rev {
         // Create
         Rectangle() {
 
-            // If we're first
-            if (!shared) {
-                
-                shared = new Shared();
-
-                shared->vert = new Shader(Rectangle_vert, GL_VERTEX_SHADER);
-                shared->frag = new Shader(Rectangle_frag, GL_FRAGMENT_SHADER);
-                shared->pipeline = new Pipeline(*(shared->vert), *(shared->frag));
-            }
-
-            shared->refCount += 1;
+            shared.create();
 
             vertices = new VertexBuffer(4);
             databuff = new UniformBuffer(sizeof(Data));
@@ -77,17 +88,7 @@ export namespace Rev {
         // Destroy
         ~Rectangle() {
 
-            shared->refCount -= 1;
-
-            // If we're last
-            if (!shared->refCount) {
-
-                delete shared->pipeline;
-                delete shared->vert;
-                delete shared->frag;
-
-                delete shared;
-            }
+            shared.destroy();
 
             delete vertices;
             delete databuff;
@@ -115,7 +116,7 @@ export namespace Rev {
                 dirty = false;
             }
          
-            shared->pipeline->bind();
+            shared.pipeline->bind();
             vertices->bind();
             databuff->bind(1);
 
