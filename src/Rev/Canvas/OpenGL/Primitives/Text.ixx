@@ -78,7 +78,7 @@ export namespace Rev {
         Data* data = nullptr;
         bool dirty = true;
 
-        std::string content = "Text";
+        std::string content = "HELLO WORLD";
 
         // Create
         Text() {
@@ -87,7 +87,7 @@ export namespace Rev {
 
             font = new Font();
             texture = new Texture(font->bitmap.data, font->bitmap.width, font->bitmap.height, 1);
-            vertices = new VertexBuffer(50, sizeof(CharVertex));
+            vertices = new VertexBuffer(250, sizeof(CharVertex));
             
             databuff = new UniformBuffer(sizeof(Data));
             data = static_cast<Data*>(databuff->data);
@@ -119,7 +119,7 @@ export namespace Rev {
             size_t count = 0;
 
             float x = xPos;
-            float y = yPos;
+            float y = yPos + font->ascentPx;
 
             for (char c : content) {
                 if (c < 32 || c >= 128) continue;
@@ -127,7 +127,7 @@ export namespace Rev {
                 // Ensure space for 6 vertices per character
                 if (count + 6 > max) break;
 
-                stbtt_aligned_quad q = font->getQuad(c, x, y);
+                Font::Quad q = font->getQuad(c, x, y);
 
                 // Triangle 1
                 verts[count++] = { q.x0, q.y0, q.s0, q.t0 };

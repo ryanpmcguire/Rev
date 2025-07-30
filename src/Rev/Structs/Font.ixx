@@ -2,9 +2,10 @@ module;
 
 #include <vector>
 #include <stdexcept>
+#include <cstring>
 
-#define STB_TRUETYPE_IMPLEMENTATION
-#include <stb/stb_truetype.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 export module Rev.Font;
 
@@ -16,111 +17,139 @@ export namespace Rev {
     struct Font {
 
         Resource resource = Roboto_ttf;
+        float size = 50;
 
-        float size = 100;
-        float scale;
+        // FreeType handles
+        FT_Library ft = nullptr;
+        FT_Face face = nullptr;
 
-        stbtt_bakedchar bakedChars[96];
-        stbtt_fontinfo fontInfo;
-        
-        // Unit-based info
-        int ascent, descent, lineGap;
-        std::vector<int> advance, leftBearing;
-
-        // Px-based info
-        float ascentPx, descentPx, lineGapPx;
-        std::vector<float> advancePx, leftBearingPx;
-
-        struct Bitmap {
-            int width = 128, height = 128;
-            size_t size = sizeof(unsigned char) * 128 * 128;
-            unsigned char* data = nullptr;
+        struct Glyph {
+            float advance;
+            float bearingX;
+            float bearingY;
+            float width;
+            float height;
+            float u0, v0, u1, v1; // Texture coords
         };
 
-        Bitmap bitmap;
+        std::vector<Glyph> glyphs;
 
-        Font(Resource resource = Roboto_ttf) {
+        float ascentPx, descentPx, lineGapPx, lineHeightPx;
 
-            this->resource = resource;
+        struct Bitmap {
+            int width = 0, height = 0;
+            size_t size = 0;
+            unsigned char* data = nullptr;
+        } bitmap;
 
-            this->init();
-            this->bake();
+        Font(Resource resource = Roboto_ttf) : resource(resource) {
+            init();
+            bake();
         }
 
         ~Font() {
-
+            if (face) FT_Done_Face(face);
+            if (ft) FT_Done_FreeType(ft);
+            if (bitmap.data) delete[] bitmap.data;
         }
 
         void init() {
+            if (FT_Init_FreeType(&ft))
+                throw std::runtime_error("Failed to initialize FreeType");
 
-            // Init font with scale
-            stbtt_InitFont(&fontInfo, resource.data, 0);
-            scale = stbtt_ScaleForPixelHeight(&fontInfo, size);
+            if (FT_New_Memory_Face(ft, resource.data, static_cast<FT_Long>(resource.size), 0, &face))
+                throw std::runtime_error("Failed to load font from memory");
 
-            // Get vertical metrics
-            //--------------------------------------------------
+            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(size)))
+                throw std::runtime_error("Failed to set font pixel size");
 
-            stbtt_GetFontVMetrics(&fontInfo, &ascent, &descent, &lineGap);
+            ascentPx = face->size->metrics.ascender / 64.0f;
+            descentPx = fabs(face->size->metrics.descender / 64.0f);
+            lineGapPx = (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
+            lineHeightPx = face->size->metrics.height / 64.0f;
 
-            ascentPx = scale * ascent;
-            descentPx = fabs(scale * descent);
-            lineGapPx = scale * lineGap;
-
-            // Get horizontal metrics
-            //--------------------------------------------------
-
-            // Make space for advance and left bearing
-            advance.resize(128); advancePx.resize(128);
-            leftBearing.resize(128); leftBearingPx.resize(128);
-
-            // Measure advance and left bearing for all characters
-            for (int c = 0; c < 128; c++) {
-
-                stbtt_GetCodepointHMetrics(&fontInfo, c, &advance[c], &leftBearing[c]);
-
-                advancePx[c] = scale * advance[c];
-                leftBearingPx[c] = scale * leftBearing[c];
-            }
+            glyphs.resize(256);
         }
 
         void bake() {
+            const int padding = 1;
+            int penX = padding;
+            int penY = padding;
+            int rowHeight = 0;
 
-            int dim = 2048;
+            bitmap.width = 4096;
+            bitmap.height = 4096;
+            bitmap.size = bitmap.width * bitmap.height;
+            bitmap.data = new unsigned char[bitmap.size];
+            std::memset(bitmap.data, 0, bitmap.size);
 
-            while (dim < 4096) {
+            for (char c = 32; c < 127; c++) {
+                if (FT_Load_Char(face, c, FT_LOAD_RENDER))
+                    continue;
 
-                // Resize
-                bitmap.size = sizeof(unsigned char) * dim * dim;
-                bitmap.width = dim; bitmap.height = dim;
+                FT_GlyphSlot g = face->glyph;
+                if (penX + g->bitmap.width + padding >= bitmap.width) {
+                    penX = padding;
+                    penY += rowHeight + padding;
+                    rowHeight = 0;
+                }
 
-                // Realloc
-                if (bitmap.data) { delete bitmap.data; }
-                bitmap.data = new unsigned char[bitmap.size];
-            
-                // Attempt bake
-                int result = stbtt_BakeFontBitmap(
-                    resource.data, 0,
-                    size, bitmap.data,
-                    bitmap.width, bitmap.height,
-                    32, 96, bakedChars
-                );
+                if (penY + g->bitmap.rows >= bitmap.height)
+                    throw std::runtime_error("Font atlas overflowed");
 
-                // Break or double size
-                if (result > 0) { break; }
-                else { dim *= 2; }
+                // Copy glyph bitmap into atlas
+                for (int y = 0; y < g->bitmap.rows; y++) {
+                    for (int x = 0; x < g->bitmap.width; x++) {
+                        int dst = (penX + x) + (penY + y) * bitmap.width;
+                        int src = x + y * g->bitmap.pitch;
+                        bitmap.data[dst] = g->bitmap.buffer[src];
+                    }
+                }
+
+                Glyph& glyph = glyphs[c];
+                glyph.advance = static_cast<float>(g->advance.x) / 64.0f;
+                glyph.bearingX = static_cast<float>(g->bitmap_left);
+                glyph.bearingY = static_cast<float>(g->bitmap_top);
+                glyph.width = static_cast<float>(g->bitmap.width);
+                glyph.height = static_cast<float>(g->bitmap.rows);
+
+                glyph.u0 = static_cast<float>(penX) / bitmap.width;
+                glyph.v0 = static_cast<float>(penY) / bitmap.height;
+                glyph.u1 = static_cast<float>(penX + g->bitmap.width) / bitmap.width;
+                glyph.v1 = static_cast<float>(penY + g->bitmap.rows) / bitmap.height;
+
+                penX += g->bitmap.width + padding;
+                rowHeight = std::max(rowHeight, static_cast<int>(g->bitmap.rows));
             }
 
-            //std::memset(bitmap.data, 100, bitmap.width * bitmap.height);
-
-            // If final dim was too large
-            if (dim > 4096) {
-                throw std::runtime_error("Font size (or glyphs) was/were too large to bake!");
-            }
+            bool test = true;
         }
 
-        stbtt_aligned_quad getQuad(char c, float& x, float& y) const {
-            stbtt_aligned_quad q;
-            stbtt_GetBakedQuad(bakedChars, bitmap.width, bitmap.height, c - 32, &x, &y, &q, 1);
+        // Lookup glyph and calculate quad position and texture coords
+        Glyph getGlyph(char c) const {
+            return glyphs[static_cast<unsigned char>(c)];
+        }
+
+        struct Quad {
+            float x0, y0, s0, t0;
+            float x1, y1, s1, t1;
+        };
+        
+        Quad getQuad(char c, float& x, float& y) const {
+
+            const Glyph& g = glyphs[static_cast<unsigned char>(c)];
+        
+            float x0 = x + g.bearingX;
+            float y0 = y - g.bearingY;
+            float x1 = x0 + g.width;
+            float y1 = y0 + g.height;
+        
+            Quad q = {
+                .x0 = x0, .y0 = y0, .s0 = g.u0, .t0 = g.v0,
+                .x1 = x1, .y1 = y1, .s1 = g.u1, .t1 = g.v1
+            };
+        
+            x += g.advance;
             return q;
         }
     };

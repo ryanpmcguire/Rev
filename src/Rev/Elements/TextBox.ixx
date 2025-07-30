@@ -12,7 +12,7 @@ export namespace Rev {
 
         inline static Style defaultStyle = {
 
-            .size = { .width = Grow(), .height = 20_px, .minWidth = 200_px },
+            .size = { .width = Grow(), .height = 20_px, .minWidth = 100_px },
             .margin = { 4_px, 4_px, 4_px, 4_px },
             .background = { .color = Color(1, 1, 1, 0.1) }
         };
@@ -31,6 +31,13 @@ export namespace Rev {
         ~TextBox() {
 
             delete text;
+        }
+
+        void computeStyle(Event& e) override {
+            
+            style.size.height = Px(int(text->font->lineHeightPx));
+
+            Box::computeStyle(e);
         }
 
         void draw(Event& e) override {
