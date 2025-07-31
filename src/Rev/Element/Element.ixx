@@ -136,6 +136,10 @@ export namespace Rev {
         Row* parentRow = nullptr;
         Resolved res;
 
+        // An optional function to measure dimensions (useful for text)
+        bool measure = false;
+        virtual void measureDims() {}
+
         // TOP DOWN
         // Resolve dims that don't flex (px/pct)
         void resolveNonFlexDims() {
@@ -452,6 +456,11 @@ export namespace Rev {
         }
 
         void remeasureLayout() {
+
+            // Try asking text
+            if (measure) {
+                this->measureDims();
+            }
 
             // Requires children
             if (children.empty()) {

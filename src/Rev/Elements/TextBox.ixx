@@ -11,8 +11,6 @@ export namespace Rev {
     struct TextBox : public Box {
 
         inline static Style defaultStyle = {
-
-            .size = { .width = Grow(), .height = 20_px, .minWidth = 100_px },
             .margin = { 4_px, 4_px, 4_px, 4_px },
             .background = { .color = Color(1, 1, 1, 0.1) }
         };
@@ -23,6 +21,7 @@ export namespace Rev {
         TextBox(Element* parent) : Box(parent, "TextBox") {
 
             style = defaultStyle;
+            measure = true;
 
             text = new Text();
         }
@@ -35,9 +34,23 @@ export namespace Rev {
 
         void computeStyle(Event& e) override {
             
-            style.size.height = Px(int(text->font->lineHeightPx));
+            Text::MinMax minMax = text->measure();
+
+            style.size = {
+                .width = Grow(), .height = 100_px,
+                .minWidth = Px(minMax.minWidth), .maxWidth = Px(minMax.maxWidth),
+                .minHeight = Px(minMax.minHeight)
+            };
 
             Box::computeStyle(e);
+        }
+
+        // Special function for telling layout engine what our height is
+        void measureDims() override {
+
+            text->layout(res.size.w.val);
+
+            res.size.h.min = text->lines.size() * text->font->lineHeightPx;
         }
 
         void draw(Event& e) override {
@@ -46,6 +59,8 @@ export namespace Rev {
 
             text->xPos = rect.x;
             text->yPos = rect.y;
+
+            text->layout(rect.w);
 
             text->draw();
         }

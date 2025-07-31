@@ -72,6 +72,9 @@ export namespace Rev {
         void apply(Size& size) {
             if (size.width) { width = size.width; }
             if (size.height) { height = size.height; }
+            if (size.minWidth) { minWidth = size.minWidth; }
+            if (size.minHeight) { minHeight = size.minHeight; }
+            if (size.maxHeight) { maxHeight = size.maxHeight; }
         }
     };
 

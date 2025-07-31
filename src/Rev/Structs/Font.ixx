@@ -10,75 +10,140 @@ module;
 export module Rev.Font;
 
 import Resource;
-import Resources.Fonts.Roboto.Roboto_ttf;
+import Resources.Fonts.Arial.Arial_ttf;
 
 export namespace Rev {
 
     struct Font {
 
-        Resource resource = Roboto_ttf;
-        float size = 50;
+        // Font details
+        //--------------------------------------------------
+
+        // The font resource
+        Resource resource = Arial_ttf;
 
         // FreeType handles
-        FT_Library ft = nullptr;
+        inline static FT_Library ft = nullptr;
+        inline static size_t users = 0;
         FT_Face face = nullptr;
 
+        // Font attributes
+        float size = 50;
+        float ascentPx, descentPx;
+        float lineGapPx, lineHeightPx;
+
+        // Glyphs
+        //--------------------------------------------------
+
         struct Glyph {
+
+            size_t index;
+
+            float width, height;
+
+            float bearingX, bearingY;
             float advance;
-            float bearingX;
-            float bearingY;
-            float width;
-            float height;
+            
+            float kerning[256] = { 0.0f };
+
             float u0, v0, u1, v1; // Texture coords
         };
 
         std::vector<Glyph> glyphs;
 
-        float ascentPx, descentPx, lineGapPx, lineHeightPx;
+        // Bitmap texture
+        //--------------------------------------------------
 
         struct Bitmap {
-            int width = 0, height = 0;
-            size_t size = 0;
-            unsigned char* data = nullptr;
-        } bitmap;
+            
+            int width, height;
+            size_t size;
 
-        Font(Resource resource = Roboto_ttf) : resource(resource) {
-            init();
-            bake();
+            unsigned char* data = nullptr;
+        };
+
+        Bitmap bitmap;
+
+        Font(Resource resource = Arial_ttf) : resource(resource) {
+            
+            // Initialize freetype if we are the first user
+            if (++users == 1 && FT_Init_FreeType(&ft)) {
+                throw std::runtime_error("Failed to initialize FreeType");
+            }
+
+            // Load font face from memory (resource data)
+            if (FT_New_Memory_Face(ft, resource.data, static_cast<FT_Long>(resource.size), 0, &face)) {
+                throw std::runtime_error("Failed to load font from memory");
+            }
+
+            // Set pixel size
+            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(size))) {
+                throw std::runtime_error("Failed to set font pixel size");
+            }
+
+            glyphs.resize(256);
+
+            this->getFontAttribs();
+            this->bake();
         }
 
         ~Font() {
-            if (face) FT_Done_Face(face);
-            if (ft) FT_Done_FreeType(ft);
-            if (bitmap.data) delete[] bitmap.data;
+
+            // Delete our resources
+            if (face) { FT_Done_Face(face); }
+            if (bitmap.data) { delete[] bitmap.data; }
+
+            // Delete freetype if we are the last user
+            if (--users == 0 && ft) {
+                FT_Done_FreeType(ft);
+            }
         }
 
-        void init() {
-            if (FT_Init_FreeType(&ft))
-                throw std::runtime_error("Failed to initialize FreeType");
+        // Get font face atributes
+        void getFontAttribs() {
 
-            if (FT_New_Memory_Face(ft, resource.data, static_cast<FT_Long>(resource.size), 0, &face))
-                throw std::runtime_error("Failed to load font from memory");
-
-            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(size)))
-                throw std::runtime_error("Failed to set font pixel size");
-
+            // Ascent, descent, line, etc...
             ascentPx = face->size->metrics.ascender / 64.0f;
             descentPx = fabs(face->size->metrics.descender / 64.0f);
             lineGapPx = (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
             lineHeightPx = face->size->metrics.height / 64.0f;
 
-            glyphs.resize(256);
+            // Glyphs
+            //--------------------------------------------------
+
+            for (size_t i = 0; i < 127; i++) {
+                glyphs[i].index = FT_Get_Char_Index(face, static_cast<FT_ULong>(i));
+            }
+
+            // Kerning
+            //--------------------------------------------------
+
+            if (FT_HAS_KERNING(face) ) { return; }
+
+            // Compute for left/right combos
+            for (size_t l = 0; l < 127; l++) {
+                for (size_t r = 0; r < 127; r++) {
+
+                    Glyph& left = glyphs[l];
+                    Glyph& right = glyphs[r];
+
+                    FT_Vector delta = { 0, 0 };
+                    FT_Get_Kerning(face, left.index, right.index, FT_KERNING_DEFAULT, &delta);
+                    
+                    left.kerning[r] = static_cast<float>(delta.x) / 64.0f;
+                }
+            }
         }
 
         void bake() {
+            
             const int padding = 1;
             int penX = padding;
             int penY = padding;
             int rowHeight = 0;
 
-            bitmap.width = 4096;
-            bitmap.height = 4096;
+            bitmap.width = 1024;
+            bitmap.height = 1024;
             bitmap.size = bitmap.width * bitmap.height;
             bitmap.data = new unsigned char[bitmap.size];
             std::memset(bitmap.data, 0, bitmap.size);
@@ -135,10 +200,14 @@ export namespace Rev {
             float x1, y1, s1, t1;
         };
         
-        Quad getQuad(char c, float& x, float& y) const {
+        Quad getQuad(char c, float& x, float& y, char prev = 0) {
 
             const Glyph& g = glyphs[static_cast<unsigned char>(c)];
         
+            float kerning = glyphs[prev].kerning[c];
+
+            x += kerning;
+
             float x0 = x + g.bearingX;
             float y0 = y - g.bearingY;
             float x1 = x0 + g.width;
