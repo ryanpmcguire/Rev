@@ -22,7 +22,7 @@ export namespace Rev {
         size_t num = 0;
         size_t size = 0;
 
-        VertexBuffer(size_t num, size_t vertSize = sizeof(Vertex)) {
+        VertexBuffer(size_t num, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
 
             this->num = num;
             this->vertSize = vertSize;
@@ -51,6 +51,10 @@ export namespace Rev {
             // Configure vertex attribute inside VAO
             glEnableVertexAttribArray(0);
             glVertexAttribPointer(0, vertSize / sizeof(float), GL_FLOAT, GL_FALSE, vertSize, (void*)0);
+
+            if (divisor) {
+                glVertexAttribDivisor(0, divisor);
+            }
 
             glBindVertexArray(0);
         }

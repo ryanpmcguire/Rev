@@ -73,7 +73,12 @@ export namespace Rev {
             Color color;
         };
 
+        struct GlyphData {
+            CharVertex a, b, c, d, e, f, g;
+        };
+
         UniformBuffer* databuff = nullptr;
+        UniformBuffer* glyphData = nullptr;
         Texture* texture = nullptr;
 
         VertexBuffer* vertices = nullptr;
@@ -82,7 +87,7 @@ export namespace Rev {
         Font* font = nullptr;
         Data* data = nullptr;
 
-        std::string content = "This Is A Test Sentence";
+        std::string content = "This Is A Test Sentence.";
 
         struct Line {
             std::string dbg;    // Debug
@@ -101,15 +106,45 @@ export namespace Rev {
 
             shared.create();
 
+            for (size_t i = 0; i < 100000; i++) {
+                content += "This Is A Test Sentence. ";
+            }
+
             font = new Font();
             texture = new Texture(font->bitmap.data, font->bitmap.width, font->bitmap.height, 1);
-            vertices = new VertexBuffer(250, sizeof(CharVertex));
+            vertices = new VertexBuffer(1000000, sizeof(CharVertex), 1);
             databuff = new UniformBuffer(sizeof(Data));
 
             data = static_cast<Data*>(databuff->data);
             *data = {
                 .color = { 1, 1, 1, 1 }
             };
+
+            // Make glyph data ubo
+            //--------------------------------------------------
+
+            glyphData = new UniformBuffer(sizeof(GlyphData) * 128);
+            GlyphData* glyphDataArr = static_cast<GlyphData*>(glyphData->data);
+
+            for (char c = 32; c < 127; c++) {
+
+                float x = 0, y = 0;
+                
+                Font::Quad q = font->getQuad(c, x, y);
+
+                glyphDataArr[c] = {
+
+                    // Triangle 1
+                    { q.x0, q.y0, q.s0, q.t0 },
+                    { q.x1, q.y0, q.s1, q.t0 },
+                    { q.x1, q.y1, q.s1, q.t1 },
+    
+                    // Triangle 2
+                    { q.x0, q.y0, q.s0, q.t0 },
+                    { q.x1, q.y1, q.s1, q.t1 },
+                    { q.x0, q.y1, q.s0, q.t1 }
+                };
+            }
         }
 
         // Destroy
@@ -281,16 +316,18 @@ export namespace Rev {
     
                     Font::Quad q = font->getQuad(c, x, y, prev);
                     prev = c;
+
+                    verts[count++] = { x, y, float(c), 0 };
     
                     // Triangle 1
-                    verts[count++] = { q.x0, q.y0, q.s0, q.t0 };
+                    /*verts[count++] = { q.x0, q.y0, q.s0, q.t0 };
                     verts[count++] = { q.x1, q.y0, q.s1, q.t0 };
                     verts[count++] = { q.x1, q.y1, q.s1, q.t1 };
     
                     // Triangle 2
                     verts[count++] = { q.x0, q.y0, q.s0, q.t0 };
                     verts[count++] = { q.x1, q.y1, q.s1, q.t1 };
-                    verts[count++] = { q.x0, q.y1, q.s0, q.t1 };
+                    verts[count++] = { q.x0, q.y1, q.s0, q.t1 };*/
                 }
             }
 
@@ -308,8 +345,14 @@ export namespace Rev {
             texture->bind(0);  // bind to GL_TEXTURE0
             vertices->bind();
             databuff->bind(1);
+            glyphData->bind(2);
 
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCount));
+            glDrawArraysInstanced(
+                GL_TRIANGLES,
+                0,          // start vertex
+                6,          // 6 vertices per quad
+                vertexCount   // one instance per glyph
+            );
         }
     };
 };

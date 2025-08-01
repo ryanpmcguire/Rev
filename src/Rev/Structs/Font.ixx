@@ -28,7 +28,7 @@ export namespace Rev {
         FT_Face face = nullptr;
 
         // Font attributes
-        float size = 50;
+        float size = 1;
         float ascentPx, descentPx;
         float lineGapPx, lineHeightPx;
 

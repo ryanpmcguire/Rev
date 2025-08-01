@@ -32,18 +32,15 @@ export namespace HelloWorld {
                 .background { .color = Color(1, 1, 1, 0.1) },
             };
 
-            Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
+            /*Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
             Slider* sliderB = new Slider(greyBox, { .val = 1.0 });
 
             sliderA->style.size.minWidth = 100_px;
-            sliderB->style.size.minWidth = 50_px;
+            sliderB->style.size.minWidth = 50_px;*/
 
-            //TextBox* textBox = new TextBox(greyBox);
-            //textBox->style.size = { .width = Grow() };
+            TextBox* textBox = new TextBox(greyBox);
 
-            //TextBox* textBox2 = new TextBox(greyBox);
-
-            Box* testBox = new Box(greyBox, "TestBox");
+            /*Box* testBox = new Box(greyBox, "TestBox");
             testBox->style = {
                 .size = { },
                 .margin = { 4_px, 4_px, 4_px, 4_px },
@@ -77,7 +74,7 @@ export namespace HelloWorld {
                         .margin = { 4_px, 4_px, 4_px, 4_px },
                         .background = { .color = Color(1, 0.5, 0.5, 1.0) }
                     };
-                }    
+                }*/
         }
 
         // Destroy
