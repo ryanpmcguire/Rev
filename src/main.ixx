@@ -12,7 +12,7 @@ using namespace HelloWorld;
 int main() {
 
     Application* application = new Application();
-    Window* window = new Window(application->windows, { 640, 480, "Window 1" });
+    Window* window = new Window(application->windows, { "Window 1", 640, 480 });
 
     Interface* interface = new Interface(window);
 

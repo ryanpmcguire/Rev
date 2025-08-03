@@ -8,6 +8,7 @@ module;
 export module Rev.Window;
 
 import Rev.Element;
+import Rev.Box;
 import Rev.OpenGL.Canvas;
 
 export namespace Rev {
@@ -16,8 +17,10 @@ export namespace Rev {
 
         struct Details {
 
-            int width = 640, height = 480;
             std::string name = "Hello World";
+            
+            int width = 640, height = 480;
+            int x, y;
 
             bool resizable = true;
         };
@@ -50,6 +53,8 @@ export namespace Rev {
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
             glfwWindowHint(GLFW_SAMPLES, 8); // 4x MSAA
+
+            glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
             glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
 
             window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);
@@ -76,6 +81,23 @@ export namespace Rev {
             topLevelDetails->canvas = new Canvas(window);
             
             group.push_back(this);
+
+            // Children
+            //--------------------------------------------------
+
+            Box* upper = new Box(this);
+            upper->style = {
+                .size = { .width = 100_pct, .height = 20_px },
+                .background = { .color = Color(1, 1, 1, 0.1) }
+            };
+
+            upper->onMouseMove([this](Event& e) {
+
+                this->details.x = e.mouse.pos.x;
+                this->details.y = e.mouse.pos.y;
+
+                this->setPos(this->details.x, this->details.y);
+            });
         }
 
         // Destroy
@@ -303,13 +325,44 @@ export namespace Rev {
             event.mouse.pos = { x, y };
             event.resetBeforeDispatch();
 
+            // Dispatch mouse move
             this->mouseMove(event);
+
+            if (targetFlags.drag) {
+                this->mouseDrag(event);
+            }
 
             this->draw(event);
 
             if (event.causedRefresh) {
                 this->draw(event);
             }
+        }
+
+        // Controlling window
+        //--------------------------------------------------
+
+        // Show window and focus
+        void popUp() {
+            glfwShowWindow(window);
+            glfwFocusWindow(window);
+        }
+
+        // Hide (iconify) window
+        void minimize() {
+            glfwIconifyWindow(window);
+        }
+
+        void maximize() {
+            glfwMaximizeWindow(window);
+        }
+
+        void setSize(int width, int height) {
+            glfwSetWindowSize(window, width, height);
+        }
+
+        void setPos(int x, int y) {
+            glfwSetWindowPos(window, x, y);
         }
 
         // Static callbacks for GLFW

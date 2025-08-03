@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <vector>
+#include <ranges>
 #include <functional>
 
 export module Rev.Element;
@@ -138,7 +139,7 @@ export namespace Rev {
 
         // An optional function to measure dimensions (useful for text)
         bool measure = false;
-        virtual void measureDims() {}
+        virtual void measureDims(float maxWidth, float maxHeight) {}
 
         // TOP DOWN
         // Resolve dims that don't flex (px/pct)
@@ -194,36 +195,44 @@ export namespace Rev {
             float maxInnerWidth = res.getMaxInner(Axis::Horizontal);
             float maxInnerHeight = res.getMaxInner(Axis::Vertical);
 
-            float runningWidth = 0;
-            float runningHeight = 0;
+            if (!measure) {
 
-            for (Element* child : children) {
+                float runningWidth = 0;
+                float runningHeight = 0;
 
-                // The minimum size this element can possibly be
-                float minOuterWidth = child->res.getMinOuter(Axis::Horizontal);
-                float minOuterHeight = child->res.getMinOuter(Axis::Vertical);
+                for (Element* child : children) {
 
-                // Should we create a new row, or are we add more?
-                // (In other words, have we exceeded the maximum inner width)
-                if (!row.members.empty() && runningWidth + minOuterWidth > maxInnerWidth) {
-                    
-                    // Push back, create new row
-                    layout.rows.push_back(row);
-                    row = Row();
+                    // The minimum size this element can possibly be
+                    float minOuterWidth = child->res.getMinOuter(Axis::Horizontal);
+                    float minOuterHeight = child->res.getMinOuter(Axis::Vertical);
 
-                    // Reset running values
-                    runningWidth = 0;
-                    runningHeight = 0;
+                    // Should we create a new row, or are we add more?
+                    // (In other words, have we exceeded the maximum inner width)
+                    if (!row.members.empty() && runningWidth + minOuterWidth > maxInnerWidth) {
+                        
+                        // Push back, create new row
+                        layout.rows.push_back(row);
+                        row = Row();
+
+                        // Reset running values
+                        runningWidth = 0;
+                        runningHeight = 0;
+                    }
+
+                    runningWidth += minOuterWidth;
+                    runningHeight = std::max(runningHeight, minOuterHeight);
+
+                    row.members.push_back(child);
                 }
 
-                runningWidth += minOuterWidth;
-                runningHeight = std::max(runningHeight, minOuterHeight);
-
-                row.members.push_back(child);
+                // Add last row that didn't overflow
+                layout.rows.push_back(row);
             }
 
-            // Add last row that didn't overflow
-            layout.rows.push_back(row);
+            // If the element will be responsible for its own layout
+            else {
+                this->measureDims(maxInnerWidth, maxInnerHeight);
+            }
 
             // Mark children as members of layout/row
             //--------------------------------------------------
@@ -457,11 +466,6 @@ export namespace Rev {
 
         void remeasureLayout() {
 
-            // Try asking text
-            if (measure) {
-                this->measureDims();
-            }
-
             // Requires children
             if (children.empty()) {
                 return;
@@ -569,8 +573,7 @@ export namespace Rev {
             }
         }
 
-
-    // Events / handling / propagation
+    // Event callbacks
     //--------------------------------------------------------------------------------
 
     struct ListenerGroup {
@@ -582,8 +585,6 @@ export namespace Rev {
         ListenerGroup(ListenerFunc f) : func(f) {}
     };
 
-    int lastClickId = 0;
-    bool isMouseOverTarget = false;
     std::vector<ListenerGroup> listenerGroups;
 
     // Register a listener for a specific function (used for lookup)
@@ -625,10 +626,6 @@ export namespace Rev {
         }
     }
 
-    bool isDragTarget(Event& e) {
-        return (e.mouse.lb || e.mouse.rb) && this->lastClickId == e.id;
-    }
-
     // Wrapper functions
     void onRefresh(const std::function<void(Event&)>& listener) { this->listen(&Element::refresh, listener); }
     void onMouseDown(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDown, listener); }
@@ -641,14 +638,17 @@ export namespace Rev {
     void onKeyDown(const std::function<void(Event&)>& listener) { this->listen(&Element::keyDown, listener); }
     void onKeyUp(const std::function<void(Event&)>& listener) { this->listen(&Element::keyUp, listener); }
 
-    // Overridable functions
-    virtual void mouseDown(Event& e) { propagateMouseDown(e); }
-    virtual void mouseUp(Event& e) { propagateMouseUp(e); }
-    virtual void mouseMove(Event& e) { propagateMouseMove(e); }
-    virtual void mouseDrag(Event& e) { propagateMouseDrag(e); }
-    virtual void mouseWheel(Event& e) { propagateMouseWheel(e); }
-    virtual void keyDown(Event& e) { propagateKeyDown(e); }
-    virtual void keyUp(Event& e) { propagateKeyUp(e); }
+    // Event propagation
+    //--------------------------------------------------
+
+    struct TargetFlags {
+        bool click = false;
+        bool hover = false;
+        bool focus = false;
+        bool drag = false;
+    };
+
+    TargetFlags targetFlags;
 
     virtual void refresh(Event& e) {
 
@@ -661,92 +661,23 @@ export namespace Rev {
         if (parent && !parent->dirty) { parent->refresh(e); }
     }
 
-    virtual void mouseEnter(Event& e) {
+    virtual void mouseDown(Event& e) {
 
-        /*if (this->shouldDebugRect) {
-            this->debugRect = true;
-            this->refresh(e);
-        }*/
+        // Mouse down event means we are a drag target
+        targetFlags.drag = true;
 
-        this->propagateMouseEnter(e);
-    }
-
-    virtual void mouseLeave(Event& e) {
-
-        /*if (this->shouldDebugRect) {
-            this->debugRect = false;
-            this->refresh(e);
-        }*/
-
-        this->propagateMouseLeave(e);
-    }
-
-    void propagateMouseEnter(Event& e) {
-
-        tell(&Element::mouseEnter, e);
-        if (!e.propagate) { return; }
-
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
-
-            Element* child = *it;
-
-            // Invisible children are ignored
-            //if (!child->visible) { continue; }
-
-            bool containsEvent = child->contains(e.mouse.pos);
-            bool isMouseOverTarget = child->isMouseOverTarget;
-
-            if (containsEvent && !isMouseOverTarget) {
-                child->isMouseOverTarget = true;
-                child->mouseEnter(e);
-            }
-
-            if (!e.propagate) { return; }
-        }
-    }
-
-    void propagateMouseLeave(Event& e) {
-
-        //e.subject = this;
-
-        tell(&Element::mouseLeave, e);
-        if (!e.propagate) { return; }
-
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
-
-            Element* child = *it;
-
-            // Invisible children are ignored
-            //if (!child->visible) { continue; }
-
-            bool containsEvent = child->contains(e.mouse.pos);
-            bool isMouseOverTarget = child->isMouseOverTarget;
-
-            if (!containsEvent && isMouseOverTarget) {
-                child->isMouseOverTarget = false;
-                child->mouseLeave(e);
-            }
-
-            if (!e.propagate) { return; }
-        }
-    }
-
-    void propagateMouseDown(Event& e) {
-
+        // Tell event listeners
         tell(&Element::mouseDown, e);
         if (!e.propagate) { return; }
 
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        // Propagate
+        for (Element* pChild : std::views::reverse(children)) {
 
-            Element* child = *it;
+            Element& child = *pChild;
 
-            // Invisible children are ignored
-            //if (!child->visible) { continue; }
-
-            // Check if the e position is within the child's rectangle
-            if (child->contains(e.mouse.pos)) { // Use -> to access members
-                child->lastClickId = e.id;
-                child->mouseDown(e);
+            // If child contains event, we propagate
+            if (child.contains(e.mouse.pos)) {
+                child.mouseDown(e);
             }
 
             if (!e.propagate) {
@@ -755,26 +686,31 @@ export namespace Rev {
         }
     }
 
-    void propagateMouseUp(Event& e) {
+    virtual void mouseUp(Event& e) {
+
+        // Any mouse up event 
+        targetFlags.drag = false;
 
         // Stop if listener does not pass "continue" flag
         tell(&Element::mouseUp, e);
         if (!e.propagate) { return; }
 
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        // Process children in reverse
+        for (Element* pChild : std::views::reverse(children)) {
 
-            Element* child = *it;
+            Element& child = *pChild;
 
-            // Invisible children are ignored
-            //if (!child->visible) { continue; }
+            // If child contains the event or is/was a drag target
+            if (child.contains(e.mouse.pos) || child.targetFlags.drag) {
+                child.mouseUp(e);
+            }
 
-            if (child->contains(e.mouse.pos)) { child->mouseUp(e); }
             if (!e.propagate) { return; }
         }
     }
 
-    // Propagate mouseMove among children and handle drag es for drag targets
-    void propagateMouseMove(Event& e) {
+    // When the mouse moves on/over an element
+    virtual void mouseMove(Event& e) {
 
         // If there is a cursor we need to set
         if (this->style.cursor != Cursor::Unset) {
@@ -785,106 +721,121 @@ export namespace Rev {
         tell(&Element::mouseMove, e);
         if (!e.propagate) { return; }
         
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        // Process children in reverse
+        for (Element* pChild : std::views::reverse(children)) {
 
-            // Get child and do some checking
-            Element* child = *it;
+            Element& child = *pChild;
 
-            // Invisible children are ignored
-            //if (!child->visible) { continue; }
+            bool isHoverTarget = child.targetFlags.hover;
+            bool containsEvent = child.contains(e.mouse.pos);
 
-            bool isMouseOverTarget = child->isMouseOverTarget;
-            bool containsEvent = child->contains(e.mouse.pos);
-
-            // If the child is a drag target, trigger the onDrag e
-            if ((e.mouse.lb || e.mouse.rb) && child->lastClickId == e.id) { child->mouseDrag(e); continue; }
-
-            // Detect if mouse is entering or leaving
-            if (containsEvent && !isMouseOverTarget) { child->isMouseOverTarget = true; child->mouseEnter(e); }
-            if (!containsEvent && isMouseOverTarget) { child->isMouseOverTarget = false; child->mouseLeave(e); }
-            if (containsEvent) { child->mouseMove(e); }
+            if (containsEvent && !isHoverTarget) { child.mouseEnter(e); }
+            if (!containsEvent && isHoverTarget) { child.mouseLeave(e); }
+            if (containsEvent) { child.mouseMove(e); }
 
             if (!e.propagate) { return; }
         }
     }
 
-    void propagateMouseDrag(Event& e) {
+    // When the mouse enters the element
+    virtual void mouseEnter(Event& e) {
 
-        // (Unfortunately this logic must be put both here in and in the earlier section due to how move/drag are handled)
-        // If there is a cursor we need to set
-        if (this->style.cursor != Cursor::Unset) {
-            e.mouse.cursor = this->style.cursor;
+        targetFlags.hover = true;
+
+        // Tell event listeners
+        tell(&Element::mouseEnter, e);
+        if (!e.propagate) { return; }
+
+        // Propagate to children
+        for (Element* pChild : std::views::reverse(children)) {
+
+            Element& child = *pChild;
+
+            bool containsEvent = child.contains(e.mouse.pos);
+            bool isHoverTarget = child.targetFlags.hover;
+
+            if (containsEvent && !isHoverTarget) { child.mouseEnter(e); }
+            if (!e.propagate) { return; }
         }
+    }
+
+    // When a mouse leaves an element
+    virtual void mouseLeave(Event& e) {
+
+        targetFlags.hover = false;
+
+        tell(&Element::mouseLeave, e);
+        if (!e.propagate) { return; }
+
+        for (Element* pChild : std::views::reverse(children)) {
+
+            Element& child = *pChild;
+
+            bool containsEvent = child.contains(e.mouse.pos);
+            bool isMouseOverTarget = child.targetFlags.hover;
+
+            if (!containsEvent && isMouseOverTarget) { child.mouseLeave(e); }
+            if (!e.propagate) { return; }
+        }
+    }
+
+    virtual void mouseDrag(Event& e) {
 
         // Stop if listener does not pass "continue" flag
         tell(&Element::mouseDrag, e);
         if (!e.propagate) { return; }
 
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        for (Element* pChild : std::views::reverse(children)) {
 
-            Element* child = *it;
+            Element& child = *pChild;
 
-            // Invisible children are ignored
-            //if (!child->visible) { continue; }
-
-            if (child->lastClickId == e.id) { child->mouseDrag(e); }
+            // We propagate to all children which are also drag targets
+            if (child.targetFlags.drag) { child.mouseDrag(e); }
             if (!e.propagate) { return; }
         }
     }
 
-    void propagateMouseWheel(Event& e) {
+    virtual void mouseWheel(Event& e) {
 
         tell(&Element::mouseWheel, e);
         if (!e.propagate) { return; }
 
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        for (Element* pChild : std::views::reverse(children)) {
 
-            Element* child = *it;
-
-            // Invisible children are ignored
-            //if (!child->visible) { continue; }
+            Element& child = *pChild;
 
             // Check if the e position is within the child's rectangle
-            if (child->contains(e.mouse.pos)) {
-                child->mouseWheel(e);
-            }
-
-            if (!e.propagate) {
-                return;
-            }
+            if (child.contains(e.mouse.pos)) { child.mouseWheel(e); }
+            if (!e.propagate) { return; }
         }
     }
 
-    void propagateKeyDown(Event& e) {
+    virtual void keyDown(Event& e) {
 
         tell(&Element::keyDown, e);
         if (!e.propagate) { return; }
 
         // Propogate in reverse order
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        for (Element* pChild : std::views::reverse(children)) {
 
-            Element* child = *it;
+            Element& child = *pChild;
 
-            // If the child was not clicked elsewhere
-            //if (!child->visible) { continue; }
-            if (child->lastClickId == e.id) { child->keyDown(e); }
+            if (child.targetFlags.focus) { child.keyDown(e); }
             if (!e.propagate) { return; }
         }
     }
 
-    void propagateKeyUp(Event& e) {
+    virtual void keyUp(Event& e) {
 
         tell(&Element::keyUp, e);
         if (!e.propagate) { return; }
 
         // Propagate in reverse order
-        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        for (Element* pChild : std::views::reverse(children)) {
 
-            Element* child = *it;
+            Element& child = *pChild;
 
-            // If the mouse was not clicked elsewhere
-            //if (!child->visible) { continue; }
-            if (child->lastClickId == e.id) { child->keyUp(e); }
+            if (child.targetFlags.focus) { child.keyUp(e); }
             if (!e.propagate) { return; }
         }
     }
@@ -904,8 +855,7 @@ export namespace Rev {
     // Sometimes we need to skip and simply pass the concern to our children
     bool anyChildContains(Pos& pos) {
 
-        for (auto* child: children) {
-            //if (!child->visible) { continue; }
+        for (Element* child: children) {
             if (child->contains(pos)) { return true; }
         }
 
@@ -914,7 +864,7 @@ export namespace Rev {
 
     bool anyChildIntersects(Rect& rect) {
 
-        for (auto* child: children) {
+        for (Element* child: children) {
             if (child->intersects(rect)) {
                 return true;
             }
@@ -926,7 +876,7 @@ export namespace Rev {
     // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
     bool decendantContains(Pos& pos) {
         
-        for (auto* child : children) {
+        for (Element* child : children) {
 
             if (child->contains(pos)) { return true; }
             if (child->decendantContains(pos)) { return true; }
@@ -938,7 +888,7 @@ export namespace Rev {
     // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
     bool decendantIntersects(Rect& rect) {
         
-        for (auto* child : children) {
+        for (Element* child : children) {
 
             if (child->intersects(rect)) { return true; }
             if (child->decendantIntersects(rect)) { return true; }

@@ -28,9 +28,9 @@ export namespace Rev {
         FT_Face face = nullptr;
 
         // Font attributes
-        float size = 1;
-        float ascentPx, descentPx;
-        float lineGapPx, lineHeightPx;
+        float size = 50;
+        float ascent, descent;
+        float lineGap, lineHeight;
 
         // Glyphs
         //--------------------------------------------------
@@ -103,10 +103,10 @@ export namespace Rev {
         void getFontAttribs() {
 
             // Ascent, descent, line, etc...
-            ascentPx = face->size->metrics.ascender / 64.0f;
-            descentPx = fabs(face->size->metrics.descender / 64.0f);
-            lineGapPx = (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
-            lineHeightPx = face->size->metrics.height / 64.0f;
+            ascent = face->size->metrics.ascender / 64.0f;
+            descent = fabs(face->size->metrics.descender / 64.0f);
+            lineGap = (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
+            lineHeight = face->size->metrics.height / 64.0f;
 
             // Glyphs
             //--------------------------------------------------
@@ -220,6 +220,27 @@ export namespace Rev {
         
             x += g.advance;
             return q;
+        }
+
+        Quad getRelativeQuad(char c, char prev = 0) {
+            
+            const Glyph& g = glyphs[static_cast<unsigned char>(c)];
+        
+            // Optional: kerning between prev and c, not strictly needed for static glyph data
+            float kerning = glyphs[static_cast<unsigned char>(prev)].kerning[c];
+        
+            float penX = 0.0f;
+            float penY = 0.0f;
+        
+            float x0 = penX + g.bearingX;
+            float y0 = penY - g.bearingY;
+            float x1 = x0 + g.width;
+            float y1 = y0 + g.height;
+        
+            return {
+                .x0 = x0, .y0 = y0, .s0 = g.u0, .t0 = g.v0,
+                .x1 = x1, .y1 = y1, .s1 = g.u1, .t1 = g.v1
+            };
         }
     };
 };

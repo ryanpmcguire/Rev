@@ -59,22 +59,26 @@ export namespace Rev {
 
         // Own resources
         //--------------------------------------------------
-        
+
+        // Position and texture coords
         struct CharVertex {
-            float x, y;     // Screen coords
-            float u, v;     // Texture coords
+            float x, y;
+            float u, v;
+        };
+
+        // Six vertices per quad
+        struct GlyphData {
+            CharVertex a, b, c, d, e, f;
         };
 
         // Instance-specific data
         struct Data {
 
+            struct Pos { float x, y; };
             struct Color { float r, g, b, a; };
 
             Color color;
-        };
-
-        struct GlyphData {
-            CharVertex a, b, c, d, e, f, g;
+            Pos pos;
         };
 
         UniformBuffer* databuff = nullptr;
@@ -87,7 +91,7 @@ export namespace Rev {
         Font* font = nullptr;
         Data* data = nullptr;
 
-        std::string content = "This Is A Test Sentence.";
+        std::string content = "Hello\rWorld";
 
         struct Line {
             std::string dbg;    // Debug
@@ -96,7 +100,12 @@ export namespace Rev {
             float w, h;
         };
 
+        struct Dims {
+            float width, height;
+        };
+
         std::vector<Line> lines;
+        Dims dims;
 
         float xPos = 0;
         float yPos = 0;
@@ -105,10 +114,6 @@ export namespace Rev {
         Text() {
 
             shared.create();
-
-            for (size_t i = 0; i < 100000; i++) {
-                content += "This Is A Test Sentence. ";
-            }
 
             font = new Font();
             texture = new Texture(font->bitmap.data, font->bitmap.width, font->bitmap.height, 1);
@@ -126,11 +131,9 @@ export namespace Rev {
             glyphData = new UniformBuffer(sizeof(GlyphData) * 128);
             GlyphData* glyphDataArr = static_cast<GlyphData*>(glyphData->data);
 
-            for (char c = 32; c < 127; c++) {
+            for (char c = 0; c < 127; c++) {
 
-                float x = 0, y = 0;
-                
-                Font::Quad q = font->getQuad(c, x, y);
+                Font::Quad q = font->getRelativeQuad(c);
 
                 glyphDataArr[c] = {
 
@@ -173,7 +176,7 @@ export namespace Rev {
         
         WrapMode mode = WrapMode::BreakChar;
         MinMax minMax;
-
+        
         MinMax measure() {
 
             float xl = 0, yl = 0;
@@ -250,18 +253,21 @@ export namespace Rev {
             return minMax;
         }
 
-        void layout(float maxWidth) {
+        Dims layout(float maxWidth) {
+
+            // Layout text
+            //--------------------------------------------------
 
             lines.clear();
 
             size_t idx = 0;
             float pos = 0;
             
-            float x = xPos;
-            float y = yPos + font->ascentPx;
+            float x = 0;
+            float y = font->ascent;
 
             Font& fontRef = *font;
-            Line line = { "", idx, idx, x, y, 0.0f, 0.0f };
+            Line line = { "", idx, idx, x, y, 0.0f, fontRef.lineHeight };
 
             for (char c : content) {
 
@@ -269,13 +275,13 @@ export namespace Rev {
                 float newWidth = line.w + charWidth;
 
                 // Reset line on overflow
-                if (idx > 0 && newWidth > maxWidth) {
+                if (idx > 0 && (newWidth > maxWidth || c == '\r')) {
 
                     lines.push_back(line);
 
-                    y += fontRef.lineHeightPx;
+                    y += fontRef.lineHeight;
 
-                    line = { "", idx, idx, xPos, y, charWidth, 0 };
+                    line = { "", idx, idx, x, y, charWidth, fontRef.lineHeight };
                 }
 
                 // Continue line
@@ -289,6 +295,18 @@ export namespace Rev {
             }
 
             lines.push_back(line);
+
+            // Measure dims
+            //--------------------------------------------------
+
+            dims = { 0, 0 };
+
+            for (Line& line : lines) {
+                dims.height += line.h;
+                dims.width = std::max(dims.width, line.w);
+            }
+
+            return dims;
         }
 
         // Compute vertices
@@ -298,8 +316,10 @@ export namespace Rev {
             size_t max = vertices->num; // total available vertex slots
             size_t count = 0;
 
+            data->pos = { xPos, yPos };
+
             float x = xPos;
-            float y = yPos + font->ascentPx;
+            float y = yPos + font->ascent;
 
             char prev = 0;
 
@@ -313,27 +333,18 @@ export namespace Rev {
     
                     // Ensure space for 6 vertices per character
                     if (count + 6 > max) break;
-    
-                    Font::Quad q = font->getQuad(c, x, y, prev);
-                    prev = c;
 
-                    verts[count++] = { x, y, float(c), 0 };
-    
-                    // Triangle 1
-                    /*verts[count++] = { q.x0, q.y0, q.s0, q.t0 };
-                    verts[count++] = { q.x1, q.y0, q.s1, q.t0 };
-                    verts[count++] = { q.x1, q.y1, q.s1, q.t1 };
-    
-                    // Triangle 2
-                    verts[count++] = { q.x0, q.y0, q.s0, q.t0 };
-                    verts[count++] = { q.x1, q.y1, q.s1, q.t1 };
-                    verts[count++] = { q.x0, q.y1, q.s0, q.t1 };*/
+                    float index = float(c);
+
+                    verts[count++] = { x, y, index, index };
+
+                    x += font->glyphs[c].advance;
                 }
             }
 
             vertexCount = count;
         }
-                
+
         // Draw vertices
         void draw() override {
 

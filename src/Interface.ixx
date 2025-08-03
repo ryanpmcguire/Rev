@@ -32,10 +32,10 @@ export namespace HelloWorld {
                 .background { .color = Color(1, 1, 1, 0.1) },
             };
 
-            /*Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
+            Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
             Slider* sliderB = new Slider(greyBox, { .val = 1.0 });
 
-            sliderA->style.size.minWidth = 100_px;
+            /*sliderA->style.size.minWidth = 100_px;
             sliderB->style.size.minWidth = 50_px;*/
 
             TextBox* textBox = new TextBox(greyBox);

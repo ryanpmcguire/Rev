@@ -22,8 +22,13 @@ export namespace Rev {
             bool record = true;
         };
 
+        struct Details {
+            int width, height;
+        };
+
         GLFWwindow* window = nullptr;
 
+        Details details;
         Flags flags;
 
         UniformBuffer* transform = nullptr;
@@ -39,7 +44,7 @@ export namespace Rev {
             this->window = window;
 
             glfwMakeContextCurrent(window);
-            //glfwSwapInterval(1);
+            glfwSwapInterval(1);
 
             // 2. Initialize GLEW
             glewExperimental = GL_TRUE; // Enable core profiles
@@ -74,14 +79,13 @@ export namespace Rev {
 
             if (flags.resize) {
 
-                int width, height;
-                glfwGetFramebufferSize(window, &width, &height);
-                glViewport(0, 0, width, height);
+                glfwGetFramebufferSize(window, &details.width, &details.height);
+                glViewport(0, 0, details.width, details.height);
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,           // left
-                    static_cast<float>(width),   // right
-                    static_cast<float>(height),  // bottom
+                    static_cast<float>(details.width) - 0.5f,   // right
+                    static_cast<float>(details.height) - 0.5f,  // bottom
                     0.0f,           // top (flipped for top-left origin)
                     -1.0f,          // near
                     1.0f            // far

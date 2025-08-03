@@ -36,21 +36,13 @@ export namespace Rev {
             
             Text::MinMax minMax = text->measure();
 
+            text->layout(99999999.0f);
+
             style.size = {
-                .width = Grow(), .height = 100_px,
-                .minWidth = Px(minMax.minWidth), .maxWidth = Px(minMax.maxWidth),
-                .minHeight = Px(minMax.minHeight)
+                .width = Px(text->dims.width), .height = Px(text->dims.height)
             };
 
             Box::computeStyle(e);
-        }
-
-        // Special function for telling layout engine what our height is
-        void measureDims() override {
-
-            text->layout(res.size.w.val);
-
-            res.size.h.min = text->lines.size() * text->font->lineHeightPx;
         }
 
         void draw(Event& e) override {
@@ -59,8 +51,6 @@ export namespace Rev {
 
             text->xPos = rect.x;
             text->yPos = rect.y;
-
-            text->layout(rect.w);
 
             text->draw();
         }
