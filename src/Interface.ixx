@@ -26,7 +26,7 @@ export namespace HelloWorld {
             // Grey box
             Box* greyBox = new Box(this, "RedBox");
             greyBox->style = {
-                .size = { .width = Shrink(), .maxWidth = 2000_px, .maxHeight = 400_px },
+                .size = { .width = Shrink(), .maxWidth = 600_px, .maxHeight = 400_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
                 .border = { .radius = 10_px },
                 .background { .color = Color(1, 1, 1, 0.1) },

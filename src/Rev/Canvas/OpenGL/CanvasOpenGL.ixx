@@ -96,15 +96,12 @@ export namespace Rev {
                 flags.resize = false;
             }
 
-            // Clear screen (customize as needed)
-            glClearColor(1, 1, 1, 1);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
             glClear(GL_COLOR_BUFFER_BIT);
 
             transform->bind(0);
-
-            // Draw your OpenGL content here
-            //rectangle->draw();
-            //rect2->draw();
 
             for (Primitive* primitive : primitives) {
                 primitive->draw();

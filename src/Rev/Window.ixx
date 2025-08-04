@@ -20,8 +20,9 @@ export namespace Rev {
             std::string name = "Hello World";
             
             int width = 640, height = 480;
-            int x, y;
+            int x = 0, y = 0;
 
+            bool decorated = true;
             bool resizable = true;
         };
 
@@ -33,6 +34,9 @@ export namespace Rev {
         Details details;
 
         bool shouldClose = false;
+
+        int xPin = 0; int yPin = 0;
+        Pos downPos = { 0, 0 };
 
         // Create
         Window(std::vector<Window*>& group, Details details = {}) {
@@ -54,7 +58,7 @@ export namespace Rev {
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
             glfwWindowHint(GLFW_SAMPLES, 8); // 4x MSAA
 
-            glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+            glfwWindowHint(GLFW_DECORATED, details.decorated ? GLFW_TRUE : GLFW_FALSE);
             glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
 
             window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);
@@ -85,19 +89,42 @@ export namespace Rev {
             // Children
             //--------------------------------------------------
 
-            Box* upper = new Box(this);
-            upper->style = {
-                .size = { .width = 100_pct, .height = 20_px },
-                .background = { .color = Color(1, 1, 1, 0.1) }
-            };
+            if (!details.decorated) {
 
-            upper->onMouseMove([this](Event& e) {
+                Box* upper = new Box(this);
+                upper->style = {
+                    .size = { .width = 100_pct, .height = 20_px },
+                    .background = { .color = Color(1, 1, 1, 1.0) }
+                };
 
-                this->details.x = e.mouse.pos.x;
-                this->details.y = e.mouse.pos.y;
+                upper->onMouseDown([this](Event& e) {
 
-                this->setPos(this->details.x, this->details.y);
-            });
+                    this->xPin = this->details.x;
+                    this->yPin = this->details.y;
+
+                    downPos = {
+                        this->details.x + e.mouse.pos.x,
+                        this->details.y + e.mouse.pos.y
+                    };
+
+                    dbg("MouseDown");
+                });
+
+                upper->onDrag([this](Event& e) {
+
+                    Pos screenPos = {
+                        this->details.x + e.mouse.pos.x,
+                        this->details.y + e.mouse.pos.y
+                    };
+
+                    Pos diff = screenPos - downPos;
+
+                    this->details.x = xPin + diff.x;
+                    this->details.y = yPin + diff.y;
+
+                    this->setPos(this->details.x, this->details.y);
+                });
+            }
         }
 
         // Destroy
@@ -170,7 +197,7 @@ export namespace Rev {
 
         void draw(Event& e) override {
 
-            dbg("Drawing");
+            //dbg("Drawing");
 
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();
@@ -234,7 +261,8 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            this->draw(event);
+            this->details.x = x;
+            this->details.y = y;
         }
 
         // When the window is resized
@@ -298,6 +326,7 @@ export namespace Rev {
             Button8 = GLFW_MOUSE_BUTTON_8
         };
 
+        // When a mouse button is clicked or released
         void onMouseButton(int button, int action) {
 
             // Get mouse position
@@ -320,9 +349,11 @@ export namespace Rev {
             }
         }
 
+        // When the mouse moves
         void onCursorPos(float x, float y) {
 
             event.mouse.pos = { x, y };
+            event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
             event.resetBeforeDispatch();
 
             // Dispatch mouse move

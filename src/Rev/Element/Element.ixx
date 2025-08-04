@@ -171,7 +171,7 @@ export namespace Rev {
             res.pos.setNonFlex(style.position, res.size);
 
             // Set grow min/max, ignoring pos as that cannot grow
-            res.size.setGrow(style.size, maxInnerWidth);
+            res.size.setGrow(style.size, res.size.w.max);
             res.mar.setGrow(style.margin, maxInnerWidth);
             res.pad.setGrow(style.padding, maxInnerWidth);
 
@@ -281,8 +281,8 @@ export namespace Rev {
             // Inherit maxima from children
             //--------------------------------------------------
 
-            if (res.size.w.fit) { res.size.w.max = layout.size.w.max + res.pad.l.val + res.pad.r.val; }
-            if (res.size.h.fit) { res.size.h.max = layout.size.h.max + res.pad.t.val + res.pad.b.val; }
+            if (res.size.w.fit && !res.size.w.max) { res.size.w.max = layout.size.w.max + res.pad.l.val + res.pad.r.val; }
+            if (res.size.h.fit && !res.size.h.max) { res.size.h.max = layout.size.h.max + res.pad.t.val + res.pad.b.val; }
         }
 
         // BOTTOM UP
@@ -304,6 +304,11 @@ export namespace Rev {
                 if (parentRow) { parentRow->size.h.growable = true; }
                 if (parentLayout) { parentLayout->size.h.growable = true; }
             }
+
+            // Reconsider maximum if layout has value
+            //--------------------------------------------------
+
+            bool test = true;
         }
 
         // Resolve grow/shrink
