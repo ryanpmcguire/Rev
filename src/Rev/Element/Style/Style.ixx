@@ -1,10 +1,20 @@
 module;
 
+#include <bit>
+#include <cstdint>
 #include <vector>
 
 export module Rev.Style;
 
 export namespace Rev {
+      
+    // Returns if value is set
+    bool set(float& f) {
+
+        bool isSet = std::bit_cast<uint32_t>(f) != 0x80000000;
+
+        return isSet;
+    };
 
     // Size: 6
     struct Dist {
@@ -47,7 +57,7 @@ export namespace Rev {
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
         
         explicit operator bool() {
-            return (r != -0.0f || g != -0.0f || b != -0.0f || a != -0.0f);
+            return (set(r) || set(g) || set(b) || set(a));
         }
     };
 

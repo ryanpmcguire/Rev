@@ -363,8 +363,6 @@ export namespace Rev {
                 this->mouseDrag(event);
             }
 
-            this->draw(event);
-
             if (event.causedRefresh) {
                 this->draw(event);
             }
