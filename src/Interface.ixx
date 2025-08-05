@@ -44,7 +44,7 @@ export namespace HelloWorld {
             /*sliderA->style.size.minWidth = 100_px;
             sliderB->style.size.minWidth = 50_px;*/
 
-            //TextBox* textBox = new TextBox(greyBox);
+            TextBox* textBox = new TextBox(greyBox);
 
             /*Box* testBox = new Box(greyBox, "TestBox");
             testBox->style = {
@@ -55,7 +55,7 @@ export namespace HelloWorld {
                 .background { .color = Color(1, 1, 1, 0.1) },
             };
 
-                for (size_t i = 0; i < 25; i++) {
+                for (size_t i = 0; i < 5000; i++) {
                     Box* testBoxChild = new Box(testBox);
                     testBoxChild->style = {
                         .size = { 10_px, 10_px },

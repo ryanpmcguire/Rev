@@ -84,8 +84,8 @@ export namespace Rev {
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,           // left
-                    static_cast<float>(details.width) - 0.5f,   // right
-                    static_cast<float>(details.height) - 0.5f,  // bottom
+                    static_cast<float>(details.width),   // right
+                    static_cast<float>(details.height),  // bottom
                     0.0f,           // top (flipped for top-left origin)
                     -1.0f,          // near
                     1.0f            // far

@@ -18,9 +18,13 @@ export namespace Rev {
         Shader(Resource shaderFile, GLenum shaderType) {
 
             const char* srcStr = reinterpret_cast<const char*>(shaderFile.data);
+            GLint srcLen = static_cast<GLint>(shaderFile.size);
 
             shader = glCreateShader(shaderType);
-            glShaderSource(shader, 1, &srcStr, nullptr);
+
+            glShaderSource(shader, 1, &srcStr, &srcLen);
+
+            return;
             glCompileShader(shader);
 
             // Check for errors
