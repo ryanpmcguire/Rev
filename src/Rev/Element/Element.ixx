@@ -34,7 +34,10 @@ export namespace Rev {
         
         Rect rect;
 
-        Style style;
+        StylePtr style;
+        StylePtr hoverStyle;
+        StylePtr dragStyle;
+
         std::vector<Style*> styles;
         
         Computed computed;
@@ -66,9 +69,14 @@ export namespace Rev {
         // Comptue style
         virtual void computeStyle(Event& e) {
 
+            computed.style = Style();
+
             // Apply other styles, then own style
             computed.style.apply(styles);
             computed.style.apply(style);
+
+            if (targetFlags.hover) { computed.style.apply(hoverStyle); }
+            if (targetFlags.drag) { computed.style.apply(dragStyle); }
 
             //for (Element* child : children) {
             //    child->computeStyle(e);
@@ -85,9 +93,9 @@ export namespace Rev {
 
         virtual void draw(Event& e) {
 
-            for (Element* child : children) {
-                child->draw(e);
-            }
+            //for (Element* child : children) {
+            //    child->draw(e);
+            //}
         }
 
         // Layout
@@ -156,24 +164,26 @@ export namespace Rev {
             float minInnerWidth = parent->res.getMinInner(Axis::Horizontal);
             float minInnerHeight = parent->res.getMinInner(Axis::Vertical);
 
+            Style& rStyle = computed.style;
+
             // Hack for window size
             if (this == parent) {
-                maxInnerWidth = style.size.width.val;
-                maxInnerHeight = style.size.height.val;
-                minInnerWidth = style.size.width.val;
-                minInnerHeight = style.size.height.val;
+                maxInnerWidth = rStyle.size.width.val;
+                maxInnerHeight = rStyle.size.height.val;
+                minInnerWidth = rStyle.size.width.val;
+                minInnerHeight = rStyle.size.height.val;
             }
 
             // Set dimensions abs or relative to maximum occupiable dims
-            res.size.setNonFlex(style.size, minInnerWidth, minInnerHeight, maxInnerWidth, maxInnerHeight);
-            res.mar.setNonFlex(style.margin, res.size);
-            res.pad.setNonFlex(style.padding, res.size);
-            res.pos.setNonFlex(style.position, res.size);
+            res.size.setNonFlex(rStyle.size, minInnerWidth, minInnerHeight, maxInnerWidth, maxInnerHeight);
+            res.mar.setNonFlex(rStyle.margin, res.size);
+            res.pad.setNonFlex(rStyle.padding, res.size);
+            res.pos.setNonFlex(rStyle.position, res.size);
 
             // Set grow min/max, ignoring pos as that cannot grow
-            res.size.setGrow(style.size, res.size.w.max);
-            res.mar.setGrow(style.margin, maxInnerWidth);
-            res.pad.setGrow(style.padding, maxInnerWidth);
+            res.size.setGrow(rStyle.size, res.size.w.max);
+            res.mar.setGrow(rStyle.margin, maxInnerWidth);
+            res.pad.setGrow(rStyle.padding, maxInnerWidth);
 
             // Inherit maxima from parent if none
             if (!res.size.w.max) { res.size.w.max = maxInnerWidth; }
@@ -320,17 +330,19 @@ export namespace Rev {
             float width = res.size.w.val;
             float height = res.size.h.val;
 
+            Style& rStyle = computed.style;
+
             // Padding
-            if (style.padding.left.type == Dist::Type::Rel) { res.pad.l.val = style.padding.left.val * width; }
-            if (style.padding.right.type == Dist::Type::Rel) { res.pad.r.val = style.padding.right.val * width; }
-            if (style.padding.top.type == Dist::Type::Rel) { res.pad.t.val = style.padding.top.val * height; }
-            if (style.padding.bottom.type == Dist::Type::Rel) { res.pad.b.val = style.padding.bottom.val * height; }
+            if (rStyle.padding.left.type == Dist::Type::Rel) { res.pad.l.val = rStyle.padding.left.val * width; }
+            if (rStyle.padding.right.type == Dist::Type::Rel) { res.pad.r.val = rStyle.padding.right.val * width; }
+            if (rStyle.padding.top.type == Dist::Type::Rel) { res.pad.t.val = rStyle.padding.top.val * height; }
+            if (rStyle.padding.bottom.type == Dist::Type::Rel) { res.pad.b.val = rStyle.padding.bottom.val * height; }
 
             // Position            
-            if (style.position.left.type == Dist::Type::Rel) { res.pos.l.val = style.position.left.val * width; }
-            if (style.position.right.type == Dist::Type::Rel) { res.pos.r.val = style.position.right.val * width; }
-            if (style.position.top.type == Dist::Type::Rel) { res.pos.t.val = style.position.top.val * height; }
-            if (style.position.bottom.type == Dist::Type::Rel) { res.pos.b.val = style.position.bottom.val * height; }
+            if (rStyle.position.left.type == Dist::Type::Rel) { res.pos.l.val = rStyle.position.left.val * width; }
+            if (rStyle.position.right.type == Dist::Type::Rel) { res.pos.r.val = rStyle.position.right.val * width; }
+            if (rStyle.position.top.type == Dist::Type::Rel) { res.pos.t.val = rStyle.position.top.val * height; }
+            if (rStyle.position.bottom.type == Dist::Type::Rel) { res.pos.b.val = rStyle.position.bottom.val * height; }
 
             // Requires children
             if (children.empty()) {
@@ -351,14 +363,16 @@ export namespace Rev {
                     
                     Element& elem = *member;
 
+                    Style& elemStyle = elem.computed.style;
+
                     // Resolve relative width
-                    if (elem.style.size.width.type == Dist::Type::Rel) {
-                        elem.res.size.w.val = elem.style.size.width.val * innerWidth;
+                    if (elemStyle.size.width.type == Dist::Type::Rel) {
+                        elem.res.size.w.val = elemStyle.size.width.val * innerWidth;
                     }
 
                     // Resolve relative height
-                    if (elem.style.size.height.type == Dist::Type::Rel) {
-                        elem.res.size.h.val = elem.style.size.height.val * innerHeight;
+                    if (elemStyle.size.height.type == Dist::Type::Rel) {
+                        elem.res.size.h.val = elemStyle.size.height.val * innerHeight;
                     }
 
                     // Margins are resolved by the element width
@@ -366,10 +380,10 @@ export namespace Rev {
                     float elemHeight = elem.res.size.h.val;
 
                     // Resolve margin
-                    if (elem.style.margin.left.type == Dist::Type::Rel) { elem.res.mar.l.val = elem.style.margin.left.val * elemWidth; }
-                    if (elem.style.margin.right.type == Dist::Type::Rel) { elem.res.mar.r.val = elem.style.margin.right.val * elemWidth; }
-                    if (elem.style.margin.top.type == Dist::Type::Rel) { elem.res.mar.t.val = elem.style.margin.top.val * elemHeight; }
-                    if (elem.style.margin.bottom.type == Dist::Type::Rel) { elem.res.mar.b.val = elem.style.margin.bottom.val * elemHeight; }
+                    if (elemStyle.margin.left.type == Dist::Type::Rel) { elem.res.mar.l.val = elemStyle.margin.left.val * elemWidth; }
+                    if (elemStyle.margin.right.type == Dist::Type::Rel) { elem.res.mar.r.val = elemStyle.margin.right.val * elemWidth; }
+                    if (elemStyle.margin.top.type == Dist::Type::Rel) { elem.res.mar.t.val = elemStyle.margin.top.val * elemHeight; }
+                    if (elemStyle.margin.bottom.type == Dist::Type::Rel) { elem.res.mar.b.val = elemStyle.margin.bottom.val * elemHeight; }
                 }
             }
 
@@ -501,11 +515,20 @@ export namespace Rev {
                 case (Align::Start): { return 0; break; }
                 case (Align::End): { return parent - child; break; }
                 case (Align::Center): { return (parent - child) / 2; break; }
+                case (Align::NoAlign): { return 0; break; }
             }
         }
 
         // Resolve final positions (top down)
         void resolveRects() {
+
+            // If top level
+            if (parent == this) {
+                rect = {
+                    0, 0,
+                    res.size.w.val, res.size.h.val
+                };
+            }
 
             // Requires children
             if (children.empty()) {
@@ -541,8 +564,10 @@ export namespace Rev {
             float layoutOffsetX = res.pad.l.val;
             float layoutOffsetY = res.pad.t.val;
 
-            layoutOffsetX += center(res.getInner(Axis::Horizontal), layout.rect.w, style.alignment.horizontal);
-            layoutOffsetY += center(res.getInner(Axis::Vertical), layout.rect.h, style.alignment.vertical);
+            Style& rStyle = computed.style;
+
+            layoutOffsetX += center(res.getInner(Axis::Horizontal), layout.rect.w, rStyle.alignment.horizontal);
+            layoutOffsetY += center(res.getInner(Axis::Vertical), layout.rect.h, rStyle.alignment.vertical);
 
             // Resolve layout position
             layout.rect.x = rect.x + layoutOffsetX;
@@ -578,328 +603,348 @@ export namespace Rev {
             }
         }
 
-    // Event callbacks
-    //--------------------------------------------------------------------------------
+        // Event callbacks
+        //--------------------------------------------------------------------------------
 
-    struct ListenerGroup {
+        struct ListenerGroup {
 
-        using ListenerFunc = void (Element::*)(Event&);
-        std::vector<std::function<void(Event&)>> listeners;
-        ListenerFunc func;
+            using ListenerFunc = void (Element::*)(Event&);
+            std::vector<std::function<void(Event&)>> listeners;
+            ListenerFunc func;
 
-        ListenerGroup(ListenerFunc f) : func(f) {}
-    };
+            ListenerGroup(ListenerFunc f) : func(f) {}
+        };
 
-    std::vector<ListenerGroup> listenerGroups;
+        std::vector<ListenerGroup> listenerGroups;
 
-    // Register a listener for a specific function (used for lookup)
-    void listen(ListenerGroup::ListenerFunc func, const std::function<void(Event&)>& listener) {
+        // Register a listener for a specific function (used for lookup)
+        void listen(ListenerGroup::ListenerFunc func, const std::function<void(Event&)>& listener) {
 
-        // Check if the function already has a listener group
-        auto it = std::find_if(listenerGroups.begin(), listenerGroups.end(),
-            [func](const ListenerGroup& group) {
-                return func == group.func;  // Compare function pointers (addresses)
-            });
+            // Check if the function already has a listener group
+            auto it = std::find_if(listenerGroups.begin(), listenerGroups.end(),
+                [func](const ListenerGroup& group) {
+                    return func == group.func;  // Compare function pointers (addresses)
+                });
 
-        // If found, add the listener to the group
-        if (it != listenerGroups.end()) {
-            it->listeners.push_back(listener);
-        }
-
-        // If not found, create a new group
-        else {
-            ListenerGroup newGroup(func);
-            newGroup.listeners.push_back(listener);
-            listenerGroups.push_back(newGroup);
-        }
-    }
-
-    // "tell" function to notify listeners of a specific function
-    void tell(ListenerGroup::ListenerFunc tellingFunc, Event& e) {
-
-        // Search for the listener group that matches the telling function
-        auto it = std::find_if(listenerGroups.begin(), listenerGroups.end(),
-            [tellingFunc](const ListenerGroup& group) {
-                return tellingFunc == group.func;  // Compare function pointers (addresses)
-            });
-
-        // If a matching listener group is found, notify all its listeners
-        if (it != listenerGroups.end()) {
-            for (auto& listener : it->listeners) {
-                listener(e);
-            }
-        }
-    }
-
-    // Wrapper functions
-    void onRefresh(const std::function<void(Event&)>& listener) { this->listen(&Element::refresh, listener); }
-    void onMouseDown(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDown, listener); }
-    void onMouseUp(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseUp, listener); }
-    void onMouseMove(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseMove, listener); }
-    void onDrag(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDrag, listener); }
-    void onMouseEnter(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseEnter, listener); }
-    void onMouseLeave(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseLeave, listener); }
-    void onMouseWheel(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseWheel, listener); }
-    void onKeyDown(const std::function<void(Event&)>& listener) { this->listen(&Element::keyDown, listener); }
-    void onKeyUp(const std::function<void(Event&)>& listener) { this->listen(&Element::keyUp, listener); }
-
-    // Event propagation
-    //--------------------------------------------------
-
-    struct TargetFlags {
-        bool click = false;
-        bool hover = false;
-        bool focus = false;
-        bool drag = false;
-    };
-
-    TargetFlags targetFlags;
-
-    virtual void refresh(Event& e) {
-
-        // Set self
-        this->dirty = true;
-        e.causedRefresh = true;
-        topLevelDetails->dirtyElements.push_back(this);
-
-        // Propagate upwards
-        if (parent && !parent->dirty) { parent->refresh(e); }
-    }
-
-    virtual void mouseDown(Event& e) {
-
-        // Mouse down event means we are a drag target
-        targetFlags.drag = true;
-
-        // Tell event listeners
-        tell(&Element::mouseDown, e);
-        if (!e.propagate) { return; }
-
-        // Propagate
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            // If child contains event, we propagate
-            if (child.contains(e.mouse.pos)) {
-                child.mouseDown(e);
+            // If found, add the listener to the group
+            if (it != listenerGroups.end()) {
+                it->listeners.push_back(listener);
             }
 
-            if (!e.propagate) {
-                return;
+            // If not found, create a new group
+            else {
+                ListenerGroup newGroup(func);
+                newGroup.listeners.push_back(listener);
+                listenerGroups.push_back(newGroup);
             }
         }
-    }
 
-    virtual void mouseUp(Event& e) {
+        // "tell" function to notify listeners of a specific function
+        void tell(ListenerGroup::ListenerFunc tellingFunc, Event& e) {
 
-        // Any mouse up event 
-        targetFlags.drag = false;
+            // Search for the listener group that matches the telling function
+            auto it = std::find_if(listenerGroups.begin(), listenerGroups.end(),
+                [tellingFunc](const ListenerGroup& group) {
+                    return tellingFunc == group.func;  // Compare function pointers (addresses)
+                });
 
-        // Stop if listener does not pass "continue" flag
-        tell(&Element::mouseUp, e);
-        if (!e.propagate) { return; }
+            // If a matching listener group is found, notify all its listeners
+            if (it != listenerGroups.end()) {
+                for (auto& listener : it->listeners) {
+                    listener(e);
+                }
+            }
+        }
 
-        // Process children in reverse
-        for (Element* pChild : std::views::reverse(children)) {
+        // Wrapper functions
+        void onRefresh(const std::function<void(Event&)>& listener) { this->listen(&Element::refresh, listener); }
+        void onMouseDown(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDown, listener); }
+        void onMouseUp(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseUp, listener); }
+        void onMouseMove(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseMove, listener); }
+        void onDrag(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDrag, listener); }
+        void onMouseEnter(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseEnter, listener); }
+        void onMouseLeave(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseLeave, listener); }
+        void onMouseWheel(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseWheel, listener); }
+        void onKeyDown(const std::function<void(Event&)>& listener) { this->listen(&Element::keyDown, listener); }
+        void onKeyUp(const std::function<void(Event&)>& listener) { this->listen(&Element::keyUp, listener); }
 
-            Element& child = *pChild;
+        // Event propagation
+        //--------------------------------------------------
 
-            // If child contains the event or is/was a drag target
-            if (child.contains(e.mouse.pos) || child.targetFlags.drag) {
-                child.mouseUp(e);
+        struct TargetFlags {
+            bool hit = false;
+            bool click = false;
+            bool hover = false;
+            bool focus = false;
+            bool drag = false;
+        };
+
+        TargetFlags targetFlags;
+
+        virtual void refresh(Event& e) {
+
+            // Set self
+            this->dirty = true;
+            e.causedRefresh = true;
+            topLevelDetails->dirtyElements.push_back(this);
+
+            // Propagate upwards
+            if (parent && !parent->dirty) { parent->refresh(e); }
+        }
+
+        virtual void mouseDown(Event& e) {
+
+            // Mouse down event means we are a drag target
+            if (!targetFlags.drag) {
+                targetFlags.drag = true;
+                refresh(e);
             }
 
+            // Tell event listeners
+            tell(&Element::mouseDown, e);
             if (!e.propagate) { return; }
+
+            // Propagate
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                // If child contains event, we propagate
+                if (child.targetFlags.hit) {
+                    child.mouseDown(e);
+                }
+
+                if (!e.propagate) {
+                    return;
+                }
+            }
         }
-    }
 
-    // When the mouse moves on/over an element
-    virtual void mouseMove(Event& e) {
+        virtual void mouseUp(Event& e) {
 
-        // If there is a cursor we need to set
-        if (this->style.cursor != Cursor::Unset) {
-            e.mouse.cursor = this->style.cursor;
+            // Mouseup means dragging must end
+            if (targetFlags.drag) {
+                targetFlags.drag = false;
+                refresh(e);
+            }
+
+            // Stop if listener does not pass "continue" flag
+            tell(&Element::mouseUp, e);
+            if (!e.propagate) { return; }
+
+            // Process children in reverse
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                // If child contains the event or is/was a drag target
+                if (child.targetFlags.hit || child.targetFlags.drag) {
+                    child.mouseUp(e);
+                }
+
+                if (!e.propagate) { return; }
+            }
         }
 
-        // Stop if listener does not pass "continue" flag
-        tell(&Element::mouseMove, e);
-        if (!e.propagate) { return; }
+        // When the mouse moves on/over an element
+        virtual void mouseMove(Event& e) {
+
+            // If there is a cursor we need to set
+            if (this->style->cursor != Cursor::Unset) {
+                e.mouse.cursor = this->style->cursor;
+            }
+
+            // Stop if listener does not pass "continue" flag
+            tell(&Element::mouseMove, e);
+            if (!e.propagate) { return; }
+            
+            // Process children in reverse
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                bool isHoverTarget = child.targetFlags.hover;
+                bool containsEvent = child.targetFlags.hit;
+
+                if (containsEvent && !isHoverTarget) { child.mouseEnter(e); }
+                if (!containsEvent && isHoverTarget) { child.mouseLeave(e); }
+                if (containsEvent) { child.mouseMove(e); }
+
+                if (!e.propagate) { return; }
+            }
+        }
+
+        // When the mouse enters the element
+        virtual void mouseEnter(Event& e) {
+
+            if (!targetFlags.hover) {
+                targetFlags.hover = true;
+                refresh(e);
+            }
+
+            // Tell event listeners
+            tell(&Element::mouseEnter, e);
+            if (!e.propagate) { return; }
+
+            // Propagate to children
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                bool containsEvent = child.targetFlags.hit;
+                bool isHoverTarget = child.targetFlags.hover;
+
+                if (containsEvent && !isHoverTarget) { child.mouseEnter(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        // When a mouse leaves an element
+        virtual void mouseLeave(Event& e) {
+
+            if (targetFlags.hover) {
+                targetFlags.hover = false;
+                refresh(e);
+            }
+
+            tell(&Element::mouseLeave, e);
+            if (!e.propagate) { return; }
+
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                bool containsEvent = child.targetFlags.hit;
+                bool isMouseOverTarget = child.targetFlags.hover;
+
+                if (!containsEvent && isMouseOverTarget) { child.mouseLeave(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        virtual void mouseDrag(Event& e) {
+
+            // Stop if listener does not pass "continue" flag
+            tell(&Element::mouseDrag, e);
+            if (!e.propagate) { return; }
+
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                // We propagate to all children which are also drag targets
+                if (child.targetFlags.drag) { child.mouseDrag(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        virtual void mouseWheel(Event& e) {
+
+            tell(&Element::mouseWheel, e);
+            if (!e.propagate) { return; }
+
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                // Check if the e position is within the child's rectangle
+                if (child.targetFlags.hit) { child.mouseWheel(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        virtual void keyDown(Event& e) {
+
+            tell(&Element::keyDown, e);
+            if (!e.propagate) { return; }
+
+            // Propogate in reverse order
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                if (child.targetFlags.focus) { child.keyDown(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        virtual void keyUp(Event& e) {
+
+            tell(&Element::keyUp, e);
+            if (!e.propagate) { return; }
+
+            // Propagate in reverse order
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                if (child.targetFlags.focus) { child.keyUp(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        // Collision / Containment / Intersection
+        //--------------------------------------------------------------------------------
+
+        bool includeChildren = false;
+
+        // Default behavior is to ask our rect if it contains a position
+        virtual bool contains(Pos& pos) {
         
-        // Process children in reverse
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            bool isHoverTarget = child.targetFlags.hover;
-            bool containsEvent = child.contains(e.mouse.pos);
-
-            if (containsEvent && !isHoverTarget) { child.mouseEnter(e); }
-            if (!containsEvent && isHoverTarget) { child.mouseLeave(e); }
-            if (containsEvent) { child.mouseMove(e); }
-
-            if (!e.propagate) { return; }
-        }
-    }
-
-    // When the mouse enters the element
-    virtual void mouseEnter(Event& e) {
-
-        targetFlags.hover = true;
-
-        // Tell event listeners
-        tell(&Element::mouseEnter, e);
-        if (!e.propagate) { return; }
-
-        // Propagate to children
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            bool containsEvent = child.contains(e.mouse.pos);
-            bool isHoverTarget = child.targetFlags.hover;
-
-            if (containsEvent && !isHoverTarget) { child.mouseEnter(e); }
-            if (!e.propagate) { return; }
-        }
-    }
-
-    // When a mouse leaves an element
-    virtual void mouseLeave(Event& e) {
-
-        targetFlags.hover = false;
-
-        tell(&Element::mouseLeave, e);
-        if (!e.propagate) { return; }
-
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            bool containsEvent = child.contains(e.mouse.pos);
-            bool isMouseOverTarget = child.targetFlags.hover;
-
-            if (!containsEvent && isMouseOverTarget) { child.mouseLeave(e); }
-            if (!e.propagate) { return; }
-        }
-    }
-
-    virtual void mouseDrag(Event& e) {
-
-        // Stop if listener does not pass "continue" flag
-        tell(&Element::mouseDrag, e);
-        if (!e.propagate) { return; }
-
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            // We propagate to all children which are also drag targets
-            if (child.targetFlags.drag) { child.mouseDrag(e); }
-            if (!e.propagate) { return; }
-        }
-    }
-
-    virtual void mouseWheel(Event& e) {
-
-        tell(&Element::mouseWheel, e);
-        if (!e.propagate) { return; }
-
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            // Check if the e position is within the child's rectangle
-            if (child.contains(e.mouse.pos)) { child.mouseWheel(e); }
-            if (!e.propagate) { return; }
-        }
-    }
-
-    virtual void keyDown(Event& e) {
-
-        tell(&Element::keyDown, e);
-        if (!e.propagate) { return; }
-
-        // Propogate in reverse order
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            if (child.targetFlags.focus) { child.keyDown(e); }
-            if (!e.propagate) { return; }
-        }
-    }
-
-    virtual void keyUp(Event& e) {
-
-        tell(&Element::keyUp, e);
-        if (!e.propagate) { return; }
-
-        // Propagate in reverse order
-        for (Element* pChild : std::views::reverse(children)) {
-
-            Element& child = *pChild;
-
-            if (child.targetFlags.focus) { child.keyUp(e); }
-            if (!e.propagate) { return; }
-        }
-    }
-
-    // Collision / Containment / Intersection
-    //--------------------------------------------------------------------------------
-
-    // Default behavior is to ask our rect if it contains a position
-    virtual bool contains(Pos& pos) {
-        return this->rect.contains(pos);
-    }
-
-    virtual bool intersects(Rect& rect) {
-        return this->rect.intersects(rect);
-    }
-
-    // Sometimes we need to skip and simply pass the concern to our children
-    bool anyChildContains(Pos& pos) {
-
-        for (Element* child: children) {
-            if (child->contains(pos)) { return true; }
-        }
-
-        return false;
-    }
-
-    bool anyChildIntersects(Rect& rect) {
-
-        for (Element* child: children) {
-            if (child->intersects(rect)) {
-                return true;
+            if (includeChildren) {
+                return (rect.contains(pos) || anyChildContains(pos));
             }
+            
+            return this->rect.contains(pos);
         }
 
-        return false;
-    }
-
-    // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
-    bool decendantContains(Pos& pos) {
-        
-        for (Element* child : children) {
-
-            if (child->contains(pos)) { return true; }
-            if (child->decendantContains(pos)) { return true; }
+        virtual bool intersects(Rect& rect) {
+            return this->rect.intersects(rect);
         }
 
-        return false;
-    }
+        // Sometimes we need to skip and simply pass the concern to our children
+        bool anyChildContains(Pos& pos) {
 
-    // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
-    bool decendantIntersects(Rect& rect) {
-        
-        for (Element* child : children) {
+            for (Element* child: children) {
+                if (child->contains(pos)) { return true; }
+            }
 
-            if (child->intersects(rect)) { return true; }
-            if (child->decendantIntersects(rect)) { return true; }
+            return false;
         }
 
-        return false;
-    }
+        bool anyChildIntersects(Rect& rect) {
+
+            for (Element* child: children) {
+                if (child->intersects(rect)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
+        bool decendantContains(Pos& pos) {
+            
+            for (Element* child : children) {
+
+                if (child->contains(pos)) { return true; }
+                if (child->decendantContains(pos)) { return true; }
+            }
+
+            return false;
+        }
+
+        // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
+        bool decendantIntersects(Rect& rect) {
+            
+            for (Element* child : children) {
+
+                if (child->intersects(rect)) { return true; }
+                if (child->decendantIntersects(rect)) { return true; }
+            }
+
+            return false;
+        }
     };
 }

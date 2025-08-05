@@ -16,6 +16,9 @@ export namespace Rev {
         return isSet;
     };
 
+    // Distance
+    //--------------------------------------------------
+
     // Size: 6
     struct Dist {
 
@@ -52,6 +55,42 @@ export namespace Rev {
         return { Dist::Type::Shrink, 0 };
     }
 
+    // For floating-point literals (e.g. 10.5_px)
+    constexpr Dist operator"" _px(long double value) {
+        return { Dist::Type::Abs, static_cast<float>(value) };
+    }
+
+    constexpr Dist operator"" _px(unsigned long long value) {
+        return { Dist::Type::Abs, static_cast<float>(value) };
+    }
+
+    constexpr Dist operator"" _pct(long double value) {
+        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _pct(unsigned long long value) {
+        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _grow(unsigned long long value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _grow(long double value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _shrink(unsigned long long value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
+
+    constexpr Dist operator"" _shrink(long double value) {
+        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
+    }
+
+    // Color
+    //--------------------------------------------------
+
     struct Color {
 
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
@@ -68,6 +107,9 @@ export namespace Rev {
     Color rgb(float r, float g, float b) {
         return { r, g, b, 1.0 };
     }
+    
+    // Size
+    //--------------------------------------------------
 
     struct Size {
 
@@ -88,29 +130,53 @@ export namespace Rev {
         }
     };
 
+    // Left-right-top-bottom style
+    //--------------------------------------------------
+
     struct LrtbStyle {
 
         Dist left, right, top, bottom;
         Dist minLeft, minRight, minTop, minBottom;
         Dist maxLeft, maxRight, maxTop, maxBottom;
+
+        void apply(LrtbStyle& lrtb) {
+            if (lrtb.left) { left = lrtb.left; }
+            if (lrtb.right) { right = lrtb.right; }
+            if (lrtb.top) { top = lrtb.top; }
+            if (lrtb.bottom) { bottom = lrtb.bottom; }
+        }
     };
 
+    // Alignment
+    //--------------------------------------------------
+
     enum Axis {
+        NoAxis,
         Horizontal,
         Vertical
     };
 
     enum Align {
+        NoAlign,
         Start, End, Center,
-        SpaceAround, SpaceBetween
+        SpaceAorund, SpaceBetween
     };
 
     struct Alignment {
 
-        Axis direction = Axis::Vertical;
-        Align horizontal = Align::Start;
-        Align vertical = Align::Start;
+        Axis direction = Axis::NoAxis;
+        Align horizontal = Align::NoAlign;
+        Align vertical = Align::NoAlign;
+
+        void apply(Alignment& other) {
+            if (other.direction != Axis::NoAxis) { direction = other.direction; }
+            if (other.horizontal != Align::NoAlign) { horizontal = other.horizontal; }
+            if (other.vertical != Align::NoAlign) { vertical = other.vertical; }
+        }
     };
+
+    // Background and shadow
+    //--------------------------------------------------
 
     struct Background {
 
@@ -129,6 +195,9 @@ export namespace Rev {
         Dist blur;
         Dist x, y;
     };
+
+    // Border
+    //--------------------------------------------------
 
     struct Border {
 
@@ -168,6 +237,9 @@ export namespace Rev {
         }
     };
 
+    // Cursor
+    //--------------------------------------------------
+
     enum Cursor {
         Unset,
         Arrow,
@@ -181,6 +253,9 @@ export namespace Rev {
         ArrowsDiagonalDown,
         ArrowsOmni
     };
+
+    // Style per-se
+    //--------------------------------------------------
 
     struct Style {
 
@@ -204,6 +279,9 @@ export namespace Rev {
             size.apply(style.size);
             background.apply(style.background);
             border.apply(style.border);
+            margin.apply(style.margin);
+            padding.apply(style.padding);
+            alignment.apply(style.alignment);
         }
 
         // Apply vector of styles
@@ -215,36 +293,70 @@ export namespace Rev {
         }
     };
 
-    // For floating-point literals (e.g. 10.5_px)
-    constexpr Dist operator"" _px(long double value) {
-        return { Dist::Type::Abs, static_cast<float>(value) };
-    }
+    struct StylePtr {
 
-    constexpr Dist operator"" _px(unsigned long long value) {
-        return { Dist::Type::Abs, static_cast<float>(value) };
-    }
+        Style* pStyle = nullptr;
 
-    constexpr Dist operator"" _pct(long double value) {
-        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
-    }
+        ~StylePtr() {
+            if (pStyle) { delete pStyle; };
+            pStyle = nullptr;
+        }
 
-    constexpr Dist operator"" _pct(unsigned long long value) {
-        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
-    }
+        explicit operator bool() const {
+            return pStyle != nullptr;
+        }
 
-    constexpr Dist operator"" _grow(unsigned long long value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
+        Style& operator*() {
+            if (!pStyle) { pStyle = new Style(); }
+            return *pStyle;
+        }
 
-    constexpr Dist operator"" _grow(long double value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
+        Style* operator->() {
+            if (!pStyle) { pStyle = new Style(); }
+            return pStyle;
+        }
 
-    constexpr Dist operator"" _shrink(unsigned long long value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
+        // Assigning from a style
+        StylePtr& operator=(const Style& other) {
+            if (!pStyle) { pStyle = new Style(); }
+            *pStyle = other;
+            return *this;
+        }
 
-    constexpr Dist operator"" _shrink(long double value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
+        // Assigning from a pointer to a style
+        StylePtr& operator=(Style* pOther) {
+            pStyle = pOther;
+            return *this;
+        }
+
+        // Assigning from a style pointer
+        StylePtr& operator=(StylePtr& other) {
+            pStyle = other.pStyle;
+            return *this;
+        }
+
+        // Casting to a style pointer
+        operator Style*() {
+            if (!pStyle) { pStyle = new Style(); }
+            return pStyle;
+        }
+
+        // Casting to a style reference
+        operator Style&() {
+            if (!pStyle) { pStyle = new Style(); }
+            return *pStyle;
+        }
+
+        // Applying from a style
+        void apply(Style& other) {
+            if (!pStyle) { pStyle = new Style(); }
+            pStyle->apply(other);
+        }
+
+        // Applying from a style pointer
+        void apply(StylePtr& other) {
+            if (!pStyle) { pStyle = new Style(); }
+            if (other.pStyle) { pStyle->apply(*(other.pStyle)); }
+        }
+    };
 }

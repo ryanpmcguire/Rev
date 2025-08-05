@@ -38,7 +38,7 @@ export namespace Rev {
 
             text->layout(99999999.0f);
 
-            style.size = {
+            style->size = {
                 .width = Px(text->dims.width), .height = Px(text->dims.height)
             };
 

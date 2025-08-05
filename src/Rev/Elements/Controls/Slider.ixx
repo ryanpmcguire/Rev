@@ -21,6 +21,10 @@ export namespace Rev {
             .background = { .color = Color(1, 1, 1, 0.1f) }
         };
 
+        static inline Style sliderHoverStyle = {
+            .background = { .color = Color(1, 1, 1, 0.2f) }
+        };
+
         static inline Style trackStyle = {
             .size = { .width = 100_pct, .height = 2_px },
             .alignment = { Axis::Vertical, Align::Start, Align::Center },
@@ -55,13 +59,29 @@ export namespace Rev {
         // Create
         Slider(Element* parent, SliderData sliderData = SliderData()) : Box(parent, "Slider") {
 
+            this->includeChildren = true;
+
             this->data = sliderData;
 
             this->style = sliderStyle;
+            this->hoverStyle = sliderHoverStyle;
+            this->dragStyle = sliderHoverStyle;
 
             track = new Box(this, "Track");
+            track->includeChildren = true;
+
             thumbContainer = new Element(track, "Container");
+            thumbContainer->includeChildren = true;
+
             thumb = new Box(thumbContainer, "Thumb");
+
+            thumb->onMouseMove([this](Event& e) {
+                bool test = true;
+            });
+
+            thumb->hoverStyle = { 
+                .size = { .width = 600_px, .height = 100_px },
+            };
 
             track->style = trackStyle;
             thumbContainer->style = thumbContainerStyle;
@@ -101,11 +121,21 @@ export namespace Rev {
             Element::mouseDrag(e);
         }
 
+        void mouseEnter(Event& e) override {
+            refresh(e);
+            Box::mouseEnter(e);
+        }
+
+        void mouseLeave(Event& e) override {
+            refresh(e);
+            Box::mouseLeave(e);
+        }
+
         void computeStyle(Event& e) {
 
             float pctVal = (data.val - data.min) / (data.max - data.min);
             
-            track->style.padding.left = Pct(100.0f * pctVal);
+            track->style->padding.left = Pct(100.0f * pctVal);
 
             Element::computeStyle(e);
         }

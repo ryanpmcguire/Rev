@@ -191,7 +191,7 @@ export namespace Rev {
         //--------------------------------------------------
 
         void computeStyle(Event& e) override {
-            this->style.size = { .width = Px(details.width), .height = Px(details.height) };
+            this->style->size = { .width = Px(details.width), .height = Px(details.height) };
             Element::computeStyle(e);
         }
 
@@ -326,6 +326,23 @@ export namespace Rev {
             Button8 = GLFW_MOUSE_BUTTON_8
         };
 
+        // Bubble-up hit status
+        void setTargets(Event& e) {
+
+            for (Element* element : topDown) {
+                element->targetFlags.hit = false;
+            }
+
+            for (Element* element : bottomUp) {
+                
+                Element& elem = *element;
+
+                //
+                if (elem.contains(e.mouse.pos)) { elem.targetFlags.hit = true; }
+                if (elem.targetFlags.hit) { elem.parent->targetFlags.hit = true; }
+            }
+        }
+
         // When a mouse button is clicked or released
         void onMouseButton(int button, int action) {
 
@@ -335,6 +352,8 @@ export namespace Rev {
 
             event.resetBeforeDispatch();
             event.id += 1;
+
+            this->setTargets(event);
 
             switch (button) {
                 case (MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
@@ -355,6 +374,8 @@ export namespace Rev {
             event.mouse.pos = { x, y };
             event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
             event.resetBeforeDispatch();
+
+            this->setTargets(event);
 
             // Dispatch mouse move
             this->mouseMove(event);
