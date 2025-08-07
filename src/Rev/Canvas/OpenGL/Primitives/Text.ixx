@@ -117,7 +117,7 @@ export namespace Rev {
 
             font = new Font();
             texture = new Texture(font->bitmap.data, font->bitmap.width, font->bitmap.height, 1);
-            vertices = new VertexBuffer(1000000, sizeof(CharVertex), 1);
+            vertices = new VertexBuffer(100, sizeof(CharVertex), 1);
             databuff = new UniformBuffer(sizeof(Data));
 
             data = static_cast<Data*>(databuff->data);
