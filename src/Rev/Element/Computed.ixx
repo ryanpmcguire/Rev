@@ -1,5 +1,7 @@
 module;
 
+#include <cstdint>
+
 export module Rev.Computed;
 
 import Rev.Style;

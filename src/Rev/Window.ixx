@@ -220,6 +220,10 @@ export namespace Rev {
             }
 
             topLevelDetails->canvas->flush();
+
+            /*if (e.causedRefresh) {
+                draw(e);
+            }*/
         }
 
         // Overridable callbacks

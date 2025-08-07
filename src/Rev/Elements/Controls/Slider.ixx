@@ -84,7 +84,7 @@ export namespace Rev {
             });
 
             thumb->hoverStyle = { 
-                .size = { .width = 600_px, .height = 100_px },
+                .size = { .width = 12_px, .height = 18_px },
             };
 
             track->styles = { &Styles::Track };

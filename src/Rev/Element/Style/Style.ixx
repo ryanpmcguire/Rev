@@ -359,4 +359,17 @@ export namespace Rev {
             if (other.pStyle) { pStyle->apply(*(other.pStyle)); }
         }
     };
+
+    // Transitions
+    //--------------------------------------------------
+    
+    struct Transition {
+
+        // Target
+        float* subject; uint64_t time;
+
+        // Interp
+        float startVal, endVal;
+        uint64_t startTime, endTime;
+    };
 }

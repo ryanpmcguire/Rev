@@ -1,5 +1,6 @@
 module;
 
+#include <cmath>
 #include <string>
 #include <vector>
 #include <ranges>
@@ -66,8 +67,16 @@ export namespace Rev {
             children.clear();
         }
 
+        // Computing
+        //--------------------------------------------------
+
+        std::vector<Transition> transitions;
+
         // Comptue style
         virtual void computeStyle(Event& e) {
+
+            // Compile / apply styles
+            //--------------------------------------------------
 
             computed.style = Style();
 
@@ -78,9 +87,35 @@ export namespace Rev {
             if (targetFlags.hover) { computed.style.apply(hoverStyle); }
             if (targetFlags.drag) { computed.style.apply(dragStyle); }
 
-            //for (Element* child : children) {
-            //    child->computeStyle(e);
-            //}
+            // Transition styles
+            //--------------------------------------------------
+
+            for (Transition& transition : transitions) {
+
+                float& val = *transition.subject;
+
+                // If we're beyond the endTime and we have a different value than target, we begin the transition
+                if (e.time > transition.endTime) {
+                    if (val != transition.endVal) {
+  
+                        transition.startVal = transition.endVal;
+                        transition.endVal = val;
+
+                        val = transition.startVal;
+
+                        transition.startTime = e.time - 1;
+                        transition.endTime = e.time + transition.time;
+                    }
+                }
+
+                if (e.time > transition.startTime && e.time < transition.endTime) {
+
+                    float t = float((e.time - transition.startTime)) / float((transition.endTime - transition.startTime));
+                    val = std::lerp(transition.startVal, transition.endVal, t);
+
+                    refresh(e);
+                }
+            }
         }
         
         // Compute attributes
@@ -93,9 +128,6 @@ export namespace Rev {
 
         virtual void draw(Event& e) {
 
-            //for (Element* child : children) {
-            //    child->draw(e);
-            //}
         }
 
         // Layout

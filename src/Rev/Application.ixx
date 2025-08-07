@@ -25,7 +25,29 @@ export namespace Rev {
             glfwTerminate();
         }
 
+        // Temporary run function to force drawing
         void run() {
+            while (true) {
+                // Poll input events every frame
+                glfwPollEvents(); // Non-blocking
+        
+                // Remove closed windows
+                for (Window*& window : windows) {
+                    if (window->shouldClose) {
+                        removeWindow(window);
+                    }
+                }
+        
+                if (windows.empty()) { break; }
+        
+                // Force a draw every frame
+                for (Window*& window : windows) {
+                    window->draw(window->event);
+                }
+            }
+        }
+
+        /*void run() {
 
             while (true) {
 
@@ -37,7 +59,7 @@ export namespace Rev {
 
                 glfwWaitEvents();
             }
-        }
+        }*/
 
         // Remove window from our list
         void removeWindow(Window* target) {

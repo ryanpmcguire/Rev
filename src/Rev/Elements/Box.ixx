@@ -24,8 +24,14 @@ export namespace Rev {
 
         // Create
         Box(Element* parent, std::string name = "Box") : Element(parent, name) {
+
             rectangle = new Rectangle();
             lines = new Lines(10);
+
+            this->transitions = {
+                { &computed.style.size.width.val, 100 },
+                { &computed.style.size.height.val, 100}
+            };
         }
 
         // Destroy

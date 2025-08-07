@@ -21,42 +21,19 @@ export namespace Rev {
         size_t vertSize = sizeof(Vertex);
         size_t num = 0;
         size_t size = 0;
+        size_t divisor = 0;
 
         VertexBuffer(size_t num, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
 
             this->num = num;
             this->vertSize = vertSize;
             this->size = num * vertSize;
+            this->divisor = divisor;
 
             glGenVertexArrays(1, &vaoID);
             glBindVertexArray(vaoID);
 
-            glGenBuffers(1, &bufferID);
-            glBindBuffer(GL_ARRAY_BUFFER, bufferID);
-
-            // Allocate persistent buffer
-            glBufferStorage(GL_ARRAY_BUFFER, size, nullptr,
-                GL_MAP_WRITE_BIT |
-                GL_MAP_PERSISTENT_BIT |
-                GL_MAP_COHERENT_BIT
-            );
-
-            // Map it
-            data = glMapBufferRange(GL_ARRAY_BUFFER, 0, size,
-                GL_MAP_WRITE_BIT |
-                GL_MAP_PERSISTENT_BIT |
-                GL_MAP_COHERENT_BIT
-            );
-
-            // Configure vertex attribute inside VAO
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, vertSize / sizeof(float), GL_FLOAT, GL_FALSE, vertSize, (void*)0);
-
-            if (divisor) {
-                glVertexAttribDivisor(0, divisor);
-            }
-
-            glBindVertexArray(0);
+            this->resize(num);
         }
 
         ~VertexBuffer() {
@@ -78,6 +55,50 @@ export namespace Rev {
         void set(std::vector<Vertex> newVertices) {
             memcpy(data, newVertices.data(), size);
         }
+
+        void resize(size_t newNum) {
+
+            this->num = newNum;
+            this->size = newNum * vertSize;
+        
+            // Delete previous buffer
+            if (data) {
+                glBindBuffer(GL_ARRAY_BUFFER, bufferID);
+                glUnmapBuffer(GL_ARRAY_BUFFER);
+                data = nullptr;
+            }
+            if (bufferID) {
+                glDeleteBuffers(1, &bufferID);
+                bufferID = 0;
+            }
+        
+            glBindVertexArray(vaoID);
+        
+            glGenBuffers(1, &bufferID);
+            glBindBuffer(GL_ARRAY_BUFFER, bufferID);
+        
+            glBufferStorage(GL_ARRAY_BUFFER, size, nullptr,
+                GL_MAP_WRITE_BIT |
+                GL_MAP_PERSISTENT_BIT |
+                GL_MAP_COHERENT_BIT
+            );
+        
+            data = glMapBufferRange(GL_ARRAY_BUFFER, 0, size,
+                GL_MAP_WRITE_BIT |
+                GL_MAP_PERSISTENT_BIT |
+                GL_MAP_COHERENT_BIT
+            );
+        
+            // Re-specify the attribute pointer
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, vertSize / sizeof(float), GL_FLOAT, GL_FALSE, vertSize, (void*)0);
+        
+            if (divisor) {
+                glVertexAttribDivisor(0, divisor);
+            }
+        
+            glBindVertexArray(0);
+        }        
 
         void bind() {
             glBindVertexArray(vaoID);
