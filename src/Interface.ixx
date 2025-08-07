@@ -46,14 +46,14 @@ export namespace HelloWorld {
 
             TextBox* textBox = new TextBox(greyBox);
 
-            Box* testBox = new Box(greyBox, "TestBox");
+            /*Box* testBox = new Box(greyBox, "TestBox");
             testBox->style = {
                 .size = { },
                 .margin = { 4_px, 4_px, 4_px, 4_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
                 .border = { .radius = 10_px },
                 .background { .color = Color(1, 1, 1, 0.1) },
-            };
+            };*/
 
                 static Style childStyle = {
                     .size = { 10_px, 10_px },
@@ -61,10 +61,10 @@ export namespace HelloWorld {
                     .background = { .color = Color(1, 0.5, 0.5, 1.0) }
                 };
 
-                for (size_t i = 0; i < 10000; i++) {
+                /*for (size_t i = 0; i < 10000; i++) {
                     Box* testBoxChild = new Box(testBox);
                     testBoxChild->styles = { &childStyle };
-                }
+                }*/
 
             /*Box* testBox2 = new Box(testBox, "TestBox");
             testBox2->style = {
