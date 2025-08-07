@@ -22,8 +22,13 @@ export namespace Rev {
             bool record = true;
         };
 
+        struct Details {
+            int width, height;
+        };
+
         GLFWwindow* window = nullptr;
 
+        Details details;
         Flags flags;
 
         UniformBuffer* transform = nullptr;
@@ -39,7 +44,7 @@ export namespace Rev {
             this->window = window;
 
             glfwMakeContextCurrent(window);
-            //glfwSwapInterval(1);
+            glfwSwapInterval(1);
 
             // 2. Initialize GLEW
             glewExperimental = GL_TRUE; // Enable core profiles
@@ -74,14 +79,13 @@ export namespace Rev {
 
             if (flags.resize) {
 
-                int width, height;
-                glfwGetFramebufferSize(window, &width, &height);
-                glViewport(0, 0, width, height);
+                glfwGetFramebufferSize(window, &details.width, &details.height);
+                glViewport(0, 0, details.width, details.height);
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,           // left
-                    static_cast<float>(width),   // right
-                    static_cast<float>(height),  // bottom
+                    static_cast<float>(details.width),   // right
+                    static_cast<float>(details.height),  // bottom
                     0.0f,           // top (flipped for top-left origin)
                     -1.0f,          // near
                     1.0f            // far
@@ -92,15 +96,12 @@ export namespace Rev {
                 flags.resize = false;
             }
 
-            // Clear screen (customize as needed)
-            glClearColor(1, 1, 1, 1);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
             glClear(GL_COLOR_BUFFER_BIT);
 
             transform->bind(0);
-
-            // Draw your OpenGL content here
-            //rectangle->draw();
-            //rect2->draw();
 
             for (Primitive* primitive : primitives) {
                 primitive->draw();

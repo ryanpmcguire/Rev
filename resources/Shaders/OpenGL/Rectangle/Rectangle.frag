@@ -19,19 +19,25 @@ void main() {
     vec2 localPos = fragLocalPos - rectCenter;
     vec2 halfSize = vec2(w, h) * 0.5;
 
-    // Determine which corner we're in
-    float cornerRadius = 0.0;
-    if (localPos.x < 0.0 && localPos.y > 0.0) {
-        cornerRadius = bl;
-    } else if (localPos.x > 0.0 && localPos.y > 0.0) {
-        cornerRadius = br;
-    } else if (localPos.x < 0.0 && localPos.y < 0.0) {
-        cornerRadius = tl;
-    } else {
-        cornerRadius = tr;
-    }
+    // Branchless corner selector
+    float isLeft   = 1.0 - step(0.0, localPos.x); // 1 if x < 0
+    float isTop    = 1.0 - step(0.0, localPos.y); // 1 if y < 0
+    float isRight  = 1.0 - isLeft;
+    float isBottom = 1.0 - isTop;
 
-    // Clamp radius to avoid going outside half extents
+    // Compute weights
+    float w_tl = isLeft  * isTop;
+    float w_tr = isRight * isTop;
+    float w_bl = isLeft  * isBottom;
+    float w_br = isRight * isBottom;
+
+    float cornerRadius = 
+          w_tl * tl +
+          w_tr * tr +
+          w_bl * bl +
+          w_br * br;
+
+    // Clamp radius to avoid overflow
     cornerRadius = clamp(cornerRadius, 0.0, min(halfSize.x, halfSize.y));
 
     // Compute signed distance
@@ -40,7 +46,7 @@ void main() {
     // Adaptive smoothing
     float smoothing = 0.5 * fwidth(dist);
 
-    // Compute alpha from distance
+    // Compute alpha
     float alpha = 1.0 - smoothstep(-smoothing, smoothing, dist);
 
     FragColor = vec4(r, g, b, a * alpha);

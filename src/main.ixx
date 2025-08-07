@@ -1,3 +1,5 @@
+#include <iostream>
+#include <stdexcept>
 #include <GLFW/glfw3.h>
 
 import Rev.Application;
@@ -11,12 +13,20 @@ using namespace HelloWorld;
 
 int main() {
 
-    Application* application = new Application();
-    Window* window = new Window(application->windows, { 640, 480, "Window 1" });
+    try {
 
-    Interface* interface = new Interface(window);
+        Application* application = new Application();
+        Window* window = new Window(application->windows, { "Window 1", 640, 480 });
 
-    application->run();
+        Interface* interface = new Interface(window);
 
-    return 0;
+        application->run();
+
+        return 0;
+    }
+
+    catch (std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+        return 1;
+    }
 }

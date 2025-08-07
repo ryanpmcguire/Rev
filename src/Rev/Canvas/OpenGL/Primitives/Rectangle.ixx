@@ -62,7 +62,7 @@ export namespace Rev {
 
         inline static Shared shared;
 
-        VertexBuffer* vertices = nullptr;
+        //VertexBuffer* vertices = nullptr;
         UniformBuffer* databuff = nullptr;
 
         Data* data = nullptr;
@@ -73,7 +73,7 @@ export namespace Rev {
 
             shared.create();
 
-            vertices = new VertexBuffer(4);
+            //vertices = new VertexBuffer(4);
             databuff = new UniformBuffer(sizeof(Data));
             
             data = static_cast<Data*>(databuff->data);
@@ -90,7 +90,7 @@ export namespace Rev {
 
             shared.destroy();
 
-            delete vertices;
+            //delete vertices;
             delete databuff;
         }
 
@@ -98,7 +98,7 @@ export namespace Rev {
 
             Data& data = (*this->data);
 
-            float& l = data.rect.x;
+            /*float& l = data.rect.x;
             float& t = data.rect.y;
             float r = l + data.rect.w;
             float b = t + data.rect.h;
@@ -106,7 +106,7 @@ export namespace Rev {
             vertices->set({
                 {l, t}, {r, t},
                 {r, b}, {l, b}
-            });
+            });*/
         }
 
         void draw() override {
@@ -117,10 +117,10 @@ export namespace Rev {
             }
          
             shared.pipeline->bind();
-            vertices->bind();
+            //vertices->bind();
             databuff->bind(1);
 
-            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, 1);
         }
     };
 };

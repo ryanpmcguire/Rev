@@ -8,6 +8,7 @@ module;
 export module Rev.Window;
 
 import Rev.Element;
+import Rev.Box;
 import Rev.OpenGL.Canvas;
 
 export namespace Rev {
@@ -16,9 +17,12 @@ export namespace Rev {
 
         struct Details {
 
-            int width = 640, height = 480;
             std::string name = "Hello World";
+            
+            int width = 640, height = 480;
+            int x = 0, y = 0;
 
+            bool decorated = true;
             bool resizable = true;
         };
 
@@ -30,6 +34,9 @@ export namespace Rev {
         Details details;
 
         bool shouldClose = false;
+
+        int xPin = 0; int yPin = 0;
+        Pos downPos = { 0, 0 };
 
         // Create
         Window(std::vector<Window*>& group, Details details = {}) {
@@ -49,7 +56,9 @@ export namespace Rev {
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-            glfwWindowHint(GLFW_SAMPLES, 8); // 4x MSAA
+            //glfwWindowHint(GLFW_SAMPLES, 8); // 4x MSAA
+
+            glfwWindowHint(GLFW_DECORATED, details.decorated ? GLFW_TRUE : GLFW_FALSE);
             glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
 
             window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);
@@ -76,6 +85,46 @@ export namespace Rev {
             topLevelDetails->canvas = new Canvas(window);
             
             group.push_back(this);
+
+            // Children
+            //--------------------------------------------------
+
+            if (!details.decorated) {
+
+                Box* upper = new Box(this);
+                upper->style = {
+                    .size = { .width = 100_pct, .height = 20_px },
+                    .background = { .color = Color(1, 1, 1, 1.0) }
+                };
+
+                upper->onMouseDown([this](Event& e) {
+
+                    this->xPin = this->details.x;
+                    this->yPin = this->details.y;
+
+                    downPos = {
+                        this->details.x + e.mouse.pos.x,
+                        this->details.y + e.mouse.pos.y
+                    };
+
+                    dbg("MouseDown");
+                });
+
+                upper->onDrag([this](Event& e) {
+
+                    Pos screenPos = {
+                        this->details.x + e.mouse.pos.x,
+                        this->details.y + e.mouse.pos.y
+                    };
+
+                    Pos diff = screenPos - downPos;
+
+                    this->details.x = xPin + diff.x;
+                    this->details.y = yPin + diff.y;
+
+                    this->setPos(this->details.x, this->details.y);
+                });
+            }
         }
 
         // Destroy
@@ -142,13 +191,13 @@ export namespace Rev {
         //--------------------------------------------------
 
         void computeStyle(Event& e) override {
-            this->style.size = { .width = Px(details.width), .height = Px(details.height) };
+            this->style->size = { .width = Px(details.width), .height = Px(details.height) };
             Element::computeStyle(e);
         }
 
         void draw(Event& e) override {
 
-            dbg("Drawing");
+            //dbg("Drawing");
 
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();
@@ -212,7 +261,8 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            this->draw(event);
+            this->details.x = x;
+            this->details.y = y;
         }
 
         // When the window is resized
@@ -276,6 +326,24 @@ export namespace Rev {
             Button8 = GLFW_MOUSE_BUTTON_8
         };
 
+        // Bubble-up hit status
+        void setTargets(Event& e) {
+
+            for (Element* element : topDown) {
+                element->targetFlags.hit = false;
+            }
+
+            for (Element* element : bottomUp) {
+                
+                Element& elem = *element;
+
+                //
+                if (elem.contains(e.mouse.pos)) { elem.targetFlags.hit = true; }
+                if (elem.targetFlags.hit) { elem.parent->targetFlags.hit = true; }
+            }
+        }
+
+        // When a mouse button is clicked or released
         void onMouseButton(int button, int action) {
 
             // Get mouse position
@@ -284,6 +352,8 @@ export namespace Rev {
 
             event.resetBeforeDispatch();
             event.id += 1;
+
+            this->setTargets(event);
 
             switch (button) {
                 case (MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
@@ -298,18 +368,51 @@ export namespace Rev {
             }
         }
 
+        // When the mouse moves
         void onCursorPos(float x, float y) {
 
             event.mouse.pos = { x, y };
+            event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
             event.resetBeforeDispatch();
 
+            this->setTargets(event);
+
+            // Dispatch mouse move
             this->mouseMove(event);
 
-            this->draw(event);
+            if (targetFlags.drag) {
+                this->mouseDrag(event);
+            }
 
             if (event.causedRefresh) {
                 this->draw(event);
             }
+        }
+
+        // Controlling window
+        //--------------------------------------------------
+
+        // Show window and focus
+        void popUp() {
+            glfwShowWindow(window);
+            glfwFocusWindow(window);
+        }
+
+        // Hide (iconify) window
+        void minimize() {
+            glfwIconifyWindow(window);
+        }
+
+        void maximize() {
+            glfwMaximizeWindow(window);
+        }
+
+        void setSize(int width, int height) {
+            glfwSetWindowSize(window, width, height);
+        }
+
+        void setPos(int x, int y) {
+            glfwSetWindowPos(window, x, y);
         }
 
         // Static callbacks for GLFW

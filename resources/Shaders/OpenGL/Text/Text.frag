@@ -9,6 +9,7 @@ layout(binding = 0) uniform sampler2D tex;
 // Per-instance color data bound at UBO binding 1
 layout(std140, binding = 1) uniform Data {
     vec4 color;
+    vec2 pos;
 };
 
 void main() {
