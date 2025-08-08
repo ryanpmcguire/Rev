@@ -78,6 +78,8 @@ export namespace Rev {
             // Compile / apply styles
             //--------------------------------------------------
 
+            Style old = computed.style;
+
             computed.style = Style();
 
             // Apply other styles, then own style
@@ -87,35 +89,59 @@ export namespace Rev {
             if (targetFlags.hover) { computed.style.apply(hoverStyle); }
             if (targetFlags.drag) { computed.style.apply(dragStyle); }
 
+            // Create transitions if needed
+            //--------------------------------------------------
+
+            // If width has changed
+            if (old.size.width.val != computed.style.size.width.val && computed.style.size.width.transition) {
+
+                bool redundant = false;
+                for (Transition& transition : transitions) {
+                    if (transition.subject == &computed.style.size.width.val) { redundant = true; break; }
+                }
+
+                if (!redundant) {
+                    transitions.push_back({
+                        &computed.style.size.width.val, computed.style.size.width.transition,
+                        old.size.width.val, computed.style.size.width.val,
+                        e.time, e.time + 100
+                    });
+                }
+            }
+
             // Transition styles
             //--------------------------------------------------
 
+            bool doRefresh = false;
+
+            // Do transitions
             for (Transition& transition : transitions) {
 
                 float& val = *transition.subject;
 
-                // If we're beyond the endTime and we have a different value than target, we begin the transition
-                if (e.time > transition.endTime) {
-                    if (val != transition.endVal) {
-  
-                        transition.startVal = transition.endVal;
-                        transition.endVal = val;
+                if (e.time < transition.startTime) { continue; }
 
-                        val = transition.startVal;
-
-                        transition.startTime = e.time - 1;
-                        transition.endTime = e.time + transition.time;
-                    }
-                }
-
-                if (e.time > transition.startTime && e.time < transition.endTime) {
-
+                if (e.time < transition.endTime) { 
                     float t = float((e.time - transition.startTime)) / float((transition.endTime - transition.startTime));
                     val = std::lerp(transition.startVal, transition.endVal, t);
-
-                    refresh(e);
                 }
+
+                if (e.time > transition.endTime) {
+                    val = transition.endVal;
+                }   
+                
+                doRefresh = true;
             }
+
+            // Remove expired transitions
+            transitions.erase(
+                std::remove_if(transitions.begin(), transitions.end(), [&](const Transition& transition) {
+                    return e.time > transition.endTime;
+                }),
+                transitions.end()
+            );
+
+            if (doRefresh) { refresh(e); }
         }
         
         // Compute attributes

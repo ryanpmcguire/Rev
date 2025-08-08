@@ -27,11 +27,6 @@ export namespace Rev {
 
             rectangle = new Rectangle();
             lines = new Lines(10);
-
-            this->transitions = {
-                { &computed.style.size.width.val, 100 },
-                { &computed.style.size.height.val, 100}
-            };
         }
 
         // Destroy

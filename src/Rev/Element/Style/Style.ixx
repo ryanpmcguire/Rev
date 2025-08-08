@@ -16,6 +16,19 @@ export namespace Rev {
         return isSet;
     };
 
+    // Transitions
+    //--------------------------------------------------
+    
+    struct Transition {
+
+        // Target
+        float* subject; int time;
+
+        // Interp
+        float startVal, endVal;
+        uint64_t startTime, endTime;
+    };
+
     // Distance
     //--------------------------------------------------
 
@@ -30,6 +43,8 @@ export namespace Rev {
         Type type = Type::None;
         float val = -0.0f;
         bool dirty = true;
+
+        int transition = -1;
 
         // Dist is true if type is set
         explicit operator bool() {
@@ -94,7 +109,8 @@ export namespace Rev {
     struct Color {
 
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
-        
+        int transition = -1;
+
         explicit operator bool() {
             return (set(r) || set(g) || set(b) || set(a));
         }
@@ -121,6 +137,8 @@ export namespace Rev {
         Dist minWidth, maxWidth;
         Dist minHeight, maxHeight;
         
+        int transition = -1;
+
         void apply(Size& size) {
             if (size.width) { width = size.width; }
             if (size.height) { height = size.height; }
@@ -138,6 +156,8 @@ export namespace Rev {
         Dist left, right, top, bottom;
         Dist minLeft, minRight, minTop, minBottom;
         Dist maxLeft, maxRight, maxTop, maxBottom;
+
+        int transittion = 0;
 
         void apply(LrtbStyle& lrtb) {
             if (lrtb.left) { left = lrtb.left; }
@@ -182,6 +202,8 @@ export namespace Rev {
 
         Color color;
 
+        int transition = -1;
+
         void apply(Background& background) {
             if (background.color) { color = background.color; }
         }
@@ -194,6 +216,8 @@ export namespace Rev {
         Dist size;
         Dist blur;
         Dist x, y;
+
+        int transition = -1;
     };
 
     // Border
@@ -222,6 +246,8 @@ export namespace Rev {
 
         // Corners
         Corner tl, tr, bl, br;
+
+        int transition = -1;
 
         // Apply new style
         void apply(Border& border) {
@@ -269,7 +295,7 @@ export namespace Rev {
         Shadow shadow;
         Cursor cursor;
 
-        int transition = 0; // Transition time
+        int transition = -1; // Transition time
 
         // Apply single style
         void apply(Style& style) {
@@ -358,18 +384,5 @@ export namespace Rev {
             if (!pStyle) { pStyle = new Style(); }
             if (other.pStyle) { pStyle->apply(*(other.pStyle)); }
         }
-    };
-
-    // Transitions
-    //--------------------------------------------------
-    
-    struct Transition {
-
-        // Target
-        float* subject; uint64_t time;
-
-        // Interp
-        float startVal, endVal;
-        uint64_t startTime, endTime;
     };
 }

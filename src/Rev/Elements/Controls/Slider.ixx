@@ -19,7 +19,8 @@ export namespace Rev {
             .padding = { 6_px, 6_px, 6_px, 6_px },
             .alignment = { Axis::Vertical, Align::Center, Align::Center },
             .border = { .radius = 4_px },
-            .background = { .color = Color(1, 1, 1, 0.1f) }
+            .background = { .color = Color(1, 1, 1, 0.1f) },
+            .transition = 1000
         };
 
         Style SliderHover = {

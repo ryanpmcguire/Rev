@@ -46,7 +46,7 @@ export namespace HelloWorld {
 
             TextBox* textBox = new TextBox(greyBox);
 
-            Box* testBox = new Box(greyBox, "TestBox");
+            /*Box* testBox = new Box(greyBox, "TestBox");
             testBox->style = {
                 .size = { },
                 .margin = { 4_px, 4_px, 4_px, 4_px },
@@ -64,7 +64,7 @@ export namespace HelloWorld {
                 for (size_t i = 0; i < 10000; i++) {
                     Box* testBoxChild = new Box(testBox);
                     testBoxChild->styles = { &childStyle };
-                }
+                }*/
 
             /*Box* testBox2 = new Box(testBox, "TestBox");
             testBox2->style = {
