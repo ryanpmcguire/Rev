@@ -118,7 +118,7 @@ export namespace Rev {
 
                 if (e.time < transition.endTime) { 
                     float t = float((e.time - transition.startTime)) / float((transition.endTime - transition.startTime));
-                    val = std::lerp(transition.startVal, transition.endVal, t);
+                    val = Transition::ease(transition.startVal, transition.endVal, t);
                 }
 
                 if (e.time > transition.endTime) {

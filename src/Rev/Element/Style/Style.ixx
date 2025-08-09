@@ -2,12 +2,13 @@ module;
 
 #include <bit>
 #include <cstdint>
+#include <cmath>
 #include <vector>
 
 export module Rev.Style;
 
 export namespace Rev {
-      
+
     // Returns if value is set
     bool set(float& f) {
 
@@ -22,13 +23,21 @@ export namespace Rev {
     struct Transition {
 
         // Target
-        float* subject; int time;
+        float* subject;
 
         // Interp
         float startVal, endVal;
         uint64_t startTime, endTime;
 
-        static void createNew(float& newVal, float& oldVal, std::vector<Transition>& transitions, uint64_t& time) {
+        static float ease(float& a, float& b, float& t) {
+
+            float sqr = t * t;
+            float t_adj = sqr / (2.0f * (sqr - t) + 1.0f);
+
+            return std::lerp(a, b, t_adj);
+        }
+
+        static void createNew(float& newVal, float& oldVal, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
 
             // Search for redundant transitions
             for (Transition& transition : transitions) {
@@ -39,7 +48,7 @@ export namespace Rev {
                         transition.startVal = oldVal;
                         transition.endVal = newVal;
                         transition.startTime = time;
-                        transition.endTime = time + 100;
+                        transition.endTime = time + ms;
                     }
 
                     return;
@@ -48,9 +57,9 @@ export namespace Rev {
 
             // Create new transition
             transitions.push_back({
-                &newVal, 100,
+                &newVal,
                 oldVal, newVal,
-                time, time + 100
+                time, time + ms
             });
         }
     };
@@ -72,9 +81,18 @@ export namespace Rev {
 
         int transition = -1;
 
-        void animate(Dist& old, std::vector<Transition>& transitions, uint64_t& time) {
+        inline void animate(Dist& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
 
-            if (val != old.val) { Transition::createNew(val, old.val, transitions, time); }
+            int transitionLength = transition > 0 ? transition : ms;
+            if (transitionLength < 1) { return; }
+
+            if (val != old.val) { Transition::createNew(val, old.val, transitions, time, transitionLength); }
+        }
+
+        inline void apply(Dist& other) {
+            if (other.type) {
+                *this = other;
+            }
         }
 
         // Dist is true if type is set
@@ -142,14 +160,20 @@ export namespace Rev {
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
         int transition = -1;
 
-        void animate(Color& old, std::vector<Transition>& transitions, uint64_t& time) {
+        // Apply other color to this one
+        inline void apply(Color& other) {
+            if (other) { *this = other; }
+        }
 
-            if (r != old.r) { Transition::createNew(r, old.r, transitions, time); }
-            if (g != old.g) { Transition::createNew(g, old.g, transitions, time); }
-            if (b != old.b) { Transition::createNew(b, old.b, transitions, time); }
-            if (a != old.a) {
-                Transition::createNew(a, old.a, transitions, time);
-            }
+        void animate(Color& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+
+            int transitionLength = transition > 1 ? transition : ms;
+            if (transitionLength < 1) { return; }
+            
+            if (r != old.r) { Transition::createNew(r, old.r, transitions, time, transitionLength); }
+            if (g != old.g) { Transition::createNew(g, old.g, transitions, time, transitionLength); }
+            if (b != old.b) { Transition::createNew(b, old.b, transitions, time, transitionLength); }
+            if (a != old.a) { Transition::createNew(a, old.a, transitions, time, transitionLength); }
         }
 
         explicit operator bool() {
@@ -180,17 +204,31 @@ export namespace Rev {
         
         int transition = -1;
 
-        void apply(Size& size) {
-            if (size.width) { width = size.width; }
-            if (size.height) { height = size.height; }
-            if (size.minWidth) { minWidth = size.minWidth; }
-            if (size.minHeight) { minHeight = size.minHeight; }
-            if (size.maxHeight) { maxHeight = size.maxHeight; }
+        // Apply other size to this one
+        inline void apply(Size& size) {
+
+            width.apply(size.width); height.apply(size.height);
+            minWidth.apply(size.minWidth); maxWidth.apply(size.maxWidth);
+            minHeight.apply(size.minHeight); maxHeight.apply(size.maxHeight);
+
+            if (size.transition > 0) { transition = size.transition; }
         }
 
-        void animate(Size& old, std::vector<Transition>& transitions, uint64_t& time) {
-            width.animate(old.width, transitions, time);
-            height.animate(old.height, transitions, time);
+        inline void animate(Size& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+
+            int transitionLength = transition > 1 ? transition : ms;
+
+            // Animate nominal width/height
+            width.animate(old.width, transitions, time, transitionLength);
+            height.animate(old.height, transitions, time, transitionLength);
+
+            // Animate min/max width
+            minWidth.animate(old.minWidth, transitions, time, transitionLength);
+            maxWidth.animate(old.maxWidth, transitions, time, transitionLength);
+
+            // Animate min/max height
+            minHeight.animate(old.minHeight, transitions, time, transitionLength);
+            maxHeight.animate(old.maxHeight, transitions, time, transitionLength);
         }
     };
 
@@ -203,13 +241,47 @@ export namespace Rev {
         Dist minLeft, minRight, minTop, minBottom;
         Dist maxLeft, maxRight, maxTop, maxBottom;
 
-        int transition = 0;
+        int transition = -1;
 
-        void apply(LrtbStyle& lrtb) {
-            if (lrtb.left) { left = lrtb.left; }
-            if (lrtb.right) { right = lrtb.right; }
-            if (lrtb.top) { top = lrtb.top; }
-            if (lrtb.bottom) { bottom = lrtb.bottom; }
+        // Apply other LRTB style (margin/padding) to this one
+        inline void apply(LrtbStyle& lrtb) {
+
+            // Apply nominal
+            left.apply(lrtb.left); right.apply(lrtb.right);
+            top.apply(lrtb.top); bottom.apply(lrtb.bottom);
+
+            // Apply minima
+            minLeft.apply(lrtb.minLeft); minRight.apply(lrtb.minRight);
+            minTop.apply(lrtb.minTop); minBottom.apply(lrtb.minBottom);
+
+            // Apply maxima
+            maxLeft.apply(lrtb.maxLeft); maxRight.apply(lrtb.maxRight);
+            maxTop.apply(lrtb.maxTop); maxBottom.apply(lrtb.maxBottom);
+
+            if (lrtb.transition > 0) { transition = lrtb.transition; }
+        }
+
+        inline void animate(LrtbStyle& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+
+            int transitionLength = transition > 1 ? transition : ms;
+
+            // Animating the margins/paddings
+            left.animate(old.left, transitions, time, transitionLength);
+            right.animate(old.right, transitions, time, transitionLength);
+            top.animate(old.top, transitions, time, transitionLength);
+            bottom.animate(old.bottom, transitions, time, transitionLength);
+        
+            // Animating the minimum values
+            minLeft.animate(old.minLeft, transitions, time, transitionLength);
+            minRight.animate(old.minRight, transitions, time, transitionLength);
+            minTop.animate(old.minTop, transitions, time, transitionLength);
+            minBottom.animate(old.minBottom, transitions, time, transitionLength);
+        
+            // Animating the maximum values
+            maxLeft.animate(old.maxLeft, transitions, time, transitionLength);
+            maxRight.animate(old.maxRight, transitions, time, transitionLength);
+            maxTop.animate(old.maxTop, transitions, time, transitionLength);
+            maxBottom.animate(old.maxBottom, transitions, time, transitionLength);
         }
     };
 
@@ -250,8 +322,16 @@ export namespace Rev {
 
         int transition = -1;
 
-        void apply(Background& background) {
+        inline void apply(Background& background) {
             if (background.color) { color = background.color; }
+            if (background.transition > 0) { transition = background.transition; }
+        }
+
+        inline void animate(Background& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+            
+            int transitionLength = transition > 0 ? transition : ms;
+
+            color.animate(old.color, transitions, time, transitionLength);
         }
     };
 
@@ -277,11 +357,22 @@ export namespace Rev {
             Dist radius;
             Dist width;
 
+            int transition = -1;
+
             // Apply new style
-            void apply(Corner& corner) {
+            inline void apply(Corner& corner) {
                 if (corner.color) { color = corner.color; }
                 if (corner.radius) { radius = corner.radius; }
                 if (corner.width) { radius = corner.width; }
+            }
+
+            inline void animate(Corner& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+
+                int transitionLength = transition > 0 ? transition : ms;
+
+                color.animate(old.color, transitions, time, transitionLength);
+                radius.animate(old.radius, transitions, time, transitionLength);
+                width.animate(old.radius, transitions, time, transitionLength);
             }
         };
 
@@ -296,7 +387,7 @@ export namespace Rev {
         int transition = -1;
 
         // Apply new style
-        void apply(Border& border) {
+        inline void apply(Border& border) {
 
             // Apply to self
             if (border.color) { color = border.color; }
@@ -306,6 +397,20 @@ export namespace Rev {
             // Apply to corners
             tl.apply(border.tl); tr.apply(border.tr);
             bl.apply(border.bl); br.apply(border.br);
+        }
+
+        inline void animate(Border& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+            
+            int transitionLength = transition > 0 ? transition : ms;
+
+            color.animate(old.color, transitions, time, transitionLength);
+            radius.animate(old.radius, transitions, time, transitionLength);
+            width.animate(old.radius, transitions, time, transitionLength);
+
+            tl.animate(old.tl, transitions, time, transitionLength);
+            tr.animate(old.tr, transitions, time, transitionLength);
+            bl.animate(old.bl, transitions, time, transitionLength);
+            br.animate(old.br, transitions, time, transitionLength);
         }
     };
 
@@ -365,8 +470,11 @@ export namespace Rev {
         }
 
         void animate(Style& old, std::vector<Transition>& transitions, uint64_t& time) {
-            size.animate(old.size, transitions, time);
-            background.color.animate(old.background.color, transitions, time);
+            size.animate(old.size, transitions, time, transition);
+            background.animate(old.background, transitions, time, transition);
+            border.animate(old.border, transitions, time, transition);
+            margin.animate(old.margin, transitions, time, transition);
+            padding.animate(old.padding, transitions, time, transition);
         }
     };
 

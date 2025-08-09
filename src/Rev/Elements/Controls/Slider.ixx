@@ -19,8 +19,7 @@ export namespace Rev {
             .padding = { 6_px, 6_px, 6_px, 6_px },
             .alignment = { Axis::Vertical, Align::Center, Align::Center },
             .border = { .radius = 4_px },
-            .background = { .color = Color(1, 1, 1, 0.1f) },
-            .transition = 1000
+            .background = { .color = Color(1, 1, 1, 0.1f), .transition = 200 },
         };
 
         Style SliderHover = {
@@ -30,7 +29,8 @@ export namespace Rev {
         Style Track = {
             .size = { .width = 100_pct, .height = 2_px },
             .alignment = { Axis::Vertical, Align::Start, Align::Center },
-            .background = { .color = Color(1, 1, 1, 0.25f) }
+            .background = { .color = Color(1, 1, 1, 0.25f) },
+            .transition = 1000
         };
 
         Style ThumbContainer = {
@@ -39,8 +39,8 @@ export namespace Rev {
         };
 
         Style Thumb = {
-            .size = { .width = 4_px, .height = 8_px },
-            .background = { .color = Color(1, 1, 1, 0.5f) }
+            .size = { .width = 4_px, .height = 8_px, .transition = 200 },
+            .background = { .color = Color(1, 1, 1, 0.5f) , .transition = 200 },
         };
     };
 
@@ -85,7 +85,7 @@ export namespace Rev {
             });
 
             thumb->hoverStyle = { 
-                .size = { .width = 12_px, .height = 18_px },
+                .size = { .width = 100_px, .height = 100_px },
             };
 
             track->styles = { &Styles::Track };
