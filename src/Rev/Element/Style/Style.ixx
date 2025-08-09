@@ -27,6 +27,32 @@ export namespace Rev {
         // Interp
         float startVal, endVal;
         uint64_t startTime, endTime;
+
+        static void createNew(float& newVal, float& oldVal, std::vector<Transition>& transitions, uint64_t& time) {
+
+            // Search for redundant transitions
+            for (Transition& transition : transitions) {
+
+                if (transition.subject == &newVal) {
+
+                    if (transition.endVal != newVal) {                        
+                        transition.startVal = oldVal;
+                        transition.endVal = newVal;
+                        transition.startTime = time;
+                        transition.endTime = time + 100;
+                    }
+
+                    return;
+                }
+            }
+
+            // Create new transition
+            transitions.push_back({
+                &newVal, 100,
+                oldVal, newVal,
+                time, time + 100
+            });
+        }
     };
 
     // Distance
@@ -45,6 +71,11 @@ export namespace Rev {
         bool dirty = true;
 
         int transition = -1;
+
+        void animate(Dist& old, std::vector<Transition>& transitions, uint64_t& time) {
+
+            if (val != old.val) { Transition::createNew(val, old.val, transitions, time); }
+        }
 
         // Dist is true if type is set
         explicit operator bool() {
@@ -111,6 +142,16 @@ export namespace Rev {
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
         int transition = -1;
 
+        void animate(Color& old, std::vector<Transition>& transitions, uint64_t& time) {
+
+            if (r != old.r) { Transition::createNew(r, old.r, transitions, time); }
+            if (g != old.g) { Transition::createNew(g, old.g, transitions, time); }
+            if (b != old.b) { Transition::createNew(b, old.b, transitions, time); }
+            if (a != old.a) {
+                Transition::createNew(a, old.a, transitions, time);
+            }
+        }
+
         explicit operator bool() {
             return (set(r) || set(g) || set(b) || set(a));
         }
@@ -146,6 +187,11 @@ export namespace Rev {
             if (size.minHeight) { minHeight = size.minHeight; }
             if (size.maxHeight) { maxHeight = size.maxHeight; }
         }
+
+        void animate(Size& old, std::vector<Transition>& transitions, uint64_t& time) {
+            width.animate(old.width, transitions, time);
+            height.animate(old.height, transitions, time);
+        }
     };
 
     // Left-right-top-bottom style
@@ -157,7 +203,7 @@ export namespace Rev {
         Dist minLeft, minRight, minTop, minBottom;
         Dist maxLeft, maxRight, maxTop, maxBottom;
 
-        int transittion = 0;
+        int transition = 0;
 
         void apply(LrtbStyle& lrtb) {
             if (lrtb.left) { left = lrtb.left; }
@@ -316,6 +362,11 @@ export namespace Rev {
             for (Style* style : styles) {
                 apply(*style);
             }
+        }
+
+        void animate(Style& old, std::vector<Transition>& transitions, uint64_t& time) {
+            size.animate(old.size, transitions, time);
+            background.color.animate(old.background.color, transitions, time);
         }
     };
 

@@ -93,24 +93,19 @@ export namespace Rev {
             //--------------------------------------------------
 
             // If width has changed
-            if (old.size.width.val != computed.style.size.width.val && computed.style.size.width.transition) {
-
-                bool redundant = false;
-                for (Transition& transition : transitions) {
-                    if (transition.subject == &computed.style.size.width.val) { redundant = true; break; }
-                }
-
-                if (!redundant) {
-                    transitions.push_back({
-                        &computed.style.size.width.val, computed.style.size.width.transition,
-                        old.size.width.val, computed.style.size.width.val,
-                        e.time, e.time + 100
-                    });
-                }
-            }
+            
+            computed.style.animate(old, transitions, e.time);
 
             // Transition styles
             //--------------------------------------------------
+
+            // Remove expired transitions
+            transitions.erase(
+                std::remove_if(transitions.begin(), transitions.end(), [&](const Transition& transition) {
+                    return e.time > transition.endTime;
+                }),
+                transitions.end()
+            );
 
             bool doRefresh = false;
 
@@ -132,14 +127,6 @@ export namespace Rev {
                 
                 doRefresh = true;
             }
-
-            // Remove expired transitions
-            transitions.erase(
-                std::remove_if(transitions.begin(), transitions.end(), [&](const Transition& transition) {
-                    return e.time > transition.endTime;
-                }),
-                transitions.end()
-            );
 
             if (doRefresh) { refresh(e); }
         }

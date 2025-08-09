@@ -197,7 +197,7 @@ export namespace Rev {
 
         void draw(Event& e) override {
 
-            //dbg("Drawing");
+            dbg("Drawing");
 
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();

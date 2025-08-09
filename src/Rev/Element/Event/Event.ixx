@@ -89,7 +89,7 @@ export namespace Rev {
 
         bool propagate = true;
         bool causedRefresh = false;
-        uint64_t firstTime = 0; uint32_t time = 0;
+        uint64_t firstTime = 0; uint64_t time = 0;
         int id = 0;
 
         // Set time
