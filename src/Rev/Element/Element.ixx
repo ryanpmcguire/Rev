@@ -261,9 +261,11 @@ export namespace Rev {
                     float minOuterWidth = child->res.getMinOuter(Axis::Horizontal);
                     float minOuterHeight = child->res.getMinOuter(Axis::Vertical);
 
+                    if (res.size.w.growable) { minOuterWidth = child->res.getMaxOuter(Axis::Horizontal); }
+
                     // Should we create a new row, or are we add more?
                     // (In other words, have we exceeded the maximum inner width)
-                    if (!row.members.empty() && runningWidth + minOuterWidth > maxInnerWidth) {
+                    if (!row.members.empty() && (runningWidth + minOuterWidth > maxInnerWidth)) {
                         
                         // Push back, create new row
                         layout.rows.push_back(row);

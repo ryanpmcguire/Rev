@@ -1,6 +1,7 @@
 module;
 
 #include <vector>
+#include <map>
 #include <stdexcept>
 #include <cstring>
 
@@ -28,7 +29,8 @@ export namespace Rev {
         FT_Face face = nullptr;
 
         // Font attributes
-        float size = 50;
+        float size = 12;
+        int weight = 200;
         float ascent, descent;
         float lineGap, lineHeight;
 
@@ -135,6 +137,9 @@ export namespace Rev {
             }
         }
 
+        // A crucial part of font rendering is pre-baking the font into a bitmap texture
+        // which can be fed to the GPU, and for each glyph the texture coordinates thereof
+        // being used to write said glyph at the correct position on the screen.
         void bake() {
             
             const int padding = 1;
@@ -241,6 +246,22 @@ export namespace Rev {
                 .x0 = x0, .y0 = y0, .s0 = g.u0, .t0 = g.v0,
                 .x1 = x1, .y1 = y1, .s1 = g.u1, .t1 = g.v1
             };
+        }
+    };
+
+    // Contains stored fonts at various sizes
+    struct FontMap {
+
+        struct FontKey {
+            unsigned char* data;
+            float size;
+            int weight;
+        };
+
+        std::map<FontKey, Font> map;
+
+        Font& get(Resource& resource, float& size, int& weight) {
+
         }
     };
 };

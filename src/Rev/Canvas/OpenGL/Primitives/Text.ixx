@@ -22,6 +22,9 @@ export namespace Rev {
 
     export struct Text : public Primitive {
 
+        // Fonts
+        //--------------------------------------------------
+
         // Shared resources
         //--------------------------------------------------
 
@@ -91,7 +94,7 @@ export namespace Rev {
         Font* font = nullptr;
         Data* data = nullptr;
 
-        std::string content = "Hello\rWorld";
+        std::string content = "Slider";
 
         struct Line {
             std::string dbg;    // Debug

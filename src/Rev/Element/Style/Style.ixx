@@ -7,6 +7,8 @@ module;
 
 export module Rev.Style;
 
+import Resource;
+
 export namespace Rev {
 
     // Returns if value is set
@@ -182,11 +184,11 @@ export namespace Rev {
     };
 
     Color rgba(float r, float g, float b, float a) {
-        return { r, g, b, a };
+        return { r / 255.0f, g / 255.0f, b / 255.0f, a };
     }
 
     Color rgb(float r, float g, float b) {
-        return { r, g, b, 1.0 };
+        return { r / 255.0f, g / 255.0f, b / 255.0f, 1.0 };
     }
     
     // Size
@@ -300,16 +302,24 @@ export namespace Rev {
         SpaceAorund, SpaceBetween
     };
 
+    enum Break {
+        NoBreak,
+        False,
+        True
+    };
+
     struct Alignment {
 
         Axis direction = Axis::NoAxis;
         Align horizontal = Align::NoAlign;
         Align vertical = Align::NoAlign;
+        Break breakWrap = Break::NoBreak;
 
         void apply(Alignment& other) {
             if (other.direction != Axis::NoAxis) { direction = other.direction; }
             if (other.horizontal != Align::NoAlign) { horizontal = other.horizontal; }
             if (other.vertical != Align::NoAlign) { vertical = other.vertical; }
+            if (other.breakWrap != Break::NoBreak) { breakWrap = other.breakWrap; }
         }
     };
 
@@ -414,6 +424,36 @@ export namespace Rev {
         }
     };
 
+    // Font
+    //--------------------------------------------------
+
+    struct TextStyle {
+
+        Resource font;
+        Dist size;
+        int weight = -1;
+        Color color;
+        Dist lineHeight;
+        Dist spacing;
+
+        int transition = -1;
+
+        inline void apply(TextStyle& other) {
+
+            size.apply(other.size);
+            color.apply(other.color);
+            lineHeight.apply(other.lineHeight);
+            spacing.apply(other.spacing);
+        }
+
+        inline void animate(TextStyle& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+
+            int transitionLength = transition > 0 ? transition : ms;
+
+            color.animate(old.color, transitions, time, transitionLength);
+        }
+    };
+
     // Cursor
     //--------------------------------------------------
 
@@ -444,6 +484,7 @@ export namespace Rev {
         Border border;
         Background background;
         Shadow shadow;
+        TextStyle text;
         Cursor cursor;
 
         int transition = -1; // Transition time
@@ -459,6 +500,7 @@ export namespace Rev {
             margin.apply(style.margin);
             padding.apply(style.padding);
             alignment.apply(style.alignment);
+            text.apply(style.text);
         }
 
         // Apply vector of styles
@@ -475,6 +517,7 @@ export namespace Rev {
             border.animate(old.border, transitions, time, transition);
             margin.animate(old.margin, transitions, time, transition);
             padding.animate(old.padding, transitions, time, transition);
+            text.animate(old.text, transitions, time, transition);
         }
     };
 

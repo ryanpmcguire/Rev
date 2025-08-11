@@ -7,6 +7,7 @@ export module Rev.Slider;
 import Rev.Style;
 import Rev.Element;
 import Rev.Box;
+import Rev.TextBox;
 
 export namespace Rev {
 
@@ -17,7 +18,7 @@ export namespace Rev {
             .size = { .width = Grow(), .minWidth = 100_px },
             .margin = { 4_px, 4_px, 4_px, 4_px },
             .padding = { 6_px, 6_px, 6_px, 6_px },
-            .alignment = { Axis::Vertical, Align::Center, Align::Center },
+            .alignment = { Axis::Vertical, Align::Start, Align::Center },
             .border = { .radius = 4_px },
             .background = { .color = Color(1, 1, 1, 0.1f), .transition = 200 },
         };
@@ -28,7 +29,7 @@ export namespace Rev {
 
         Style Track = {
             .size = { .width = 100_pct, .height = 2_px },
-            .alignment = { Axis::Vertical, Align::Start, Align::Center },
+            .alignment = { Axis::Vertical, Align::Start, Align::Center, Break::True },
             .background = { .color = Color(1, 1, 1, 0.25f) },
             .transition = 1000
         };
@@ -46,8 +47,8 @@ export namespace Rev {
 
     struct Slider : public Box {
 
+        TextBox* label = nullptr;
         Box* track = nullptr;
-        
         Element* thumbContainer = nullptr;
         Box* thumb = nullptr;
 
@@ -71,6 +72,12 @@ export namespace Rev {
             this->style = Styles::Slider;
             this->hoverStyle = Styles::SliderHover;
             this->dragStyle = Styles::SliderHover;
+
+            label = new TextBox(this);
+            label->style = {
+                .margin = { .bottom = 4_px },
+                .alignment = { .breakWrap = Break::True }
+            };
 
             track = new Box(this, "Track");
             track->includeChildren = true;

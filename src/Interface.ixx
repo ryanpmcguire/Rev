@@ -8,24 +8,20 @@ import Rev.TextBox;
 
 import Rev.Slider;
 
+import Resources.Fonts.Arial.Arial_ttf;
+
 export namespace HelloWorld {
 
     using namespace Rev;
 
     struct Interface : public Box {
-        
-        Style textBoxChildStyle = {
-            .size = { 10_px, 10_px },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
-            .background = { .color = Color(1, 0.5, 0.5, 1.0) }
-        };
 
         // Create
         Interface(Element* parent) : Box(parent) {
 
             // Self
             this->style->alignment = { Axis::Vertical, Align::Center, Align::Center };
-            this->style->background.color = Color(0.1, 0.1, 0.1, 1);
+            this->style->background.color = rgba(25, 25, 25, 1.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
@@ -35,7 +31,7 @@ export namespace HelloWorld {
                 .size = { .width = Shrink(), .maxWidth = 600_px, .maxHeight = 400_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
                 .border = { .radius = 10_px },
-                .background { .color = Color(1, 1, 1, 0.1) },
+                .background { .color = rgba(255, 255, 255, 0.1) },
             };
 
             Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
@@ -44,7 +40,13 @@ export namespace HelloWorld {
             /*sliderA->style.size.minWidth = 100_px;
             sliderB->style.size.minWidth = 50_px;*/
 
-            TextBox* textBox = new TextBox(greyBox);
+            /*TextBox* textBox = new TextBox(greyBox);
+            textBox->style = {
+                .text = {
+                    .font = Arial_ttf,
+                    .size = 20_px
+                }
+            };*/
 
             /*Box* testBox = new Box(greyBox, "TestBox");
             testBox->style = {
