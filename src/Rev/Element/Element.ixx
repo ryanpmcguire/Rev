@@ -43,6 +43,7 @@ export namespace Rev {
         
         Computed computed;
         bool dirty = true;
+        int draws = 0;
 
         // Create
         Element(Element* parent = nullptr, std::string name = "Element") {
@@ -89,10 +90,13 @@ export namespace Rev {
             if (targetFlags.hover) { computed.style.apply(hoverStyle); }
             if (targetFlags.drag) { computed.style.apply(dragStyle); }
 
+            // If this is our first draw, we do not animate
+            if (draws == 0) {
+                return;
+            }
+
             // Create transitions if needed
             //--------------------------------------------------
-
-            // If width has changed
             
             computed.style.animate(old, transitions, e.time);
 
@@ -132,15 +136,11 @@ export namespace Rev {
         }
         
         // Compute attributes
-        virtual void computePrimitives(Event& e) {
-
-            for (Element* child : children) {
-                child->computePrimitives(e);
-            }
-        }
+        virtual void computePrimitives(Event& e) {}
 
         virtual void draw(Event& e) {
 
+            draws += 1;
         }
 
         // Layout
@@ -226,13 +226,13 @@ export namespace Rev {
             res.pos.setNonFlex(rStyle.position, res.size);
 
             // Set grow min/max, ignoring pos as that cannot grow
-            res.size.setGrow(rStyle.size, res.size.w.max);
+            res.size.setGrow(rStyle.size, maxInnerWidth);
             res.mar.setGrow(rStyle.margin, maxInnerWidth);
             res.pad.setGrow(rStyle.padding, maxInnerWidth);
 
             // Inherit maxima from parent if none
-            if (!res.size.w.max) { res.size.w.max = maxInnerWidth; }
-            if (!res.size.h.max) { res.size.h.max = maxInnerHeight; }
+            if (!set(res.size.w.max)) { res.size.w.max = maxInnerWidth; }
+            if (!set(res.size.h.max)) { res.size.h.max = maxInnerHeight; }
         }
 
         // Resolve layout (bottom up)
@@ -322,24 +322,24 @@ export namespace Rev {
                 layout.size.h.max += row.size.h.max;
             }
 
-            // Inherit minima from children
+            // Inherit minima from children (if no set minimum size)
             //--------------------------------------------------
 
-            if(res.size.w.fit && layout.size.w.min + res.pad.l.min + res.pad.r.min > res.size.w.min) {
+            if(!set(res.size.w.min) && layout.size.w.min + res.pad.l.min + res.pad.r.min > res.size.w.min) {
                 res.size.w.min = layout.size.w.min + res.pad.l.min + res.pad.r.min;
                 res.size.w.max = std::max(res.size.w.min, res.size.w.max);
             }
 
-            if(res.size.h.fit && layout.size.h.min + res.pad.t.min + res.pad.b.min > res.size.h.min) {
+            if(!set(res.size.h.min) && layout.size.h.min + res.pad.t.min + res.pad.b.min > res.size.h.min) {
                 res.size.h.min = layout.size.h.min + res.pad.t.min + res.pad.b.min;
                 res.size.h.max = std::max(res.size.h.min, res.size.h.max);
             }
 
-            // Inherit maxima from children
+            // Inherit maxima from children (if no set maximum size)
             //--------------------------------------------------
 
-            if (res.size.w.fit && !res.size.w.max) { res.size.w.max = layout.size.w.max + res.pad.l.val + res.pad.r.val; }
-            if (res.size.h.fit && !res.size.h.max) { res.size.h.max = layout.size.h.max + res.pad.t.val + res.pad.b.val; }
+            if (res.size.w.fit && !set(res.size.w.max)) { res.size.w.max = layout.size.w.max + res.pad.l.val + res.pad.r.val; }
+            if (res.size.h.fit && !set(res.size.h.max)) { res.size.h.max = layout.size.h.max + res.pad.t.val + res.pad.b.val; }
         }
 
         // BOTTOM UP

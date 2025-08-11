@@ -1,5 +1,7 @@
 module;
 
+#include <string>
+
 export module Rev.TextBox;
 
 import Rev.Box;
@@ -13,11 +15,12 @@ export namespace Rev {
         Text* text = nullptr;
 
         // Create
-        TextBox(Element* parent) : Box(parent, "TextBox") {
+        TextBox(Element* parent, std::string content = "Hello World") : Box(parent, "TextBox") {
 
             measure = true;
 
             text = new Text();
+            text->content = content;
         }
 
         // Destroy
@@ -37,6 +40,14 @@ export namespace Rev {
             };
 
             Box::computeStyle(e);
+        }
+
+        void computePrimitives(Event& e) override {
+
+            text->fontSize = style->text.size.val;
+            if (!text->fontSize) { text->fontSize = 12.0f; }
+
+            Box::computePrimitives(e);
         }
 
         void draw(Event& e) override {

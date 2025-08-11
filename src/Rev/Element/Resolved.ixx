@@ -1,5 +1,6 @@
 module;
 
+#include <bit>
 #include <algorithm>
 
 export module Rev.Resolved;
@@ -10,54 +11,18 @@ namespace Rev {
 
     export struct ResolvedDim {
 
+        // Returns if value is set
+        inline bool set(float& f) {
+
+            bool isSet = std::bit_cast<uint32_t>(f) != 0x80000000;
+
+            return isSet;
+        };
+
         // -0.0f means "unset" or "unspecified"
         float val = -0.0f, min = -0.0f, max = -0.0f;
         bool growable = false;
         bool fit = true;
-
-        // Set Abs value
-        void setAbs(Dist& newVal, Dist& newMin, Dist& newMax) {
-
-            if (newVal.type == Dist::Type::Abs) { val = newVal.val; fit = false; }
-            if (newMin.type == Dist::Type::Abs) { min = newMin.val; }
-            if (newMax.type == Dist::Type::Abs) { max = newMax.val; }
-
-            // Set all in the case of newVal being Abs
-            if (val) {
-
-                val = newVal.val;
-                min = newVal.val;
-                max = newVal.val;
-            }
-        }
-
-        // Set Rel to other
-        void setRel(Dist& newVal, Dist& newMin, Dist& newMax, float compare) {
-
-            // Set min/max
-            if (newMin.type == Dist::Type::Rel) { min = newMin.val * compare; fit = false; }
-            if (newMax.type == Dist::Type::Rel) { max = newMax.val * compare; }
-            if (newVal.type == Dist::Type::Rel) { val = newVal.val * compare; }
-
-            if (val) {
-                min = val;
-                max = val;
-            }
-
-            // Clamp values
-            //this->clamp();
-        }
-
-        // Set Rel to other
-        void setMax(Dist& newMax, float& compareMax) {
-            if (newMax.type == Dist::Type::Abs) { max = newMax.val; }
-            if (newMax.type == Dist::Type::Rel) { max = newMax.val * compareMax; }
-        }
-
-        void setMin(Dist& newMin, float& compareMin) {
-            if (newMin.type == Dist::Type::Abs) { min = newMin.val; }
-            if (newMin.type == Dist::Type::Rel) { min = newMin.val * compareMin; }
-        }
 
         void setNonFlex(Dist& newVal, Dist& newMin, Dist& newMax, float& compareMin, float& compareMax) {
 
@@ -80,8 +45,8 @@ namespace Rev {
             }
 
             // Any set value means min/max are also set
-            if (val && !min) { min = val; }
-            if (val && !max) { max = val; }
+            if (set(val) && !min) { min = val; }
+            if (set(val) && !max) { max = val; }
         }
 
         // This is a special case, since min/max can't grow - they can only be set as abs/rel
@@ -98,15 +63,6 @@ namespace Rev {
                 // If there is no existing max, we set it to a large value
                 if (!max) { max = 999999.0f; }
             }
-        }
-
-        // Basically, "suggest" a value to the dimension (conditional override)
-        void suggest(float newVal, float newMin, float newMax, bool newGrowable) {
-
-            //if (!val) { val = newVal; }
-            if (!min) { min = newMin; }
-            if (!max) { max = newMax; }
-            if (!growable) { growable = newGrowable; }
         }
 
         // Limit dimension based on resolved min/max values
@@ -146,28 +102,6 @@ namespace Rev {
     export struct ResolvedSize {
 
         ResolvedDim w, h;
-
-        // Set Abss
-        void setAbs(Size& size) {
-            w.setAbs(size.width, size.minWidth, size.maxWidth);
-            h.setAbs(size.height, size.minHeight, size.maxHeight);
-        }
-
-        // Set Rel to other size
-        void setRel(Size& size, float innerWidth, float innerHeight) {
-            w.setRel(size.width, size.minWidth, size.maxWidth, innerWidth);
-            h.setRel(size.height, size.minHeight, size.maxHeight, innerHeight);
-        }
-
-        void setMax(Size& size, float& maxInnerWidth, float& maxInnerHeight) {
-            w.setMax(size.width, maxInnerWidth);
-            h.setMax(size.height, maxInnerHeight);
-        }
-
-        void setMin(Size& size, float& minInnerWidth, float& minInnerHeight) {
-            w.setMin(size.width, minInnerWidth);
-            h.setMin(size.height, minInnerHeight);
-        }
 
         void setNonFlex(Size& size, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
             w.setNonFlex(size.width, size.minWidth, size.maxWidth, minInnerWidth, maxInnerWidth);
@@ -209,22 +143,6 @@ namespace Rev {
     export struct ResolvedLrtb {
 
         ResolvedDim l, r, t, b;
-
-        // Set Abss
-        void setAbs(LrtbStyle& lrtb) {
-            l.setAbs(lrtb.left, lrtb.minLeft, lrtb.maxLeft);
-            r.setAbs(lrtb.right, lrtb.minRight, lrtb.maxRight);
-            t.setAbs(lrtb.top, lrtb.minTop, lrtb.maxTop);
-            b.setAbs(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom);
-        }
-
-        // Set Rel to other size
-        void setRel(LrtbStyle& lrtb, ResolvedSize& size) {
-            l.setRel(lrtb.left, lrtb.minLeft, lrtb.maxLeft, size.w.val);
-            r.setRel(lrtb.right, lrtb.minRight, lrtb.maxRight, size.w.val);
-            t.setRel(lrtb.top, lrtb.minTop, lrtb.maxTop, size.h.val);
-            b.setRel(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom, size.h.val);
-        }
 
         void setNonFlex(LrtbStyle& lrtb, ResolvedSize& size) {
             l.setNonFlex(lrtb.left, lrtb.minLeft, lrtb.maxLeft, size.w.val, size.h.max);

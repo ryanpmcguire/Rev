@@ -526,7 +526,7 @@ export namespace Rev {
         Style* pStyle = nullptr;
 
         ~StylePtr() {
-            if (pStyle) { delete pStyle; };
+            if (pStyle) { delete pStyle; }
             pStyle = nullptr;
         }
 

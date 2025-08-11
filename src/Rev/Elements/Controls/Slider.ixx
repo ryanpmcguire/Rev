@@ -1,5 +1,6 @@
 module;
 
+#include <cmath>
 #include <algorithm>
 
 export module Rev.Slider;
@@ -12,45 +13,57 @@ import Rev.TextBox;
 export namespace Rev {
 
     namespace Styles {
-
-        Style Slider = {
-
-            .size = { .width = Grow(), .minWidth = 100_px },
+        
+        Style Self = {
+            .size = { .width = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
-            .padding = { 6_px, 6_px, 6_px, 6_px },
-            .alignment = { Axis::Vertical, Align::Start, Align::Center },
-            .border = { .radius = 4_px },
-            .background = { .color = Color(1, 1, 1, 0.1f), .transition = 200 },
         };
 
-        Style SliderHover = {
-            .background = { .color = Color(1, 1, 1, 0.2f) }
-        };
+            Style Label = {
+                .margin = { .bottom = 4_px },
+                .text = { .size = 12_px }
+            };
 
-        Style Track = {
-            .size = { .width = 100_pct, .height = 2_px },
-            .alignment = { Axis::Vertical, Align::Start, Align::Center, Break::True },
-            .background = { .color = Color(1, 1, 1, 0.25f) },
-            .transition = 1000
-        };
+            Style Slider = {
+                .size = { .width = Grow() },
+                .padding = { 6_px, 6_px, 6_px, 6_px },
+                .alignment = { Axis::Vertical, Align::Start, Align::Center },
+                .border = { .radius = 4_px },
+                .background = { .color = rgba(255, 255, 255, 0.1), .transition = 100 },
+            };
 
-        Style ThumbContainer = {
-            .size = { .width = 0_px, .height = 0_px },
-            .alignment = { Axis::Vertical, Align::Center, Align::Center }
-        };
+                Style SliderHover = {
+                    .background = { .color = rgba(255, 255, 255, 0.15) }
+                };
 
-        Style Thumb = {
-            .size = { .width = 4_px, .height = 8_px, .transition = 200 },
-            .background = { .color = Color(1, 1, 1, 0.5f) , .transition = 200 },
-        };
+            Style Track = {
+                .size = { .width = 100_pct, .height = 2_px, .minWidth = 100_px },
+                .alignment = { Axis::Vertical, Align::Start, Align::Center, Break::True },
+                .background = { .color = rgba(255, 255, 255, 0.25) },
+            };
+
+                Style ThumbContainer = {
+                    .size = { .width = 0_px, .height = 0_px },
+                    .alignment = { Axis::Vertical, Align::Center, Align::Center }
+                };
+
+                    Style Thumb = {
+                        .size = { .width = 4_px, .height = 8_px, .transition = 100 },
+                        .background = { .color = rgba(255, 255, 255, 0.5) },
+                    };
+
+                    Style ThumbHover = {
+                        .size = { .width = 8_px, .height = 16_px }
+                    };
     };
 
     struct Slider : public Box {
 
         TextBox* label = nullptr;
-        Box* track = nullptr;
-        Element* thumbContainer = nullptr;
-        Box* thumb = nullptr;
+        Box* sliderContainer = nullptr;
+            Box* track = nullptr;
+            Element* thumbContainer = nullptr;
+                Box* thumb = nullptr;
 
         struct SliderData {
 
@@ -65,44 +78,43 @@ export namespace Rev {
         // Create
         Slider(Element* parent, SliderData sliderData = SliderData()) : Box(parent, "Slider") {
 
-            this->includeChildren = true;
-
+            // Self
             this->data = sliderData;
+            this->styles = { &Styles::Self };
 
-            this->style = Styles::Slider;
-            this->hoverStyle = Styles::SliderHover;
-            this->dragStyle = Styles::SliderHover;
+                // Label
+                label = new TextBox(this);
+                label->styles = { &Styles::Label };
 
-            label = new TextBox(this);
-            label->style = {
-                .margin = { .bottom = 4_px },
-                .alignment = { .breakWrap = Break::True }
-            };
+                // SliderContainer
+                sliderContainer = new Box(this, "SliderContainer");
+                sliderContainer->styles = { &Styles::Slider };
+                sliderContainer->hoverStyle = { &Styles::SliderHover };
 
-            track = new Box(this, "Track");
-            track->includeChildren = true;
+                    // Set new value on click
+                    sliderContainer->onMouseDown([this] (Event& e) {
+                        float newVal = posToVal(e.mouse.pos);
+                        if (setVal(newVal)) { refresh(e); }
+                    });
 
-            thumbContainer = new Element(track, "Container");
-            thumbContainer->includeChildren = true;
+                    // Set value on drag
+                    sliderContainer->onDrag([this] (Event& e) {
+                        float newVal = posToVal(e.mouse.pos);
+                        if (setVal(newVal)) { refresh(e); }
+                    });
 
-            thumb = new Box(thumbContainer, "Thumb");
+                    // Track
+                    track = new Box(sliderContainer, "Track");
+                    track->styles = { &Styles::Track };
 
-            thumb->onMouseMove([this](Event& e) {
-                bool test = true;
-            });
+                        // Thumb container
+                        thumbContainer = new Element(track, "Container");
+                        thumbContainer->styles = { &Styles::ThumbContainer };
 
-            thumb->hoverStyle = { 
-                .size = { .width = 100_px, .height = 100_px },
-            };
-
-            track->styles = { &Styles::Track };
-            thumbContainer->styles = { &Styles::ThumbContainer };
-            thumb->styles = { &Styles::Thumb };
-        }
-
-        // Destroy
-        ~Slider() {
-
+                            thumb = new Box(thumbContainer, "Thumb");
+                            thumb->styles = { &Styles::Thumb };
+                            thumb->hoverStyle = Styles::ThumbHover;
+                            thumb->dragStyle = Styles::ThumbHover;
         }
 
         bool setVal(float newVal) {
@@ -117,49 +129,14 @@ export namespace Rev {
             return (data.max - data.min) * track->rect.posWithin(pos).x;
         }
 
-        void mouseDown(Event& e) override {
-
-            float newVal = posToVal(e.mouse.pos);
-            if (setVal(newVal)) { refresh(e); }
-
-            Element::mouseDown(e);
-        }
-
-        void mouseDrag(Event& e) override {
-
-            float newVal = posToVal(e.mouse.pos);
-            if (setVal(newVal)) { refresh(e); }
-
-            Element::mouseDrag(e);
-        }
-
-        void mouseEnter(Event& e) override {
-            refresh(e);
-            Box::mouseEnter(e);
-        }
-
-        void mouseLeave(Event& e) override {
-            refresh(e);
-            Box::mouseLeave(e);
-        }
-
         void computeStyle(Event& e) override {
 
             float pctVal = (data.val - data.min) / (data.max - data.min);
             
             // Position the thumb via track padding
-            track->style = Styles::Track; // make a copy before mutating
             track->style->padding.left = Pct(100.0f * pctVal);
-        
-            // Style the thumb background color based on slider value
-            thumb->style = Styles::Thumb; // copy base style
-        
-            if (pctVal > 0.5f) {
-                thumb->style->background.color = Color(1.0f, 0.2f, 0.2f, 0.9f); // reddish
-            }
         
             Element::computeStyle(e);
         }
-        
     };
 };

@@ -10,6 +10,9 @@ module;
 
 export module Rev.Font;
 
+import Rev.OpenGL.UniformBuffer;
+import Rev.OpenGL.Texture;
+
 import Resource;
 import Resources.Fonts.Arial.Arial_ttf;
 
@@ -65,8 +68,27 @@ export namespace Rev {
         };
 
         Bitmap bitmap;
+        Texture* texture = nullptr;
 
-        Font(Resource resource = Arial_ttf) : resource(resource) {
+        // Glyph data
+        //--------------------------------------------------
+
+        // Position and texture coords
+        struct CharVertex {
+            float x, y;
+            float u, v;
+        };
+
+        // Six vertices per quad
+        struct GlyphData {
+            CharVertex a, b, c, d, e, f;
+        };
+
+        UniformBuffer* glyphData = nullptr;
+
+        Font(Resource resource = Arial_ttf, float size = 12.0f) : resource(resource) {
+
+            this->size = size;
             
             // Initialize freetype if we are the first user
             if (++users == 1 && FT_Init_FreeType(&ft)) {
@@ -87,6 +109,32 @@ export namespace Rev {
 
             this->getFontAttribs();
             this->bake();
+
+            texture = new Texture(bitmap.data, bitmap.width, bitmap.height, 1);
+
+            // Make glyph data ubo
+            //--------------------------------------------------
+
+            glyphData = new UniformBuffer(sizeof(GlyphData) * 128);
+            GlyphData* glyphDataArr = static_cast<GlyphData*>(glyphData->data);
+
+            for (char c = 0; c < 127; c++) {
+
+                Font::Quad q = this->getRelativeQuad(c);
+
+                glyphDataArr[c] = {
+
+                    // Triangle 1
+                    { q.x0, q.y0, q.s0, q.t0 },
+                    { q.x1, q.y0, q.s1, q.t0 },
+                    { q.x1, q.y1, q.s1, q.t1 },
+    
+                    // Triangle 2
+                    { q.x0, q.y0, q.s0, q.t0 },
+                    { q.x1, q.y1, q.s1, q.t1 },
+                    { q.x0, q.y1, q.s0, q.t1 }
+                };
+            }
         }
 
         ~Font() {
@@ -94,6 +142,8 @@ export namespace Rev {
             // Delete our resources
             if (face) { FT_Done_Face(face); }
             if (bitmap.data) { delete[] bitmap.data; }
+            if (texture) { delete texture; }
+            if (glyphData) { delete glyphData; }
 
             // Delete freetype if we are the last user
             if (--users == 0 && ft) {
@@ -246,22 +296,6 @@ export namespace Rev {
                 .x0 = x0, .y0 = y0, .s0 = g.u0, .t0 = g.v0,
                 .x1 = x1, .y1 = y1, .s1 = g.u1, .t1 = g.v1
             };
-        }
-    };
-
-    // Contains stored fonts at various sizes
-    struct FontMap {
-
-        struct FontKey {
-            unsigned char* data;
-            float size;
-            int weight;
-        };
-
-        std::map<FontKey, Font> map;
-
-        Font& get(Resource& resource, float& size, int& weight) {
-
         }
     };
 };

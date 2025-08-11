@@ -10,13 +10,13 @@ export module Rev.OpenGL.Text;
 import Rev.OpenGL.Primitive;
 import Rev.OpenGL.UniformBuffer;
 import Rev.OpenGL.VertexBuffer;
-import Rev.OpenGL.Texture;
 import Rev.OpenGL.Pipeline;
 import Rev.OpenGL.Shader;
 import Resources.Shaders.OpenGL.Text.Text_vert;
 import Resources.Shaders.OpenGL.Text.Text_frag;
 
 import Rev.Font;
+import Resources.Fonts.Arial.Arial_ttf;
 
 export namespace Rev {
 
@@ -69,11 +69,6 @@ export namespace Rev {
             float u, v;
         };
 
-        // Six vertices per quad
-        struct GlyphData {
-            CharVertex a, b, c, d, e, f;
-        };
-
         // Instance-specific data
         struct Data {
 
@@ -85,8 +80,6 @@ export namespace Rev {
         };
 
         UniformBuffer* databuff = nullptr;
-        UniformBuffer* glyphData = nullptr;
-        Texture* texture = nullptr;
 
         VertexBuffer* vertices = nullptr;
         size_t vertexCount = 0;
@@ -94,7 +87,8 @@ export namespace Rev {
         Font* font = nullptr;
         Data* data = nullptr;
 
-        std::string content = "Slider";
+        std::string content = "Hello World";
+        float fontSize = 12.0f;
 
         struct Line {
             std::string dbg;    // Debug
@@ -119,7 +113,6 @@ export namespace Rev {
             shared.create();
 
             font = new Font();
-            texture = new Texture(font->bitmap.data, font->bitmap.width, font->bitmap.height, 1);
             vertices = new VertexBuffer(100, sizeof(CharVertex), 1);
             databuff = new UniformBuffer(sizeof(Data));
 
@@ -127,30 +120,6 @@ export namespace Rev {
             *data = {
                 .color = { 1, 1, 1, 1 }
             };
-
-            // Make glyph data ubo
-            //--------------------------------------------------
-
-            glyphData = new UniformBuffer(sizeof(GlyphData) * 128);
-            GlyphData* glyphDataArr = static_cast<GlyphData*>(glyphData->data);
-
-            for (char c = 0; c < 127; c++) {
-
-                Font::Quad q = font->getRelativeQuad(c);
-
-                glyphDataArr[c] = {
-
-                    // Triangle 1
-                    { q.x0, q.y0, q.s0, q.t0 },
-                    { q.x1, q.y0, q.s1, q.t0 },
-                    { q.x1, q.y1, q.s1, q.t1 },
-    
-                    // Triangle 2
-                    { q.x0, q.y0, q.s0, q.t0 },
-                    { q.x1, q.y1, q.s1, q.t1 },
-                    { q.x0, q.y1, q.s0, q.t1 }
-                };
-            }
         }
 
         // Destroy
@@ -159,7 +128,8 @@ export namespace Rev {
             shared.destroy();
 
             delete vertices;
-            delete font;
+            
+            if (font) { delete font; }
         }
 
         // Measure / layout
@@ -258,6 +228,12 @@ export namespace Rev {
 
         Dims layout(float maxWidth) {
 
+            // Ensure font size matches
+            if (font->size != fontSize) {
+                delete font;
+                font = new Font(Arial_ttf, fontSize);
+            }
+
             // Layout text
             //--------------------------------------------------
 
@@ -315,6 +291,15 @@ export namespace Rev {
         // Compute vertices
         void compute() {
 
+            // Ensure font size matches
+            if (font->size != fontSize) {
+                delete font;
+                font = new Font(Arial_ttf, fontSize);
+            }
+
+            // Prepare vertices
+            //--------------------------------------------------
+
             CharVertex* verts = (CharVertex*)vertices->data;
             size_t max = vertices->num; // total available vertex slots
             size_t count = 0;
@@ -356,10 +341,11 @@ export namespace Rev {
             }
         
             shared.pipeline->bind();
-            texture->bind(0);  // bind to GL_TEXTURE0
+            font->texture->bind(0);  // bind to GL_TEXTURE0
+            font->glyphData->bind(2);
+
             vertices->bind();
             databuff->bind(1);
-            glyphData->bind(2);
 
             glDrawArraysInstanced(
                 GL_TRIANGLES,
