@@ -1,82 +1,87 @@
 module;
 
+#include <string>
 #include <vector>
+#include <dbg.hpp>
 
-export module Box;
+export module Rev.Box;
 
-import Rev;
-import Element;
+import Rev.Element;
+import Rev.Style;
+import Rev.Rect;
 
-import WebGpu;
-import Topology;
-import Primitive;
-import Triangles;
-import Vertex;
-import Color;
+import Rev.OpenGL.Rectangle;
+import Rev.OpenGL.Lines;
 
 export namespace Rev {
 
-    using namespace WebGpu;
+    //using namespace WebGpu;
 
     struct Box : public Element {
 
-        Triangles* triangles = nullptr;
-        
-        struct Rect { float x, y, w, h; };
-        struct Radii { float tl, tr, bl, br; };
+        Rectangle* rectangle = nullptr;
+        Lines* lines = nullptr;
 
-        Rect rect;
-        Color color;
-        Radii radii;
-        
         // Create
-        Box(Element* parent) : Element(parent) {
+        Box(Element* parent, std::string name = "Box") : Element(parent, name) {
 
-            triangles = new Triangles(surface, Topology::TriangleList);
-
+            rectangle = new Rectangle();
+            lines = new Lines(10);
         }
 
         // Destroy
         ~Box() {
-
-            delete triangles;
+            delete rectangle;
+            delete lines;
         }
 
-        void compute() override {
+        void computePrimitives(Event& e) override {
 
-            // Test rect
-            this->rect = {
-                0, 0,
-                50, 50
+            Style& styleRef = computed.style;
+            
+            // Box data
+            //--------------------------------------------------
+
+            Rectangle::Data& data = *rectangle->data;
+
+            float tl, tr, bl, br;
+
+            float mainRad = styleRef.border.radius.val;
+            tl = tr = bl = br = mainRad;
+
+            if (styleRef.border.tl.radius.val) { tl = styleRef.border.tl.radius.val; }
+            if (styleRef.border.tr.radius.val) { tr = styleRef.border.tr.radius.val; }
+            if (styleRef.border.bl.radius.val) { bl = styleRef.border.bl.radius.val; }
+            if (styleRef.border.br.radius.val) { br = styleRef.border.br.radius.val; }
+
+            //roundedBox->boxDataBuffer->dirty = true;
+            data = {
+
+                .rect = {
+                    rect.x, rect.y,
+                    rect.w, rect.h
+                },
+
+                .color = {
+                    styleRef.background.color.r, styleRef.background.color.g,
+                    styleRef.background.color.b, styleRef.background.color.a
+                },
+                
+                .corners = {
+                    tl, tr, bl, br
+                }
             };
 
-            // Compute left, right, top bottom
-            float l = rect.x, r = rect.x + rect.w;
-            float t = rect.y, b = rect.y + rect.h;
+            rectangle->dirty = true;
 
-            // Corner vertices
-            Vertex tlv = { l, t }, trv = { r, t };
-            Vertex blv = { l, b }, brv = { r, b };
+            Element::computePrimitives(e);
+        }
 
-            // Corner colors
-            Color tlc = { 1, 0, 0, 1 }, trc = { 0, 1, 0, 1};
-            Color blc = { 1, 0, 0, 1 }, brc = { 0, 1, 0, 1};
+        void draw(Event& e) override {
+            
+            rectangle->draw();
 
-            // Set vertex positions
-            triangles->vertices->dirty = true;
-            triangles->vertices->members = {
-                tlv, trv, blv,
-                blv, trv, brv
-            };
-
-            // Set vertex colors
-            triangles->colors->dirty = true;
-            triangles->colors->members = {
-                tlc, trc, blc,
-                blc, trc, brc
-            };
-
-            Element::compute();
+            Element::draw(e);
         }
     };
 };

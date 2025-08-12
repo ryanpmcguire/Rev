@@ -1,0 +1,63 @@
+module;
+
+#include <string>
+
+export module Rev.TextBox;
+
+import Rev.Box;
+
+import Rev.OpenGL.Text;
+
+export namespace Rev {
+
+    struct TextBox : public Box {
+
+        Text* text = nullptr;
+
+        // Create
+        TextBox(Element* parent, std::string content = "Hello World") : Box(parent, "TextBox") {
+
+            measure = true;
+
+            text = new Text();
+            text->content = content;
+        }
+
+        // Destroy
+        ~TextBox() {
+
+            delete text;
+        }
+
+        void computeStyle(Event& e) override {
+            
+            Text::MinMax minMax = text->measure();
+
+            text->layout(99999999.0f);
+
+            style->size = {
+                .width = Px(text->dims.width), .height = Px(text->dims.height)
+            };
+
+            Box::computeStyle(e);
+        }
+
+        void computePrimitives(Event& e) override {
+
+            text->fontSize = style->text.size.val;
+            if (!text->fontSize) { text->fontSize = 12.0f; }
+
+            Box::computePrimitives(e);
+        }
+
+        void draw(Event& e) override {
+
+            Box::draw(e);
+
+            text->xPos = rect.x;
+            text->yPos = rect.y;
+
+            text->draw();
+        }
+    };
+};

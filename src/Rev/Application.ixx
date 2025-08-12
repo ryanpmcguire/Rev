@@ -3,31 +3,51 @@ module;
 #include <vector>
 #include <GLFW/glfw3.h>
 
-export module Application;
+export module Rev.Application;
 
-import Window;
-import WebGpu;
+import Vulkan.Instance;
+import Rev.Window;
 
 export namespace Rev {
 
     struct Application {
 
+        Vulkan::Instance* vulkan = nullptr;
         std::vector<Window*> windows;
-        WebGpu::Instance* webgpu;
 
         // Create
         Application() {
-
             glfwInit();
         }
 
         // Destroy
         ~Application() {
-            
             glfwTerminate();
         }
 
+        // Temporary run function to force drawing
         void run() {
+            while (true) {
+                // Poll input events every frame
+                glfwPollEvents(); // Non-blocking
+        
+                // Remove closed windows
+                for (Window*& window : windows) {
+                    if (window->shouldClose) {
+                        removeWindow(window);
+                    }
+                }
+        
+                if (windows.empty()) { break; }
+        
+                // Force a draw every frame
+                for (Window*& window : windows) {
+                    window->draw(window->event);
+                }
+            }
+        }
+
+        /*void run() {
 
             while (true) {
 
@@ -39,7 +59,7 @@ export namespace Rev {
 
                 glfwWaitEvents();
             }
-        }
+        }*/
 
         // Remove window from our list
         void removeWindow(Window* target) {

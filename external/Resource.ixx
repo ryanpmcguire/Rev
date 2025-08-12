@@ -8,5 +8,5 @@ export module Resource;
 export struct Resource {
 
     const unsigned char* data;
-    size_t len;
+    size_t size;
 };

@@ -21,6 +21,7 @@ add_custom_command(
     DEPENDS ${RCS_DIR}/embed.sh
     COMMENT "Embedding resources with embed.sh"
 )
+
 add_custom_target(EmbedResources ALL DEPENDS ${RCS_DIR}/.modules/timestamp)
 
 # Get sources
@@ -32,20 +33,32 @@ file(GLOB_RECURSE SOURCES
 
 # Set libraries to link
 set(LINK
-    ${EXT_DIR}/webgpu/bin/windows-x86_64/wgpu_native.dll.lib
     ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
+    ${EXT_DIR}/glew/bin/win/x64/glew32s.lib
+    ${EXT_DIR}/vulkan/bin/win/x64/vulkan-1.lib
+    ${EXT_DIR}/freetype/bin/win/x64/freetype.lib
 )
 
 # Set binaries to copy
 set(COPY
-    ${EXT_DIR}/webgpu/bin/windows-x86_64/wgpu_native.dll
+   
 )
 
 # Create target, include, link
 add_executable(${PROJECT_NAME} ${SOURCES})
 add_dependencies(${PROJECT_NAME} EmbedResources)
-target_include_directories(${PROJECT_NAME} PRIVATE ${EXT_DIR})
-target_link_libraries(${PROJECT_NAME} ${LINK})
+
+# Add debug definition
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    $<$<CONFIG:Debug>:DEBUG>
+    GLEW_STATIC
+)
+
+find_package(OpenGL REQUIRED)
+
+# Add include, linked libraries
+target_include_directories(${PROJECT_NAME} PRIVATE ${EXT_DIR} ${EXT_DIR}/skia)
+target_link_libraries(${PROJECT_NAME} ${LINK} OpenGL::GL)
 
 # Copy specified dlls
 foreach(copy_file IN LISTS COPY)
