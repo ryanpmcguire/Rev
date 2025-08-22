@@ -26,7 +26,7 @@ export namespace HelloWorld {
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
             // Grey box
-            Box* greyBox = new Box(this, "RedBox");
+            Box* greyBox = new Box(this, "GreyBox");
             greyBox->style = {
                 .size = { .width = Shrink(), .maxWidth = 600_px, .maxHeight = 400_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },

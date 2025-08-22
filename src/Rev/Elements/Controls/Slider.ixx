@@ -19,10 +19,17 @@ export namespace Rev {
             .margin = { 4_px, 4_px, 4_px, 4_px },
         };
 
-            Style Label = {
-                .margin = { .bottom = 4_px },
-                .text = { .size = 12_px }
+            Style TextContainer = {
+                .margin = { .bottom = 4_px }
             };
+
+                Style LabelText = {
+                    .text = { .size = 12_px }
+                };
+
+                Style ValueText = {
+                    .text = { .size = 12_px }
+                };
 
             Style Slider = {
                 .size = { .width = Grow() },
@@ -59,7 +66,12 @@ export namespace Rev {
 
     struct Slider : public Box {
 
-        TextBox* label = nullptr;
+        // Text
+        Element* textContainer = nullptr;
+            TextBox* labelText = nullptr;
+            TextBox* valueText = nullptr;
+
+        // Slider per-se
         Box* sliderContainer = nullptr;
             Box* track = nullptr;
             Element* thumbContainer = nullptr;
@@ -68,7 +80,7 @@ export namespace Rev {
         struct SliderData {
 
             float min = 0;
-            float max = 1;
+            float max = 1000;
             float def = 0.5;
             float val = 1.0;
         };
@@ -82,10 +94,18 @@ export namespace Rev {
             this->data = sliderData;
             this->styles = { &Styles::Self };
 
-                // Label
-                label = new TextBox(this);
-                label->styles = { &Styles::Label };
+                // Label Container
+                /*textContainer = new Element(this);
+                textContainer->styles = { &Styles::TextContainer };
+                
+                    // Label text
+                    labelText = new TextBox(textContainer);
+                    labelText->styles = { &Styles::LabelText };
 
+                    // Value textContainer
+                    valueText = new TextBox(textContainer);
+                    valueText->styles = { &Styles::ValueText };*/
+                    
                 // SliderContainer
                 sliderContainer = new Box(this, "SliderContainer");
                 sliderContainer->styles = { &Styles::Slider };
@@ -132,11 +152,17 @@ export namespace Rev {
         void computeStyle(Event& e) override {
 
             float pctVal = (data.val - data.min) / (data.max - data.min);
-            
-            // Position the thumb via track padding
             track->style->padding.left = Pct(100.0f * pctVal);
         
-            Element::computeStyle(e);
+            Box::computeStyle(e);
+        }
+
+        void computePrimitives(Event& e) override {
+        
+            //labelText->text->content = "Value: ";
+            //valueText->setContent(data.val);
+
+            Box::computePrimitives(e);
         }
     };
 };

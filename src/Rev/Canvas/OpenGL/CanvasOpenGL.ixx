@@ -102,10 +102,6 @@ export namespace Rev {
             glClear(GL_COLOR_BUFFER_BIT);
 
             transform->bind(0);
-
-            for (Primitive* primitive : primitives) {
-                primitive->draw();
-            }
         }
 
         void flush() {

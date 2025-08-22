@@ -1,5 +1,6 @@
 module;
 
+#include <cstdio>
 #include <string>
 
 export module Rev.TextBox;
@@ -15,7 +16,7 @@ export namespace Rev {
         Text* text = nullptr;
 
         // Create
-        TextBox(Element* parent, std::string content = "Hello World") : Box(parent, "TextBox") {
+        TextBox(Element* parent, std::string content = "Test Kerning") : Box(parent, "TextBox") {
 
             measure = true;
 
@@ -27,6 +28,40 @@ export namespace Rev {
         ~TextBox() {
 
             delete text;
+        }
+
+        // Set content as a value
+        void addContent(float val, int digits = 4) {
+
+            char buffer[64];
+            std::snprintf(buffer, sizeof(buffer), "%.*f", 10, val);
+
+            size_t count = 0;
+            size_t point = 0;
+
+            for (char& c : buffer) {
+                
+                if (c != '.') { count += 1; }
+                else if (count ==  digits) { c = '\0'; break; }
+
+                if (count > digits) { c = '\0'; break; }
+            }
+
+            text->content += buffer;
+        }
+
+        // Set content as a string
+        void addContent(std::string content) {
+            text->content += content;
+        }
+
+        void setContent(std::string content) {
+            text->content = content;
+        }
+
+        void setContent(float val, int digits = 4) {
+            text->content = "";
+            addContent(val, digits);
         }
 
         void computeStyle(Event& e) override {
@@ -44,7 +79,7 @@ export namespace Rev {
 
         void computePrimitives(Event& e) override {
 
-            text->fontSize = style->text.size.val;
+            text->fontSize = computed.style.text.size.val;
             if (!text->fontSize) { text->fontSize = 12.0f; }
 
             Box::computePrimitives(e);

@@ -309,24 +309,26 @@ export namespace Rev {
             float x = xPos;
             float y = yPos + font->ascent;
 
-            char prev = 0;
-
             for (Line& line : lines) {
 
+                char prev = 0;
                 x = line.x; y = line.y;
 
                 for (char c : line.dbg) {
 
-                    if (c < 32 || c >= 128) continue;
-    
-                    // Ensure space for 6 vertices per character
-                    if (count + 6 > max) break;
+                    // Continue / break conditions
+                    if (c < 32 || c >= 128) { continue; }
+                    if (count + 6 > max) { break; }
+
+                    Font::Glyph& glyph = font->glyphs[c];
+                    Font::Glyph& prevGlyph = font->glyphs[prev];
 
                     float index = float(c);
+                    x += prevGlyph.advance + glyph.kerning[prevGlyph.index];
+                    verts[count] = {x, y, index, index };
 
-                    verts[count++] = { x, y, index, index };
-
-                    x += font->glyphs[c].advance;
+                    count += 1;
+                    prev = c;
                 }
             }
 
@@ -336,7 +338,7 @@ export namespace Rev {
         // Draw vertices
         void draw() override {
 
-            if (true) {
+            /*if (true) {
                 this->compute();
             }
         
@@ -352,7 +354,7 @@ export namespace Rev {
                 0,          // start vertex
                 6,          // 6 vertices per quad
                 vertexCount   // one instance per glyph
-            );
+            );*/
         }
     };
 };

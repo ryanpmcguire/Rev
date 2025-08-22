@@ -170,7 +170,7 @@ export namespace Rev {
             // Kerning
             //--------------------------------------------------
 
-            if (FT_HAS_KERNING(face) ) { return; }
+            if (!FT_HAS_KERNING(face) ) { return; }
 
             // Compute for left/right combos
             for (size_t l = 0; l < 127; l++) {
@@ -182,7 +182,11 @@ export namespace Rev {
                     FT_Vector delta = { 0, 0 };
                     FT_Get_Kerning(face, left.index, right.index, FT_KERNING_DEFAULT, &delta);
                     
-                    left.kerning[r] = static_cast<float>(delta.x) / 64.0f;
+                    right.kerning[left.index] = static_cast<float>(delta.x) / 64.0f;
+
+                    if (delta.x != 0) {
+                        bool test = true;
+                    }
                 }
             }
         }

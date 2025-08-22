@@ -12,12 +12,17 @@ import Resource;
 export namespace Rev {
 
     // Returns if value is set
-    bool set(float& f) {
-
-        bool isSet = std::bit_cast<uint32_t>(f) != 0x80000000;
-
-        return isSet;
+    inline bool set(float& f) {
+        return std::bit_cast<uint32_t>(f) != 0x80000000;
     };
+
+    inline bool equ(float& a, float& b) {
+        return std::bit_cast<std::uint32_t>(a) == std::bit_cast<std::uint32_t>(b);
+    }
+
+    inline bool dif(float& a, float& b) {
+        return std::bit_cast<std::uint32_t>(a) != std::bit_cast<std::uint32_t>(b);
+    }
 
     // Transitions
     //--------------------------------------------------
@@ -79,7 +84,6 @@ export namespace Rev {
 
         Type type = Type::None;
         float val = -0.0f;
-        bool dirty = true;
 
         int transition = -1;
 
@@ -92,6 +96,7 @@ export namespace Rev {
         }
 
         inline void apply(Dist& other) {
+
             if (other.type) {
                 *this = other;
             }
@@ -315,7 +320,7 @@ export namespace Rev {
         Align vertical = Align::NoAlign;
         Break breakWrap = Break::NoBreak;
 
-        void apply(Alignment& other) {
+        inline void apply(Alignment& other) {
             if (other.direction != Axis::NoAxis) { direction = other.direction; }
             if (other.horizontal != Align::NoAlign) { horizontal = other.horizontal; }
             if (other.vertical != Align::NoAlign) { vertical = other.vertical; }
@@ -518,6 +523,66 @@ export namespace Rev {
             margin.animate(old.margin, transitions, time, transition);
             padding.animate(old.padding, transitions, time, transition);
             text.animate(old.text, transitions, time, transition);
+        }
+    };
+
+    struct StyleList {
+
+        std::vector<Style*> styles;
+        bool dirty = true;
+
+        bool isDirty() {
+            
+            if (dirty) { return true; }
+
+            /*for (Style* style : styles) {
+                if (style.dirty) { return dirty = true; }
+            }*/
+
+            return false;
+        }
+        
+        // Add style if not present
+        void add(Style* style) {
+            
+            auto it = std::find(styles.begin(), styles.end(), style);
+            if (it != styles.end()) { return; }
+
+            styles.push_back(style);
+            dirty = true;
+        }
+
+        // Remove style if present
+        void remove(Style* style) {
+
+            auto it = std::find(styles.begin(), styles.end(), style);
+            if (it == styles.end()) { return; }
+            
+            styles.erase(it);
+            dirty = true;
+        }
+
+        // Cast as vector
+        operator std::vector<Style*>&() {
+            return styles;
+        }
+
+        // Assign from vector
+        StyleList& operator=(std::vector<Style*> other) {
+
+            styles = other;
+            dirty = true;
+
+            return *this;
+        }
+
+        // Assign from vector reference
+        StyleList& operator=(std::vector<Style*>& other) {
+
+            styles = other;
+            dirty = true;
+
+            return *this;
         }
     };
 

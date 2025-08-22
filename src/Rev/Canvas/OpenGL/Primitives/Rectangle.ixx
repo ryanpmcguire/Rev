@@ -25,6 +25,7 @@ export namespace Rev {
             Shader* vert = nullptr;
             Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
+            VertexBuffer* vertices = nullptr;
 
             void create() {
 
@@ -34,6 +35,7 @@ export namespace Rev {
                 vert = new Shader(Rectangle_vert, GL_VERTEX_SHADER);
                 frag = new Shader(Rectangle_frag, GL_FRAGMENT_SHADER);
                 pipeline = new Pipeline(*(vert), *(frag));
+                vertices = new VertexBuffer(4, 2, 1);
             }
 
             void destroy() {
@@ -42,6 +44,7 @@ export namespace Rev {
                 if (refCount--) { return; }
 
                 // Delete resources
+                delete vertices;
                 delete pipeline;
                 delete vert;
                 delete frag;
@@ -110,14 +113,9 @@ export namespace Rev {
         }
 
         void draw() override {
-
-            if (dirty) {
-                this->compute();
-                dirty = false;
-            }
          
             shared.pipeline->bind();
-            //vertices->bind();
+            shared.vertices->bind();
             databuff->bind(1);
 
             glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, 1);
