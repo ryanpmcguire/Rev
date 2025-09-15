@@ -34,7 +34,11 @@ export namespace HelloWorld {
                 .background { .color = rgba(255, 255, 255, 0.1) },
             };
 
-            Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
+            for (size_t i = 0; i < 1000; i++) {
+                Slider* slider = new Slider(greyBox, { .val = 0.5 });
+            }
+
+            //Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
             //Slider* sliderB = new Slider(greyBox, { .val = 1.0 });
 
             /*sliderA->style.size.minWidth = 100_px;

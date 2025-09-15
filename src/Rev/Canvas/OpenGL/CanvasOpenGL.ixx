@@ -1,5 +1,6 @@
 module;
 
+#include <stdexcept>
 #include <vector>
 #include <glew/glew.h>
 #include <GLFW/glfw3.h>
@@ -9,9 +10,8 @@ module;
 
 export module Rev.OpenGL.Canvas;
 
-import Rev.OpenGL.Primitive;
+import Rev.NativeWindow;
 import Rev.OpenGL.UniformBuffer;
-import Rev.OpenGL.Rectangle;
 
 export namespace Rev {
 
@@ -26,25 +26,22 @@ export namespace Rev {
             int width, height;
         };
 
-        GLFWwindow* window = nullptr;
+        NativeWindow* window = nullptr;
 
         Details details;
         Flags flags;
 
         UniformBuffer* transform = nullptr;
-        
-        Rectangle* rectangle = nullptr;
-        Rectangle* rect2 = nullptr;
-
-        std::vector<Primitive*> primitives;
 
         // Create
-        Canvas(GLFWwindow* window = nullptr) {
+        Canvas(NativeWindow* window = nullptr) {
 
             this->window = window;
 
-            glfwMakeContextCurrent(window);
-            glfwSwapInterval(1);
+            //glfwMakeContextCurrent(window);
+            //glfwSwapInterval(1);
+
+            window->makeContextCurrent();
 
             // 2. Initialize GLEW
             glewExperimental = GL_TRUE; // Enable core profiles
@@ -52,9 +49,14 @@ export namespace Rev {
 
             if (glewStatus != GLEW_OK) {
                 const GLubyte* errorStr = glewGetErrorString(glewStatus);
-                dbg("GLEW init failed: %s\n", errorStr);
-                //std::exit(1); // Optional, but recommended to bail
+                throw std::runtime_error(std::string("[Canvas] Glew init failed: ") + reinterpret_cast<const char*>(errorStr));
             }
+
+            dbg("GLEW version: %s\n", glewGetString(GLEW_VERSION));
+            dbg("OpenGL version: %s\n", glGetString(GL_VERSION));
+            dbg("GLSL version: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
+            dbg("Renderer: %s\n", glGetString(GL_RENDERER));
+            dbg("Vendor: %s\n", glGetString(GL_VENDOR));
 
             glEnable(GL_MULTISAMPLE);
             glEnable(GL_BLEND);
@@ -66,11 +68,6 @@ export namespace Rev {
         // Destroy
         ~Canvas() {
             
-            delete rectangle;
-        }
-
-        void draw(Primitive* primitive) {
-            primitives.push_back(primitive);
         }
 
         void draw() {
@@ -79,7 +76,6 @@ export namespace Rev {
 
             if (flags.resize) {
 
-                glfwGetFramebufferSize(window, &details.width, &details.height);
                 glViewport(0, 0, details.width, details.height);
 
                 glm::mat4 projection = glm::ortho(
@@ -105,7 +101,8 @@ export namespace Rev {
         }
 
         void flush() {
-            glfwSwapBuffers(window);
+            //glfwSwapBuffers(window);
+            window->swapBuffers();
         }
     };
 };

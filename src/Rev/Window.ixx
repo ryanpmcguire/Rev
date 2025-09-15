@@ -9,6 +9,7 @@ export module Rev.Window;
 
 import Rev.Element;
 import Rev.Box;
+import Rev.NativeWindow;
 import Rev.OpenGL.Canvas;
 
 export namespace Rev {
@@ -30,7 +31,7 @@ export namespace Rev {
         Event event;
 
         // Glfw
-        GLFWwindow* window = nullptr;
+        NativeWindow* window = nullptr;
         Details details;
 
         bool shouldClose = false;
@@ -53,19 +54,18 @@ export namespace Rev {
             //glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
             // Set OpenGL context hints
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-            glfwWindowHint(GLFW_SAMPLES, 8); // 4x MSAA
+            //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+            //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+            //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+            //glfwWindowHint(GLFW_SAMPLES, 8); // 4x MSAA
 
-            glfwWindowHint(GLFW_DECORATED, details.decorated ? GLFW_TRUE : GLFW_FALSE);
-            glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
+            //glfwWindowHint(GLFW_DECORATED, details.decorated ? GLFW_TRUE : GLFW_FALSE);
+            //glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
 
-            window = glfwCreateWindow(details.width, details.height, details.name.c_str(), nullptr, nullptr);
-            glfwSetWindowUserPointer(window, this);
+            window = new NativeWindow(nullptr, { details.width, details.height });
 
             // Window callbacks
-            glfwSetFramebufferSizeCallback(window, handleFramebufferResize);
+            /*glfwSetFramebufferSizeCallback(window, handleFramebufferResize);
             glfwSetWindowRefreshCallback(window, handleRefresh);
             glfwSetWindowContentScaleCallback(window, handleContentScale);
             glfwSetWindowFocusCallback(window, handleFocus);
@@ -77,7 +77,7 @@ export namespace Rev {
 
             // Mouse / keyboard callbacks
             glfwSetMouseButtonCallback(window, handleMouseButton);
-            glfwSetCursorPosCallback(window, handleCursorPos);
+            glfwSetCursorPosCallback(window, handleCursorPos);*/
 
             // Canvas
             //--------------------------------------------------
@@ -133,7 +133,9 @@ export namespace Rev {
             delete topLevelDetails->canvas;
             delete topLevelDetails;
 
-            glfwDestroyWindow(window);
+            //glfwDestroyWindow(window);
+
+            delete window;
         }
 
         // Layout
@@ -232,6 +234,10 @@ export namespace Rev {
         // When the framebuffer resizes
         virtual void onFramebufferResize(int width, int height) {
             //dbg("Framebuffer: (%i, %i)", width, height);
+
+            topLevelDetails->canvas->details.width = width;
+            topLevelDetails->canvas->details.height = height;
+            topLevelDetails->canvas->flags.resize = true;
         }
 
         // When the content needs to be redrawn
@@ -274,8 +280,6 @@ export namespace Rev {
 
             details.width = width;
             details.height = height;
-
-            topLevelDetails->canvas->flags.resize = true;
         }
 
         // When the window is maximized
@@ -348,10 +352,9 @@ export namespace Rev {
         }
 
         // When a mouse button is clicked or released
-        void onMouseButton(int button, int action) {
+        void onMouseButton(int button, int action, int x, int y) {
 
             // Get mouse position
-            double x, y; glfwGetCursorPos(window, &x, &y);
             event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
 
             event.resetBeforeDispatch();
@@ -398,25 +401,25 @@ export namespace Rev {
 
         // Show window and focus
         void popUp() {
-            glfwShowWindow(window);
-            glfwFocusWindow(window);
+            //glfwShowWindow(window);
+            //glfwFocusWindow(window);
         }
 
         // Hide (iconify) window
         void minimize() {
-            glfwIconifyWindow(window);
+            //glfwIconifyWindow(window);
         }
 
         void maximize() {
-            glfwMaximizeWindow(window);
+            //glfwMaximizeWindow(window);
         }
 
         void setSize(int width, int height) {
-            glfwSetWindowSize(window, width, height);
+            //glfwSetWindowSize(window, width, height);
         }
 
         void setPos(int x, int y) {
-            glfwSetWindowPos(window, x, y);
+            //glfwSetWindowPos(window, x, y);
         }
 
         // Static callbacks for GLFW
@@ -427,7 +430,7 @@ export namespace Rev {
         }
 
         // Window callbacks
-        static void handleFramebufferResize(GLFWwindow* win, int width, int height) { self(win)->onFramebufferResize(width, height); }
+        /*static void handleFramebufferResize(GLFWwindow* win, int width, int height) { self(win)->onFramebufferResize(width, height); }
         static void handleRefresh(GLFWwindow* win) { self(win)->onRefresh(); }
         static void handleContentScale(GLFWwindow* win, float xscale, float yscale) { self(win)->onContentScale(xscale, yscale);}
         static void handleFocus(GLFWwindow* win, int focused) { self(win)->onFocusChange(focused); }
@@ -439,6 +442,6 @@ export namespace Rev {
 
         // Mouse / keyboard callbacks
         static void handleMouseButton(GLFWwindow* win, int button, int action, int mods) { self(win)->onMouseButton(button, action); }
-        static void handleCursorPos(GLFWwindow* win, double xpos, double ypos) { self(win)->onCursorPos(static_cast<float>(xpos), static_cast<float>(ypos)); }
+        static void handleCursorPos(GLFWwindow* win, double xpos, double ypos) { self(win)->onCursorPos(static_cast<float>(xpos), static_cast<float>(ypos)); }*/
     };
 }

@@ -1,6 +1,5 @@
 #include <iostream>
 #include <stdexcept>
-#include <GLFW/glfw3.h>
 
 import Rev.Application;
 import Rev.Window;

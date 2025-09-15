@@ -31,6 +31,22 @@ file(GLOB_RECURSE SOURCES
     ${RCS_DIR}/.modules/**.ixx
 )
 
+# Exclude files based on OS (e.g. mac builds ignore files called example.mac.cpp, etc...)
+if(WIN32)
+  set(_exclude_regex "\\.(mac|osx|ios|lnx|linux|unix|android)\\.")
+elseif(APPLE)
+  set(_exclude_regex "\\.(win|lnx|linux|unix|android)\\.")
+elseif(UNIX)
+  set(_exclude_regex "\\.(win|mac|osx|ios)\\.")
+endif()
+
+# Exclude platform-specific sources
+foreach(src ${SOURCES})
+  if(src MATCHES "${_exclude_regex}")
+    list(REMOVE_ITEM SOURCES ${src})
+  endif()
+endforeach()
+
 # Set libraries to link
 set(LINK
     ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
