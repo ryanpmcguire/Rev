@@ -28,6 +28,7 @@ export namespace Rev {
         // Temporary run function to force drawing
         void run() {
             while (true) {
+                
                 // Poll input events every frame
                 glfwPollEvents(); // Non-blocking
         
@@ -41,9 +42,9 @@ export namespace Rev {
                 if (windows.empty()) { break; }
         
                 // Force a draw every frame
-                for (Window*& window : windows) {
+                /*for (Window*& window : windows) {
                     window->draw(window->event);
-                }
+                }*/
             }
         }
 

@@ -52,11 +52,15 @@ export namespace Rev {
                 throw std::runtime_error(std::string("[Canvas] Glew init failed: ") + reinterpret_cast<const char*>(errorStr));
             }
 
-            dbg("GLEW version: %s\n", glewGetString(GLEW_VERSION));
-            dbg("OpenGL version: %s\n", glGetString(GL_VERSION));
-            dbg("GLSL version: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
-            dbg("Renderer: %s\n", glGetString(GL_RENDERER));
-            dbg("Vendor: %s\n", glGetString(GL_VENDOR));
+            dbg("");
+            dbg("OpenGL INFO");
+            dbg("--------------------\n");
+            dbg("GLEW version: %s", glewGetString(GLEW_VERSION));
+            dbg("OpenGL version: %s", glGetString(GL_VERSION));
+            dbg("GLSL version: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
+            dbg("Renderer: %s", glGetString(GL_RENDERER));
+            dbg("Vendor: %s", glGetString(GL_VENDOR));
+            dbg("");
 
             glEnable(GL_MULTISAMPLE);
             glEnable(GL_BLEND);
@@ -72,9 +76,14 @@ export namespace Rev {
 
         void draw() {
             
-            if (!window) return;
+            if (!window) { return; }
 
+            // If canvas needs to adjust size to window
             if (flags.resize) {
+
+                // Get width and height from window size
+                details.width = window->size.w;
+                details.height = window->size.h;
 
                 glViewport(0, 0, details.width, details.height);
 

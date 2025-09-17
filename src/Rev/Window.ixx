@@ -2,7 +2,6 @@ module;
 
 #include <vector>
 #include <string>
-#include <GLFW/glfw3.h>
 #include <dbg.hpp>
 
 export module Rev.Window;
@@ -47,37 +46,12 @@ export namespace Rev {
 
             topLevelDetails = new TopLevelDetails();
 
-            // GLFW
-            //--------------------------------------------------
-
-            // Create window
-            //glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-            // Set OpenGL context hints
-            //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-            //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-            //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-            //glfwWindowHint(GLFW_SAMPLES, 8); // 4x MSAA
-
-            //glfwWindowHint(GLFW_DECORATED, details.decorated ? GLFW_TRUE : GLFW_FALSE);
-            //glfwWindowHint(GLFW_RESIZABLE, details.resizable ? GLFW_TRUE : GLFW_FALSE);
-
-            window = new NativeWindow(nullptr, { details.width, details.height });
-
-            // Window callbacks
-            /*glfwSetFramebufferSizeCallback(window, handleFramebufferResize);
-            glfwSetWindowRefreshCallback(window, handleRefresh);
-            glfwSetWindowContentScaleCallback(window, handleContentScale);
-            glfwSetWindowFocusCallback(window, handleFocus);
-            glfwSetWindowPosCallback(window, handleMove);
-            glfwSetWindowSizeCallback(window, handleResize);
-            glfwSetWindowIconifyCallback(window, handleMinimize);
-            glfwSetWindowMaximizeCallback(window, handleMaximize);
-            glfwSetWindowCloseCallback(window, handleClose);
-
-            // Mouse / keyboard callbacks
-            glfwSetMouseButtonCallback(window, handleMouseButton);
-            glfwSetCursorPosCallback(window, handleCursorPos);*/
+            // Create native window
+            window = new NativeWindow(
+                nullptr,
+                { details.width, details.height },
+                [this](NativeWindow::WinEvent event) { this->onEvent(event); }
+            );
 
             // Canvas
             //--------------------------------------------------
@@ -228,174 +202,6 @@ export namespace Rev {
             }*/
         }
 
-        // Overridable callbacks
-        //--------------------------------------------------
-
-        // When the framebuffer resizes
-        virtual void onFramebufferResize(int width, int height) {
-            //dbg("Framebuffer: (%i, %i)", width, height);
-
-            topLevelDetails->canvas->details.width = width;
-            topLevelDetails->canvas->details.height = height;
-            topLevelDetails->canvas->flags.resize = true;
-        }
-
-        // When the content needs to be redrawn
-        virtual void onRefresh() {
-            //dbg("Refresh");
-
-            this->draw(event);
-        }
-
-        // When the content scale changes
-        virtual void onContentScale(float xscale, float yscale) {
-            //dbg("Content scale: (%f, %f)", xscale, yscale);
-        }
-
-        // When the window gains or loses focus
-        virtual void onFocusChange(int focused) {
-            if (focused) { this->onFocus(); }
-            else { this->onDefocus(); }
-        }
-
-        // When the window gains focus
-        virtual void onFocus() {
-            //dbg("Focus");
-        }
-
-        // When the window loses focus
-        virtual void onDefocus() {
-            //dbg("Defocus");
-        }
-
-        // When the window changes position
-        virtual void onMove(int x, int y) {
-            //dbg("Move: (%i, %i)", x, y);
-            this->details.x = x;
-            this->details.y = y;
-        }
-
-        // When the window is resized
-        virtual void onResize(int width, int height) {
-
-            details.width = width;
-            details.height = height;
-        }
-
-        // When the window is maximized
-        virtual void onMaximizeChange(int maximized) {
-            if (maximized) { this->onMaximize(); }
-            else { this->onDemaximize(); }
-        }
-
-        virtual void onMaximize() {
-            //dbg("Maximize");
-        }
-
-        virtual void onDemaximize() {
-            //dbg("Demaximize");
-        }
-
-        // When the window is minimized
-        virtual void onMinimizeChange(int minimized) {
-            if (minimized) { this->onMinimize(); }
-            else { this->onDeminimize(); }
-        }
-
-        virtual void onMinimize() {
-            //dbg("Minimize");
-        }
-        
-        virtual void onDeminimize() {
-            //dbg("Deminimize");
-        }
-
-        void onClose() {
-            //dbg("Close");
-            shouldClose = true;
-        }
-
-        // Mouse/keyboard callbacks (window only)
-        //--------------------------------------------------
-
-        enum ButtonAction {
-            Press = GLFW_PRESS,
-            Release = GLFW_RELEASE
-        };
-
-        enum MouseButton {
-            Left = GLFW_MOUSE_BUTTON_LEFT,
-            Right = GLFW_MOUSE_BUTTON_RIGHT,
-            Middle = GLFW_MOUSE_BUTTON_MIDDLE,
-            Button4 = GLFW_MOUSE_BUTTON_4,
-            Button5 = GLFW_MOUSE_BUTTON_5,
-            Button6 = GLFW_MOUSE_BUTTON_6,
-            Button7 = GLFW_MOUSE_BUTTON_7,
-            Button8 = GLFW_MOUSE_BUTTON_8
-        };
-
-        // Bubble-up hit status
-        void setTargets(Event& e) {
-
-            for (Element* element : topDown) {
-                element->targetFlags.hit = false;
-            }
-
-            for (Element* element : bottomUp) {
-                
-                Element& elem = *element;
-
-                //
-                if (elem.contains(e.mouse.pos)) { elem.targetFlags.hit = true; }
-                if (elem.targetFlags.hit) { elem.parent->targetFlags.hit = true; }
-            }
-        }
-
-        // When a mouse button is clicked or released
-        void onMouseButton(int button, int action, int x, int y) {
-
-            // Get mouse position
-            event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
-
-            event.resetBeforeDispatch();
-            event.id += 1;
-
-            this->setTargets(event);
-
-            switch (button) {
-                case (MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
-                case (MouseButton::Right): { event.mouse.rb.set(action, event.mouse.pos); break; }
-            }
-
-            if (action == ButtonAction::Press) { this->mouseDown(event); }
-            if (action == ButtonAction::Release) { this->mouseUp(event); }
-
-            if (event.causedRefresh) {
-                this->draw(event);
-            }
-        }
-
-        // When the mouse moves
-        void onCursorPos(float x, float y) {
-
-            event.mouse.pos = { x, y };
-            event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
-            event.resetBeforeDispatch();
-
-            this->setTargets(event);
-
-            // Dispatch mouse move
-            this->mouseMove(event);
-
-            if (targetFlags.drag) {
-                this->mouseDrag(event);
-            }
-
-            if (event.causedRefresh) {
-                this->draw(event);
-            }
-        }
-
         // Controlling window
         //--------------------------------------------------
 
@@ -422,26 +228,173 @@ export namespace Rev {
             //glfwSetWindowPos(window, x, y);
         }
 
-        // Static callbacks for GLFW
+        // Responding to window events
         //--------------------------------------------------
 
-        static Window* self(GLFWwindow* win) {
-            return static_cast<Window*>(glfwGetWindowUserPointer(win));
+        // We set targets from the bottom up, then dispatching the event from top down
+        void setTargets(Event& e) {
+
+            for (Element* element : topDown) {
+                element->targetFlags.hit = false;
+            }
+
+            for (Element* element : bottomUp) {
+                
+                Element& elem = *element;
+
+                if (elem.contains(e.mouse.pos)) { elem.targetFlags.hit = true; }
+                if (elem.targetFlags.hit) { elem.parent->targetFlags.hit = true; }
+            }
         }
 
-        // Window callbacks
-        /*static void handleFramebufferResize(GLFWwindow* win, int width, int height) { self(win)->onFramebufferResize(width, height); }
-        static void handleRefresh(GLFWwindow* win) { self(win)->onRefresh(); }
-        static void handleContentScale(GLFWwindow* win, float xscale, float yscale) { self(win)->onContentScale(xscale, yscale);}
-        static void handleFocus(GLFWwindow* win, int focused) { self(win)->onFocusChange(focused); }
-        static void handleMove(GLFWwindow* win, int x, int y) { self(win)->onMove(x, y); }
-        static void handleResize(GLFWwindow* win, int width, int height) { self(win)->onResize(width, height); }
-        static void handleMaximize(GLFWwindow* win, int maximized) { self(win)->onMaximizeChange(maximized); }
-        static void handleMinimize(GLFWwindow* win, int minimized) { self(win)->onMinimizeChange(minimized); }
-        static void handleClose(GLFWwindow* win) { self(win)->onClose(); }
+        virtual void onEvent(NativeWindow::WinEvent event) {
 
-        // Mouse / keyboard callbacks
-        static void handleMouseButton(GLFWwindow* win, int button, int action, int mods) { self(win)->onMouseButton(button, action); }
-        static void handleCursorPos(GLFWwindow* win, double xpos, double ypos) { self(win)->onCursorPos(static_cast<float>(xpos), static_cast<float>(ypos)); }*/
+            switch (event.type) {
+
+                case (NativeWindow::WinEvent::Create): { this->onOpen(); break; }
+                case (NativeWindow::WinEvent::Destroy): { this->onClose(); break; }
+
+                case (NativeWindow::WinEvent::Focus): { this->onFocus(); break; }
+                case (NativeWindow::WinEvent::Defocus): { this->onDefocus(); break; }
+
+                case (NativeWindow::WinEvent::Move): { this->onMove(event.a, event.b); break; }
+                case (NativeWindow::WinEvent::Resize): { this->onResize(event.a, event.b); break; }
+                case (NativeWindow::WinEvent::Maximize): { this->onMaximize(); break; }
+                case (NativeWindow::WinEvent::Minimize): { this->onMinimize(); break; }
+                case (NativeWindow::WinEvent::Restore): { this->onRestore(); break; }
+
+                case (NativeWindow::WinEvent::Paint): { this->onRefresh(); break; }
+
+                case (NativeWindow::WinEvent::MouseMove): { this->onCursorPos(event.a, event.b); break; }
+                case (NativeWindow::WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
+            }
+        }
+
+        // Overridable callbacks
+        //--------------------------------------------------
+
+        // When the content needs to be redrawn
+        virtual void onRefresh() {
+            this->draw(event);
+        }
+
+        void onOpen() {
+            dbg("[Window] Open");
+        }
+
+        void onClose() {
+            dbg("[Window] Close");
+            shouldClose = true;
+        }
+
+        virtual void onMaximize() {
+            dbg("[Window] Maximize");
+        }
+
+        virtual void onMinimize() {
+            dbg("[Window] Minimize");
+        }
+
+        virtual void onRestore() {
+            dbg("[Window] Restore");
+        }
+        
+        // When the window gains focus
+        virtual void onFocus() {
+            dbg("[Window] Focus");
+        }
+
+        // When the window loses focus
+        virtual void onDefocus() {
+            dbg("[Window] Defocus");
+        }
+
+        // When the window changes position
+        virtual void onMove(int x, int y) {
+
+            dbg("[Window] Move: %i, %i", x, y);
+
+            this->details.x = x;
+            this->details.y = y;
+        }
+
+        // When the window is resized
+        virtual void onResize(int width, int height) {
+
+            dbg("[Window] Resize: %i, %i", width, height);
+
+            details.width = width;
+            details.height = height;
+
+            if (!topLevelDetails->canvas) { return; }
+
+            topLevelDetails->canvas->details.width = width;
+            topLevelDetails->canvas->details.height = height;
+            topLevelDetails->canvas->flags.resize = true;
+        }
+
+        // Mouse/keyboard callbacks (window only)
+        //--------------------------------------------------
+
+        enum ButtonAction {
+            Release,
+            Press,
+            DoubleClick
+        };
+
+        enum MouseButton {
+            Left,
+            Right,
+            Middle
+        };
+
+        // When a mouse button is clicked or released
+        void onMouseButton(int button, int action, int x, int y) {
+
+            // Get mouse position
+            event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
+
+            event.resetBeforeDispatch();
+            event.id += 1;
+
+            this->setTargets(event);
+
+            switch (button) {
+                case (MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
+                case (MouseButton::Right): { event.mouse.rb.set(action, event.mouse.pos); break; }
+            }
+
+            switch (action) {
+                case (ButtonAction::Press): { this->mouseDown(event); break; }
+                case (ButtonAction::Release): { this->mouseUp(event); break; }
+            }
+
+            if (event.causedRefresh) {
+                this->draw(event);
+            }
+        }
+
+        // When the mouse moves
+        void onCursorPos(float x, float y) {
+
+            dbg("CursorPos");
+
+            event.mouse.pos = { x, y };
+            event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
+            event.resetBeforeDispatch();
+
+            this->setTargets(event);
+
+            // Dispatch mouse move
+            this->mouseMove(event);
+
+            if (targetFlags.drag) {
+                this->mouseDrag(event);
+            }
+
+            if (event.causedRefresh) {
+                this->draw(event);
+            }
+        }
     };
 }

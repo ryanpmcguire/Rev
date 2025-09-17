@@ -34,7 +34,7 @@ export namespace HelloWorld {
                 .background { .color = rgba(255, 255, 255, 0.1) },
             };
 
-            for (size_t i = 0; i < 1000; i++) {
+            for (size_t i = 0; i < 10; i++) {
                 Slider* slider = new Slider(greyBox, { .val = 0.5 });
             }
 
