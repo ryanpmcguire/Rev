@@ -34,11 +34,11 @@ export namespace Rev {
         return { Dist::Type::Rel, value / 100.0f };
     }
 
-     Dist Grow() {
+    Dist Grow() {
         return { Dist::Type::Grow, 0 };
     }
 
-     Dist Shrink() {
+    Dist Shrink() {
         return { Dist::Type::Shrink, 0 };
     }
 

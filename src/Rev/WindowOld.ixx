@@ -3,14 +3,23 @@ module;
 #include <vector>
 #include <string>
 #include <GLFW/glfw3.h>
+#include <metal/metal.hpp> // metal-cpp
+#include <QuartzCore/CAMetalLayer.h>
+
+struct MetalDrawableInfo {
+    MTL::Drawable* drawable;
+    MTL::Texture* texture;
+};
+
+extern "C" void* createMetalLayer(GLFWwindow* window, void* device);
+extern "C" MetalDrawableInfo getNextDrawableWithTexture(void* metalLayer);
+
 #include <dbg.hpp>
 
-export module Rev.Window;
+export module Rev.WindowOld;
 
-import Rev.Element;
 import Rev.Event;
-
-import Rev.Metal.Canvas;
+import Rev.Element;
 
 export namespace Rev {
 
@@ -30,6 +39,12 @@ export namespace Rev {
         // Glfw
         GLFWwindow* window = nullptr;
         Details details;
+
+        //inline static Vulkan::Instance* vulkan = nullptr;
+        //Vulkan::Surface* surface = nullptr;
+        MTL::Device* device = nullptr;
+        MTL::CommandQueue* queue = nullptr;
+        void* layer = nullptr;
 
         bool shouldClose = false;
 
@@ -63,19 +78,32 @@ export namespace Rev {
             // Mouse / keyboard callbacks
             glfwSetMouseButtonCallback(window, handleMouseButton);
 
-            // Canvas
+            // Graphics Backend
             //--------------------------------------------------
 
-            topLevelDetails->canvas = new Canvas(window);
+            //if (!vulkan) { vulkan = new Vulkan::Instance(); }
+            //surface = new Vulkan::Surface(vulkan->instance, window);
+
+            //topLevelDetails->surface = new WebGpu::Surface(window);
             
+            device = MTL::CreateSystemDefaultDevice();
+            queue = device->newCommandQueue();
+            layer = createMetalLayer(window, device->retain());
+
             group.push_back(this);
         }
 
         // Destroy
         ~Window() {
 
-            delete topLevelDetails->canvas;
-            delete topLevelDetails;
+            //delete surface;
+            //delete vulkan;
+
+            //delete device;
+            //delete queue;
+            //delete layer;
+
+            //delete topLevelDetails;
 
             glfwDestroyWindow(window);
         }
@@ -83,23 +111,35 @@ export namespace Rev {
         // Draw
         //--------------------------------------------------
 
-        void draw(Event& e) override {
+        int didDraw = 0;
 
-            event.resetBeforeDispatch();
+        void draw() {
 
-            // Recompute dirty elements
-            for (Element* element : topLevelDetails->dirtyElements) {
-                this->computeStyle(event);
-                this->computePrimitives(event);
-            }
+            using namespace MTL;
 
-            topLevelDetails->dirtyElements.clear();
+            if (!layer) return;
 
-            topLevelDetails->canvas->draw();
+            MetalDrawableInfo info = getNextDrawableWithTexture(layer);
+            if (!info.drawable || !info.texture) return;
 
-            Element::draw(e);
+            // Render pass
+            RenderPassDescriptor* passDesc = RenderPassDescriptor::alloc()->init();
+            auto colorAttachment = passDesc->colorAttachments()->object(0);
+            colorAttachment->setTexture(info.texture);
+            colorAttachment->setLoadAction(LoadActionClear);
+            colorAttachment->setStoreAction(StoreActionStore);
+            colorAttachment->setClearColor(ClearColor::Make(1.0, 0.0, 0.0, 1.0)); // Red
 
-            topLevelDetails->canvas->flush();
+            CommandBuffer* commandBuffer = queue->commandBuffer();
+            RenderCommandEncoder* encoder = commandBuffer->renderCommandEncoder(passDesc);
+
+            encoder->endEncoding();
+            commandBuffer->presentDrawable(info.drawable);
+            commandBuffer->commit();
+
+            passDesc->release();
+
+            didDraw++;
         }
 
         // Overridable callbacks
@@ -114,7 +154,7 @@ export namespace Rev {
         virtual void onRefresh() {
             //dbg("Refresh");
 
-            this->draw(event);
+            this->draw();
         }
 
         // When the content scale changes
@@ -141,12 +181,13 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
             //dbg("Move: (%i, %i)", x, y);
-            this->draw(event);
+            this->draw();
         }
 
         // When the window is resized
         virtual void onResize(int width, int height) {
-            topLevelDetails->canvas->flags.resize = true;
+            //dbg("Resize: (%i, %i)", width, height);
+            //topLevelDetails->surface->flags.fit = true;
         }
 
         // When the window is maximized
@@ -213,7 +254,7 @@ export namespace Rev {
             if (action == ButtonAction::Press) { this->mouseDown(event); }
 
             if (event.causedRefresh) {
-                this->draw(event);
+                this->draw();
             }
         }
 
