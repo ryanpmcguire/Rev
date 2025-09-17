@@ -1,9 +1,14 @@
 module;
 
+// Cpp
 #include <stdexcept>
 #include <functional>
+#include <unordered_map>
+
+// Win32
 #include <windowsx.h>
 #include <windows.h>
+
 #include <dbg.hpp>
 
 export module Rev.NativeWindow;
@@ -21,13 +26,169 @@ export namespace Rev {
                 Move, Resize, Maximize, Minimize, Restore,
                 Clear, Paint,
                 MouseButton, MouseMove,
-                Keyboard
+                Keyboard, Character
             };
 
-            // One type, four arbitrary data slots (int)
-            Type type;
-            int a, b, c, d;
+            // One type, four arbitrary data slots
+            Type type;      // Event type
+            uint64_t a, b;  // Unsigned data
+            int64_t c, d;   // Signed data
         };
+
+        enum ButtonAction {
+            Release, Press, DoubleClick
+        };
+
+        enum MouseButton {
+            Left, Right, Middle
+        };
+
+        // Keycode mapping
+        //--------------------------------------------------
+        
+        // Unified key enum
+        enum class Key {
+            
+            Unknown,
+
+            Ctrl, Shift, Alt, Super,
+
+            // Navigation
+            Up, Down, Left, Right,
+            PageUp, PageDown, Home, End, Insert, Delete,
+
+            // Function keys
+            F1, F2, F3, F4, F5, F6,
+            F7, F8, F9, F10, F11, F12,
+
+            // Numbers (top row)
+            Num0, Num1, Num2, Num3, Num4,
+            Num5, Num6, Num7, Num8, Num9,
+
+            // Letters
+            A, B, C, D, E, F, G, H, I, J,
+            K, L, M, N, O, P, Q, R, S, T,
+            U, V, W, X, Y, Z,
+
+            // Numpad
+            Numpad0, Numpad1, Numpad2, Numpad3, Numpad4,
+            Numpad5, Numpad6, Numpad7, Numpad8, Numpad9,
+            NumpadAdd, NumpadSub, NumpadMul, NumpadDiv, NumpadEnter, NumpadDecimal,
+
+            // Misc
+            Escape, Space, Tab, Enter, Backspace,
+            CapsLock, NumLock, ScrollLock,
+            PrintScreen, Pause,
+        };
+
+        // Win32 keycode -> key enum map
+        inline static const std::unordered_map<int, Key> WinKeys = {
+
+            { VK_CONTROL, Key::Ctrl },
+            { VK_SHIFT,   Key::Shift },
+            { VK_MENU,    Key::Alt },
+            { VK_LWIN,    Key::Super }, { VK_RWIN, Key::Super },
+        
+            { VK_UP,    Key::Up }, { VK_DOWN,  Key::Down },
+            { VK_LEFT,  Key::Left }, { VK_RIGHT, Key::Right },
+        
+            { VK_PRIOR, Key::PageUp }, { VK_NEXT,  Key::PageDown },
+            { VK_HOME,  Key::Home }, { VK_END,   Key::End },
+            { VK_INSERT,Key::Insert }, { VK_DELETE,Key::Delete },
+        
+            { VK_F1,  Key::F1 }, { VK_F2,  Key::F2 }, { VK_F3,  Key::F3 },
+            { VK_F4,  Key::F4 }, { VK_F5,  Key::F5 }, { VK_F6,  Key::F6 },
+            { VK_F7,  Key::F7 }, { VK_F8,  Key::F8 }, { VK_F9,  Key::F9 },
+            { VK_F10, Key::F10 },{ VK_F11, Key::F11 },{ VK_F12, Key::F12 },
+        
+            { '0', Key::Num0 }, { '1', Key::Num1 }, { '2', Key::Num2 },
+            { '3', Key::Num3 }, { '4', Key::Num4 }, { '5', Key::Num5 },
+            { '6', Key::Num6 }, { '7', Key::Num7 }, { '8', Key::Num8 }, { '9', Key::Num9 },
+        
+            { 'A', Key::A }, { 'B', Key::B }, { 'C', Key::C }, { 'D', Key::D }, { 'E', Key::E },
+            { 'F', Key::F }, { 'G', Key::G }, { 'H', Key::H }, { 'I', Key::I }, { 'J', Key::J },
+            { 'K', Key::K }, { 'L', Key::L }, { 'M', Key::M }, { 'N', Key::N }, { 'O', Key::O },
+            { 'P', Key::P }, { 'Q', Key::Q }, { 'R', Key::R }, { 'S', Key::S }, { 'T', Key::T },
+            { 'U', Key::U }, { 'V', Key::V }, { 'W', Key::W }, { 'X', Key::X }, { 'Y', Key::Y },
+            { 'Z', Key::Z },
+        
+            { VK_NUMPAD0, Key::Numpad0 }, { VK_NUMPAD1, Key::Numpad1 }, { VK_NUMPAD2, Key::Numpad2 },
+            { VK_NUMPAD3, Key::Numpad3 }, { VK_NUMPAD4, Key::Numpad4 }, { VK_NUMPAD5, Key::Numpad5 },
+            { VK_NUMPAD6, Key::Numpad6 }, { VK_NUMPAD7, Key::Numpad7 }, { VK_NUMPAD8, Key::Numpad8 },
+            { VK_NUMPAD9, Key::Numpad9 },
+
+            { VK_ADD, Key::NumpadAdd }, { VK_SUBTRACT, Key::NumpadSub },
+            { VK_MULTIPLY, Key::NumpadMul }, { VK_DIVIDE, Key::NumpadDiv },
+            { VK_RETURN, Key::NumpadEnter }, { VK_DECIMAL, Key::NumpadDecimal },
+        
+            { VK_ESCAPE,    Key::Escape },
+            { VK_SPACE,     Key::Space },
+            { VK_TAB,       Key::Tab },
+            { VK_RETURN,    Key::Enter },
+            { VK_BACK,      Key::Backspace },
+            { VK_CAPITAL,   Key::CapsLock },
+            { VK_NUMLOCK,   Key::NumLock },
+            { VK_SCROLL,    Key::ScrollLock },
+            { VK_SNAPSHOT,  Key::PrintScreen },
+            { VK_PAUSE,     Key::Pause },
+        };
+
+        const char* keyToString(int key) { return keyToString(Key(key)); }
+        const char* keyToString(Key key) {
+
+            switch (key) {
+
+                case Key::Ctrl:   return "Ctrl";
+                case Key::Shift:  return "Shift";
+                case Key::Alt:    return "Alt";
+                case Key::Super:  return "Super";
+        
+                case Key::Up:    return "Up";
+                case Key::Down:  return "Down";
+                case Key::Left:  return "Left";
+                case Key::Right: return "Right";
+        
+                case Key::PageUp:   return "PageUp";
+                case Key::PageDown: return "PageDown";
+                case Key::Home:     return "Home";
+                case Key::End:      return "End";
+                case Key::Insert:   return "Insert";
+                case Key::Delete:   return "Delete";
+        
+                case Key::F1:  return "F1";
+                case Key::F2:  return "F2";
+                case Key::F3:  return "F3";
+                case Key::F4:  return "F4";
+                case Key::F5:  return "F5";
+                case Key::F6:  return "F6";
+                case Key::F7:  return "F7";
+                case Key::F8:  return "F8";
+                case Key::F9:  return "F9";
+                case Key::F10: return "F10";
+                case Key::F11: return "F11";
+                case Key::F12: return "F12";
+        
+                case Key::A: return "A";
+                case Key::B: return "B";
+                case Key::C: return "C";
+                // … repeat for all alphas/numbers …
+        
+                case Key::Escape:    return "Escape";
+                case Key::Space:     return "Space";
+                case Key::Tab:       return "Tab";
+                case Key::Enter:     return "Enter";
+                case Key::Backspace: return "Backspace";
+        
+                case Key::CapsLock:  return "CapsLock";
+                case Key::NumLock:   return "NumLock";
+                case Key::ScrollLock:return "ScrollLock";
+        
+                case Key::PrintScreen: return "PrintScreen";
+                case Key::Pause:       return "Pause";
+        
+                default: return "Unknown";
+            }
+        }
 
         struct Size {
             int w, h, minW, minH, maxW, maxH;
@@ -101,11 +262,19 @@ export namespace Rev {
         void notifyEvent(WinEvent event) {
             if (callback) { callback(event); }
         }
+        
+        // Translate Win32 keycode to unified Key enum
+        Key getKey(WPARAM wp) {
+            auto it = WinKeys.find(static_cast<int>(wp));
+            return (it != WinKeys.end()) ? it->second : Key::Unknown;
+        }
 
+        // Get self (user pointer) from window handle
         static NativeWindow* Self(HWND h) {
             return reinterpret_cast<NativeWindow*>(GetWindowLongPtrW(h, GWLP_USERDATA));
         }
 
+        // Static event handler function passed to the Win32 api - captures and sends events back to self
         static LRESULT CALLBACK eventHandler(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 
             // Retrieve instance for all other messages
@@ -113,6 +282,7 @@ export namespace Rev {
 
             switch (msg) {
 
+                // When the window is first created
                 case (WM_NCCREATE): {
 
                     CREATESTRUCTW* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
@@ -131,6 +301,7 @@ export namespace Rev {
                     return TRUE; // tell Windows creation may continue
                 }
 
+                // When the window is destroyed
                 case (WM_DESTROY): {
                     
                     self->notifyEvent({
@@ -170,6 +341,7 @@ export namespace Rev {
 
                     self->notifyEvent({
                         WinEvent::Type::Resize,
+                        0, 0,
                         LOWORD(lp), HIWORD(lp)
                     });
 
@@ -182,10 +354,12 @@ export namespace Rev {
                     return 0;
                 }
 
+                // When the window is moved
                 case (WM_MOVE): {
 
                     self->notifyEvent({
                         WinEvent::Type::Move,
+                        0, 0,
                         GET_X_LPARAM(lp),
                         GET_Y_LPARAM(lp)
                     });
@@ -216,11 +390,12 @@ export namespace Rev {
                     return 0;
                 }
 
-                // NEW: mouse moves
+                // When the mouse moves
                 case (WM_MOUSEMOVE): {
                 
                     self->notifyEvent({
                         WinEvent::Type::MouseMove,
+                        0, 0,
                         GET_X_LPARAM(lp),
                         GET_Y_LPARAM(lp)
                     });
@@ -244,8 +419,9 @@ export namespace Rev {
                 case (WM_MBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 2, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
       
                 // Keyboard
-                case (WM_KEYDOWN): { self->notifyEvent({ WinEvent::Type::Keyboard }); return 0; }
-                case (WM_KEYUP): { self->notifyEvent({ WinEvent::Type::Keyboard }); return 0; }
+                case (WM_KEYDOWN): { self->notifyEvent({ WinEvent::Type::Keyboard, (uint64_t)self->getKey(wp), 1 }); return 0; }
+                case (WM_KEYUP): { self->notifyEvent({ WinEvent::Type::Keyboard, (uint64_t)self->getKey(wp), 0 }); return 0; }
+                case (WM_CHAR): { self->notifyEvent({ WinEvent::Type::Character, (uint64_t)(wp) }); return 0; }
             }
 
             // Must call default window proc first

@@ -12,7 +12,6 @@ export namespace Rev {
 
     struct Application {
 
-        Vulkan::Instance* vulkan = nullptr;
         std::vector<Window*> windows;
 
         // Create

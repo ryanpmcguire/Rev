@@ -1,7 +1,10 @@
 module;
 
+//
 #include <vector>
 #include <string>
+#include <codecvt>
+#include <locale>
 #include <dbg.hpp>
 
 export module Rev.Window;
@@ -257,16 +260,19 @@ export namespace Rev {
                 case (NativeWindow::WinEvent::Focus): { this->onFocus(); break; }
                 case (NativeWindow::WinEvent::Defocus): { this->onDefocus(); break; }
 
-                case (NativeWindow::WinEvent::Move): { this->onMove(event.a, event.b); break; }
-                case (NativeWindow::WinEvent::Resize): { this->onResize(event.a, event.b); break; }
+                case (NativeWindow::WinEvent::Move): { this->onMove(event.c, event.d); break; }
+                case (NativeWindow::WinEvent::Resize): { this->onResize(event.c, event.d); break; }
                 case (NativeWindow::WinEvent::Maximize): { this->onMaximize(); break; }
                 case (NativeWindow::WinEvent::Minimize): { this->onMinimize(); break; }
                 case (NativeWindow::WinEvent::Restore): { this->onRestore(); break; }
 
                 case (NativeWindow::WinEvent::Paint): { this->onRefresh(); break; }
 
-                case (NativeWindow::WinEvent::MouseMove): { this->onCursorPos(event.a, event.b); break; }
+                case (NativeWindow::WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
                 case (NativeWindow::WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
+
+                case (NativeWindow::WinEvent::Keyboard): { this->onKeyboard(event.a, event.b); break; }
+                case (NativeWindow::WinEvent::Character): { this->onCharacter(event.a); break; }
             }
         }
 
@@ -336,18 +342,6 @@ export namespace Rev {
         // Mouse/keyboard callbacks (window only)
         //--------------------------------------------------
 
-        enum ButtonAction {
-            Release,
-            Press,
-            DoubleClick
-        };
-
-        enum MouseButton {
-            Left,
-            Right,
-            Middle
-        };
-
         // When a mouse button is clicked or released
         void onMouseButton(int button, int action, int x, int y) {
 
@@ -360,13 +354,13 @@ export namespace Rev {
             this->setTargets(event);
 
             switch (button) {
-                case (MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
-                case (MouseButton::Right): { event.mouse.rb.set(action, event.mouse.pos); break; }
+                case (NativeWindow::MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
+                case (NativeWindow::MouseButton::Right): { event.mouse.rb.set(action, event.mouse.pos); break; }
             }
 
             switch (action) {
-                case (ButtonAction::Press): { this->mouseDown(event); break; }
-                case (ButtonAction::Release): { this->mouseUp(event); break; }
+                case (NativeWindow::ButtonAction::Press): { this->mouseDown(event); break; }
+                case (NativeWindow::ButtonAction::Release): { this->mouseUp(event); break; }
             }
 
             if (event.causedRefresh) {
@@ -395,6 +389,21 @@ export namespace Rev {
             if (event.causedRefresh) {
                 this->draw(event);
             }
+        }
+
+        void onKeyboard(int key, int action) {
+
+            dbg("[Window] Key %s", window->keyToString(key));
+        }
+
+        void onCharacter(char32_t character) {
+
+            // Convert UTF-32 → UTF-8
+            std::u32string s32(1, character);
+            std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+            std::string utf8 = conv.to_bytes(s32);
+        
+            dbg("Character: %s (U+%04X)", utf8.c_str(), (unsigned)character);
         }
     };
 }
