@@ -97,7 +97,6 @@ target_compile_definitions(Rev PUBLIC GLEW_STATIC)
 target_link_libraries(Rev PUBLIC
     ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
     ${EXT_DIR}/glew/bin/win/x64/glew32s.lib
-    ${EXT_DIR}/vulkan/bin/win/x64/vulkan-1.lib
     ${EXT_DIR}/freetype/bin/win/x64/freetype.lib
     OpenGL::GL
 )

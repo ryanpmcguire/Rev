@@ -101,7 +101,7 @@ export namespace Rev {
             this->styles = { &Styles::Self };
 
                 // Label Container
-                /*textContainer = new Element(this);
+                textContainer = new Element(this);
                 textContainer->styles = { &Styles::TextContainer };
                 
                     // Label text
@@ -110,7 +110,7 @@ export namespace Rev {
 
                     // Value textContainer
                     valueText = new TextBox(textContainer);
-                    valueText->styles = { &Styles::ValueText };*/
+                    valueText->styles = { &Styles::ValueText };
                     
                 // SliderContainer
                 sliderContainer = new Box(this, "SliderContainer");
@@ -165,8 +165,8 @@ export namespace Rev {
 
         void computePrimitives(Event& e) override {
         
-            //labelText->text->content = "Value: ";
-            //valueText->setContent(data.val);
+            labelText->text->content = "Value: ";
+            valueText->setContent(data.val);
 
             Box::computePrimitives(e);
         }

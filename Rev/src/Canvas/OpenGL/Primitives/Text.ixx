@@ -342,7 +342,7 @@ export namespace Rev {
         // Draw vertices
         void draw() override {
 
-            /*if (true) {
+            if (true) {
                 this->compute();
             }
         
@@ -358,7 +358,7 @@ export namespace Rev {
                 0,          // start vertex
                 6,          // 6 vertices per quad
                 vertexCount   // one instance per glyph
-            );*/
+            );
         }
     };
 };

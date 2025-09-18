@@ -3,7 +3,6 @@ module;
 #include <stdexcept>
 #include <vector>
 #include <glew/glew.h>
-#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <dbg.hpp>
@@ -42,25 +41,7 @@ export namespace Rev {
             //glfwSwapInterval(1);
 
             window->makeContextCurrent();
-
-            // 2. Initialize GLEW
-            glewExperimental = GL_TRUE; // Enable core profiles
-            GLenum glewStatus = glewInit();
-
-            if (glewStatus != GLEW_OK) {
-                const GLubyte* errorStr = glewGetErrorString(glewStatus);
-                throw std::runtime_error(std::string("[Canvas] Glew init failed: ") + reinterpret_cast<const char*>(errorStr));
-            }
-
-            dbg("");
-            dbg("OpenGL INFO");
-            dbg("--------------------\n");
-            dbg("GLEW version: %s", glewGetString(GLEW_VERSION));
-            dbg("OpenGL version: %s", glGetString(GL_VERSION));
-            dbg("GLSL version: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
-            dbg("Renderer: %s", glGetString(GL_RENDERER));
-            dbg("Vendor: %s", glGetString(GL_VENDOR));
-            dbg("");
+            window->loadGlFunctions();
 
             glEnable(GL_MULTISAMPLE);
             glEnable(GL_BLEND);

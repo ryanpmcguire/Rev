@@ -9,6 +9,8 @@ module;
 #include <windowsx.h>
 #include <windows.h>
 
+// Misc
+#include <glew/glew.h>
 #include <dbg.hpp>
 
 export module Rev.NativeWindow;
@@ -454,6 +456,28 @@ export namespace Rev {
 
         static LRESULT CALLBACK DummyWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return DefWindowProcW(h, m, w, l);
+        }
+
+        void loadGlFunctions() {
+
+            // 2. Initialize GLEW
+            glewExperimental = GL_TRUE; // Enable core profiles
+            GLenum glewStatus = glewInit();
+
+            if (glewStatus != GLEW_OK) {
+                const GLubyte* errorStr = glewGetErrorString(glewStatus);
+                throw std::runtime_error(std::string("[Canvas] Glew init failed: ") + reinterpret_cast<const char*>(errorStr));
+            }
+
+            dbg("");
+            dbg("OpenGL INFO");
+            dbg("--------------------\n");
+            dbg("GLEW version: %s", glewGetString(GLEW_VERSION));
+            dbg("OpenGL version: %s", glGetString(GL_VERSION));
+            dbg("GLSL version: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
+            dbg("Renderer: %s", glGetString(GL_RENDERER));
+            dbg("Vendor: %s", glGetString(GL_VENDOR));
+            dbg("");
         }
 
         void makeContextCurrent() {

@@ -1,6 +1,6 @@
 module;
 
-#include <__cstddef/max_align_t.h>
+#include <cstddef>
 
 export module Interface;
 
