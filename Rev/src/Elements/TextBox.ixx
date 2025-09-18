@@ -5,6 +5,8 @@ module;
 
 export module Rev.TextBox;
 
+import Rev.Style;
+import Rev.Event;
 import Rev.Box;
 
 import Rev.OpenGL.Text;

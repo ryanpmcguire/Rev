@@ -3,7 +3,7 @@ module;
 #include <vector>
 #include <glew/glew.h>
 
-export module Rev.OpenGL.Lines;
+export module Rev.OpenGL.Triangles;
 
 import Rev.OpenGL.Primitive;
 import Rev.OpenGL.VertexBuffer;
@@ -14,7 +14,7 @@ import Resources.Shaders.OpenGL.Triangles.Triangles_frag;
 
 export namespace Rev {
 
-    export struct Triangles : public Primitive {
+    struct Triangles : public Primitive {
 
         // Shared across instances
         struct Shared {
@@ -24,6 +24,10 @@ export namespace Rev {
             Shader* vert = nullptr;
             Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
+
+            Shared() {
+                
+            }
 
             void create() {
 

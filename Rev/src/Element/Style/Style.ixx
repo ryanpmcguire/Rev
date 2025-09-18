@@ -109,20 +109,20 @@ export namespace Rev {
     };
 
     // Pixel distance
-    export Dist Px(float value) {
+    Dist Px(float value) {
         return { Dist::Type::Abs, value };
     }
 
     // Percent distance
-    export Dist Pct(float value) {
+    Dist Pct(float value) {
         return { Dist::Type::Rel, value / 100.0f };
     }
 
-    export Dist Grow() {
+    Dist Grow() {
         return { Dist::Type::Grow, 0 };
     }
 
-    export Dist Shrink() {
+    Dist Shrink() {
         return { Dist::Type::Shrink, 0 };
     }
 
@@ -350,7 +350,7 @@ export namespace Rev {
         }
     };
 
-    export struct Shadow {
+    struct Shadow {
 
         Color color;
 

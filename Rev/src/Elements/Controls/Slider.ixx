@@ -5,6 +5,8 @@ module;
 
 export module Rev.Slider;
 
+import Rev.Pos;
+import Rev.Event;
 import Rev.Style;
 import Rev.Element;
 import Rev.Box;
@@ -83,6 +85,10 @@ export namespace Rev {
             float max = 1000;
             float def = 0.5;
             float val = 1.0;
+
+            SliderData() {
+
+            }
         };
 
         SliderData data;

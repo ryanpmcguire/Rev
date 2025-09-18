@@ -9,6 +9,9 @@ module;
 
 export module Rev.Window;
 
+import Rev.Style;
+import Rev.Event;
+import Rev.Pos;
 import Rev.Element;
 import Rev.Box;
 import Rev.NativeWindow;
@@ -27,6 +30,10 @@ export namespace Rev {
 
             bool decorated = true;
             bool resizable = true;
+
+            Details() {
+
+            }
         };
 
         // Persistent event

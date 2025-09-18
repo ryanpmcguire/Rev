@@ -16,7 +16,7 @@ import Resources.Shaders.OpenGL.Lines.Lines_frag;
 
 export namespace Rev {
 
-    export struct Lines : public Primitive {
+    struct Lines : public Primitive {
 
         // Shared across instances
         struct Shared {
@@ -26,6 +26,10 @@ export namespace Rev {
             Shader* vert = nullptr;
             Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
+
+            Shared() {
+                
+            }
 
             void create() {
 

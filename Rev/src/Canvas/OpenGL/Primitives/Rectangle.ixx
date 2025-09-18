@@ -15,7 +15,7 @@ import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
 export namespace Rev {
 
-    export struct Rectangle : public Primitive {
+    struct Rectangle : public Primitive {
 
         // Shared across instances
         struct Shared {
@@ -26,6 +26,10 @@ export namespace Rev {
             Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
             VertexBuffer* vertices = nullptr;
+
+            Shared() {
+                
+            }
 
             void create() {
 

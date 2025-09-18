@@ -7,6 +7,7 @@ module;
 export module Rev.Box;
 
 import Rev.Element;
+import Rev.Event;
 import Rev.Style;
 import Rev.Rect;
 

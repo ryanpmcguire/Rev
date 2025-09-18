@@ -2,6 +2,7 @@ module;
 
 export module Interface;
 
+import Rev.Style;
 import Rev.Element;
 import Rev.Box;
 import Rev.TextBox;
@@ -35,7 +36,7 @@ export namespace HelloWorld {
             };
 
             for (size_t i = 0; i < 10; i++) {
-                Slider* slider = new Slider(greyBox, { .val = 0.5 });
+                Slider* slider = new Slider(greyBox);
             }
 
             //Slider* sliderA = new Slider(greyBox, { .val = 0.0 });

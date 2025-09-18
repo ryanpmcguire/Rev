@@ -10,6 +10,7 @@ export module Rev.Element;
 
 import Rev.OpenGL.Canvas;
 
+import Rev.Pos;
 import Rev.Rect;
 import Rev.Style;
 import Rev.Computed;

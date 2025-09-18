@@ -15,7 +15,7 @@ int main() {
     try {
 
         Application* application = new Application();
-        Window* window = new Window(application->windows, { "Window 1", 640, 480 });
+        Window* window = new Window(application->windows);
 
         Interface* interface = new Interface(window);
 

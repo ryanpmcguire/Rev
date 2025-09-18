@@ -20,7 +20,7 @@ import Resources.Fonts.Arial.Arial_ttf;
 
 export namespace Rev {
 
-    export struct Text : public Primitive {
+    struct Text : public Primitive {
 
         // Fonts
         //--------------------------------------------------
@@ -35,6 +35,10 @@ export namespace Rev {
             Shader* vert = nullptr;
             Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
+
+            Shared() {
+                
+            }
 
             void create() {
 
