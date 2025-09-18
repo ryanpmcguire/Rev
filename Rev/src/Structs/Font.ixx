@@ -1,5 +1,6 @@
 module;
 
+#include <cmath>
 #include <vector>
 #include <map>
 #include <stdexcept>

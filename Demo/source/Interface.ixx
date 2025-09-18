@@ -1,5 +1,7 @@
 module;
 
+#include <__cstddef/max_align_t.h>
+
 export module Interface;
 
 import Rev.Style;

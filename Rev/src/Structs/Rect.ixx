@@ -1,5 +1,6 @@
 module;
 
+#include <cmath>
 #include <algorithm>
 
 export module Rev.Rect;
