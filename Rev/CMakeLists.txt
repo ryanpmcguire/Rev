@@ -51,9 +51,21 @@ elseif(UNIX)
 endif()
 
 # Exclude platform-specific sources
-foreach(src ${REV_SOURCES})
+foreach(src ${CPP_SOURCES})
   if(src MATCHES "${_exclude_regex}")
-    list(REMOVE_ITEM REV_SOURCES ${src})
+    list(REMOVE_ITEM CPP_SOURCES ${src})
+  endif()
+endforeach()
+
+foreach(src ${OBJCPP_SOURCES})
+  if(src MATCHES "${_exclude_regex}")
+    list(REMOVE_ITEM OBJCPP_SOURCES ${src})
+  endif()
+endforeach()
+
+foreach(src ${MODULE_SOURCES})
+  if(src MATCHES "${_exclude_regex}")
+    list(REMOVE_ITEM MODULE_SOURCES ${src})
   endif()
 endforeach()
 
