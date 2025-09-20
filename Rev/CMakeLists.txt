@@ -94,9 +94,31 @@ target_include_directories(Rev PUBLIC
 
 target_compile_definitions(Rev PUBLIC GLEW_STATIC)
 
-target_link_libraries(Rev PUBLIC
-    ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
-    ${EXT_DIR}/glew/bin/win/x64/glew32s.lib
-    ${EXT_DIR}/freetype/bin/win/x64/freetype.lib
-    OpenGL::GL
+if (WIN32)
+  target_link_libraries(Rev PUBLIC
+      ${EXT_DIR}/glfw/bin/win/vc2022/glfw3.lib
+      ${EXT_DIR}/glew/bin/win/x64/glew32s.lib
+      ${EXT_DIR}/freetype/bin/win/x64/freetype.lib
+      OpenGL::GL
+  )
+elseif (APPLE)
+    target_link_libraries( Rev PUBLIC
+        ${CMAKE_SOURCE_DIR}/Rev/external/glfw/bin/macos/universal/libglfw3.a
+        ${CMAKE_SOURCE_DIR}/Rev/external/freetype/bin/mac/x64/libfreetype.a
+
+        # Add required system libs
+        -lbz2
+        -lpng
+        -lz
+
+        # macOS frameworks
+        "-framework Cocoa"
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework IOKit"
+        "-framework CoreVideo"
+        "-framework Carbon"
+        "-framework OpenGL"
 )
+
+endif()

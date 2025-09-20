@@ -178,7 +178,10 @@ export namespace Rev {
 
         void makeContextCurrent() {
 
-            
+        }
+
+        void loadGlFunctions() {
+
         }
 
         void swapBuffers() {
