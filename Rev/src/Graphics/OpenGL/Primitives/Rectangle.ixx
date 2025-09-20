@@ -3,7 +3,7 @@ module;
 #include <vector>
 #include <glew/glew.h>
 
-export module Rev.OpenGL.Rectangle;
+export module Rev.Graphics.Rectangle;
 
 import Rev.OpenGL.Primitive;
 import Rev.OpenGL.UniformBuffer;

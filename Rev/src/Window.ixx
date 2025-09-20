@@ -1,6 +1,5 @@
 module;
 
-//
 #include <vector>
 #include <string>
 #include <codecvt>
@@ -15,7 +14,7 @@ import Rev.Pos;
 import Rev.Element;
 import Rev.Box;
 import Rev.NativeWindow;
-import Rev.OpenGL.Canvas;
+import Rev.Graphics.Canvas;
 
 export namespace Rev {
 

@@ -9,7 +9,7 @@ import Rev.Style;
 import Rev.Event;
 import Rev.Box;
 
-import Rev.OpenGL.Text;
+import Rev.Graphics.Text;
 
 export namespace Rev {
 

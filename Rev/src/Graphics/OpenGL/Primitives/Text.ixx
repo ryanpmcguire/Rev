@@ -5,13 +5,13 @@ module;
 #include <string>
 #include <glew/glew.h>
 
-export module Rev.OpenGL.Text;
+export module Rev.Graphics.Text;
 
-import Rev.OpenGL.Primitive;
-import Rev.OpenGL.UniformBuffer;
-import Rev.OpenGL.VertexBuffer;
-import Rev.OpenGL.Pipeline;
-import Rev.OpenGL.Shader;
+import Rev.Graphics.Primitive;
+import Rev.Graphics.UniformBuffer;
+import Rev.Graphics.VertexBuffer;
+import Rev.Graphics.Pipeline;
+import Rev.Graphics.Shader;
 import Resources.Shaders.OpenGL.Text.Text_vert;
 import Resources.Shaders.OpenGL.Text.Text_frag;
 

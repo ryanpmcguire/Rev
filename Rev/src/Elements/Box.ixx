@@ -11,8 +11,8 @@ import Rev.Event;
 import Rev.Style;
 import Rev.Rect;
 
-import Rev.OpenGL.Rectangle;
-import Rev.OpenGL.Lines;
+import Rev.Graphics.Rectangle;
+import Rev.Graphics.Lines;
 
 export namespace Rev {
 

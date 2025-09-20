@@ -10,7 +10,7 @@ module;
 export module Rev.OpenGL.Canvas;
 
 import Rev.NativeWindow;
-import Rev.OpenGL.UniformBuffer;
+import Rev.Graphics.UniformBuffer;
 
 export namespace Rev {
 
@@ -36,9 +36,6 @@ export namespace Rev {
         Canvas(NativeWindow* window = nullptr) {
 
             this->window = window;
-
-            //glfwMakeContextCurrent(window);
-            //glfwSwapInterval(1);
 
             window->makeContextCurrent();
             window->loadGlFunctions();

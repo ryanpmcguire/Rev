@@ -67,6 +67,7 @@ export namespace Rev {
                 glUnmapBuffer(GL_ARRAY_BUFFER);
                 data = nullptr;
             }
+
             if (bufferID) {
                 glDeleteBuffers(1, &bufferID);
                 bufferID = 0;
@@ -98,7 +99,7 @@ export namespace Rev {
             }
         
             glBindVertexArray(0);
-        }        
+        }
 
         void bind() {
             glBindVertexArray(vaoID);

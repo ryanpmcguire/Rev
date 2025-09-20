@@ -5,12 +5,12 @@ module;
 #include <glew/glew.h>
 #include "./Utils/TriangulatePolyline.hpp"
 
-export module Rev.OpenGL.Lines;
+export module Rev.Graphics.Lines;
 
-import Rev.OpenGL.Primitive;
-import Rev.OpenGL.VertexBuffer;
-import Rev.OpenGL.Pipeline;
-import Rev.OpenGL.Shader;
+import Rev.Graphics.Primitive;
+import Rev.Graphics.VertexBuffer;
+import Rev.Graphics.Pipeline;
+import Rev.Graphics.Shader;
 import Resources.Shaders.OpenGL.Lines.Lines_vert;
 import Resources.Shaders.OpenGL.Lines.Lines_frag;
 
