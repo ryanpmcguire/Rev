@@ -5,6 +5,7 @@ module;
 
 export module Rev.Event;
 
+import Rev.Graphics.Canvas;
 import Rev.GlobalTime;
 import Rev.Pos;
 import Rev.Style;
@@ -91,6 +92,8 @@ export namespace Rev {
         bool causedRefresh = false;
         uint64_t firstTime = 0; uint64_t time = 0;
         int id = 0;
+
+        Canvas* canvas;
 
         // Set time
         void resetBeforeDispatch() {

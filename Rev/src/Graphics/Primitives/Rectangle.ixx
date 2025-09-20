@@ -1,15 +1,16 @@
 module;
 
 #include <vector>
-#include <glew/glew.h>
+//#include <glew/glew.h>
 
 export module Rev.Graphics.Rectangle;
 
-import Rev.OpenGL.Primitive;
-import Rev.OpenGL.UniformBuffer;
-import Rev.OpenGL.VertexBuffer;
-import Rev.OpenGL.Pipeline;
-import Rev.OpenGL.Shader;
+import Rev.Graphics.Canvas;
+import Rev.Graphics.Primitive;
+import Rev.Graphics.UniformBuffer;
+import Rev.Graphics.VertexBuffer;
+import Rev.Graphics.Pipeline;
+import Rev.Graphics.Shader;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
@@ -36,8 +37,8 @@ export namespace Rev {
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Rectangle_vert, GL_VERTEX_SHADER);
-                frag = new Shader(Rectangle_frag, GL_FRAGMENT_SHADER);
+                vert = new Shader(Rectangle_vert, Shader::Stage::Vertex);
+                frag = new Shader(Rectangle_frag, Shader::Stage::Fragment);
                 pipeline = new Pipeline(*(vert), *(frag));
                 vertices = new VertexBuffer(4, 2, 1);
             }
@@ -116,13 +117,13 @@ export namespace Rev {
             });*/
         }
 
-        void draw() override {
+        void draw(Canvas* canvas) override {
          
             shared.pipeline->bind();
             shared.vertices->bind();
             databuff->bind(1);
 
-            glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, 1);
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleFan, 0, 4, 1);
         }
     };
 };

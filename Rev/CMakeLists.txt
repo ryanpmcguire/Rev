@@ -23,6 +23,9 @@ add_custom_command(
 add_custom_target(EmbedResources ALL DEPENDS ${RCS_DIR}/.modules/timestamp)
 
 # Collect sources
+#--------------------------------------------------
+
+# Collect sources
 file(GLOB_RECURSE CPP_SOURCES CONFIGURE_DEPENDS
     ${SRC_DIR}/*.cpp
     ${EXT_DIR}/*.cpp
@@ -41,36 +44,69 @@ file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
     ${RCS_DIR}/.modules/*.ixx
 )
 
-# Exclude files based on OS (e.g. mac builds ignore files called example.mac.cpp, etc...)
+# Filter sources
+#--------------------------------------------------
+
+# Detect current OS marker
 if(WIN32)
-  set(_exclude_regex "\\.(mac|osx|ios|lnx|linux|unix|android)\\.")
+  set(OS_MARKER "win")
+  set(PLATFORM "OPENGL")
 elseif(APPLE)
-  set(_exclude_regex "\\.(win|lnx|linux|unix|android)\\.")
+  set(OS_MARKER "mac")
+  set(PLATFORM "METAL")
 elseif(UNIX)
-  set(_exclude_regex "\\.(win|mac|osx|ios)\\.")
+  set(OS_MARKER "lnx")
+  set(PLATFORM "OPENGL")
 endif()
 
-# Exclude platform-specific sources
-foreach(src ${CPP_SOURCES})
-  if(src MATCHES "${_exclude_regex}")
-    list(REMOVE_ITEM CPP_SOURCES ${src})
-  endif()
-endforeach()
+# Detect current graphics platform marker (normalize to lowercase)
+string(TOLOWER "${PLATFORM}" PLATFORM_MARKER)
 
-foreach(src ${OBJCPP_SOURCES})
-  if(src MATCHES "${_exclude_regex}")
-    list(REMOVE_ITEM OBJCPP_SOURCES ${src})
-  endif()
-endforeach()
+function(filter_sources out_var)
+    set(result "")
+    foreach(src ${ARGN})
+        get_filename_component(fname ${src} NAME)
 
-foreach(src ${MODULE_SOURCES})
-  if(src MATCHES "${_exclude_regex}")
-    list(REMOVE_ITEM MODULE_SOURCES ${src})
-  endif()
-endforeach()
+        # Collect markers from filename
+        string(REGEX MATCHALL "\\.([^.]+)\\." markers ${fname})
+
+        set(ok TRUE)
+        foreach(m ${markers})
+            string(REPLACE "." "" m ${m}) # strip dots
+            string(TOLOWER "${m}" m)
+
+            if(m STREQUAL "${OS_MARKER}" OR m STREQUAL "${PLATFORM_MARKER}")
+                # allowed, matches current OS or platform
+            elseif(m IN_LIST VALID_OS_MARKERS OR m IN_LIST VALID_PLATFORM_MARKERS)
+                # mismatched marker -> exclude
+                set(ok FALSE)
+            endif()
+        endforeach()
+
+        if(ok)
+            list(APPEND result ${src})
+        endif()
+    endforeach()
+
+    set(${out_var} "${result}" PARENT_SCOPE)
+endfunction()
+
+set(VALID_OS_MARKERS win mac osx ios lnx linux unix android)
+set(VALID_PLATFORM_MARKERS vulkan metal opengl)
+
+filter_sources(CPP_SOURCES_FILTERED ${CPP_SOURCES})
+filter_sources(OBJCPP_SOURCES_FILTERED ${OBJCPP_SOURCES})
+filter_sources(MODULE_SOURCES_FILTERED ${MODULE_SOURCES})
+
+set(CPP_SOURCES ${CPP_SOURCES_FILTERED})
+set(OBJCPP_SOURCES ${OBJCPP_SOURCES_FILTERED})
+set(MODULE_SOURCES ${MODULE_SOURCES_FILTERED})
 
 # Add executable
 add_library(Rev STATIC)
+
+# Define macro for the chosen platform
+target_compile_definitions(Rev PUBLIC PLATFORM_${PLATFORM})
 
 # Add implementation sources
 target_sources(Rev
@@ -93,6 +129,9 @@ target_include_directories(Rev PUBLIC
 )
 
 target_compile_definitions(Rev PUBLIC GLEW_STATIC)
+
+# Link
+#--------------------------------------------------
 
 if (WIN32)
   target_link_libraries(Rev PUBLIC

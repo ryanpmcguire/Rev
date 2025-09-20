@@ -7,6 +7,7 @@ module;
 
 export module Rev.Graphics.Lines;
 
+import Rev.Graphics.Canvas;
 import Rev.Graphics.Primitive;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
@@ -36,8 +37,8 @@ export namespace Rev {
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Lines_vert, GL_VERTEX_SHADER);
-                frag = new Shader(Lines_frag, GL_FRAGMENT_SHADER);
+                vert = new Shader(Lines_vert, Shader::Stage::Vertex);
+                frag = new Shader(Lines_frag, Shader::Stage::Fragment);
                 pipeline = new Pipeline(*(vert), *(frag));
             }
 
@@ -107,7 +108,7 @@ export namespace Rev {
             vertexCount = maxVertices;
         }
 
-        void draw() override {
+        void draw(Canvas* canvas) override {
 
             if (dirty) {
                 this->compute();
@@ -116,7 +117,8 @@ export namespace Rev {
 
             shared.pipeline->bind();
             vertices->bind();
-            glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+            
+            canvas->drawArrays(Pipeline::Topology::TriangleList, 0, vertexCount);
         }
     };
 };

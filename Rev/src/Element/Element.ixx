@@ -8,7 +8,7 @@ module;
 
 export module Rev.Element;
 
-import Rev.OpenGL.Canvas;
+import Rev.Graphics.Canvas;
 
 import Rev.Pos;
 import Rev.Rect;

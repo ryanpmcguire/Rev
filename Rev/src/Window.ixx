@@ -66,6 +66,7 @@ export namespace Rev {
             //--------------------------------------------------
 
             topLevelDetails->canvas = new Canvas(window);
+            event.canvas = topLevelDetails->canvas;
             
             group.push_back(this);
 

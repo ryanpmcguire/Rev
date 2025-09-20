@@ -2,9 +2,8 @@ module;
 
 #include <string>
 #include <stdexcept>
-#include <glew/glew.h>
 
-export module Rev.OpenGL.Shader;
+export module Rev.Metal.Shader;
 
 import Resource;
 
@@ -12,12 +11,17 @@ export namespace Rev {
 
     struct Shader {
 
-        GLuint shader = 0;
+        enum Stage {
+            Vertex,
+            Fragment
+        };
+
+        //GLuint shader = 0;
 
         // Create
-        Shader(Resource shaderFile, GLenum shaderType) {
+        Shader(Resource shaderFile, Stage shaderType) {
 
-            const char* srcStr = reinterpret_cast<const char*>(shaderFile.data);
+            /*const char* srcStr = reinterpret_cast<const char*>(shaderFile.data);
             GLint srcLen = static_cast<GLint>(shaderFile.size);
 
             shader = glCreateShader(shaderType);
@@ -37,14 +41,14 @@ export namespace Rev {
                 glGetShaderInfoLog(shader, 512, nullptr, infoLog);
 
                 throw std::runtime_error(std::string("Shader compilation failed: ") + infoLog);
-            }
+            }*/
         }
 
         // Destroy
         ~Shader() {
 
             // Shader no longer needed after linking
-            glDeleteShader(shader);
+            //glDeleteShader(shader);
         }
     };
 };

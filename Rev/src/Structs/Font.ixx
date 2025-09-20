@@ -11,8 +11,8 @@ module;
 
 export module Rev.Font;
 
-import Rev.OpenGL.UniformBuffer;
-import Rev.OpenGL.Texture;
+import Rev.Graphics.UniformBuffer;
+import Rev.Graphics.Texture;
 
 import Resource;
 import Resources.Fonts.Arial.Arial_ttf;

@@ -17,7 +17,7 @@ int main() {
         Application* application = new Application();
         Window* window = new Window(application->windows);
 
-        Interface* interface = new Interface(window);
+        //Interface* interface = new Interface(window);
 
         application->run();
 

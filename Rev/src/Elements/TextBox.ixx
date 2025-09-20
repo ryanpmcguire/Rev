@@ -94,7 +94,7 @@ export namespace Rev {
             text->xPos = rect.x;
             text->yPos = rect.y;
 
-            text->draw();
+            text->draw(e.canvas);
         }
     };
 };

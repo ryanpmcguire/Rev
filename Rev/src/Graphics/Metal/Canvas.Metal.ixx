@@ -2,14 +2,12 @@ module;
 
 #include <stdexcept>
 #include <vector>
-#include <glew/glew.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 #include <dbg.hpp>
 
-export module Rev.OpenGL.Canvas;
+export module Rev.Metal.Canvas;
 
 import Rev.NativeWindow;
+import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
 
 export namespace Rev {
@@ -37,14 +35,14 @@ export namespace Rev {
 
             this->window = window;
 
-            window->makeContextCurrent();
+            /*window->makeContextCurrent();
             window->loadGlFunctions();
 
             glEnable(GL_MULTISAMPLE);
             glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);*/
 
-            transform = new UniformBuffer(sizeof(glm::mat4));
+            //transform = new UniformBuffer(sizeof(glm::mat4));
         }
 
         // Destroy
@@ -63,7 +61,7 @@ export namespace Rev {
                 details.width = window->size.w;
                 details.height = window->size.h;
 
-                glViewport(0, 0, details.width, details.height);
+                /*glViewport(0, 0, details.width, details.height);
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,           // left
@@ -72,17 +70,17 @@ export namespace Rev {
                     0.0f,           // top (flipped for top-left origin)
                     -1.0f,          // near
                     1.0f            // far
-                );
+                );*/
 
-                transform->set(&projection);
+                //transform->set(&projection);
 
                 flags.resize = false;
             }
 
-            glEnable(GL_BLEND);
+            /*glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
-            glClear(GL_COLOR_BUFFER_BIT);
+            glClear(GL_COLOR_BUFFER_BIT);*/
 
             transform->bind(0);
         }
@@ -90,6 +88,14 @@ export namespace Rev {
         void flush() {
             //glfwSwapBuffers(window);
             window->swapBuffers();
+        }
+
+        void drawArrays(Pipeline::Topology topology, size_t start, size_t verticesPer) {
+            
+        }
+
+        void drawArraysInstanced(Pipeline::Topology topology, size_t start, size_t verticiesPer, int numInstances) {
+            //glDrawArraysInstanced(GL_TRIANGLE_FAN, start, verticesPer, numInstances);
         }
     };
 };

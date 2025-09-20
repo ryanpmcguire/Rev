@@ -80,7 +80,7 @@ export namespace Rev {
 
         void draw(Event& e) override {
             
-            rectangle->draw();
+            rectangle->draw(e.canvas);
 
             Element::draw(e);
         }

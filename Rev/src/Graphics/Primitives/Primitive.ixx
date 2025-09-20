@@ -1,6 +1,8 @@
 module;
 
-export module Rev.OpenGL.Primitive;
+export module Rev.Graphics.Primitive;
+
+import Rev.Graphics.Canvas;
 
 export namespace Rev {
 
@@ -17,7 +19,7 @@ export namespace Rev {
         }
 
         // Draw
-        virtual void draw() {
+        virtual void draw(Canvas* canvas) {
             
         }
     };

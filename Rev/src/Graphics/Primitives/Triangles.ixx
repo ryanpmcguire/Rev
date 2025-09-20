@@ -3,12 +3,13 @@ module;
 #include <vector>
 #include <glew/glew.h>
 
-export module Rev.OpenGL.Triangles;
+export module Rev.Graphics.Triangles;
 
-import Rev.OpenGL.Primitive;
-import Rev.OpenGL.VertexBuffer;
-import Rev.OpenGL.Pipeline;
-import Rev.OpenGL.Shader;
+import Rev.Graphics.Canvas;
+import Rev.Graphics.Primitive;
+import Rev.Graphics.VertexBuffer;
+import Rev.Graphics.Pipeline;
+import Rev.Graphics.Shader;
 import Resources.Shaders.OpenGL.Triangles.Triangles_vert;
 import Resources.Shaders.OpenGL.Triangles.Triangles_frag;
 
@@ -34,8 +35,8 @@ export namespace Rev {
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Triangles_vert, GL_VERTEX_SHADER);
-                frag = new Shader(Triangles_frag, GL_FRAGMENT_SHADER);
+                vert = new Shader(Triangles_vert, Shader::Stage::Vertex);
+                frag = new Shader(Triangles_frag, Shader::Stage::Fragment);
                 pipeline = new Pipeline(*(vert), *(frag));
             }
 
@@ -83,7 +84,7 @@ export namespace Rev {
             
         }
 
-        void draw() override {
+        void draw(Canvas* canvas) override {
 
             if (dirty) {
                 this->compute();
@@ -92,7 +93,7 @@ export namespace Rev {
 
             shared.pipeline->bind();
             vertices->bind();
-            glDrawArrays(GL_TRIANGLES, 0, 3);
+            canvas->drawArrays(Pipeline::Topology::TriangleList, 0, 3);
         }
     };
 };

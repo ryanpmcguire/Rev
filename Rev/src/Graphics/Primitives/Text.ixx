@@ -7,6 +7,7 @@ module;
 
 export module Rev.Graphics.Text;
 
+import Rev.Graphics.Canvas;
 import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
@@ -45,8 +46,8 @@ export namespace Rev {
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Text_vert, GL_VERTEX_SHADER);
-                frag = new Shader(Text_frag, GL_FRAGMENT_SHADER);
+                vert = new Shader(Text_vert, Shader::Stage::Vertex);
+                frag = new Shader(Text_frag, Shader::Stage::Fragment);
                 pipeline = new Pipeline(*(vert), *(frag));
             }
 
@@ -340,7 +341,7 @@ export namespace Rev {
         }
 
         // Draw vertices
-        void draw() override {
+        void draw(Canvas* canvas) override {
 
             if (true) {
                 this->compute();
@@ -353,12 +354,7 @@ export namespace Rev {
             vertices->bind();
             databuff->bind(1);
 
-            glDrawArraysInstanced(
-                GL_TRIANGLES,
-                0,          // start vertex
-                6,          // 6 vertices per quad
-                vertexCount   // one instance per glyph
-            );
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, vertexCount);
         }
     };
 };
