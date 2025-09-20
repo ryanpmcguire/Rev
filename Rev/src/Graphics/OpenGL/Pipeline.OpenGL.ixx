@@ -2,6 +2,8 @@ module;
 
 #include <string>
 #include <stdexcept>
+
+#include <glew/glew.h>
 #include <dbg.hpp>
 
 export module Rev.OpenGL.Pipeline;
