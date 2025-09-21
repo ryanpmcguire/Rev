@@ -25,6 +25,12 @@ export namespace Rev {
             Type type;
             uint64_t a, b;
             int64_t c, d;
+
+            bool rejected = false;
+
+            void reject() {
+                this->rejected = true;
+            }
         };
 
         enum ButtonAction { Release, Press, DoubleClick };

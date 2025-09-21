@@ -29,6 +29,8 @@ void rev_mac_window_destroy(RevMacWindowHandle handle);
 
 void rev_mac_window_set_size(RevMacWindowHandle handle, int w, int h);
 
+void rev_mac_wait_event();
+
 #ifdef __cplusplus
 }
 #endif

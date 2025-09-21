@@ -112,3 +112,20 @@ void rev_mac_window_set_size(RevMacWindowHandle handle, int w, int h) {
     frame.size = NSMakeSize(w,h);
     [window setFrame:frame display:YES];
 }
+
+// Utility
+//--------------------------------------------------
+
+void rev_mac_wait_event() {
+    @autoreleasepool {
+        // Block until the next event
+        NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                            untilDate:[NSDate distantFuture]  // blocking
+                                               inMode:NSDefaultRunLoopMode
+                                              dequeue:YES];
+        if (event) {
+            [NSApp sendEvent:event];
+            [NSApp updateWindows];
+        }
+    }
+}

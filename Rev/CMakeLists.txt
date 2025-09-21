@@ -141,7 +141,6 @@ if (WIN32)
   )
 elseif (APPLE)
     target_link_libraries( Rev PUBLIC
-        ${CMAKE_SOURCE_DIR}/Rev/external/glfw/bin/macos/universal/libglfw3.a
         ${CMAKE_SOURCE_DIR}/Rev/external/freetype/bin/mac/x64/libfreetype.a
 
         # Add required system libs
