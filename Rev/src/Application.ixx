@@ -1,11 +1,11 @@
 module;
 
 #include <vector>
-#include <GLFW/glfw3.h>
+#include <windows.h>   // Win32 API
+#include <algorithm>
 
 export module Rev.Application;
 
-import Vulkan.Instance;
 import Rev.Window;
 
 export namespace Rev {
@@ -16,55 +16,51 @@ export namespace Rev {
 
         // Create
         Application() {
-            glfwInit();
+            // Win32 needs an HINSTANCE, but window creation
+            // will handle RegisterClass etc. at that layer.
         }
 
         // Destroy
         ~Application() {
-            glfwTerminate();
+            // Nothing to do here yet, unless we global-cleanup something.
         }
 
-        // Temporary run function to force drawing
         void run() {
-            while (true) {
-                
-                // Poll input events every frame
-                glfwPollEvents(); // Non-blocking
+
+            MSG msg = {0};
         
-                // Remove closed windows
-                for (Window*& window : windows) {
-                    if (window->shouldClose) {
-                        removeWindow(window);
-                    }
+            while (!windows.empty()) {
+
+                // This blocks until a message arrives
+                BOOL result = GetMessage(&msg, nullptr, 0, 0);
+                if (!result) { break; }
+
+                if (msg.message == WM_QUIT) {
+                    for (Window* w : windows) { delete w; }
+                    windows.clear();
+                    return;
                 }
-        
-                if (windows.empty()) { break; }
-        
-                // Force a draw every frame
-                /*for (Window*& window : windows) {
-                    window->draw(window->event);
-                }*/
+
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+    
+                // Cleanup closed windows
+                for (auto it = windows.begin(); it != windows.end();) {
+                    if ((*it)->shouldClose) { delete *it; it = windows.erase(it); }
+                    else { ++it; }
+                }
             }
         }
-
-        /*void run() {
-
-            while (true) {
-
-                for (Window*& window : windows) {
-                    if (window->shouldClose) { removeWindow(window); }
-                }
-
-                if (windows.empty()) { break; }
-
-                glfwWaitEvents();
-            }
-        }*/
 
         // Remove window from our list
         void removeWindow(Window* target) {
+
             auto it = std::find(windows.begin(), windows.end(), target);
-            if (it != windows.end()) { delete *it; windows.erase(it); }
+            
+            if (it != windows.end()) {
+                delete *it;
+                windows.erase(it);
+            }
         }
     };
 }

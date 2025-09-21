@@ -23,7 +23,7 @@ export namespace Rev {
 
             enum Type {
                 Null,
-                Create, Destroy,
+                Create, Destroy, Close,
                 Focus, Defocus,
                 Move, Resize, Maximize, Minimize, Restore,
                 Clear, Paint,
@@ -35,6 +35,12 @@ export namespace Rev {
             Type type;      // Event type
             uint64_t a, b;  // Unsigned data
             int64_t c, d;   // Signed data
+
+            bool rejected = false;
+
+            void reject() {
+                rejected = true;
+            }
         };
 
         enum ButtonAction {
@@ -196,7 +202,7 @@ export namespace Rev {
             int w, h, minW, minH, maxW, maxH;
         };
 
-        using EventCallback = std::function<void(WinEvent)>;
+        using EventCallback = std::function<void(WinEvent&)>;
 
         static constexpr LPCWSTR kClassName = L"Room360RawViewWindow";        
         HWND hwnd = nullptr;
@@ -261,8 +267,9 @@ export namespace Rev {
             SetWindowPos(hwnd, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
         }
 
-        void notifyEvent(WinEvent event) {
+        WinEvent notifyEvent(WinEvent event) {
             if (callback) { callback(event); }
+            return event;
         }
         
         // Translate Win32 keycode to unified Key enum
@@ -301,6 +308,19 @@ export namespace Rev {
                     });
                     
                     return TRUE; // tell Windows creation may continue
+                }
+
+                case (WM_CLOSE): {
+
+                    WinEvent result = self->notifyEvent({
+                        WinEvent::Type::Close
+                    });
+
+                    if (result.rejected) {
+                        return 0;
+                    }
+
+                    DestroyWindow(h);
                 }
 
                 // When the window is destroyed

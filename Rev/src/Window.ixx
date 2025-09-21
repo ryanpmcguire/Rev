@@ -59,7 +59,7 @@ export namespace Rev {
             window = new NativeWindow(
                 nullptr,
                 { details.width, details.height },
-                [this](NativeWindow::WinEvent event) { this->onEvent(event); }
+                [this](NativeWindow::WinEvent& event) { this->onEvent(event); }
             );
 
             // Canvas
@@ -257,12 +257,13 @@ export namespace Rev {
             }
         }
 
-        virtual void onEvent(NativeWindow::WinEvent event) {
+        virtual void onEvent(NativeWindow::WinEvent& event) {
 
             switch (event.type) {
 
                 case (NativeWindow::WinEvent::Create): { this->onOpen(); break; }
-                case (NativeWindow::WinEvent::Destroy): { this->onClose(); break; }
+                case (NativeWindow::WinEvent::Destroy): { break; }
+                case (NativeWindow::WinEvent::Close): { this->onClose(event.rejected); break; }
 
                 case (NativeWindow::WinEvent::Focus): { this->onFocus(); break; }
                 case (NativeWindow::WinEvent::Defocus): { this->onDefocus(); break; }
@@ -295,9 +296,9 @@ export namespace Rev {
             dbg("[Window] Open");
         }
 
-        void onClose() {
+        void onClose(bool& rejectClose) {
             dbg("[Window] Close");
-            shouldClose = true;
+            rejectClose = false;
         }
 
         virtual void onMaximize() {
