@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.26)
 project(RevFramework)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -108,15 +108,15 @@ add_library(Rev STATIC)
 # Define macro for the chosen platform
 target_compile_definitions(Rev PUBLIC PLATFORM_${PLATFORM})
 
-# Add implementation sources
-target_sources(Rev
-    PUBLIC ${CPP_SOURCES} ${OBJCPP_SOURCES}
-)
-
-# Add module interface sources
+# Add module interface sources (modules must be compiled first)
 target_sources(Rev
     PUBLIC
     FILE_SET cxx_modules TYPE CXX_MODULES FILES ${MODULE_SOURCES}
+)
+
+# Add implementation sources
+target_sources(Rev
+    PUBLIC ${CPP_SOURCES} ${OBJCPP_SOURCES}
 )
 
 add_dependencies(Rev EmbedResources)
