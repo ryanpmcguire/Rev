@@ -14,7 +14,7 @@ export namespace Rev {
         struct WinEvent {
             enum Type {
                 Null,
-                Create, Destroy,
+                Create, Destroy, Close,
                 Focus, Defocus,
                 Move, Resize, Maximize, Minimize, Restore,
                 Clear, Paint,
@@ -56,7 +56,7 @@ export namespace Rev {
         struct Size { int w, h, minW, minH, maxW, maxH; };
 
         RevMacWindowHandle handle = nullptr;
-        using EventCallback = std::function<void(WinEvent)>;
+        using EventCallback = std::function<void(WinEvent&)>;
 
         // ctor / dtor
         NativeWindow(void* parent,
@@ -75,7 +75,7 @@ export namespace Rev {
             rev_mac_window_set_size(handle, w, h);
         };
 
-        void notifyEvent(WinEvent e) {};
+        void notifyEvent(WinEvent& e) {};
 
         void makeContextCurrent() {};
         void loadGlFunctions() {};
