@@ -38,7 +38,7 @@ export namespace Rev {
         // Persistent event
         Event event;
 
-        // Glfw
+        // Native windowing
         NativeWindow* window = nullptr;
         Details details;
 
@@ -116,8 +116,6 @@ export namespace Rev {
 
             delete topLevelDetails->canvas;
             delete topLevelDetails;
-
-            //glfwDestroyWindow(window);
 
             delete window;
         }
@@ -217,25 +215,23 @@ export namespace Rev {
 
         // Show window and focus
         void popUp() {
-            //glfwShowWindow(window);
-            //glfwFocusWindow(window);
+
         }
 
         // Hide (iconify) window
         void minimize() {
-            //glfwIconifyWindow(window);
+
         }
 
         void maximize() {
-            //glfwMaximizeWindow(window);
         }
 
         void setSize(int width, int height) {
-            //glfwSetWindowSize(window, width, height);
+
         }
 
         void setPos(int x, int y) {
-            //glfwSetWindowPos(window, x, y);
+
         }
 
         // Responding to window events

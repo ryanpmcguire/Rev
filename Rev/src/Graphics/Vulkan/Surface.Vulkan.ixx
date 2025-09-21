@@ -5,7 +5,6 @@ module;
 
 #include <dbg.hpp>
 #include <volk/volk.h>
-#include <GLFW/glfw3.h>
 
 export module Vulkan.Surface;
 
@@ -25,7 +24,7 @@ export namespace Vulkan {
             std::vector<VkPresentModeKHR> presentModes;
         };
 
-        GLFWwindow* window = nullptr;
+        void* window = nullptr;
         VkInstance instance = nullptr;
         VkSurfaceKHR surface = nullptr;
 
@@ -42,7 +41,7 @@ export namespace Vulkan {
         VkExtent2D extent;
 
         // Create
-        Surface(VkInstance instance, GLFWwindow* window) {
+        Surface(VkInstance instance, void* window) {
 
             dbg("[Vulkan][Surface] Creating surface");
 
@@ -50,8 +49,8 @@ export namespace Vulkan {
             this->window = window;
 
             // Create surface
-            VkResult surfaceErr = glfwCreateWindowSurface(instance, window, nullptr, &surface);
-            if (surfaceErr) { throw std::runtime_error("[Vulkan][Surface] Failed to create surface"); }
+            //VkResult surfaceErr = glwwCreateWindowSurface(instance, window, nullptr, &surface);
+            //if (surfaceErr) { throw std::runtime_error("[Vulkan][Surface] Failed to create surface"); }
 
             // Create device
             device = new Device(instance, surface);
@@ -236,7 +235,7 @@ export namespace Vulkan {
             return (presentMode = support.presentModes[0]);
         }
 
-        // For now, just get currentExtent. Don't bother asking glfw
+        // For now, just get currentExtent
         VkExtent2D getExtent() {
 
             extent = support.capabilities.currentExtent;

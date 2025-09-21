@@ -86,7 +86,6 @@ export namespace Rev {
         }
 
         void flush() {
-            //glfwSwapBuffers(window);
             window->swapBuffers();
         }
 
@@ -95,7 +94,7 @@ export namespace Rev {
         }
 
         void drawArraysInstanced(Pipeline::Topology topology, size_t start, size_t verticiesPer, int numInstances) {
-            //glDrawArraysInstanced(GL_TRIANGLE_FAN, start, verticesPer, numInstances);
+            
         }
     };
 };

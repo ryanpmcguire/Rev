@@ -5,7 +5,6 @@ module;
 
 #include <dbg.hpp>
 #include <volk/volk.h>
-#include <GLFW/glfw3.h>
 
 export module Vulkan.Instance;
 
@@ -32,10 +31,6 @@ export namespace Vulkan {
             VkResult volkErr = volkInitialize();
             if (volkErr) { throw std::runtime_error("[Volk] Failed to initialize volk"); }
 
-            // Get glfw extensions
-            uint32_t glfwExtensionCount = 0;
-            const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
             // Fill out app info
             appInfo = {
                 .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -53,8 +48,6 @@ export namespace Vulkan {
                 .pApplicationInfo = &appInfo,
                 .enabledLayerCount = uint32_t(validationLayers.size()),
                 .ppEnabledLayerNames = validationLayers.data(),
-                .enabledExtensionCount = glfwExtensionCount,
-                .ppEnabledExtensionNames = glfwExtensions
             };
 
             // Create vulkan instance

@@ -1,7 +1,5 @@
 module;
 
-#include <GLFW/glfw3.h>
-
 export module Rev.CanvasVk;
 
 import Vulkan.Instance;
@@ -16,14 +14,14 @@ export namespace Rev {
             bool record = true;
         };
 
-        GLFWwindow* window = nullptr;
+        void* window = nullptr;
         inline static Vulkan::Instance* vulkan = nullptr;
         Vulkan::Surface* surface = nullptr;
 
         Flags flags;
 
         // Create
-        Canvas(GLFWwindow* window = nullptr) {
+        Canvas(void* window = nullptr) {
 
             if (!vulkan) { vulkan = new Vulkan::Instance(); }
             surface = new Vulkan::Surface(vulkan->instance, window);

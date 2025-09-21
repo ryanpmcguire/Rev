@@ -89,7 +89,6 @@ export namespace Rev {
         }
 
         void flush() {
-            //glfwSwapBuffers(window);
             window->swapBuffers();
         }
 

@@ -2,7 +2,6 @@ module;
 
 #include <vector>
 #include <glew/glew.h>
-#include <GLFW/glfw3.h>
 
 export module Rev.OpenGL.VertexBuffer;
 
