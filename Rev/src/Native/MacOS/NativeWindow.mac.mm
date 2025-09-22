@@ -70,34 +70,46 @@
 
 RevMacWindowHandle rev_mac_window_create(int width, int height,
                                          void* userData,
-                                         RevMacEventAcceptor acceptor) {
+                                         RevMacEventAcceptor acceptor,
+                                         void* parent) // extra arg
+{
     @autoreleasepool {
         NSRect frame = NSMakeRect(100,100,width,height);
-        NSWindow* window = [[NSWindow alloc]
-            initWithContentRect:frame
-                      styleMask:(NSWindowStyleMaskTitled |
-                                 NSWindowStyleMaskClosable |
-                                 NSWindowStyleMaskResizable)
-                        backing:NSBackingStoreBuffered
-                          defer:NO];
-
-        RevMacWindowDelegate* delegate = [[RevMacWindowDelegate alloc] init];
-        delegate.userData = userData;
-        delegate.acceptor = acceptor;
-        [window setDelegate:delegate];
 
         RevView* view = [[RevView alloc] initWithFrame:frame];
         view.userData = userData;
         view.acceptor = acceptor;
-        [window setContentView:view];
 
-        objc_setAssociatedObject(window, "rev_delegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(window, "rev_view", view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (parent) {
+            // Parent is an NSView* provided by host (e.g. VST)
+            NSView* parentView = (__bridge NSView*)parent;
+            [parentView addSubview:view];
+            return (__bridge_retained void*)view; // return the view handle
+        } else {
+            // No parent → create our own window
+            NSWindow* window = [[NSWindow alloc]
+                initWithContentRect:frame
+                          styleMask:(NSWindowStyleMaskTitled |
+                                     NSWindowStyleMaskClosable |
+                                     NSWindowStyleMaskResizable)
+                            backing:NSBackingStoreBuffered
+                              defer:NO];
 
-        [window makeKeyAndOrderFront:nil];
-        return (__bridge_retained void*)window;
+            RevMacWindowDelegate* delegate = [[RevMacWindowDelegate alloc] init];
+            delegate.userData = userData;
+            delegate.acceptor = acceptor;
+            [window setDelegate:delegate];
+            [window setContentView:view];
+
+            objc_setAssociatedObject(window, "rev_delegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(window, "rev_view", view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+            [window makeKeyAndOrderFront:nil];
+            return (__bridge_retained void*)window; // return the window handle
+        }
     }
 }
+
 
 void rev_mac_window_destroy(RevMacWindowHandle handle) {
     if (!handle) return;

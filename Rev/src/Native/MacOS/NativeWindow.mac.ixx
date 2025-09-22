@@ -69,7 +69,7 @@ export namespace Rev {
                      Size size = {600, 400, 0, 0, 1000, 1000},
                      EventCallback callback = nullptr) {
 
-            handle = rev_mac_window_create(size.w, size.h, this, &this->handleEvent);
+            handle = rev_mac_window_create(size.w, size.h, this, &this->handleEvent, parent);
         };
 
         ~NativeWindow() {

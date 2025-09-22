@@ -24,7 +24,7 @@ typedef void* RevMacWindowHandle;
 typedef void(*RevMacEventAcceptor)(void* userData, WinEventMac ev);
 
 
-RevMacWindowHandle rev_mac_window_create(int width, int height, void* user, RevMacEventAcceptor acceptor);
+RevMacWindowHandle rev_mac_window_create(int width, int height, void* user, RevMacEventAcceptor acceptor, void* parent);
 void rev_mac_window_destroy(RevMacWindowHandle handle);
 
 void rev_mac_window_set_size(RevMacWindowHandle handle, int w, int h);
