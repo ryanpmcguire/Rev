@@ -205,7 +205,7 @@ export namespace Rev {
         using EventCallback = std::function<void(WinEvent&)>;
 
         static constexpr LPCWSTR kClassName = L"Room360RawViewWindow";        
-        HWND hwnd = nullptr;
+        HWND handle = nullptr;
         EventCallback callback;
         
         Size size;
@@ -239,7 +239,7 @@ export namespace Rev {
             if (parentHwnd) { style |= WS_CHILD; }
             else { style |= WS_OVERLAPPEDWINDOW; }
 
-            hwnd = CreateWindowExW(
+            handle = CreateWindowExW(
                 0, kClassName, L"Room360 UI",
                 style,
                 CW_USEDEFAULT, CW_USEDEFAULT, size.w, size.h,
@@ -247,15 +247,15 @@ export namespace Rev {
                 this
             );
 
-            if (!hwnd) {
+            if (!handle) {
                 throw std::runtime_error("[NativeWindow] Failed to create window");
             }
         }
 
         ~NativeWindow() {
-            if (hwnd) {
-                DestroyWindow(hwnd);
-                hwnd = nullptr;
+            if (handle) {
+                DestroyWindow(handle);
+                handle = nullptr;
             }
         }
 
@@ -264,7 +264,7 @@ export namespace Rev {
             this->size.w = w;
             this->size.h = h;
             
-            SetWindowPos(hwnd, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+            SetWindowPos(handle, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
         }
 
         WinEvent notifyEvent(WinEvent event) {
@@ -300,7 +300,7 @@ export namespace Rev {
                     // Store own self pointer 
                     if (self) {
                         SetWindowLongPtrW(h, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-                        self->hwnd = h;
+                        self->handle = h;
                     }
 
                     self->notifyEvent({
@@ -502,7 +502,7 @@ export namespace Rev {
 
         void makeContextCurrent() {
 
-            if (!hwnd) { throw std::runtime_error("[NativeWindow] No window handle available"); }
+            if (!handle) { throw std::runtime_error("[NativeWindow] No window handle available"); }
 
             HINSTANCE hinst = GetModuleHandleW(nullptr);
 
@@ -578,7 +578,7 @@ export namespace Rev {
             }
 
             // 3) Pick modern pixel format for the REAL window using wglChoosePixelFormatARB
-            hdc = GetDC(hwnd);
+            hdc = GetDC(handle);
             if (!hdc) {
 
                 wglMakeCurrent(nullptr, nullptr);
@@ -664,7 +664,7 @@ export namespace Rev {
 
             if (!wglMakeCurrent(hdc, realRC)) {
                 wglDeleteContext(realRC);
-                ReleaseDC(hwnd, hdc); hdc = nullptr;
+                ReleaseDC(handle, hdc); hdc = nullptr;
                 throw std::runtime_error("[NativeWindow] wglMakeCurrent (real) failed");
             }
 

@@ -47,13 +47,42 @@ export namespace Rev {
         int xPin = 0; int yPin = 0;
         Pos downPos = { 0, 0 };
 
-        // Create
+        // With other Rev window as parent
+        Window(Window* parent, Details details = {}) {
+            
+            this->parent = parent;
+            this->details = details;
+
+            window = new NativeWindow(
+                parent->window->handle,
+                { details.width, details.height },
+                [this](NativeWindow::WinEvent& event) { this->onEvent(event); }
+            );
+
+            this->unifiedConstructor();
+        }
+
+        // With native window as parent
+        Window(void* parent, Details details = {}) {
+
+            this->details = details;
+
+            window = new NativeWindow(
+                parent,
+                { details.width, details.height },
+                [this](NativeWindow::WinEvent& event) { this->onEvent(event); }
+            );
+
+            this->parent = this;
+
+            this->unifiedConstructor();
+        }
+
+        // With application as parent
         Window(std::vector<Window*>& group, Details details = {}) {
 
             this->parent = this;
             this->details = details;
-
-            topLevelDetails = new TopLevelDetails();
 
             // Create native window
             window = new NativeWindow(
@@ -62,13 +91,20 @@ export namespace Rev {
                 [this](NativeWindow::WinEvent& event) { this->onEvent(event); }
             );
 
+            group.push_back(this);
+            
+            this->unifiedConstructor();
+        }
+
+        void unifiedConstructor() {
+
+            topLevelDetails = new TopLevelDetails();
+
             // Canvas
             //--------------------------------------------------
 
             topLevelDetails->canvas = new Canvas(window);
             event.canvas = topLevelDetails->canvas;
-            
-            group.push_back(this);
 
             // Children
             //--------------------------------------------------
@@ -336,6 +372,7 @@ export namespace Rev {
             details.width = width;
             details.height = height;
 
+            if (!topLevelDetails) { return; }
             if (!topLevelDetails->canvas) { return; }
 
             topLevelDetails->canvas->details.width = width;
