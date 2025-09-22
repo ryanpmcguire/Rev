@@ -440,7 +440,7 @@ export namespace Rev {
         // When mouse wheel or trackpad scrolls
         void onMouseWheel(float dx, float dy) {
 
-            dbg("[Window] mouseWheel");
+            dbg("[Window] mouseWheel: %i, %i", dx, dy);
 
             event.mouse.wheel = { dx, dy };
             event.resetBeforeDispatch();

@@ -403,6 +403,50 @@ export namespace Rev {
                     return 0;
                 }
 
+                // Vertical wheel (mouse or touchpad)
+                case WM_MOUSEWHEEL: {
+
+                    self->notifyEvent({
+                        WinEvent::Type::MouseWheel,
+                        0, 0, 0, GET_WHEEL_DELTA_WPARAM(wp)
+                    });
+
+                    return 0;
+                }
+
+                // Horizontal wheel (mouse tilt or touchpad)
+                case WM_MOUSEHWHEEL: {
+
+                    self->notifyEvent({
+                        WinEvent::Type::MouseWheel,
+                        0, 0, GET_WHEEL_DELTA_WPARAM(wp), 0
+                    });
+
+                    return 0;
+                }
+
+                // Vertical wheel (trackpad specifically)
+                case (WM_POINTERWHEEL): {
+
+                    self->notifyEvent({
+                        WinEvent::Type::MouseWheel,
+                        0, 0, 0, GET_WHEEL_DELTA_WPARAM(wp)
+                    });
+
+                    return 0;
+                }
+
+                // Horizontal wheel (trackpad specifically)
+                case (WM_POINTERHWHEEL): {
+
+                    self->notifyEvent({
+                        WinEvent::Type::MouseWheel,
+                        0, 0, GET_WHEEL_DELTA_WPARAM(wp), 0
+                    });
+
+                    return 0;
+                }
+
                 // Mouse up
                 case (WM_LBUTTONUP): { self->notifyEvent({ WinEvent::Type::MouseButton, 0, 0, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
                 case (WM_RBUTTONUP): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 0, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
