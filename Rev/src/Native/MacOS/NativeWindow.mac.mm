@@ -119,20 +119,37 @@ RevMacWindowHandle rev_mac_window_create(int width, int height,
     }
 }
 
-
 void rev_mac_window_destroy(RevMacWindowHandle handle) {
+
     if (!handle) return;
-    NSWindow* window = (__bridge_transfer NSWindow*)handle;
-    [window close];
+
+    NSObject* obj = (__bridge NSObject*)handle;
+    if ([obj isKindOfClass:[NSWindow class]]) {
+        NSWindow* window = (NSWindow*)obj;
+        [window close];
+    } else if ([obj isKindOfClass:[NSView class]]) {
+        NSView* view = (NSView*)obj;
+        [view removeFromSuperview];  // safely detach from parent
+    }
 }
 
 void rev_mac_window_set_size(RevMacWindowHandle handle, int w, int h) {
     if (!handle) return;
-    NSWindow* window = (__bridge NSWindow*)handle;
-    NSRect frame = [window frame];
-    frame.size = NSMakeSize(w,h);
-    [window setFrame:frame display:YES];
+
+    NSObject* obj = (__bridge NSObject*)handle;
+    if ([obj isKindOfClass:[NSWindow class]]) {
+        NSWindow* window = (NSWindow*)obj;
+        NSRect frame = [window frame];
+        frame.size = NSMakeSize(w,h);
+        [window setFrame:frame display:YES];
+    } else if ([obj isKindOfClass:[NSView class]]) {
+        NSView* view = (NSView*)obj;
+        NSRect frame = [view frame];
+        frame.size = NSMakeSize(w,h);
+        [view setFrame:frame]; // views resize this way
+    }
 }
+
 
 // Utility
 //--------------------------------------------------
