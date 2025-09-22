@@ -7,26 +7,32 @@
 @property (nonatomic, assign) RevMacEventAcceptor acceptor;
 @end
 
+// Window delegate
+//--------------------------------------------------
+
 @implementation RevMacWindowDelegate
 - (void)windowDidResize:(NSNotification*)n {
     NSWindow* win = (NSWindow*)n.object;
     NSRect f = [win frame];
-    WinEventMac ev { WinEventMac::Resize /*Resize*/, 0, 0, (int)f.size.width, (int)f.size.height };
+    WinEvent ev { WinEvent::Resize /*Resize*/, 0, 0, (int)f.size.width, (int)f.size.height };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)windowWillClose:(NSNotification*)n {
-    WinEventMac ev { WinEventMac::Destroy /*Destroy*/, 0, 0, 0, 0 };
+    WinEvent ev { WinEvent::Destroy /*Destroy*/, 0, 0, 0, 0 };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)windowDidBecomeKey:(NSNotification*)n {
-    WinEventMac ev { WinEventMac::Focus /*Focus*/, 0, 0, 0, 0 };
+    WinEvent ev { WinEvent::Focus /*Focus*/, 0, 0, 0, 0 };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)windowDidResignKey:(NSNotification*)n {
-    WinEventMac ev { WinEventMac::Defocus /*Defocus*/, 0, 0, 0, 0 };
+    WinEvent ev { WinEvent::Defocus /*Defocus*/, 0, 0, 0, 0 };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 @end
+
+// View
+//--------------------------------------------------
 
 @interface RevView : NSView
 @property (nonatomic, assign) void* userData;
@@ -37,36 +43,39 @@
 - (BOOL)acceptsFirstResponder { return YES; }
 - (void)mouseDown:(NSEvent *)e {
     NSPoint p = [self convertPoint:[e locationInWindow] fromView:nil];
-    WinEventMac ev { WinEventMac::MouseButton /*MouseButton*/, 0, 1, (int)p.x, (int)p.y };
+    WinEvent ev { WinEvent::MouseButton /*MouseButton*/, 0, 1, (int)p.x, (int)p.y };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)mouseUp:(NSEvent *)e {
     NSPoint p = [self convertPoint:[e locationInWindow] fromView:nil];
-    WinEventMac ev { WinEventMac::MouseButton /*MouseButton*/, 0, 0, (int)p.x, (int)p.y };
+    WinEvent ev { WinEvent::MouseButton /*MouseButton*/, 0, 0, (int)p.x, (int)p.y };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)mouseMoved:(NSEvent *)e {
     NSPoint p = [self convertPoint:[e locationInWindow] fromView:nil];
-    WinEventMac ev { WinEventMac::MouseMove /*MouseMove*/, 0, 0, (int)p.x, (int)p.y };
+    WinEvent ev { WinEvent::MouseMove /*MouseMove*/, 0, 0, (int)p.x, (int)p.y };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)keyDown:(NSEvent *)e {
-    WinEventMac ev { WinEventMac::Keyboard /*Keyboard*/, (uint64_t)[e keyCode], 1, 0, 0 };
+    WinEvent ev { WinEvent::Keyboard /*Keyboard*/, (uint64_t)[e keyCode], 1, 0, 0 };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)keyUp:(NSEvent *)e {
-    WinEventMac ev { WinEventMac::Keyboard /*Keyboard*/, (uint64_t)[e keyCode], 0, 0, 0 };
+    WinEvent ev { WinEvent::Keyboard /*Keyboard*/, (uint64_t)[e keyCode], 0, 0, 0 };
     if (self.acceptor) self.acceptor(self.userData, ev);
 }
 - (void)insertText:(id)string {
     NSString* s = (NSString*)string;
     for (NSUInteger i = 0; i < [s length]; ++i) {
         unichar ch = [s characterAtIndex:i];
-        WinEventMac ev { WinEventMac::Character /*Character*/, (uint64_t)ch, 0, 0, 0 };
+        WinEvent ev { WinEvent::Character /*Character*/, (uint64_t)ch, 0, 0, 0 };
         if (self.acceptor) self.acceptor(self.userData, ev);
     }
 }
 @end
+
+// Window creation / management
+//--------------------------------------------------
 
 RevMacWindowHandle rev_mac_window_create(int width, int height,
                                          void* userData,

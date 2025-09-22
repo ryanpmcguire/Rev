@@ -32,6 +32,15 @@ file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
 # Add executable
 add_executable(HelloWorld)
 
+# Set target properties
+set_target_properties(HelloWorld PROPERTIES
+  CXX_STANDARD 23
+  CXX_STANDARD_REQUIRED ON
+  CXX_EXTENSIONS OFF
+  UNITY_BUILD OFF
+  CXX_SCAN_FOR_MODULES ON
+)
+
 # Add implementation sources
 target_sources(HelloWorld
     PUBLIC ${CPP_SOURCES} ${OBJCPP_SOURCES}

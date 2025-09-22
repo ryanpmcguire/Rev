@@ -155,7 +155,7 @@ if (WIN32)
       OpenGL::GL
   )
 elseif (APPLE)
-    target_link_libraries( Rev PUBLIC
+    target_link_libraries(Rev PUBLIC
         ${EXT_DIR}/freetype/bin/mac/x64/libfreetype.a
 
         # Add required system libs
@@ -169,8 +169,10 @@ elseif (APPLE)
         "-framework CoreGraphics"
         "-framework IOKit"
         "-framework CoreVideo"
+        "-framework QuartzCore"   # <-- Needed for CAMetalLayer
+        "-framework Metal"        # <-- Needed for MTL* symbols
+        "-framework MetalKit"     # (optional, for easier setup)
         "-framework Carbon"
-        "-framework OpenGL"
-)
-
+        "-framework OpenGL"       # still needed if you keep GL backend
+    )
 endif()

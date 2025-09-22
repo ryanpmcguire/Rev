@@ -3,6 +3,7 @@ module;
 #include <functional>
 #include <unordered_map>
 #include <dbg.hpp>
+#include "../WinEvent.hpp"
 #include "NativeWindow.mac.h"
 
 export module Rev.NativeWindow;
@@ -10,28 +11,6 @@ export module Rev.NativeWindow;
 export namespace Rev {
 
     struct NativeWindow {
-
-        struct WinEvent {
-            enum Type {
-                Null,
-                Create, Destroy, Close,
-                Focus, Defocus,
-                Move, Resize, Maximize, Minimize, Restore,
-                Clear, Paint,
-                MouseButton, MouseMove,
-                Keyboard, Character
-            };
-
-            Type type;
-            uint64_t a, b;
-            int64_t c, d;
-
-            bool rejected = false;
-
-            void reject() {
-                this->rejected = true;
-            }
-        };
 
         enum ButtonAction { Release, Press, DoubleClick };
         enum MouseButton { Left, Right, Middle };
@@ -70,6 +49,8 @@ export namespace Rev {
                      EventCallback callback = nullptr) {
 
             handle = rev_mac_window_create(size.w, size.h, this, &this->handleEvent, parent);
+        
+            this->callback = callback;
         };
 
         ~NativeWindow() {
@@ -81,7 +62,10 @@ export namespace Rev {
             rev_mac_window_set_size(handle, w, h);
         };
 
-        void notifyEvent(WinEvent& e) {};
+        WinEvent notifyEvent(WinEvent event) {
+            if (callback) { callback(event); }
+            return event;
+        }
 
         void makeContextCurrent() {};
         void loadGlFunctions() {};
@@ -94,9 +78,10 @@ export namespace Rev {
         // Event handling
         //--------------------------------------------------
 
-        static void handleEvent(void* self, WinEventMac ev) {
+        static void handleEvent(void* self, WinEvent ev) {
 
-            dbg("EVENT!!!");
+            NativeWindow* selfWin = static_cast<NativeWindow*>(self);
+            selfWin->notifyEvent(ev);
         }
     };
 }

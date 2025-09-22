@@ -1,27 +1,13 @@
 #pragma once
 
+#include "../WinEvent.hpp"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct WinEventMac {
-            enum Type {
-                Null,
-                Create, Destroy,
-                Focus, Defocus,
-                Move, Resize, Maximize, Minimize, Restore,
-                Clear, Paint,
-                MouseButton, MouseMove,
-                Keyboard, Character
-            };
-
-            Type type;
-            uint64_t a, b;
-            int64_t c, d;
-        };
-
 typedef void* RevMacWindowHandle;
-typedef void(*RevMacEventAcceptor)(void* userData, WinEventMac ev);
+typedef void(*RevMacEventAcceptor)(void* userData, WinEvent ev);
 
 
 RevMacWindowHandle rev_mac_window_create(int width, int height, void* user, RevMacEventAcceptor acceptor, void* parent);

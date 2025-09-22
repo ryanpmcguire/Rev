@@ -6,6 +6,8 @@ module;
 #include <locale>
 #include <dbg.hpp>
 
+#include "./Native/WinEvent.hpp"
+
 export module Rev.Window;
 
 import Rev.Style;
@@ -56,7 +58,7 @@ export namespace Rev {
             window = new NativeWindow(
                 parent->window->handle,
                 { details.width, details.height },
-                [this](NativeWindow::WinEvent& event) { this->onEvent(event); }
+                [this](WinEvent& event) { this->onEvent(event); }
             );
 
             this->unifiedConstructor();
@@ -70,7 +72,7 @@ export namespace Rev {
             window = new NativeWindow(
                 parent,
                 { details.width, details.height },
-                [this](NativeWindow::WinEvent& event) { this->onEvent(event); }
+                [this](WinEvent& event) { this->onEvent(event); }
             );
 
             this->parent = this;
@@ -88,7 +90,7 @@ export namespace Rev {
             window = new NativeWindow(
                 nullptr,
                 { details.width, details.height },
-                [this](NativeWindow::WinEvent& event) { this->onEvent(event); }
+                [this](WinEvent& event) { this->onEvent(event); }
             );
 
             group.push_back(this);
@@ -289,30 +291,32 @@ export namespace Rev {
             }
         }
 
-        virtual void onEvent(NativeWindow::WinEvent& event) {
+        virtual void onEvent(WinEvent& event) {
+
+            dbg("[Window] EVENT!");
 
             switch (event.type) {
 
-                case (NativeWindow::WinEvent::Create): { this->onOpen(); break; }
-                case (NativeWindow::WinEvent::Destroy): { break; }
-                case (NativeWindow::WinEvent::Close): { this->onClose(event.rejected); break; }
+                case (WinEvent::Create): { this->onOpen(); break; }
+                case (WinEvent::Destroy): { break; }
+                case (WinEvent::Close): { this->onClose(event.rejected); break; }
 
-                case (NativeWindow::WinEvent::Focus): { this->onFocus(); break; }
-                case (NativeWindow::WinEvent::Defocus): { this->onDefocus(); break; }
+                case (WinEvent::Focus): { this->onFocus(); break; }
+                case (WinEvent::Defocus): { this->onDefocus(); break; }
 
-                case (NativeWindow::WinEvent::Move): { this->onMove(event.c, event.d); break; }
-                case (NativeWindow::WinEvent::Resize): { this->onResize(event.c, event.d); break; }
-                case (NativeWindow::WinEvent::Maximize): { this->onMaximize(); break; }
-                case (NativeWindow::WinEvent::Minimize): { this->onMinimize(); break; }
-                case (NativeWindow::WinEvent::Restore): { this->onRestore(); break; }
+                case (WinEvent::Move): { this->onMove(event.c, event.d); break; }
+                case (WinEvent::Resize): { this->onResize(event.c, event.d); break; }
+                case (WinEvent::Maximize): { this->onMaximize(); break; }
+                case (WinEvent::Minimize): { this->onMinimize(); break; }
+                case (WinEvent::Restore): { this->onRestore(); break; }
 
-                case (NativeWindow::WinEvent::Paint): { this->onRefresh(); break; }
+                case (WinEvent::Paint): { this->onRefresh(); break; }
 
-                case (NativeWindow::WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
-                case (NativeWindow::WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
+                case (WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
+                case (WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
 
-                case (NativeWindow::WinEvent::Keyboard): { this->onKeyboard(event.a, event.b); break; }
-                case (NativeWindow::WinEvent::Character): { this->onCharacter(event.a); break; }
+                case (WinEvent::Keyboard): { this->onKeyboard(event.a, event.b); break; }
+                case (WinEvent::Character): { this->onCharacter(event.a); break; }
             }
         }
 
@@ -378,6 +382,8 @@ export namespace Rev {
             topLevelDetails->canvas->details.width = width;
             topLevelDetails->canvas->details.height = height;
             topLevelDetails->canvas->flags.resize = true;
+
+            this->draw(event);
         }
 
         // Mouse/keyboard callbacks (window only)

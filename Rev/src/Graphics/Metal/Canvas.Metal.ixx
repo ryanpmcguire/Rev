@@ -1,17 +1,15 @@
 module;
 
-#include <stdexcept>
-#include <vector>
+#include <cstddef>
 #include <dbg.hpp>
+#include "Helpers/MetalBackend.hpp"
 
 export module Rev.Metal.Canvas;
 
 import Rev.NativeWindow;
 import Rev.Graphics.Pipeline;
-import Rev.Graphics.UniformBuffer;
 
 export namespace Rev {
-
     struct Canvas {
 
         struct Flags {
@@ -24,77 +22,50 @@ export namespace Rev {
         };
 
         NativeWindow* window = nullptr;
-
+        MetalBackend* backend = nullptr;
         Details details;
         Flags flags;
 
-        UniformBuffer* transform = nullptr;
-
-        // Create
-        Canvas(NativeWindow* window = nullptr) {
-
-            this->window = window;
-
-            /*window->makeContextCurrent();
-            window->loadGlFunctions();
-
-            glEnable(GL_MULTISAMPLE);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);*/
-
-            //transform = new UniformBuffer(sizeof(glm::mat4));
+        Canvas(NativeWindow* w = nullptr) {
+            window = w;
+            if (window) {
+                backend = metal_backend_create(window->handle);
+            }
         }
 
-        // Destroy
         ~Canvas() {
-            
+            if (backend) metal_backend_destroy(backend);
         }
 
         void draw() {
-            
-            if (!window) { return; }
 
-            // If canvas needs to adjust size to window
+            dbg("[Canvas] drawing!");
+
+            if (!window || !backend) return;
+
             if (flags.resize) {
-
-                // Get width and height from window size
                 details.width = window->size.w;
                 details.height = window->size.h;
-
-                /*glViewport(0, 0, details.width, details.height);
-
-                glm::mat4 projection = glm::ortho(
-                    0.0f,           // left
-                    static_cast<float>(details.width),   // right
-                    static_cast<float>(details.height),  // bottom
-                    0.0f,           // top (flipped for top-left origin)
-                    -1.0f,          // near
-                    1.0f            // far
-                );*/
-
-                //transform->set(&projection);
-
+                metal_backend_resize(backend, details.width, details.height);
                 flags.resize = false;
             }
 
-            /*glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
-            glClear(GL_COLOR_BUFFER_BIT);*/
-
-            transform->bind(0);
+            // Instead of glClear, call Metal clear
+            metal_backend_clear(backend, 1.0f, 0.0f, 0.0f, 1.0f); // red
         }
 
         void flush() {
-            window->swapBuffers();
+            if (backend) {
+                metal_backend_present(backend);
+            }
         }
 
         void drawArrays(Pipeline::Topology topology, size_t start, size_t verticesPer) {
-            
+            //glDrawArrays(topology, start, verticesPer);
         }
 
-        void drawArraysInstanced(Pipeline::Topology topology, size_t start, size_t verticiesPer, int numInstances) {
-            
+        void drawArraysInstanced(Pipeline::Topology topology, size_t start, size_t verticesPer, size_t numInstances) {
+            //glDrawArraysInstanced(GL_TRIANGLE_FAN, start, verticesPer, numInstances);
         }
     };
 };

@@ -13,35 +13,13 @@ module;
 #include <glew/glew.h>
 #include <dbg.hpp>
 
+#include "../WinEvent.hpp"
+
 export module Rev.NativeWindow;
 
 export namespace Rev {
 
     struct NativeWindow {
-
-        struct WinEvent {
-
-            enum Type {
-                Null,
-                Create, Destroy, Close,
-                Focus, Defocus,
-                Move, Resize, Maximize, Minimize, Restore,
-                Clear, Paint,
-                MouseButton, MouseMove,
-                Keyboard, Character
-            };
-
-            // One type, four arbitrary data slots
-            Type type;      // Event type
-            uint64_t a, b;  // Unsigned data
-            int64_t c, d;   // Signed data
-
-            bool rejected = false;
-
-            void reject() {
-                rejected = true;
-            }
-        };
 
         enum ButtonAction {
             Release, Press, DoubleClick
