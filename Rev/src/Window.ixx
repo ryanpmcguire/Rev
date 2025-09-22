@@ -219,8 +219,6 @@ export namespace Rev {
 
         void draw(Event& e) override {
 
-            dbg("Drawing");
-
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();
 
@@ -265,7 +263,7 @@ export namespace Rev {
         }
 
         void setSize(int width, int height) {
-
+            this->window->setSize(width, height);
         }
 
         void setPos(int x, int y) {
@@ -293,8 +291,6 @@ export namespace Rev {
 
         virtual void onEvent(WinEvent& event) {
 
-            dbg("[Window] EVENT!");
-
             switch (event.type) {
 
                 case (WinEvent::Create): { this->onOpen(); break; }
@@ -314,6 +310,7 @@ export namespace Rev {
 
                 case (WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
                 case (WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
+                case (WinEvent::MouseWheel): { this->onMouseWheel(event.c, event.d); break; }
 
                 case (WinEvent::Keyboard): { this->onKeyboard(event.a, event.b); break; }
                 case (WinEvent::Character): { this->onCharacter(event.a); break; }
@@ -392,6 +389,8 @@ export namespace Rev {
         // When a mouse button is clicked or released
         void onMouseButton(int button, int action, int x, int y) {
 
+            dbg("[Window] mouseButton");
+
             // Get mouse position
             event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
 
@@ -438,6 +437,24 @@ export namespace Rev {
             }
         }
 
+        // When mouse wheel or trackpad scrolls
+        void onMouseWheel(float dx, float dy) {
+
+            dbg("[Window] mouseWheel");
+
+            event.mouse.wheel = { dx, dy };
+            event.resetBeforeDispatch();
+
+            this->setTargets(event);
+
+            this->mouseWheel(event);
+            
+            if (event.causedRefresh) {
+                this->draw(event);
+            }
+        }
+
+        // When a key is depressed or released
         void onKeyboard(int key, int action) {
 
             dbg("[Window] Key %s", window->keyToString(key));
