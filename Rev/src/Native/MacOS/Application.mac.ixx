@@ -22,7 +22,7 @@ export namespace Rev {
         }
 
         // Destroy
-        ~Ahhhpplication() {
+        ~Application() {
             // Nothing to do here yet, unless we global-cleanup something.
         }
 

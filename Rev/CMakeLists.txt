@@ -105,13 +105,28 @@ set(MODULE_SOURCES ${MODULE_SOURCES_FILTERED})
 # Add executable
 add_library(Rev STATIC)
 
+# Set target properties
+set_target_properties(Rev PROPERTIES
+  CXX_STANDARD 23
+  CXX_STANDARD_REQUIRED ON
+  CXX_EXTENSIONS OFF
+  UNITY_BUILD OFF
+  CXX_SCAN_FOR_MODULES ON
+)
+
 # Define macro for the chosen platform
 target_compile_definitions(Rev PUBLIC PLATFORM_${PLATFORM})
 
 # Add module interface sources (modules must be compiled first)
 target_sources(Rev
     PUBLIC
-    FILE_SET cxx_modules TYPE CXX_MODULES FILES ${MODULE_SOURCES}
+    FILE_SET cxx_modules TYPE CXX_MODULES
+    BASE_DIRS
+        ${SRC_DIR}
+        ${EXT_DIR}
+        ${RCS_DIR}/.modules
+    FILES
+        ${MODULE_SOURCES}
 )
 
 # Add implementation sources
@@ -141,7 +156,7 @@ if (WIN32)
   )
 elseif (APPLE)
     target_link_libraries( Rev PUBLIC
-        ${CMAKE_SOURCE_DIR}/Rev/external/freetype/bin/mac/x64/libfreetype.a
+        ${EXT_DIR}/freetype/bin/mac/x64/libfreetype.a
 
         # Add required system libs
         -lbz2
