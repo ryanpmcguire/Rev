@@ -3,6 +3,8 @@ module;
 #include <cstddef>
 #include <vector>
 
+#include "./Helpers/MetalBackend.hpp"
+
 export module Rev.Metal.VertexBuffer;
 
 export namespace Rev {
@@ -16,18 +18,27 @@ export namespace Rev {
         //GLuint vaoID = 0;
         //GLuint bufferID = 0;
 
+        void* context = nullptr;
+        void* buffer = nullptr;
+
         void* data = nullptr;
         size_t vertSize = sizeof(Vertex);
         size_t num = 0;
         size_t size = 0;
         size_t divisor = 0;
 
-        VertexBuffer(size_t num, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
+        VertexBuffer(void* context, size_t num, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
+
+            this->context = context;
 
             this->num = num;
             this->vertSize = vertSize;
             this->size = num * vertSize;
             this->divisor = divisor;
+
+            // Create buffer, map data
+            buffer = metal_create_vertex_buffer((MetalContext*)context, size);
+            data = metal_map_vertex_buffer(buffer);
 
             //glGenVertexArrays(1, &vaoID);
             //glBindVertexArray(vaoID);
@@ -36,6 +47,10 @@ export namespace Rev {
         }
 
         ~VertexBuffer() {
+
+            if (buffer) {
+                metal_destroy_vertex_buffer(buffer);
+            }
 
             /*if (data) {
                 glBindBuffer(GL_ARRAY_BUFFER, bufferID);
@@ -59,53 +74,14 @@ export namespace Rev {
 
             this->num = newNum;
             this->size = newNum * vertSize;
-        
-            // Delete previous buffer
-            /*if (data) {
-                glBindBuffer(GL_ARRAY_BUFFER, bufferID);
-                glUnmapBuffer(GL_ARRAY_BUFFER);
-                data = nullptr;
-            }
-
-            if (bufferID) {
-                glDeleteBuffers(1, &bufferID);
-                bufferID = 0;
-            }
-        
-            glBindVertexArray(vaoID);
-        
-            glGenBuffers(1, &bufferID);
-            glBindBuffer(GL_ARRAY_BUFFER, bufferID);
-        
-            glBufferStorage(GL_ARRAY_BUFFER, size, nullptr,
-                GL_MAP_WRITE_BIT |
-                GL_MAP_PERSISTENT_BIT |
-                GL_MAP_COHERENT_BIT
-            );
-        
-            data = glMapBufferRange(GL_ARRAY_BUFFER, 0, size,
-                GL_MAP_WRITE_BIT |
-                GL_MAP_PERSISTENT_BIT |
-                GL_MAP_COHERENT_BIT
-            );
-        
-            // Re-specify the attribute pointer
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, vertSize / sizeof(float), GL_FLOAT, GL_FALSE, vertSize, (void*)0);
-        
-            if (divisor) {
-                glVertexAttribDivisor(0, divisor);
-            }
-        
-            glBindVertexArray(0);*/
         }
 
-        void bind() {
-            //glBindVertexArray(vaoID);
+        void bind(void* context) {
+            
         }
 
         void unbind() {
-            //glBindBuffer(GL_ARRAY_BUFFER, 0);
+            
         }
     };
 };

@@ -32,15 +32,15 @@ export namespace Rev {
                 
             }
 
-            void create() {
+            void create(Canvas* canvas) {
 
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Rectangle_vert, Shader::Stage::Vertex);
-                frag = new Shader(Rectangle_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(*(vert), *(frag));
-                vertices = new VertexBuffer(4, 2, 1);
+                vert = new Shader(canvas->context, Rectangle_vert, Shader::Stage::Vertex);
+                frag = new Shader(canvas->context, Rectangle_frag, Shader::Stage::Fragment);
+                pipeline = new Pipeline(canvas->context, vert, frag);
+                vertices = new VertexBuffer(canvas->context, 4, 2, 1);
             }
 
             void destroy() {
@@ -77,12 +77,12 @@ export namespace Rev {
         bool dirty = true;
 
         // Create
-        Rectangle() {
+        Rectangle(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create();
+            shared.create(canvas);
 
             //vertices = new VertexBuffer(4);
-            databuff = new UniformBuffer(sizeof(Data));
+            databuff = new UniformBuffer(canvas->context, sizeof(Data));
             
             data = static_cast<Data*>(databuff->data);
 
@@ -119,9 +119,9 @@ export namespace Rev {
 
         void draw(Canvas* canvas) override {
          
-            shared.pipeline->bind();
-            shared.vertices->bind();
-            databuff->bind(1);
+            shared.pipeline->bind(canvas->context);
+            shared.vertices->bind(canvas->context);
+            databuff->bind(canvas->context, 1);
 
             canvas->drawArraysInstanced(Pipeline::Topology::TriangleFan, 0, 4, 1);
         }

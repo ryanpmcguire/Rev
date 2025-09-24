@@ -11,6 +11,7 @@ module;
 
 export module Rev.Font;
 
+import Rev.Graphics.Canvas;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.Texture;
 
@@ -87,7 +88,7 @@ export namespace Rev {
 
         UniformBuffer* glyphData = nullptr;
 
-        Font(Resource resource = Arial_ttf, float size = 12.0f) : resource(resource) {
+        Font(Canvas* canvas, Resource resource = Arial_ttf, float size = 12.0f) : resource(resource) {
 
             this->size = size;
             
@@ -116,7 +117,7 @@ export namespace Rev {
             // Make glyph data ubo
             //--------------------------------------------------
 
-            glyphData = new UniformBuffer(sizeof(GlyphData) * 128);
+            glyphData = new UniformBuffer(canvas->context, sizeof(GlyphData) * 128);
             GlyphData* glyphDataArr = static_cast<GlyphData*>(glyphData->data);
 
             for (char c = 0; c < 127; c++) {

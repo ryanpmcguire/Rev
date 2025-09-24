@@ -32,14 +32,14 @@ export namespace Rev {
                 
             }
 
-            void create() {
+            void create(Canvas* canvas) {
 
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Lines_vert, Shader::Stage::Vertex);
-                frag = new Shader(Lines_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(*(vert), *(frag));
+                vert = new Shader(canvas->context, Lines_vert, Shader::Stage::Vertex);
+                frag = new Shader(canvas->context, Lines_frag, Shader::Stage::Fragment);
+                pipeline = new Pipeline(canvas->context, vert, frag);
             }
 
             void destroy() {
@@ -64,18 +64,18 @@ export namespace Rev {
         std::vector<Point> points;
 
         // Create
-        Lines(size_t num) {
+        Lines(Canvas* canvas, size_t num) : Primitive(canvas) {
 
             this->num = num;
 
-            shared.create();
+            shared.create(canvas);
 
             maxTriangles = 4 * num - 2;
             maxVertices = maxTriangles * 3;
 
             // Num points, 6 * num points for quads
             points.resize(num);
-            vertices = new VertexBuffer(2 * 6 * (points.size() - 1));
+            vertices = new VertexBuffer(canvas->context, 2 * 6 * (points.size() - 1));
         }
 
         // Destroy
@@ -115,8 +115,8 @@ export namespace Rev {
                 dirty = false;
             }
 
-            shared.pipeline->bind();
-            vertices->bind();
+            shared.pipeline->bind(canvas->context);
+            vertices->bind(canvas->context);
             
             canvas->drawArrays(Pipeline::Topology::TriangleList, 0, vertexCount);
         }

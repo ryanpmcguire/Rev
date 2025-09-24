@@ -4,6 +4,8 @@ module;
 #include <stdexcept>
 #include <dbg.hpp>
 
+#include "./Helpers/MetalBackend.hpp"
+
 export module Rev.Metal.Pipeline;
 
 import Rev.Metal.Shader;
@@ -17,10 +19,14 @@ export namespace Rev {
             TriangleFan
         };
 
+        void* pipeline = nullptr;
+
         //GLuint id = 0;
 
         // Create
-        Pipeline(Shader& vert, Shader& frag) {
+        Pipeline(void* context, Shader* vert, Shader* frag) {
+
+            pipeline = metal_create_pipeline((MetalContext*)context, vert->shader, frag->shader);
             
             /*id = glCreateProgram();
             glAttachShader(id, vert.shader);
@@ -42,13 +48,14 @@ export namespace Rev {
         // Destroy
         ~Pipeline() {
 
-            /*if (id) {
-                glDeleteProgram(id);
-            }*/
+            if (pipeline) {
+                metal_destroy_pipeline(pipeline);
+                pipeline = nullptr;
+            }
         }
 
-        void bind() {
-            //glUseProgram(id);
+        void bind(void* context) {
+            metal_bind_pipeline((MetalContext*)context, pipeline);
         }
     };
 };

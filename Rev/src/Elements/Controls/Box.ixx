@@ -26,8 +26,8 @@ export namespace Rev {
         // Create
         Box(Element* parent, std::string name = "Box") : Element(parent, name) {
 
-            rectangle = new Rectangle();
-            lines = new Lines(10);
+            rectangle = new Rectangle(topLevelDetails->canvas);
+            lines = new Lines(topLevelDetails->canvas, 10);
         }
 
         // Destroy

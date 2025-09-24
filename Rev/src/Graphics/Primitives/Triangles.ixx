@@ -30,14 +30,14 @@ export namespace Rev {
                 
             }
 
-            void create() {
+            void create(Canvas* canvas) {
 
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Triangles_vert, Shader::Stage::Vertex);
-                frag = new Shader(Triangles_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(*(vert), *(frag));
+                vert = new Shader(canvas->context, Triangles_vert, Shader::Stage::Vertex);
+                frag = new Shader(canvas->context, Triangles_frag, Shader::Stage::Fragment);
+                pipeline = new Pipeline(canvas->context, vert, frag);
             }
 
             void destroy() {
@@ -57,12 +57,12 @@ export namespace Rev {
         bool dirty = true;
 
         // Create
-        Triangles() {
+        Triangles(Canvas* canvas) : Primitive(canvas) {
 
             // If we're first
-            shared.create();
+            shared.create(canvas);
 
-            vertices = new VertexBuffer(3);
+            vertices = new VertexBuffer(canvas->context, 3);
 
             vertices->set({
                 {  0,  0 },  // top
@@ -91,8 +91,8 @@ export namespace Rev {
                 dirty = false;
             }
 
-            shared.pipeline->bind();
-            vertices->bind();
+            shared.pipeline->bind(canvas->context);
+            vertices->bind(canvas->context);
             canvas->drawArrays(Pipeline::Topology::TriangleList, 0, 3);
         }
     };

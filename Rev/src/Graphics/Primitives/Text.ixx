@@ -41,14 +41,14 @@ export namespace Rev {
                 
             }
 
-            void create() {
+            void create(Canvas* canvas) {
 
                 refCount++;
 
                 // Create resources
-                vert = new Shader(Text_vert, Shader::Stage::Vertex);
-                frag = new Shader(Text_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(*(vert), *(frag));
+                vert = new Shader(canvas->context, Text_vert, Shader::Stage::Vertex);
+                frag = new Shader(canvas->context, Text_frag, Shader::Stage::Fragment);
+                pipeline = new Pipeline(canvas->context, vert, frag);
             }
 
             void destroy() {
@@ -113,13 +113,13 @@ export namespace Rev {
         float yPos = 0;
 
         // Create
-        Text() {
+        Text(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create();
+            shared.create(canvas);
 
-            font = new Font();
-            vertices = new VertexBuffer(100, sizeof(CharVertex), 1);
-            databuff = new UniformBuffer(sizeof(Data));
+            font = new Font(canvas);
+            vertices = new VertexBuffer(canvas->context, 100, sizeof(CharVertex), 1);
+            databuff = new UniformBuffer(canvas->context, sizeof(Data));
 
             data = static_cast<Data*>(databuff->data);
             *data = {
@@ -236,7 +236,7 @@ export namespace Rev {
             // Ensure font size matches
             if (font->size != fontSize) {
                 delete font;
-                font = new Font(Arial_ttf, fontSize);
+                font = new Font(canvas, Arial_ttf, fontSize);
             }
 
             // Layout text
@@ -299,7 +299,7 @@ export namespace Rev {
             // Ensure font size matches
             if (font->size != fontSize) {
                 delete font;
-                font = new Font(Arial_ttf, fontSize);
+                font = new Font(canvas, Arial_ttf, fontSize);
             }
 
             // Prepare vertices
@@ -347,12 +347,12 @@ export namespace Rev {
                 this->compute();
             }
         
-            shared.pipeline->bind();
-            font->texture->bind(0);  // bind to GL_TEXTURE0
-            font->glyphData->bind(2);
+            shared.pipeline->bind(canvas->context);
+            font->texture->bind(canvas->context, 0);  // bind to GL_TEXTURE0
+            font->glyphData->bind(canvas->context, 2);
 
-            vertices->bind();
-            databuff->bind(1);
+            vertices->bind(canvas->context);
+            databuff->bind(canvas->context, 1);
 
             canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, vertexCount);
         }

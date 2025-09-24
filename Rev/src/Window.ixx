@@ -232,14 +232,14 @@ export namespace Rev {
 
             topLevelDetails->dirtyElements.clear();
 
-            topLevelDetails->canvas->draw();
+            topLevelDetails->canvas->beginFrame();
 
             for (Element* element : topDown) {
                 if (element == this) { continue; }
                 element->draw(e);
             }
 
-            topLevelDetails->canvas->flush();
+            topLevelDetails->canvas->endFrame();
 
             /*if (e.causedRefresh) {
                 draw(e);

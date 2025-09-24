@@ -81,6 +81,19 @@ export namespace Rev {
         static void handleEvent(void* self, WinEvent ev) {
 
             NativeWindow* selfWin = static_cast<NativeWindow*>(self);
+
+            switch (ev.type) {
+
+                // Capture resize
+                case (WinEvent::Type::Resize): {
+
+                    selfWin->size.w = ev.c;
+                    selfWin->size.h = ev.d;
+
+                    break;
+                }
+            }
+
             selfWin->notifyEvent(ev);
         }
     };

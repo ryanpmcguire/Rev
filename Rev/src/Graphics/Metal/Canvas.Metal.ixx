@@ -7,9 +7,10 @@ module;
 export module Rev.Metal.Canvas;
 
 import Rev.NativeWindow;
-import Rev.Graphics.Pipeline;
+import Rev.Metal.Pipeline;
 
 export namespace Rev {
+
     struct Canvas {
 
         struct Flags {
@@ -22,41 +23,44 @@ export namespace Rev {
         };
 
         NativeWindow* window = nullptr;
-        MetalBackend* backend = nullptr;
+        MetalContext* context = nullptr;
+
         Details details;
         Flags flags;
 
         Canvas(NativeWindow* w = nullptr) {
+
             window = w;
+
             if (window) {
-                backend = metal_backend_create(window->handle);
+                context = metal_context_create(window->handle);
             }
         }
 
         ~Canvas() {
-            if (backend) metal_backend_destroy(backend);
+            if (context) { metal_context_destroy(context); }
         }
 
-        void draw() {
+        void beginFrame() {
 
             dbg("[Canvas] drawing!");
 
-            if (!window || !backend) return;
+            if (!window || !context) { return; }
 
             if (flags.resize) {
                 details.width = window->size.w;
                 details.height = window->size.h;
-                metal_backend_resize(backend, details.width, details.height);
+                metal_context_resize(context, details.width, details.height);
                 flags.resize = false;
             }
 
             // Instead of glClear, call Metal clear
-            metal_backend_clear(backend, 1.0f, 0.0f, 0.0f, 1.0f); // red
+            metal_begin_frame(context); // red
         }
 
-        void flush() {
-            if (backend) {
-                metal_backend_present(backend);
+        void endFrame() {
+            if (context) {
+                metal_end_frame(context);
             }
         }
 

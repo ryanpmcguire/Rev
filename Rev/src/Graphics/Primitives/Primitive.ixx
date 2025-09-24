@@ -8,9 +8,11 @@ export namespace Rev {
 
     struct Primitive {
 
-        // Create
-        Primitive() {
+        Canvas* canvas;
 
+        // Create
+        Primitive(Canvas* canvas) {
+            this->canvas = canvas;
         }
 
         // Destroy

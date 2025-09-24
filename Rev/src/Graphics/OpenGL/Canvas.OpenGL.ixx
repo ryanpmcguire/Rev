@@ -31,6 +31,7 @@ export namespace Rev {
         Details details;
         Flags flags;
 
+        RenderCommandEncoder* encoder = nullptr;
         UniformBuffer* transform = nullptr;
 
         // Create
@@ -45,6 +46,7 @@ export namespace Rev {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+            encoder = new RenderCommandEncoder();
             transform = new UniformBuffer(sizeof(glm::mat4));
         }
 
