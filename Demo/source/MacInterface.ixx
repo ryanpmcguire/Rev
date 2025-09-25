@@ -29,13 +29,17 @@ export namespace HelloWorld {
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
             // Grey box
-            /*Box* greyBox = new Box(this, "GreyBox");
-            greyBox->style = {
-                .size = { .width = Shrink(), .maxWidth = 600_px, .maxHeight = 400_px },
-                .padding = { 10_px, 10_px, 10_px, 10_px },
-                .border = { .radius = 10_px },
-                .background { .color = rgba(255, 255, 255, 0.1) },
-            };*/
+            //for (size_t i = 0; i < 1000; i++) {
+
+                Box* greyBox = new Box(this, "GreyBox");
+                greyBox->style = {
+                    .size = { .width = Grow(), .height = Grow(), .maxWidth = 600_px, .maxHeight = 400_px },
+                    .padding = { 10_px, 10_px, 10_px, 10_px },
+                    .margin = { 5_px, 5_px, 5_px, 5_px },
+                    .border = { .radius = 10_px },
+                    .background { .color = rgba(255, 255, 255, 1.0) },
+                };
+            //}
         }
 
         // Destroy

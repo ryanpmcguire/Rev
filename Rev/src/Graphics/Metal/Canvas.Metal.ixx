@@ -1,8 +1,10 @@
 module;
 
 #include <cstddef>
+#include <iostream>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <dbg.hpp>
 
@@ -25,6 +27,7 @@ export namespace Rev {
 
         struct Details {
             int width, height;
+            float scale;
         };
 
         NativeWindow* window = nullptr;
@@ -60,6 +63,7 @@ export namespace Rev {
 
                 details.width = window->size.w;
                 details.height = window->size.h;
+                details.scale = metal_context_get_scale(context);
 
                 metal_context_resize(context, details.width, details.height);
 
@@ -72,7 +76,14 @@ export namespace Rev {
                     1.0f            // far
                 );
 
-                transform->set(&projection);
+                //glm::mat4 projection = glm::mat4(1.0f);
+
+                float* p = glm::value_ptr(projection);
+                for (int i = 0; i < 16; ++i) {
+                    std::cout << p[i] << " ";
+                }
+
+                transform->set(glm::value_ptr(projection));
                 flags.resize = false;
             }
 

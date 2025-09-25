@@ -6,6 +6,8 @@
 
 struct MetalContext {
 
+    NSView* view;
+
     id<MTLDevice> device;
 
     id<CAMetalDrawable> drawable;
@@ -14,7 +16,9 @@ struct MetalContext {
     id<MTLRenderCommandEncoder> enc;
 
     CAMetalLayer* layer;
+
     int width, height;
+    float scale;
 
     float r, g, b, a;
 };
@@ -26,6 +30,7 @@ struct MetalShader {
 };
 
 MetalContext* metal_context_create(void* nativeHandle) {
+    
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
 
     MetalContext* context = new MetalContext();
@@ -54,6 +59,7 @@ MetalContext* metal_context_create(void* nativeHandle) {
         NSLog(@"[MetalBackend] Invalid handle passed (not NSWindow or NSView)");
     }
 
+    context->view = targetView;
     context->layer = layer;
 
     context->r = 1.0f;
@@ -73,7 +79,14 @@ void metal_context_resize(MetalContext* c, int w, int h) {
     c->width = w;
     c->height = h;
 
-    c->layer.drawableSize = CGSizeMake(w, h);
+    CGFloat scale = c->view.window.backingScaleFactor;
+    c->scale = scale;
+    
+    c->layer.drawableSize = CGSizeMake(w * scale, h * scale);
+}
+
+float metal_context_get_scale(MetalContext* c) {
+    return c->scale;
 }
 
 // Begin frame (prepare context)
@@ -97,7 +110,7 @@ void metal_begin_frame(MetalContext* c) {
 
     MTLViewport vp = {
         0.0, 0.0,
-        (double)c->width, (double)c->height,
+        (double)c->width * c->scale, (double)c->height * c->scale,
         0.0, 1.0
     };
 
@@ -105,7 +118,7 @@ void metal_begin_frame(MetalContext* c) {
 
     MTLScissorRect scissor = {
         0, 0,
-        (NSUInteger)c->width, (NSUInteger)c->height
+        (NSUInteger)(c->width * c->scale), (NSUInteger)(c->height * c->scale)
     };
 
     [c->enc setScissorRect:scissor];
@@ -238,7 +251,19 @@ void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader) {
     pdesc.vertexFunction   = shader->vertexFn;
     pdesc.fragmentFunction = shader->fragmentFn;
     pdesc.vertexDescriptor = nil;
+    
     pdesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+
+    MTLRenderPipelineColorAttachmentDescriptor *colorAttachment = pdesc.colorAttachments[0];
+
+    colorAttachment.blendingEnabled = YES;
+    colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
+    colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
+    colorAttachment.sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    colorAttachment.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    colorAttachment.sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+    colorAttachment.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+
 
     NSError* err = nil;
     id<MTLRenderPipelineState> pso =

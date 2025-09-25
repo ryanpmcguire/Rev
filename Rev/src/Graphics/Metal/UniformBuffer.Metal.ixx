@@ -38,7 +38,7 @@ export namespace Rev {
         }
 
         void bind(void* context, size_t pos) {
-            metal_bind_uniform_buffer((MetalContext*)context, buffer, pos);
+            metal_bind_uniform_buffer((MetalContext*)context, buffer, pos + 10);
         }
 
         void unbind() {

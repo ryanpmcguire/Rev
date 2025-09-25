@@ -7,7 +7,8 @@ struct MetalShader;
 MetalContext* metal_context_create(void* nsView);
 void metal_context_destroy(MetalContext*);
 
-void metal_context_resize(MetalContext*, int w, int h);
+void metal_context_resize(MetalContext* c, int w, int h);
+float metal_context_get_scale(MetalContext* c);
 
 void metal_begin_frame(MetalContext* c);
 void metal_end_frame(MetalContext* c);
