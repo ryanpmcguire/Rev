@@ -34,11 +34,11 @@ export namespace Rev {
         }
 
         void set(void* value) {
-
+            std::memcpy(data, value, size);
         }
 
         void bind(void* context, size_t pos) {
-            
+            metal_bind_uniform_buffer((MetalContext*)context, buffer, pos);
         }
 
         void unbind() {

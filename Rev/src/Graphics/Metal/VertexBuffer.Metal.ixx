@@ -77,7 +77,7 @@ export namespace Rev {
         }
 
         void bind(void* context) {
-            
+            metal_bind_vertex_buffer((MetalContext*)context, buffer, 0);
         }
 
         void unbind() {

@@ -37,7 +37,7 @@ export namespace Rev {
                 // Create resources
                 vert = new Shader(canvas->context, Triangles_vert, Shader::Stage::Vertex);
                 frag = new Shader(canvas->context, Triangles_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(canvas->context, vert, frag);
+                pipeline = new Pipeline(canvas->context);
             }
 
             void destroy() {

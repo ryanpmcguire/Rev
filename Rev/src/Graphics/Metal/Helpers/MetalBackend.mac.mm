@@ -19,6 +19,12 @@ struct MetalContext {
     float r, g, b, a;
 };
 
+struct MetalShader {
+    id<MTLLibrary> library;
+    id<MTLFunction> vertexFn;
+    id<MTLFunction> fragmentFn;
+};
+
 MetalContext* metal_context_create(void* nativeHandle) {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
 
@@ -63,8 +69,10 @@ void metal_context_destroy(MetalContext* c) {
 }
 
 void metal_context_resize(MetalContext* c, int w, int h) {
+
     c->width = w;
     c->height = h;
+
     c->layer.drawableSize = CGSizeMake(w, h);
 }
 
@@ -72,7 +80,11 @@ void metal_context_resize(MetalContext* c, int w, int h) {
 void metal_begin_frame(MetalContext* c) {
 
     c->drawable = [c->layer nextDrawable];
-    if (!(c->drawable)) { return; }
+    
+    if (!c->drawable) {
+        NSLog(@"No drawable this frame");
+        return;
+    }
 
     MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
     desc.colorAttachments[0].texture = c->drawable.texture;
@@ -82,6 +94,21 @@ void metal_begin_frame(MetalContext* c) {
 
     c->cmd = [c->queue commandBuffer];
     c->enc = [c->cmd renderCommandEncoderWithDescriptor:desc];
+
+    MTLViewport vp = {
+        0.0, 0.0,
+        (double)c->width, (double)c->height,
+        0.0, 1.0
+    };
+
+    [c->enc setViewport:vp];
+
+    MTLScissorRect scissor = {
+        0, 0,
+        (NSUInteger)c->width, (NSUInteger)c->height
+    };
+
+    [c->enc setScissorRect:scissor];
 }
 
 // End frame (show result)
@@ -90,12 +117,14 @@ void metal_end_frame(MetalContext* c) {
     [c->enc endEncoding];
     [c->cmd presentDrawable:c->drawable];
     [c->cmd commit];
+    [c->cmd waitUntilCompleted];
 }
 
 // Uniform Buffer
 //--------------------------------------------------
 
 void* metal_create_uniform_buffer(MetalContext* ctx, size_t size) {
+
     if (!ctx || !ctx->device) return nullptr;
 
     id<MTLBuffer> buf = [ctx->device newBufferWithLength:size
@@ -107,6 +136,7 @@ void* metal_create_uniform_buffer(MetalContext* ctx, size_t size) {
 }
 
 void metal_destroy_uniform_buffer(void* buffer) {
+
     if (!buffer) return;
 
     // Transfer ownership back, dropping ref
@@ -115,6 +145,7 @@ void metal_destroy_uniform_buffer(void* buffer) {
 }
 
 void* metal_map_uniform_buffer(void* buffer) {
+
     if (!buffer) return nullptr;
 
     id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
@@ -122,7 +153,13 @@ void* metal_map_uniform_buffer(void* buffer) {
 }
 
 void metal_bind_uniform_buffer(MetalContext* ctx, void* buffer, int index) {
-    if (!ctx || !ctx->enc || !buffer) return;
+
+    if (!ctx || !ctx->enc || !buffer) {
+        
+        NSLog(@"Couldn't bind uniform buffer!");
+
+        return;
+    }
 
     id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
     id<MTLRenderCommandEncoder> enc = ctx->enc;
@@ -135,6 +172,7 @@ void metal_bind_uniform_buffer(MetalContext* ctx, void* buffer, int index) {
 //--------------------------------------------------
 
 void* metal_create_vertex_buffer(MetalContext* ctx, size_t size) {
+
     if (!ctx || !ctx->device) return nullptr;
 
     id<MTLBuffer> buf = [ctx->device newBufferWithLength:size
@@ -143,6 +181,7 @@ void* metal_create_vertex_buffer(MetalContext* ctx, size_t size) {
 }
 
 void metal_destroy_vertex_buffer(void* buffer) {
+
     if (!buffer) return;
 
     id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buffer;
@@ -150,6 +189,7 @@ void metal_destroy_vertex_buffer(void* buffer) {
 }
 
 void* metal_map_vertex_buffer(void* buffer) {
+
     if (!buffer) return nullptr;
 
     id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
@@ -157,7 +197,13 @@ void* metal_map_vertex_buffer(void* buffer) {
 }
 
 void metal_bind_vertex_buffer(MetalContext* ctx, void* buffer, int index) {
-    if (!ctx || !ctx->enc || !buffer) return;
+
+    if (!ctx || !ctx->enc || !buffer) {
+
+        NSLog(@"Couldn't bind vertex buffer!");
+
+        return;
+    }
 
     id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
     id<MTLRenderCommandEncoder> enc = ctx->enc;
@@ -168,27 +214,30 @@ void metal_bind_vertex_buffer(MetalContext* ctx, void* buffer, int index) {
 // Pipeline
 //--------------------------------------------------
 
-void* metal_create_pipeline(MetalContext* ctx, void* vertShader, void* fragShader) {
+void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader) {
 
-    if (!ctx || !ctx->device) return nullptr;
-
-    id<MTLFunction> vs = (__bridge id<MTLFunction>)vertShader;
-    id<MTLFunction> fs = (__bridge id<MTLFunction>)fragShader;
+    if (!ctx || !ctx->device) {
+        NSLog(@"Failed to create pipeline: no context/device");
+        return nullptr;
+    };
 
     // Hard-coded vertex descriptor: float3 positions only
     MTLVertexDescriptor* vdesc = [MTLVertexDescriptor vertexDescriptor];
 
-    vdesc.attributes[0].format = MTLVertexFormatFloat3;
+    vdesc.attributes[0].format = MTLVertexFormatFloat2;
     vdesc.attributes[0].offset = 0;
     vdesc.attributes[0].bufferIndex = 0;
 
-    vdesc.layouts[0].stride = sizeof(float) * 3;
+    vdesc.layouts[0].stride = sizeof(float) * 2;
     vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
 
+    NSLog(@"VertexFn = %@", shader->vertexFn);
+    NSLog(@"FragmentFn = %@", shader->fragmentFn);
+
     MTLRenderPipelineDescriptor* pdesc = [[MTLRenderPipelineDescriptor alloc] init];
-    pdesc.vertexFunction   = vs;
-    pdesc.fragmentFunction = fs;
-    pdesc.vertexDescriptor = vdesc;
+    pdesc.vertexFunction   = shader->vertexFn;
+    pdesc.fragmentFunction = shader->fragmentFn;
+    pdesc.vertexDescriptor = nil;
     pdesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
 
     NSError* err = nil;
@@ -213,7 +262,12 @@ void metal_destroy_pipeline(void* pipeline) {
 
 void metal_bind_pipeline(MetalContext* ctx, void* pipeline) {
 
-    if (!ctx || !ctx->enc || !pipeline) return;
+    if (!ctx || !ctx->enc || !pipeline) {
+        
+        NSLog(@"Couldn't bind vertex buffer!");
+
+        return;
+    };
 
     id<MTLRenderPipelineState> pso =
         (__bridge id<MTLRenderPipelineState>)pipeline;
@@ -223,7 +277,8 @@ void metal_bind_pipeline(MetalContext* ctx, void* pipeline) {
 // Shader
 //--------------------------------------------------
 
-void* metal_create_shader(MetalContext* ctx, const char* source, size_t length, MetalShaderStage stage) {
+void* metal_create_shader(MetalContext* ctx, const char* source, size_t length) {
+
     if (!ctx || !ctx->device) return nullptr;
 
     NSString* src = [[NSString alloc] initWithBytes:source
@@ -237,23 +292,43 @@ void* metal_create_shader(MetalContext* ctx, const char* source, size_t length, 
         return nullptr;
     }
 
-    id<MTLFunction> fn = nil;
-    if (stage == MetalShaderStageVertex) {
-        fn = [lib newFunctionWithName:@"vertex_main"];
-    } else if (stage == MetalShaderStageFragment) {
-        fn = [lib newFunctionWithName:@"fragment_main"];
-    }
+    MetalShader* shader = new MetalShader();
+    shader->library = lib;
 
-    if (!fn) {
-        NSLog(@"[Metal] Failed to get shader function for stage %d", stage);
+    shader->vertexFn   = [lib newFunctionWithName:@"vertex_main"];
+    shader->fragmentFn = [lib newFunctionWithName:@"fragment_main"];
+
+    if (!shader->vertexFn || !shader->fragmentFn) {
+        NSLog(@"[Metal] Missing entry points in shader source");
+        delete shader;
         return nullptr;
     }
 
-    return (__bridge_retained void*)fn;
+    return shader;
 }
 
 void metal_destroy_shader(void* shader) {
     if (!shader) return;
     id<MTLFunction> fn = (__bridge_transfer id<MTLFunction>)shader;
     (void)fn; // ARC release
+}
+
+// Functions
+//--------------------------------------------------
+
+void metal_draw_arrays_instanced(MetalContext* ctx,
+                                 int topology,     // your enum -> Metal primitive type
+                                 size_t start,
+                                 size_t verticesPer,
+                                 size_t numInstances) {
+
+    if (!ctx || !ctx->enc) {
+        NSLog(@"Couldn't draw instanced arrays!");
+        return;
+    };
+
+    [ctx->enc drawPrimitives:MTLPrimitiveTypeTriangle
+                 vertexStart:(NSUInteger)start
+                 vertexCount:(NSUInteger)verticesPer
+               instanceCount:(NSUInteger)numInstances];
 }

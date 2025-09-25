@@ -10,9 +10,8 @@ import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
+import Rev.Graphics.Pipelines.RectanglePipeline;
 import Rev.Graphics.Shader;
-import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
-import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
 export namespace Rev {
 
@@ -23,9 +22,7 @@ export namespace Rev {
 
             size_t refCount = 0;
 
-            Shader* vert = nullptr;
-            Shader* frag = nullptr;
-            Pipeline* pipeline = nullptr;
+            RectanglePipeline* pipeline = nullptr;
             VertexBuffer* vertices = nullptr;
 
             Shared() {
@@ -37,10 +34,9 @@ export namespace Rev {
                 refCount++;
 
                 // Create resources
-                vert = new Shader(canvas->context, Rectangle_vert, Shader::Stage::Vertex);
-                frag = new Shader(canvas->context, Rectangle_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(canvas->context, vert, frag);
-                vertices = new VertexBuffer(canvas->context, 4, 2, 1);
+                
+                pipeline = new RectanglePipeline(canvas->context);
+                vertices = new VertexBuffer(canvas->context, 6, 2, 1);
             }
 
             void destroy() {
@@ -51,8 +47,6 @@ export namespace Rev {
                 // Delete resources
                 delete vertices;
                 delete pipeline;
-                delete vert;
-                delete frag;
             }
         };
 
@@ -112,18 +106,20 @@ export namespace Rev {
             float b = t + data.rect.h;
 
             vertices->set({
-                {l, t}, {r, t},
-                {r, b}, {l, b}
+                {l, t}, {r, t}, {l, b}, 
+                {l, b}, {r, t}, {r, b}
             });*/
         }
 
         void draw(Canvas* canvas) override {
+
+            //compute();
          
             shared.pipeline->bind(canvas->context);
             shared.vertices->bind(canvas->context);
             databuff->bind(canvas->context, 1);
 
-            canvas->drawArraysInstanced(Pipeline::Topology::TriangleFan, 0, 4, 1);
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
         }
     };
 };

@@ -15,7 +15,8 @@ export namespace Rev {
 
         enum Stage {
             Vertex,
-            Fragment
+            Fragment,
+            Universal
         };
 
         //GLuint shader = 0;
@@ -30,11 +31,12 @@ export namespace Rev {
             shader = metal_create_shader(
                 (MetalContext*)context,
                 reinterpret_cast<const char*>(shaderFile.data),
-                shaderFile.size,
-                (MetalShaderStage)shaderType
+                shaderFile.size
             );
 
-            
+            if (!shader) {
+                throw std::runtime_error("Failed to create shader!");
+            }
 
             /*shader = glCreateShader(shaderType);
 

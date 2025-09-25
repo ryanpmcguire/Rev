@@ -12,7 +12,6 @@ import Rev.Style;
 import Rev.Rect;
 
 import Rev.Graphics.Rectangle;
-import Rev.Graphics.Lines;
 
 export namespace Rev {
 
@@ -21,19 +20,16 @@ export namespace Rev {
     struct Box : public Element {
 
         Rectangle* rectangle = nullptr;
-        Lines* lines = nullptr;
 
         // Create
         Box(Element* parent, std::string name = "Box") : Element(parent, name) {
 
             rectangle = new Rectangle(topLevelDetails->canvas);
-            lines = new Lines(topLevelDetails->canvas, 10);
         }
 
         // Destroy
         ~Box() {
             delete rectangle;
-            delete lines;
         }
 
         void computePrimitives(Event& e) override {

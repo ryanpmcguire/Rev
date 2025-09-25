@@ -1,6 +1,7 @@
 module;
 
 #include <string>
+#include <vector>
 #include <stdexcept>
 #include <dbg.hpp>
 
@@ -20,38 +21,28 @@ export namespace Rev {
         };
 
         void* pipeline = nullptr;
-
-        //GLuint id = 0;
+        Shader* shader = nullptr;
 
         // Create
-        Pipeline(void* context, Shader* vert, Shader* frag) {
+        Pipeline(void* context) {
 
-            pipeline = metal_create_pipeline((MetalContext*)context, vert->shader, frag->shader);
-            
-            /*id = glCreateProgram();
-            glAttachShader(id, vert.shader);
-            glAttachShader(id, frag.shader);
-            glLinkProgram(id);
-
-            GLint success;
-            glGetProgramiv(id, GL_LINK_STATUS, &success);*/
-
-            /*if (!success) {
-
-                char infoLog[512];
-                glGetProgramInfoLog(id, 512, nullptr, infoLog);
-                
-                throw std::runtime_error(std::string("Pipeline link error: ") + infoLog);
-            }*/
         }
 
         // Destroy
         ~Pipeline() {
 
+            if (shader) {
+                delete shader;
+            }
+
             if (pipeline) {
                 metal_destroy_pipeline(pipeline);
                 pipeline = nullptr;
             }
+        }
+
+        void init(void* context) {
+            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader);
         }
 
         void bind(void* context) {
