@@ -34,6 +34,8 @@ export namespace Rev {
 
                 refCount++;
 
+                if (refCount > 1) { return; }
+
                 pipeline = new Pipeline(canvas->context);
             }
 

@@ -2,6 +2,7 @@
 #pragma once
 
 struct MetalContext;
+struct MetalTexture;
 struct MetalShader;
 
 MetalContext* metal_context_create(void* nsView);
@@ -25,15 +26,21 @@ void  metal_destroy_vertex_buffer(void* buffer);
 void* metal_map_vertex_buffer(void* buffer); // returns CPU-visible memory
 void  metal_bind_vertex_buffer(MetalContext* ctx, void* buffer, int index);
 
-// Pipeline
-void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader);
-void  metal_destroy_pipeline(void* pipeline);
-void  metal_bind_pipeline(MetalContext* ctx, void* pipeline);
+// Texture
+void* metal_create_texture(MetalContext* ctx, const unsigned char* data, size_t width, size_t height, size_t channels);
+void metal_destroy_texture(void* texture);
+void metal_bind_texture(MetalContext* ctx, void* texture, int unit);
+void metal_unbind_texture(MetalContext* ctx, int unit);
 
 // Shader
 enum MetalShaderStage { MetalShaderStageVertex, MetalShaderStageFragment };
 void* metal_create_shader(MetalContext* ctx, const char* source, size_t length);
 void  metal_destroy_shader(void* shader);
+
+// Pipeline
+void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex);
+void  metal_destroy_pipeline(void* pipeline);
+void  metal_bind_pipeline(MetalContext* ctx, void* pipeline);
 
 // Functions
 void metal_draw_arrays_instanced(MetalContext* ctx, int topology, size_t start, size_t verticesPer, size_t numInstances);

@@ -112,7 +112,7 @@ export namespace Rev {
             this->getFontAttribs();
             this->bake();
 
-            texture = new Texture(bitmap.data, bitmap.width, bitmap.height, 1);
+            texture = new Texture(canvas->context, bitmap.data, bitmap.width, bitmap.height, 1);
 
             // Make glyph data ubo
             //--------------------------------------------------
@@ -203,8 +203,8 @@ export namespace Rev {
             int penY = padding;
             int rowHeight = 0;
 
-            bitmap.width = 1024;
-            bitmap.height = 1024;
+            bitmap.width = 4096;
+            bitmap.height = 4096;
             bitmap.size = bitmap.width * bitmap.height;
             bitmap.data = new unsigned char[bitmap.size];
             std::memset(bitmap.data, 0, bitmap.size);

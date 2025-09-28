@@ -147,6 +147,13 @@ export namespace Rev {
                     this->setPos(this->details.x, this->details.y);
                 });
             }
+
+            // Final
+            //--------------------------------------------------
+
+            this->draw(event);
+
+            this->draw(event);
         }
 
         // Destroy
@@ -322,6 +329,9 @@ export namespace Rev {
 
         // When the content needs to be redrawn
         virtual void onRefresh() {
+
+            dbg("[Window] Refreshing");
+
             this->draw(event);
         }
 

@@ -1,4 +1,5 @@
 // MetalBackend.mm
+#import <vector>
 #import <Cocoa/Cocoa.h>          // <-- gives you NSView
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -21,12 +22,6 @@ struct MetalContext {
     float scale;
 
     float r, g, b, a;
-};
-
-struct MetalShader {
-    id<MTLLibrary> library;
-    id<MTLFunction> vertexFn;
-    id<MTLFunction> fragmentFn;
 };
 
 MetalContext* metal_context_create(void* nativeHandle) {
@@ -126,12 +121,19 @@ void metal_begin_frame(MetalContext* c) {
 
 // End frame (show result)
 void metal_end_frame(MetalContext* c) {
-
+    
     [c->enc endEncoding];
-    [c->cmd presentDrawable:c->drawable];
+
+    if (c->drawable == nil) {
+        NSLog(@"[Metal] Warning: No drawable available this frame.");
+    } else {
+        [c->cmd presentDrawable:c->drawable];
+    }
+
     [c->cmd commit];
     [c->cmd waitUntilCompleted];
 }
+
 
 // Uniform Buffer
 //--------------------------------------------------
@@ -224,83 +226,121 @@ void metal_bind_vertex_buffer(MetalContext* ctx, void* buffer, int index) {
     [enc setVertexBuffer:buf offset:0 atIndex:index];
 }
 
-// Pipeline
+// Texture
 //--------------------------------------------------
 
-void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader) {
+struct MetalTexture {
+    id<MTLTexture> tex;
+    id<MTLSamplerState> sampler;
+    size_t width, height, channels;
+};
 
-    if (!ctx || !ctx->device) {
-        NSLog(@"Failed to create pipeline: no context/device");
-        return nullptr;
-    };
+void* metal_create_texture(MetalContext* ctx,
+                                      const unsigned char* data,
+                                      size_t width,
+                                      size_t height,
+                                      size_t channels)
+{
 
-    // Hard-coded vertex descriptor: float3 positions only
-    MTLVertexDescriptor* vdesc = [MTLVertexDescriptor vertexDescriptor];
+    if (!ctx || !ctx->device) return nullptr;
 
-    vdesc.attributes[0].format = MTLVertexFormatFloat2;
-    vdesc.attributes[0].offset = 0;
-    vdesc.attributes[0].bufferIndex = 0;
-
-    vdesc.layouts[0].stride = sizeof(float) * 2;
-    vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-
-    NSLog(@"VertexFn = %@", shader->vertexFn);
-    NSLog(@"FragmentFn = %@", shader->fragmentFn);
-
-    MTLRenderPipelineDescriptor* pdesc = [[MTLRenderPipelineDescriptor alloc] init];
-    pdesc.vertexFunction   = shader->vertexFn;
-    pdesc.fragmentFunction = shader->fragmentFn;
-    pdesc.vertexDescriptor = nil;
-    
-    pdesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-
-    MTLRenderPipelineColorAttachmentDescriptor *colorAttachment = pdesc.colorAttachments[0];
-
-    colorAttachment.blendingEnabled = YES;
-    colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
-    colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
-    colorAttachment.sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    colorAttachment.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    colorAttachment.sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-    colorAttachment.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-
-
-    NSError* err = nil;
-    id<MTLRenderPipelineState> pso =
-        [ctx->device newRenderPipelineStateWithDescriptor:pdesc error:&err];
-    if (!pso) {
-        NSLog(@"[Metal] Failed to create pipeline: %@", err);
-        return nullptr;
+    // Pick a pixel format
+    MTLPixelFormat format = MTLPixelFormatR8Unorm;
+    if (channels == 4) {
+        format = MTLPixelFormatRGBA8Unorm;
+    } else if (channels == 3) {
+        // Metal doesn’t have RGB8 — must expand later
+        format = MTLPixelFormatRGBA8Unorm;
     }
 
-    return (__bridge_retained void*)pso;
+    // Texture descriptor
+    MTLTextureDescriptor* desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                           width:(NSUInteger)width
+                                                          height:(NSUInteger)height
+                                                       mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead;
+    desc.storageMode = MTLStorageModeShared;
+
+    id<MTLTexture> tex = [ctx->device newTextureWithDescriptor:desc];
+    if (!tex) return nullptr;
+
+    // Upload pixel data
+    MTLRegion region = { {0,0,0}, { (NSUInteger)width, (NSUInteger)height, 1 } };
+
+    if (channels == 1) {
+        [tex replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:width * 1];
+    }
+    
+    else if (channels == 3) {
+
+        // Expand RGB → RGBA
+        std::vector<unsigned char> rgba(width * height * 4);
+
+        for (size_t i=0; i<width*height; i++) {
+            rgba[i*4+0] = data[i*3+0];
+            rgba[i*4+1] = data[i*3+1];
+            rgba[i*4+2] = data[i*3+2];
+            rgba[i*4+3] = 255;
+        }
+
+        [tex replaceRegion:region mipmapLevel:0 withBytes:rgba.data() bytesPerRow:width*4];
+
+    }
+    
+    else if (channels == 4) {
+        [tex replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:width*4];
+    }
+
+    // Sampler state
+    MTLSamplerDescriptor* sdesc = [[MTLSamplerDescriptor alloc] init];
+    sdesc.minFilter   = MTLSamplerMinMagFilterNearest;
+    sdesc.magFilter   = MTLSamplerMinMagFilterNearest;
+    sdesc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+    sdesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+
+    id<MTLSamplerState> sampler = [ctx->device newSamplerStateWithDescriptor:sdesc];
+
+    // Wrap up
+    MetalTexture* wrapper = new MetalTexture();
+    wrapper->tex = tex;
+    wrapper->sampler = sampler;
+    wrapper->width = width;
+    wrapper->height = height;
+    wrapper->channels = channels;
+
+    return wrapper;
 }
 
-void metal_destroy_pipeline(void* pipeline) {
-
-    if (!pipeline) return;
-
-    id<MTLRenderPipelineState> pso =
-        (__bridge_transfer id<MTLRenderPipelineState>)pipeline;
-    (void)pso; // ARC drops ref
+void metal_destroy_texture(void* texture) {
+    if (!texture) return;
+    MetalTexture* t = static_cast<MetalTexture*>(texture);
+    t->tex = nil;
+    t->sampler = nil;
+    delete t;
 }
 
-void metal_bind_pipeline(MetalContext* ctx, void* pipeline) {
+void metal_bind_texture(MetalContext* ctx, void* texture, int unit) {
+    if (!ctx || !ctx->enc || !texture) return;
+    MetalTexture* t = static_cast<MetalTexture*>(texture);
+    [ctx->enc setFragmentTexture:t->tex atIndex:unit];
+    [ctx->enc setFragmentSamplerState:t->sampler atIndex:unit];
+}
 
-    if (!ctx || !ctx->enc || !pipeline) {
-        
-        NSLog(@"Couldn't bind vertex buffer!");
-
-        return;
-    };
-
-    id<MTLRenderPipelineState> pso =
-        (__bridge id<MTLRenderPipelineState>)pipeline;
-    [ctx->enc setRenderPipelineState:pso];
+void metal_unbind_texture(MetalContext* ctx, int unit) {
+    if (!ctx || !ctx->enc) return;
+    [ctx->enc setFragmentTexture:nil atIndex:unit];
+    [ctx->enc setFragmentSamplerState:nil atIndex:unit];
 }
 
 // Shader
 //--------------------------------------------------
+
+struct MetalShader {
+    id<MTLLibrary> library;
+    id<MTLFunction> vertexFn;
+    id<MTLFunction> fragmentFn;
+};
 
 void* metal_create_shader(MetalContext* ctx, const char* source, size_t length) {
 
@@ -336,6 +376,87 @@ void metal_destroy_shader(void* shader) {
     if (!shader) return;
     id<MTLFunction> fn = (__bridge_transfer id<MTLFunction>)shader;
     (void)fn; // ARC release
+}
+
+// Pipeline
+//--------------------------------------------------
+
+void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex) {
+    
+    if (!ctx || !ctx->device) {
+        NSLog(@"Failed to create pipeline: no context/device");
+        return nullptr;
+    }
+
+    // Optional vertex descriptor
+    MTLVertexDescriptor* vdesc = nil;
+
+    if (floatsPerVertex > 0) {
+        vdesc = [MTLVertexDescriptor vertexDescriptor];
+
+        vdesc.attributes[0].format =
+            (floatsPerVertex == 1) ? MTLVertexFormatFloat :
+            (floatsPerVertex == 2) ? MTLVertexFormatFloat2 :
+            (floatsPerVertex == 3) ? MTLVertexFormatFloat3 :
+                                     MTLVertexFormatFloat4;
+
+        vdesc.attributes[0].offset = 0;
+        vdesc.attributes[0].bufferIndex = 0;
+
+        vdesc.layouts[0].stride = sizeof(float) * floatsPerVertex;
+        vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerInstance;
+    }
+
+    MTLRenderPipelineDescriptor* pdesc = [[MTLRenderPipelineDescriptor alloc] init];
+    pdesc.vertexFunction   = shader->vertexFn;
+    pdesc.fragmentFunction = shader->fragmentFn;
+    pdesc.vertexDescriptor = vdesc; // nil is valid if no vertex inputs
+
+    // Color attachment & blending
+    MTLRenderPipelineColorAttachmentDescriptor* colorAttachment = pdesc.colorAttachments[0];
+    colorAttachment.pixelFormat = MTLPixelFormatBGRA8Unorm;
+
+    colorAttachment.blendingEnabled = YES;
+    colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
+    colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
+    colorAttachment.sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    colorAttachment.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    colorAttachment.sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+    colorAttachment.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+
+    NSError* err = nil;
+    id<MTLRenderPipelineState> pso =
+        [ctx->device newRenderPipelineStateWithDescriptor:pdesc error:&err];
+    if (!pso) {
+        NSLog(@"[Metal] Failed to create pipeline: %@", err);
+        return nullptr;
+    }
+
+    return (__bridge_retained void*)pso;
+}
+
+
+void metal_destroy_pipeline(void* pipeline) {
+
+    if (!pipeline) return;
+
+    id<MTLRenderPipelineState> pso =
+        (__bridge_transfer id<MTLRenderPipelineState>)pipeline;
+    (void)pso; // ARC drops ref
+}
+
+void metal_bind_pipeline(MetalContext* ctx, void* pipeline) {
+
+    if (!ctx || !ctx->enc || !pipeline) {
+        
+        NSLog(@"Couldn't bind pipeline!");
+
+        return;
+    };
+
+    id<MTLRenderPipelineState> pso =
+        (__bridge id<MTLRenderPipelineState>)pipeline;
+    [ctx->enc setRenderPipelineState:pso];
 }
 
 // Functions

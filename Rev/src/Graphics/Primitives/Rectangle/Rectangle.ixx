@@ -33,6 +33,8 @@ export namespace Rev {
 
                 refCount++;
 
+                if (refCount > 1) { return; }
+
                 // Create resources
                 
                 pipeline = new RectanglePipeline(canvas->context);

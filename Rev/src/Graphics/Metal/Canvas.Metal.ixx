@@ -57,7 +57,9 @@ export namespace Rev {
 
             dbg("[Canvas] drawing!");
 
-            if (!window || !context) { return; }
+            if (!window || !context) {
+                return;
+            }
 
             if (flags.resize) {
 
@@ -82,6 +84,8 @@ export namespace Rev {
                 for (int i = 0; i < 16; ++i) {
                     std::cout << p[i] << " ";
                 }
+
+                dbg("[Canvas] did set transform");
 
                 transform->set(glm::value_ptr(projection));
                 flags.resize = false;

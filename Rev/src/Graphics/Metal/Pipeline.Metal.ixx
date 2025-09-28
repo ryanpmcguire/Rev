@@ -41,8 +41,8 @@ export namespace Rev {
             }
         }
 
-        void init(void* context) {
-            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader);
+        void init(void* context, int floatsPerVertex = 0) {
+            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex);
         }
 
         void bind(void* context) {

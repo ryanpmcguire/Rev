@@ -12,9 +12,8 @@ import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
+import Rev.Graphics.Pipelines.TextPipeline;
 import Rev.Graphics.Shader;
-import Resources.Shaders.OpenGL.Text.Text_vert;
-import Resources.Shaders.OpenGL.Text.Text_frag;
 
 import Rev.Font;
 import Resources.Fonts.Arial.Arial_ttf;
@@ -35,7 +34,7 @@ export namespace Rev {
 
             Shader* vert = nullptr;
             Shader* frag = nullptr;
-            Pipeline* pipeline = nullptr;
+            TextPipeline* pipeline = nullptr;
 
             Shared() {
                 
@@ -45,10 +44,8 @@ export namespace Rev {
 
                 refCount++;
 
-                // Create resources
-                vert = new Shader(canvas->context, Text_vert, Shader::Stage::Vertex);
-                frag = new Shader(canvas->context, Text_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(canvas->context);
+                if (refCount > 1) { return; }
+                pipeline = new TextPipeline(canvas->context);
             }
 
             void destroy() {
@@ -58,8 +55,6 @@ export namespace Rev {
 
                 // Delete resources
                 delete pipeline;
-                delete vert;
-                delete frag;
             }
         };
 
@@ -116,6 +111,8 @@ export namespace Rev {
         Text(Canvas* canvas) : Primitive(canvas) {
 
             shared.create(canvas);
+
+            this->content = content;
 
             font = new Font(canvas);
             vertices = new VertexBuffer(canvas->context, 100, sizeof(CharVertex), 1);
@@ -348,7 +345,7 @@ export namespace Rev {
             }
         
             shared.pipeline->bind(canvas->context);
-            font->texture->bind(canvas->context, 0);  // bind to GL_TEXTURE0
+            font->texture->bind(canvas->context, 0);
             font->glyphData->bind(canvas->context, 2);
 
             vertices->bind(canvas->context);

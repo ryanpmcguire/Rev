@@ -34,6 +34,8 @@ export namespace Rev {
 
                 refCount++;
 
+                if (refCount > 1) { return; }
+
                 // Create resources
                 vert = new Shader(canvas->context, Triangles_vert, Shader::Stage::Vertex);
                 frag = new Shader(canvas->context, Triangles_frag, Shader::Stage::Fragment);
