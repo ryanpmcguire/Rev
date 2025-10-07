@@ -36,7 +36,7 @@ export namespace Rev {
 
                 if (refCount > 1) { return; }
 
-                pipeline = new Pipeline(canvas->context);
+                pipeline = new Pipeline(canvas->context, {});
             }
 
             void destroy() {

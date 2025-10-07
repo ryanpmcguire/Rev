@@ -3,7 +3,6 @@ module;
 #include <cmath>
 #include <vector>
 #include <string>
-#include <glew/glew.h>
 
 export module Rev.Graphics.Text;
 
@@ -12,11 +11,15 @@ import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
-import Rev.Graphics.Pipelines.TextPipeline;
 import Rev.Graphics.Shader;
 
 import Rev.Font;
 import Resources.Fonts.Arial.Arial_ttf;
+
+// Shader resources
+import Resources.Shaders.OpenGL.Text.Text_vert;
+import Resources.Shaders.OpenGL.Text.Text_frag;
+import Resources.Shaders.Metal.Text.Text_metal;
 
 export namespace Rev {
 
@@ -34,7 +37,7 @@ export namespace Rev {
 
             Shader* vert = nullptr;
             Shader* frag = nullptr;
-            TextPipeline* pipeline = nullptr;
+            Pipeline* pipeline = nullptr;
 
             Shared() {
                 
@@ -45,7 +48,14 @@ export namespace Rev {
                 refCount++;
 
                 if (refCount > 1) { return; }
-                pipeline = new TextPipeline(canvas->context);
+
+                pipeline = new Pipeline(canvas->context, {
+                    
+                    .openGlVert = Text_vert,
+                    .openGlFrag = Text_frag,
+
+                    .metalUniversal = Text_metal
+                }, 4);
             }
 
             void destroy() {

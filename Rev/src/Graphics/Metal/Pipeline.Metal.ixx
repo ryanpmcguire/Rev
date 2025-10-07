@@ -9,6 +9,7 @@ module;
 
 export module Rev.Metal.Pipeline;
 
+import Resource;
 import Rev.Metal.Shader;
 
 export namespace Rev {
@@ -23,9 +24,23 @@ export namespace Rev {
         void* pipeline = nullptr;
         Shader* shader = nullptr;
 
-        // Create
-        Pipeline(void* context) {
+        struct PipelineParams {
 
+            Resource openGlVert;
+            Resource openGlFrag;
+
+            Resource metalUniversal;
+
+            Resource vulkanVert;
+            Resource vulkanFrag;
+        };
+
+        // Create
+        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0) {
+
+            shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal);
+
+            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex);
         }
 
         // Destroy
@@ -39,10 +54,6 @@ export namespace Rev {
                 metal_destroy_pipeline(pipeline);
                 pipeline = nullptr;
             }
-        }
-
-        void init(void* context, int floatsPerVertex = 0) {
-            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex);
         }
 
         void bind(void* context) {

@@ -1,17 +1,21 @@
 module;
 
-#include <vector>
-//#include <glew/glew.h>
+#include <cstddef>
 
 export module Rev.Graphics.Rectangle;
 
+// Rev graphics modules
 import Rev.Graphics.Canvas;
 import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
-import Rev.Graphics.Pipelines.RectanglePipeline;
 import Rev.Graphics.Shader;
+
+// Shader resources
+import Resources.Shaders.Metal.Rectangle.Rectangle_metal;
+import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
+import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
 export namespace Rev {
 
@@ -22,7 +26,7 @@ export namespace Rev {
 
             size_t refCount = 0;
 
-            RectanglePipeline* pipeline = nullptr;
+            Pipeline* pipeline = nullptr;
             VertexBuffer* vertices = nullptr;
 
             Shared() {
@@ -34,10 +38,13 @@ export namespace Rev {
                 refCount++;
 
                 if (refCount > 1) { return; }
-
-                // Create resources
                 
-                pipeline = new RectanglePipeline(canvas->context);
+                pipeline = new Pipeline(canvas->context, {
+                    .openGlVert = Rectangle_vert,
+                    .openGlFrag = Rectangle_frag,
+                    .metalUniversal = Rectangle_metal
+                });
+
                 vertices = new VertexBuffer(canvas->context, 6, 2, 1);
             }
 
