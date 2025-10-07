@@ -354,12 +354,12 @@ export namespace Rev {
                 this->compute();
             }
         
-            shared.pipeline->bind(canvas->context);
-            font->texture->bind(canvas->context, 0);
-            font->glyphData->bind(canvas->context, 2);
+            shared.pipeline->bind();
+            font->texture->bind(0);
+            font->glyphData->bind(2);
 
-            vertices->bind(canvas->context);
-            databuff->bind(canvas->context, 1);
+            vertices->bind();
+            databuff->bind(1);
 
             canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, vertexCount);
         }

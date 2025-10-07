@@ -124,9 +124,9 @@ export namespace Rev {
 
             //compute();
          
-            shared.pipeline->bind(canvas->context);
-            shared.vertices->bind(canvas->context);
-            databuff->bind(canvas->context, 1);
+            shared.pipeline->bind();
+            shared.vertices->bind();
+            databuff->bind(1);
 
             canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
         }

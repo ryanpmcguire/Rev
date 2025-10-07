@@ -28,7 +28,7 @@ export namespace Rev {
         void run() {
 
             MSG msg = {0};
-        
+
             while (!windows.empty()) {
 
                 // This blocks until a message arrives

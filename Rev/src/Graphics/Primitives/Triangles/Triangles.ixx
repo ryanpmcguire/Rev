@@ -22,8 +22,6 @@ export namespace Rev {
 
             size_t refCount = 0;
 
-            Shader* vert = nullptr;
-            Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
 
             Shared() {
@@ -37,8 +35,6 @@ export namespace Rev {
                 if (refCount > 1) { return; }
 
                 // Create resources
-                vert = new Shader(canvas->context, Triangles_vert, Shader::Stage::Vertex);
-                frag = new Shader(canvas->context, Triangles_frag, Shader::Stage::Fragment);
                 pipeline = new Pipeline(canvas->context, {});
             }
 
@@ -49,8 +45,6 @@ export namespace Rev {
 
                 // Delete resources
                 delete pipeline;
-                delete vert;
-                delete frag;
             }
         };
 
@@ -93,8 +87,8 @@ export namespace Rev {
                 dirty = false;
             }
 
-            shared.pipeline->bind(canvas->context);
-            vertices->bind(canvas->context);
+            shared.pipeline->bind();
+            vertices->bind();
             canvas->drawArrays(Pipeline::Topology::TriangleList, 0, 3);
         }
     };

@@ -10,6 +10,7 @@ module;
 export module Rev.OpenGL.Canvas;
 
 import Rev.NativeWindow;
+import Rev.Graphics.RenderCommandEncoder;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
 
@@ -31,6 +32,7 @@ export namespace Rev {
         Details details;
         Flags flags;
 
+        void* context = nullptr;                        // Context is unused
         RenderCommandEncoder* encoder = nullptr;
         UniformBuffer* transform = nullptr;
 
@@ -47,7 +49,7 @@ export namespace Rev {
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
             encoder = new RenderCommandEncoder();
-            transform = new UniformBuffer(sizeof(glm::mat4));
+            transform = new UniformBuffer(context, sizeof(glm::mat4));
         }
 
         // Destroy
@@ -55,7 +57,7 @@ export namespace Rev {
             
         }
 
-        void draw() {
+        void beginFrame() {
             
             if (!window) { return; }
 
@@ -90,7 +92,7 @@ export namespace Rev {
             transform->bind(0);
         }
 
-        void flush() {
+        void endFrame() {
             window->swapBuffers();
         }
 

@@ -330,9 +330,9 @@ export namespace Rev {
         // When the content needs to be redrawn
         virtual void onRefresh() {
 
-            dbg("[Window] Refreshing");
+            //dbg("[Window] Refreshing");
 
-            this->draw(event);
+            //this->draw(event);
         }
 
         void onOpen() {
@@ -369,7 +369,7 @@ export namespace Rev {
         // When the window changes position
         virtual void onMove(int x, int y) {
 
-            dbg("[Window] Move: %i, %i", x, y);
+            //dbg("[Window] Move: %i, %i", x, y);
 
             this->details.x = x;
             this->details.y = y;
@@ -378,7 +378,7 @@ export namespace Rev {
         // When the window is resized
         virtual void onResize(int width, int height) {
 
-            dbg("[Window] Resize: %i, %i", width, height);
+            //dbg("[Window] Resize: %i, %i", width, height);
 
             details.width = width;
             details.height = height;

@@ -13,7 +13,7 @@ export namespace Rev {
         void* data = nullptr;
         size_t size = 0;
 
-        UniformBuffer(size_t size) {
+        UniformBuffer(void* context, size_t size) {
 
             this->size = size;
 

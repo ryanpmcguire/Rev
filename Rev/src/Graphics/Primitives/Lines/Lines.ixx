@@ -110,8 +110,8 @@ export namespace Rev {
                 dirty = false;
             }
 
-            shared.pipeline->bind(canvas->context);
-            vertices->bind(canvas->context);
+            shared.pipeline->bind();
+            vertices->bind();
             
             canvas->drawArrays(Pipeline::Topology::TriangleList, 0, vertexCount);
         }

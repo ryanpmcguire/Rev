@@ -16,7 +16,7 @@ export namespace Rev {
         GLuint id = 0;
 
         // Create
-        Texture(unsigned char* data, size_t width, size_t height, size_t channels)
+        Texture(void* context, unsigned char* data, size_t width, size_t height, size_t channels)
         : data(data), width(width), height(height), channels(channels) {
 
             // Determine format
