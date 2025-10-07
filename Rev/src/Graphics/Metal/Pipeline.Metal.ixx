@@ -21,6 +21,7 @@ export namespace Rev {
             TriangleFan
         };
 
+        void* context = nullptr;
         void* pipeline = nullptr;
         Shader* shader = nullptr;
 
@@ -38,8 +39,9 @@ export namespace Rev {
         // Create
         Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0) {
 
-            shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal);
+            this->context = context;
 
+            shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal);
             pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex);
         }
 
@@ -56,7 +58,7 @@ export namespace Rev {
             }
         }
 
-        void bind(void* context) {
+        void bind() {
             metal_bind_pipeline((MetalContext*)context, pipeline);
         }
     };

@@ -37,7 +37,7 @@ export namespace Rev {
             std::memcpy(data, value, size);
         }
 
-        void bind(void* context, size_t pos) {
+        void bind(size_t pos) {
             metal_bind_uniform_buffer((MetalContext*)context, buffer, pos + 10);
         }
 
