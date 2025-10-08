@@ -17,6 +17,7 @@ struct WinEvent {
     int64_t c, d;
 
     bool rejected = false;
+    void* subject = nullptr;
 
     void reject() {
         this->rejected = true;

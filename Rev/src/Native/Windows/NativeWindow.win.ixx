@@ -258,6 +258,15 @@ export namespace Rev {
             if (!handle) {
                 throw std::runtime_error("[NativeWindow] Failed to create window");
             }
+
+            // Set scale and notify parent
+            //--------------------------------------------------
+
+            UINT dpi = GetDpiForWindow(handle);
+            scale = dpi / 96.0f; // 96 DPI = 100% scaling
+
+            this->notifyEvent({ WinEvent::Type::Scale });
+            this->notifyEvent({ WinEvent::Type::Resize, 0, 0, size.w, size.h });
         }
 
         ~NativeWindow() {
@@ -275,7 +284,9 @@ export namespace Rev {
             SetWindowPos(handle, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
         }
 
+        // Notify listener callback of event
         WinEvent notifyEvent(WinEvent event) {
+            event.subject = this;
             if (callback) { callback(event); }
             return event;
         }
@@ -378,7 +389,6 @@ export namespace Rev {
                     switch (wp) {
                         case (SIZE_MINIMIZED): { self->notifyEvent({ WinEvent::Type::Minimize }); break; }
                         case (SIZE_MAXIMIZED): { self->notifyEvent({ WinEvent::Type::Maximize }); break; }
-                        case (SIZE_RESTORED): { self->notifyEvent({ WinEvent::Type::Restore }); break; }
                     }
   
                     return 0;
@@ -679,9 +689,10 @@ export namespace Rev {
                 0x2014 /*WGL_COLOR_BITS_ARB*/,     32,
                 0x2022 /*WGL_DEPTH_BITS_ARB*/,     24,
                 0x2023 /*WGL_STENCIL_BITS_ARB*/,   8,
-                // Optional nice-to-haves:
-                // 0x20A9 /*WGL_ACCELERATION_ARB*/,   0x2027 /*WGL_FULL_ACCELERATION_ARB*/,
-                // 0x2041 /*WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB*/, TRUE,
+
+                // --- MSAA additions ---
+                0x2041 /*WGL_SAMPLE_BUFFERS_ARB*/, 1,   // enable multisampling
+                0x2042 /*WGL_SAMPLES_ARB*/,        4,   // 4x MSAA (you can try 2, 4, 8)
                 0, 0
             };
 

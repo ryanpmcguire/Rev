@@ -148,13 +148,6 @@ export namespace Rev {
                     this->setPos(this->details.x, this->details.y);
                 });
             }
-
-            // Final
-            //--------------------------------------------------
-
-            this->draw(event);
-
-            this->draw(event);
         }
 
         // Destroy
@@ -299,7 +292,9 @@ export namespace Rev {
 
         virtual void onEvent(WinEvent& event) {
 
-            if (!window) { return; }
+            if (event.subject) {
+                window = (NativeWindow*)event.subject;
+            }
 
             switch (event.type) {
 
@@ -336,7 +331,7 @@ export namespace Rev {
 
             //dbg("[Window] Refreshing");
 
-            //this->draw(event);
+            this->draw(event);
         }
 
         void onOpen() {
@@ -392,7 +387,7 @@ export namespace Rev {
 
             topLevelDetails->canvas->flags.resize = true;
 
-            this->draw(event);
+            //this->draw(event);
         }
 
         virtual void onScale(float scale) {

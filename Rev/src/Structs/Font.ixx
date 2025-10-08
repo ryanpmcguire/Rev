@@ -34,7 +34,7 @@ export namespace Rev {
         FT_Face face = nullptr;
 
         // Font attributes
-        float scale = 1.0f;
+        float scale = 10.0f;
         float size = 12;
         int weight = 200;
         float ascent, descent;
@@ -104,7 +104,7 @@ export namespace Rev {
             }
 
             // Set pixel size
-            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(size))) {
+            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(scale * size))) {
                 throw std::runtime_error("Failed to set font pixel size");
             }
 
@@ -158,10 +158,10 @@ export namespace Rev {
         void getFontAttribs() {
 
             // Ascent, descent, line, etc...
-            ascent = face->size->metrics.ascender / 64.0f;
-            descent = fabs(face->size->metrics.descender / 64.0f);
-            lineGap = (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
-            lineHeight = face->size->metrics.height / 64.0f;
+            ascent = (1.0f / scale) * face->size->metrics.ascender / 64.0f;
+            descent = (1.0f / scale) * fabs(face->size->metrics.descender / 64.0f);
+            lineGap = (1.0f / scale) * (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
+            lineHeight = (1.0f / scale) * face->size->metrics.height / 64.0f;
 
             // Glyphs
             //--------------------------------------------------
@@ -185,11 +185,7 @@ export namespace Rev {
                     FT_Vector delta = { 0, 0 };
                     FT_Get_Kerning(face, left.index, right.index, FT_KERNING_DEFAULT, &delta);
                     
-                    right.kerning[left.index] = static_cast<float>(delta.x) / 64.0f;
-
-                    if (delta.x != 0) {
-                        bool test = true;
-                    }
+                    right.kerning[left.index] = (1.0f / scale) * static_cast<float>(delta.x) / 64.0f;
                 }
             }
         }
@@ -199,7 +195,7 @@ export namespace Rev {
         // being used to write said glyph at the correct position on the screen.
         void bake() {
             
-            const int padding = 1;
+            const int padding = 8;
             int penX = padding;
             int penY = padding;
             int rowHeight = 0;
@@ -212,7 +208,7 @@ export namespace Rev {
 
             for (char c = 32; c < 127; c++) {
 
-                if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
+                if (FT_Load_Char(face, c, FT_LOAD_RENDER | FT_LOAD_NO_HINTING)) {
                     continue;
                 }
 
@@ -241,9 +237,11 @@ export namespace Rev {
 
                 glyphs[c] = {
 
-                    .width = float(g->bitmap.width), .height = float(g->bitmap.rows),
-                    .bearingX = float(g->bitmap_left), .bearingY = float(g->bitmap_top),
-                    .advance = float(g->advance.x) / 64.0f,
+                    .width = (1.0f / scale) * float(g->bitmap.width),
+                    .height = (1.0f / scale) * float(g->bitmap.rows),
+                    .bearingX = (1.0f / scale) * float(g->bitmap_left),
+                    .bearingY = (1.0f / scale) * float(g->bitmap_top),
+                    .advance = (1.0f / scale) * float(g->advance.x) / 64.0f,
 
                     .u0 = float(penX) / bitmap.width,
                     .v0 = float(penY) / bitmap.height,
