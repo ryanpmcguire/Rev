@@ -38,7 +38,11 @@ export namespace Rev {
     
                 // Cleanup closed windows
                 for (auto it = windows.begin(); it != windows.end();) {
-                    if ((*it)->shouldClose) { delete *it; it = windows.erase(it); }
+
+                    if ((*it)->shouldClose) {
+                        delete *it; it = windows.erase(it);
+                    }
+                    
                     else { ++it; }
                 }
             }

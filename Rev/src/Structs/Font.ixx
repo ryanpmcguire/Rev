@@ -34,6 +34,7 @@ export namespace Rev {
         FT_Face face = nullptr;
 
         // Font attributes
+        float scale = 1.0f;
         float size = 12;
         int weight = 200;
         float ascent, descent;
@@ -210,18 +211,22 @@ export namespace Rev {
             std::memset(bitmap.data, 0, bitmap.size);
 
             for (char c = 32; c < 127; c++) {
-                if (FT_Load_Char(face, c, FT_LOAD_RENDER))
+
+                if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
                     continue;
+                }
 
                 FT_GlyphSlot g = face->glyph;
+
                 if (penX + g->bitmap.width + padding >= bitmap.width) {
                     penX = padding;
                     penY += rowHeight + padding;
                     rowHeight = 0;
                 }
 
-                if (penY + g->bitmap.rows >= bitmap.height)
+                if (penY + g->bitmap.rows >= bitmap.height) {
                     throw std::runtime_error("Font atlas overflowed");
+                }
 
                 // Copy glyph bitmap into atlas
                 for (int y = 0; y < g->bitmap.rows; y++) {
@@ -233,16 +238,18 @@ export namespace Rev {
                 }
 
                 Glyph& glyph = glyphs[c];
-                glyph.advance = static_cast<float>(g->advance.x) / 64.0f;
-                glyph.bearingX = static_cast<float>(g->bitmap_left);
-                glyph.bearingY = static_cast<float>(g->bitmap_top);
-                glyph.width = static_cast<float>(g->bitmap.width);
-                glyph.height = static_cast<float>(g->bitmap.rows);
 
-                glyph.u0 = static_cast<float>(penX) / bitmap.width;
-                glyph.v0 = static_cast<float>(penY) / bitmap.height;
-                glyph.u1 = static_cast<float>(penX + g->bitmap.width) / bitmap.width;
-                glyph.v1 = static_cast<float>(penY + g->bitmap.rows) / bitmap.height;
+                glyphs[c] = {
+
+                    .width = float(g->bitmap.width), .height = float(g->bitmap.rows),
+                    .bearingX = float(g->bitmap_left), .bearingY = float(g->bitmap_top),
+                    .advance = float(g->advance.x) / 64.0f,
+
+                    .u0 = float(penX) / bitmap.width,
+                    .v0 = float(penY) / bitmap.height,
+                    .u1 = float(penX + g->bitmap.width) / bitmap.width,
+                    .v1 = float(penY + g->bitmap.rows) / bitmap.height
+                };
 
                 penX += g->bitmap.width + padding;
                 rowHeight = std::max(rowHeight, static_cast<int>(g->bitmap.rows));

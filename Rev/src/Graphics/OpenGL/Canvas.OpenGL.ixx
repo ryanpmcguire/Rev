@@ -25,6 +25,7 @@ export namespace Rev {
 
         struct Details {
             int width, height;
+            float scale = 1.0f;
         };
 
         NativeWindow* window = nullptr;
@@ -67,13 +68,14 @@ export namespace Rev {
                 // Get width and height from window size
                 details.width = window->size.w;
                 details.height = window->size.h;
+                details.scale = window->scale;
 
                 glViewport(0, 0, details.width, details.height);
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,           // left
-                    static_cast<float>(details.width),   // right
-                    static_cast<float>(details.height),  // bottom
+                    static_cast<float>(details.width) / details.scale,   // right
+                    static_cast<float>(details.height) / details.scale,  // bottom
                     0.0f,           // top (flipped for top-left origin)
                     -1.0f,          // near
                     1.0f            // far

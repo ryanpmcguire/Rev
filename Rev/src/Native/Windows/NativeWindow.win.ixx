@@ -8,6 +8,7 @@ module;
 // Win32
 #include <windowsx.h>
 #include <windows.h>
+#include <shellscalingapi.h>
 
 // Misc
 #include <glew/glew.h>
@@ -187,11 +188,40 @@ export namespace Rev {
         EventCallback callback;
         
         Size size;
+        float scale = 1.0f;
 
         NativeWindow(void* parent, Size size = { 600, 400, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
             
             this->size = size;
             this->callback = callback;
+
+            // --------------------------------------------------
+            // Enable Per-Monitor DPI Awareness once per process
+            // --------------------------------------------------
+            static bool dpiAwareSet = false;
+            if (!dpiAwareSet) {
+
+                dpiAwareSet = true;
+
+                // Prefer modern API if available (Win10+)
+                if (SetProcessDpiAwarenessContext) {
+                    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+                }
+                
+                else {
+                    // Fallback (Win8.1)
+                    HMODULE shcore = LoadLibraryW(L"Shcore.dll");
+                    if (shcore) {
+                        using SetProcDpiAwareFn = HRESULT(WINAPI*)(PROCESS_DPI_AWARENESS);
+                        auto fn = reinterpret_cast<SetProcDpiAwareFn>(
+                            GetProcAddress(shcore, "SetProcessDpiAwareness"));
+                        if (fn) fn(PROCESS_PER_MONITOR_DPI_AWARE);
+                        FreeLibrary(shcore);
+                    } else {
+                        SetProcessDPIAware(); // legacy fallback
+                    }
+                }
+            }
 
             // Register window class
             //--------------------------------------------------
@@ -351,6 +381,35 @@ export namespace Rev {
                         case (SIZE_RESTORED): { self->notifyEvent({ WinEvent::Type::Restore }); break; }
                     }
   
+                    return 0;
+                }
+
+                case (WM_DPICHANGED): {
+
+                    UINT dpiX = HIWORD(wp);
+                    UINT dpiY = LOWORD(wp);
+
+                    RECT* const suggestedRect = reinterpret_cast<RECT*>(lp);
+
+                    SetWindowPos(
+                        h, nullptr,
+                        suggestedRect->left, suggestedRect->top,
+                        suggestedRect->right - suggestedRect->left,
+                        suggestedRect->bottom - suggestedRect->top,
+                        SWP_NOZORDER | SWP_NOACTIVATE
+                    );
+
+                    float scaleX = dpiX / 96.0f;
+                    float scaleY = dpiY / 96.0f;
+
+                    self->scale = scaleX;
+
+                    self->notifyEvent({
+                        WinEvent::Type::Scale,
+                        0, 0,
+                        (int)(scaleX * 100), (int)(scaleY * 100)
+                    });
+
                     return 0;
                 }
 

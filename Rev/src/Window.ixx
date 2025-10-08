@@ -26,6 +26,7 @@ export namespace Rev {
 
             std::string name = "Hello World";
             
+            float scale = 1.0f;
             int width = 640, height = 480;
             int x = 0, y = 0;
 
@@ -298,6 +299,8 @@ export namespace Rev {
 
         virtual void onEvent(WinEvent& event) {
 
+            if (!window) { return; }
+
             switch (event.type) {
 
                 case (WinEvent::Create): { this->onOpen(); break; }
@@ -312,6 +315,7 @@ export namespace Rev {
                 case (WinEvent::Maximize): { this->onMaximize(); break; }
                 case (WinEvent::Minimize): { this->onMinimize(); break; }
                 case (WinEvent::Restore): { this->onRestore(); break; }
+                case (WinEvent::Scale): { this->onScale(window->scale); break; }
 
                 case (WinEvent::Paint): { this->onRefresh(); break; }
 
@@ -380,17 +384,25 @@ export namespace Rev {
 
             //dbg("[Window] Resize: %i, %i", width, height);
 
-            details.width = width;
-            details.height = height;
+            details.width = width / window->scale;
+            details.height = height / window->scale;
 
             if (!topLevelDetails) { return; }
             if (!topLevelDetails->canvas) { return; }
 
-            topLevelDetails->canvas->details.width = width;
-            topLevelDetails->canvas->details.height = height;
             topLevelDetails->canvas->flags.resize = true;
 
             this->draw(event);
+        }
+
+        virtual void onScale(float scale) {
+
+            dbg("[Window] scale");
+
+            details.scale = scale;
+
+            details.width = window->size.w / scale;
+            details.height = window->size.h / scale;
         }
 
         // Mouse/keyboard callbacks (window only)
