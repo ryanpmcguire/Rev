@@ -316,7 +316,7 @@ export namespace Rev {
             size_t max = vertices->num; // total available vertex slots
             size_t count = 0;
 
-            data->pos = { xPos, yPos };
+            data->pos = { std::round(xPos), std::round(yPos) };
 
             float x = xPos;
             float y = yPos + font->ascent;

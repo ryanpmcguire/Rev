@@ -34,8 +34,8 @@ export namespace Rev {
         FT_Face face = nullptr;
 
         // Font attributes
-        float scale = 10.0f;
-        float size = 12;
+        float scale = 1.0f;
+        float size = 12.0f;
         int weight = 200;
         float ascent, descent;
         float lineGap, lineHeight;
@@ -208,7 +208,7 @@ export namespace Rev {
 
             for (char c = 32; c < 127; c++) {
 
-                if (FT_Load_Char(face, c, FT_LOAD_RENDER | FT_LOAD_NO_HINTING)) {
+                if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
                     continue;
                 }
 

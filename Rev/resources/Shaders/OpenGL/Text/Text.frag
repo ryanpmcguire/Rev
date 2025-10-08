@@ -13,6 +13,11 @@ layout(std140, binding = 1) uniform Data {
 };
 
 void main() {
+
     float alpha = texture(tex, fragUV).r;
-    FragColor = vec4(color.rgb, alpha);
+
+    // apply gamma correction to restore perceptual contrast
+    float boosted = smoothstep(0.0, 0.8, alpha); // steeper top end
+
+    FragColor = vec4(color.rgb, boosted);
 }
