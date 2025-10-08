@@ -53,7 +53,7 @@ find "$INPUT_DIR" -type f ! -path "$OUTPUT_DIR/*" | while read -r FILE; do
 
     # 🟢 Skip unchanged files quickly
     if [[ -f "$OUT_FILE" && "$FILE" -ot "$OUT_FILE" ]]; then
-        echo "✅ Skipping unchanged: $REL_PATH"
+        #echo "✅ Skipping unchanged: $REL_PATH"
         continue
     fi
 

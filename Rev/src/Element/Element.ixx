@@ -65,7 +65,7 @@ export namespace Rev {
         ~Element() {
 
             // Remove all children
-            for (Element* child : children) { delete child; }
+            for (Element* child : children) { if (child) { delete child; } }
             children.clear();
         }
 

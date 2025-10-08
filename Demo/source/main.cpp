@@ -5,7 +5,7 @@ import Rev.Application;
 import Rev.Window;
 import Rev.Box;
 
-import Interface;
+import MacInterface;
 
 using namespace Rev;
 using namespace HelloWorld;
@@ -17,7 +17,7 @@ int main() {
         Application* application = new Application();
         Window* window = new Window(application->windows);
 
-        //Interface* interface = new Interface(window);
+        MacInterface* interface = new MacInterface(window);
 
         application->run();
 

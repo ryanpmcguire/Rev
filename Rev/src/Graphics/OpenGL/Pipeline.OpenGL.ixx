@@ -8,6 +8,7 @@ module;
 
 export module Rev.OpenGL.Pipeline;
 
+import Resource;
 import Rev.OpenGL.Shader;
 
 export namespace Rev {
@@ -21,12 +22,29 @@ export namespace Rev {
 
         GLuint id = 0;
 
+        Shader* vert = nullptr;
+        Shader* frag = nullptr;
+
+        struct PipelineParams {
+
+            Resource openGlVert;
+            Resource openGlFrag;
+
+            Resource metalUniversal;
+
+            Resource vulkanVert;
+            Resource vulkanFrag;
+        };
+
         // Create
-        Pipeline(Shader& vert, Shader& frag) {
+        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0) {
             
+            vert = new Shader(params.openGlVert, Shader::Stage::Vertex);
+            frag = new Shader(params.openGlFrag, Shader::Stage::Fragment);
+
             id = glCreateProgram();
-            glAttachShader(id, vert.shader);
-            glAttachShader(id, frag.shader);
+            glAttachShader(id, vert->shader);
+            glAttachShader(id, frag->shader);
             glLinkProgram(id);
 
             GLint success;

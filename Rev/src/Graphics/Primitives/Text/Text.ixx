@@ -3,7 +3,6 @@ module;
 #include <cmath>
 #include <vector>
 #include <string>
-#include <glew/glew.h>
 
 export module Rev.Graphics.Text;
 
@@ -13,11 +12,14 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
-import Resources.Shaders.OpenGL.Text.Text_vert;
-import Resources.Shaders.OpenGL.Text.Text_frag;
 
 import Rev.Font;
 import Resources.Fonts.Arial.Arial_ttf;
+
+// Shader resources
+import Resources.Shaders.OpenGL.Text.Text_vert;
+import Resources.Shaders.OpenGL.Text.Text_frag;
+import Resources.Shaders.Metal.Text.Text_metal;
 
 export namespace Rev {
 
@@ -41,14 +43,19 @@ export namespace Rev {
                 
             }
 
-            void create() {
+            void create(Canvas* canvas) {
 
                 refCount++;
 
-                // Create resources
-                vert = new Shader(Text_vert, Shader::Stage::Vertex);
-                frag = new Shader(Text_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(*(vert), *(frag));
+                if (refCount > 1) { return; }
+
+                pipeline = new Pipeline(canvas->context, {
+                    
+                    .openGlVert = Text_vert,
+                    .openGlFrag = Text_frag,
+
+                    .metalUniversal = Text_metal
+                }, 4);
             }
 
             void destroy() {
@@ -58,8 +65,6 @@ export namespace Rev {
 
                 // Delete resources
                 delete pipeline;
-                delete vert;
-                delete frag;
             }
         };
 
@@ -113,13 +118,15 @@ export namespace Rev {
         float yPos = 0;
 
         // Create
-        Text() {
+        Text(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create();
+            shared.create(canvas);
 
-            font = new Font();
-            vertices = new VertexBuffer(100, sizeof(CharVertex), 1);
-            databuff = new UniformBuffer(sizeof(Data));
+            this->content = content;
+
+            font = new Font(canvas);
+            vertices = new VertexBuffer(canvas->context, 100, sizeof(CharVertex), 1);
+            databuff = new UniformBuffer(canvas->context, sizeof(Data));
 
             data = static_cast<Data*>(databuff->data);
             *data = {
@@ -236,7 +243,7 @@ export namespace Rev {
             // Ensure font size matches
             if (font->size != fontSize) {
                 delete font;
-                font = new Font(Arial_ttf, fontSize);
+                font = new Font(canvas, Arial_ttf, fontSize);
             }
 
             // Layout text
@@ -299,7 +306,7 @@ export namespace Rev {
             // Ensure font size matches
             if (font->size != fontSize) {
                 delete font;
-                font = new Font(Arial_ttf, fontSize);
+                font = new Font(canvas, Arial_ttf, fontSize);
             }
 
             // Prepare vertices
@@ -348,7 +355,7 @@ export namespace Rev {
             }
         
             shared.pipeline->bind();
-            font->texture->bind(0);  // bind to GL_TEXTURE0
+            font->texture->bind(0);
             font->glyphData->bind(2);
 
             vertices->bind();

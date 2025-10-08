@@ -3,7 +3,7 @@ module;
 #include <cmath>
 #include <vector>
 #include <glew/glew.h>
-#include "./Utils/TriangulatePolyline.hpp"
+#include "./TriangulatePolyline.hpp"
 
 export module Rev.Graphics.Lines;
 
@@ -24,22 +24,19 @@ export namespace Rev {
 
             size_t refCount = 0;
 
-            Shader* vert = nullptr;
-            Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
 
             Shared() {
                 
             }
 
-            void create() {
+            void create(Canvas* canvas) {
 
                 refCount++;
 
-                // Create resources
-                vert = new Shader(Lines_vert, Shader::Stage::Vertex);
-                frag = new Shader(Lines_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(*(vert), *(frag));
+                if (refCount > 1) { return; }
+
+                pipeline = new Pipeline(canvas->context, {});
             }
 
             void destroy() {
@@ -49,8 +46,6 @@ export namespace Rev {
 
                 // Delete resources
                 delete pipeline;
-                delete vert;
-                delete frag;
             }
         };
 
@@ -64,18 +59,18 @@ export namespace Rev {
         std::vector<Point> points;
 
         // Create
-        Lines(size_t num) {
+        Lines(Canvas* canvas, size_t num) : Primitive(canvas) {
 
             this->num = num;
 
-            shared.create();
+            shared.create(canvas);
 
             maxTriangles = 4 * num - 2;
             maxVertices = maxTriangles * 3;
 
             // Num points, 6 * num points for quads
             points.resize(num);
-            vertices = new VertexBuffer(2 * 6 * (points.size() - 1));
+            vertices = new VertexBuffer(canvas->context, 2 * 6 * (points.size() - 1));
         }
 
         // Destroy

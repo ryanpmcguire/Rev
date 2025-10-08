@@ -3,6 +3,8 @@ module;
 #include <string>
 #include <stdexcept>
 
+#include "./Helpers/MetalBackend.hpp"
+
 export module Rev.Metal.Shader;
 
 import Resource;
@@ -13,18 +15,30 @@ export namespace Rev {
 
         enum Stage {
             Vertex,
-            Fragment
+            Fragment,
+            Universal
         };
 
         //GLuint shader = 0;
 
+        void* shader = nullptr;
+
         // Create
-        Shader(Resource shaderFile, Stage shaderType) {
+        Shader(void* context, Resource shaderFile, Stage shaderType) {
 
-            /*const char* srcStr = reinterpret_cast<const char*>(shaderFile.data);
-            GLint srcLen = static_cast<GLint>(shaderFile.size);
+            const char* srcStr = reinterpret_cast<const char*>(shaderFile.data);
 
-            shader = glCreateShader(shaderType);
+            shader = metal_create_shader(
+                (MetalContext*)context,
+                reinterpret_cast<const char*>(shaderFile.data),
+                shaderFile.size
+            );
+
+            if (!shader) {
+                throw std::runtime_error("Failed to create shader!");
+            }
+
+            /*shader = glCreateShader(shaderType);
 
             glShaderSource(shader, 1, &srcStr, &srcLen);
 
@@ -46,6 +60,11 @@ export namespace Rev {
 
         // Destroy
         ~Shader() {
+
+            if (shader) {
+                metal_destroy_shader(shader);
+                shader = nullptr;
+            }
 
             // Shader no longer needed after linking
             //glDeleteShader(shader);

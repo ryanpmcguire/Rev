@@ -3,6 +3,8 @@ module;
 #include <cstddef>
 #include <cstring>
 
+#include "./Helpers/MetalBackend.hpp"
+
 export module Rev.Metal.UniformBuffer;
 
 export namespace Rev {
@@ -10,48 +12,33 @@ export namespace Rev {
     struct UniformBuffer {
 
         //GLuint bufferID = 0;
+        void* context = nullptr;
+        void* buffer = nullptr;
         void* data = nullptr;
         size_t size = 0;
 
-        UniformBuffer(size_t size) {
+        UniformBuffer(void* context, size_t size) {
 
             this->size = size;
+            this->context = context;
 
-            /*glGenBuffers(1, &bufferID);
-            glBindBuffer(GL_UNIFORM_BUFFER, bufferID);
-
-            glBufferStorage(GL_UNIFORM_BUFFER, size, nullptr,
-                GL_MAP_WRITE_BIT |
-                GL_MAP_PERSISTENT_BIT |
-                GL_MAP_COHERENT_BIT
-            );
-
-            data = glMapBufferRange(GL_UNIFORM_BUFFER, 0, size,
-                GL_MAP_WRITE_BIT |
-                GL_MAP_PERSISTENT_BIT |
-                GL_MAP_COHERENT_BIT
-            );
-
-            glBindBuffer(GL_UNIFORM_BUFFER, 0);*/
+            // Create buffer, map data
+            buffer = metal_create_uniform_buffer((MetalContext*)context, size);
+            data = metal_map_uniform_buffer(buffer);
         }
 
         ~UniformBuffer() {
-            /*if (data) {
-                glBindBuffer(GL_UNIFORM_BUFFER, bufferID);
-                glUnmapBuffer(GL_UNIFORM_BUFFER);
-            }
 
-            if (bufferID) {
-                glDeleteBuffers(1, &bufferID);
-            }*/
+            metal_destroy_uniform_buffer(buffer);
+            data = nullptr;
         }
 
         void set(void* value) {
-            //memcpy(data, value, size);
+            std::memcpy(data, value, size);
         }
 
         void bind(size_t pos) {
-            //glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, bufferID);
+            metal_bind_uniform_buffer((MetalContext*)context, buffer, pos + 10);
         }
 
         void unbind() {

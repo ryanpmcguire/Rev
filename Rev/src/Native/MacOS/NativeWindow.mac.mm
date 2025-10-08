@@ -58,6 +58,11 @@
 
             NSNotificationCenter* nc = [NSNotificationCenter defaultCenter];
 
+            if (self.acceptor) {
+                WinEvent ev { WinEvent::Create, 0, 0, 0, 0 };
+                self.acceptor(self.userData, ev);
+            }
+
             [nc addObserver:self selector:@selector(windowDidMiniaturize:)
                     name:NSWindowDidMiniaturizeNotification object:self.window];
 

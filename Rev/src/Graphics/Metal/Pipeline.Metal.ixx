@@ -1,11 +1,15 @@
 module;
 
 #include <string>
+#include <vector>
 #include <stdexcept>
 #include <dbg.hpp>
 
+#include "./Helpers/MetalBackend.hpp"
+
 export module Rev.Metal.Pipeline;
 
+import Resource;
 import Rev.Metal.Shader;
 
 export namespace Rev {
@@ -17,38 +21,45 @@ export namespace Rev {
             TriangleFan
         };
 
-        //GLuint id = 0;
+        void* context = nullptr;
+        void* pipeline = nullptr;
+        Shader* shader = nullptr;
+
+        struct PipelineParams {
+
+            Resource openGlVert;
+            Resource openGlFrag;
+
+            Resource metalUniversal;
+
+            Resource vulkanVert;
+            Resource vulkanFrag;
+        };
 
         // Create
-        Pipeline(Shader& vert, Shader& frag) {
-            
-            /*id = glCreateProgram();
-            glAttachShader(id, vert.shader);
-            glAttachShader(id, frag.shader);
-            glLinkProgram(id);
+        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0) {
 
-            GLint success;
-            glGetProgramiv(id, GL_LINK_STATUS, &success);*/
+            this->context = context;
 
-            /*if (!success) {
-
-                char infoLog[512];
-                glGetProgramInfoLog(id, 512, nullptr, infoLog);
-                
-                throw std::runtime_error(std::string("Pipeline link error: ") + infoLog);
-            }*/
+            shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal);
+            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex);
         }
 
         // Destroy
         ~Pipeline() {
 
-            /*if (id) {
-                glDeleteProgram(id);
-            }*/
+            if (shader) {
+                delete shader;
+            }
+
+            if (pipeline) {
+                metal_destroy_pipeline(pipeline);
+                pipeline = nullptr;
+            }
         }
 
         void bind() {
-            //glUseProgram(id);
+            metal_bind_pipeline((MetalContext*)context, pipeline);
         }
     };
 };

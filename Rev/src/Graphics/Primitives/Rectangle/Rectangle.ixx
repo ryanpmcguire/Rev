@@ -1,16 +1,19 @@
 module;
 
-#include <vector>
-//#include <glew/glew.h>
+#include <cstddef>
 
 export module Rev.Graphics.Rectangle;
 
+// Rev graphics modules
 import Rev.Graphics.Canvas;
 import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
+
+// Shader resources
+import Resources.Shaders.Metal.Rectangle.Rectangle_metal;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
@@ -23,8 +26,6 @@ export namespace Rev {
 
             size_t refCount = 0;
 
-            Shader* vert = nullptr;
-            Shader* frag = nullptr;
             Pipeline* pipeline = nullptr;
             VertexBuffer* vertices = nullptr;
 
@@ -32,15 +33,19 @@ export namespace Rev {
                 
             }
 
-            void create() {
+            void create(Canvas* canvas) {
 
                 refCount++;
 
-                // Create resources
-                vert = new Shader(Rectangle_vert, Shader::Stage::Vertex);
-                frag = new Shader(Rectangle_frag, Shader::Stage::Fragment);
-                pipeline = new Pipeline(*(vert), *(frag));
-                vertices = new VertexBuffer(4, 2, 1);
+                if (refCount > 1) { return; }
+                
+                pipeline = new Pipeline(canvas->context, {
+                    .openGlVert = Rectangle_vert,
+                    .openGlFrag = Rectangle_frag,
+                    .metalUniversal = Rectangle_metal
+                });
+
+                vertices = new VertexBuffer(canvas->context, 6, 2, 1);
             }
 
             void destroy() {
@@ -51,8 +56,6 @@ export namespace Rev {
                 // Delete resources
                 delete vertices;
                 delete pipeline;
-                delete vert;
-                delete frag;
             }
         };
 
@@ -77,12 +80,12 @@ export namespace Rev {
         bool dirty = true;
 
         // Create
-        Rectangle() {
+        Rectangle(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create();
+            shared.create(canvas);
 
             //vertices = new VertexBuffer(4);
-            databuff = new UniformBuffer(sizeof(Data));
+            databuff = new UniformBuffer(canvas->context, sizeof(Data));
             
             data = static_cast<Data*>(databuff->data);
 
@@ -112,18 +115,20 @@ export namespace Rev {
             float b = t + data.rect.h;
 
             vertices->set({
-                {l, t}, {r, t},
-                {r, b}, {l, b}
+                {l, t}, {r, t}, {l, b}, 
+                {l, b}, {r, t}, {r, b}
             });*/
         }
 
         void draw(Canvas* canvas) override {
+
+            //compute();
          
             shared.pipeline->bind();
             shared.vertices->bind();
             databuff->bind(1);
 
-            canvas->drawArraysInstanced(Pipeline::Topology::TriangleFan, 0, 4, 1);
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
         }
     };
 };
