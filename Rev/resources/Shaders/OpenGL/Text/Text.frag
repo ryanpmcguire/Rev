@@ -14,10 +14,14 @@ layout(std140, binding = 1) uniform Data {
 
 void main() {
 
-    float alpha = texture(tex, fragUV).r;
+    float a = texture(tex, fragUV).r;
 
-    // apply gamma correction to restore perceptual contrast
-    float boosted = smoothstep(0.0, 0.8, alpha); // steeper top end
+    // --- Hard contrast reconstruction ---
+    // Center threshold around 0.5 with a very narrow blend band
+    const float lo = 0.1;
+    const float hi  = 0.75;
 
-    FragColor = vec4(color.rgb, boosted);
+    float punchy = smoothstep(lo, hi, a);
+
+    FragColor = vec4(color.rgb, punchy * color.a);
 }

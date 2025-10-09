@@ -35,6 +35,9 @@ export namespace Rev {
 
         // Font attributes
         float scale = 1.0f;
+        const int padding = 4;
+        const float rPadding = 0;
+
         float size = 12.0f;
         int weight = 200;
         float ascent, descent;
@@ -194,14 +197,13 @@ export namespace Rev {
         // which can be fed to the GPU, and for each glyph the texture coordinates thereof
         // being used to write said glyph at the correct position on the screen.
         void bake() {
-            
-            const int padding = 8;
+        
             int penX = padding;
             int penY = padding;
             int rowHeight = 0;
 
-            bitmap.width = 4096;
-            bitmap.height = 4096;
+            bitmap.width = 1024;
+            bitmap.height = 1024;
             bitmap.size = bitmap.width * bitmap.height;
             bitmap.data = new unsigned char[bitmap.size];
             std::memset(bitmap.data, 0, bitmap.size);
@@ -243,10 +245,10 @@ export namespace Rev {
                     .bearingY = (1.0f / scale) * float(g->bitmap_top),
                     .advance = (1.0f / scale) * float(g->advance.x) / 64.0f,
 
-                    .u0 = float(penX) / bitmap.width,
-                    .v0 = float(penY) / bitmap.height,
-                    .u1 = float(penX + g->bitmap.width) / bitmap.width,
-                    .v1 = float(penY + g->bitmap.rows) / bitmap.height
+                    .u0 = (float(penX) - scale * rPadding) / bitmap.width,
+                    .v0 = (float(penY) - scale * rPadding) / bitmap.height,
+                    .u1 = (float(penX + g->bitmap.width) + scale * rPadding) / bitmap.width,
+                    .v1 = (float(penY + g->bitmap.rows) + scale * rPadding)/ bitmap.height
                 };
 
                 penX += g->bitmap.width + padding;
@@ -298,10 +300,10 @@ export namespace Rev {
             float penX = 0.0f;
             float penY = 0.0f;
         
-            float x0 = penX + g.bearingX;
-            float y0 = penY - g.bearingY;
-            float x1 = x0 + g.width;
-            float y1 = y0 + g.height;
+            float x0 = penX + g.bearingX - scale * rPadding;
+            float y0 = penY - g.bearingY - scale * rPadding;
+            float x1 = x0 + g.width + 2.0f * scale * rPadding;
+            float y1 = y0 + g.height + 2.0f * scale * rPadding;
         
             return {
                 .x0 = x0, .y0 = y0, .s0 = g.u0, .t0 = g.v0,

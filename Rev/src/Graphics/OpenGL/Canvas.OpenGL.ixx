@@ -89,6 +89,7 @@ export namespace Rev {
             glEnable(GL_MULTISAMPLE);
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glBlendColor(1.0f, 1.0f, 1.0f, 1.0f);
             glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
             glClear(GL_COLOR_BUFFER_BIT);
 
