@@ -10,7 +10,6 @@ module;
 export module Rev.OpenGL.Canvas;
 
 import Rev.NativeWindow;
-import Rev.Graphics.RenderCommandEncoder;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
 
@@ -34,7 +33,6 @@ export namespace Rev {
         Flags flags;
 
         void* context = nullptr;                        // Context is unused
-        RenderCommandEncoder* encoder = nullptr;
         UniformBuffer* transform = nullptr;
 
         // Create
@@ -49,7 +47,6 @@ export namespace Rev {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-            encoder = new RenderCommandEncoder();
             transform = new UniformBuffer(context, sizeof(glm::mat4));
         }
 
@@ -92,10 +89,6 @@ export namespace Rev {
             glBlendColor(1.0f, 1.0f, 1.0f, 1.0f);
             glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
             glClear(GL_COLOR_BUFFER_BIT);
-
-            GLint samples = 0;
-            glGetIntegerv(GL_SAMPLES, &samples);
-            dbg("MSAA samples: %d\n", samples);
 
             transform->bind(0);
         }

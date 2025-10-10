@@ -102,6 +102,7 @@ export namespace Rev {
         void unifiedConstructor() {
 
             topLevelDetails = new TopLevelDetails();
+            topLevelDetails->event = &event;
 
             // Canvas
             //--------------------------------------------------
@@ -218,7 +219,13 @@ export namespace Rev {
             Element::computeStyle(e);
         }
 
+        void refresh(Event& e) override {
+            window->requestFrame();
+        }
+
         void draw(Event& e) override {
+
+            dbg("Drawing");
 
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();
@@ -242,9 +249,7 @@ export namespace Rev {
 
             topLevelDetails->canvas->endFrame();
 
-            /*if (e.causedRefresh) {
-                draw(e);
-            }*/
+            Element::draw(e);
         }
 
         // Controlling window
@@ -312,7 +317,7 @@ export namespace Rev {
                 case (WinEvent::Restore): { this->onRestore(); break; }
                 case (WinEvent::Scale): { this->onScale(window->scale); break; }
 
-                case (WinEvent::Paint): { this->onRefresh(); break; }
+                case (WinEvent::Paint): { this->draw(this->event); break; }
 
                 case (WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
                 case (WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
@@ -325,14 +330,6 @@ export namespace Rev {
 
         // Overridable callbacks
         //--------------------------------------------------
-
-        // When the content needs to be redrawn
-        virtual void onRefresh() {
-
-            //dbg("[Window] Refreshing");
-
-            this->draw(event);
-        }
 
         void onOpen() {
             dbg("[Window] Open");
@@ -387,9 +384,7 @@ export namespace Rev {
 
             topLevelDetails->canvas->flags.resize = true;
 
-            this->onRefresh();
-            
-            //this->draw(event);
+            this->refresh(event);
         }
 
         virtual void onScale(float scale) {
@@ -429,7 +424,7 @@ export namespace Rev {
             }
 
             if (event.causedRefresh) {
-                this->draw(event);
+                this->refresh(event);
             }
         }
 
@@ -452,7 +447,7 @@ export namespace Rev {
             }
 
             if (event.causedRefresh) {
-                this->draw(event);
+                this->refresh(event);
             }
         }
 
@@ -469,7 +464,7 @@ export namespace Rev {
             this->mouseWheel(event);
             
             if (event.causedRefresh) {
-                this->draw(event);
+                this->refresh(event);
             }
         }
 

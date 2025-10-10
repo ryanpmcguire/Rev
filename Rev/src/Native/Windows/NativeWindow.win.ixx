@@ -189,6 +189,7 @@ export namespace Rev {
         
         Size size;
         float scale = 1.0f;
+        bool dirty = false;
 
         NativeWindow(void* parent, Size size = { 600, 400, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
             
@@ -284,6 +285,15 @@ export namespace Rev {
             SetWindowPos(handle, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
         }
 
+        void requestFrame() {
+            
+            // If already dirty, do not re-dirty
+            if (dirty) { return; }
+            dirty = true;
+
+            InvalidateRect(handle, nullptr, FALSE);
+        }
+
         // Notify listener callback of event
         WinEvent notifyEvent(WinEvent event) {
             event.subject = this;
@@ -375,8 +385,6 @@ export namespace Rev {
                 // When the window is resized
                 case (WM_SIZE): {
 
-                    InvalidateRect(h, nullptr, FALSE);
-
                     self->size.w = LOWORD(lp);
                     self->size.h = HIWORD(lp);
 
@@ -447,6 +455,8 @@ export namespace Rev {
 
                 case (WM_PAINT): {
 
+                    self->dirty = true;
+
                     PAINTSTRUCT ps;
                     HDC dc = BeginPaint(h, &ps);
 
@@ -455,6 +465,8 @@ export namespace Rev {
                     });
 
                     EndPaint(h, &ps);
+
+                    self->dirty = false;
                     
                     return 0;
                 }

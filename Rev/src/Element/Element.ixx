@@ -26,6 +26,7 @@ export namespace Rev {
             //WebGpu::Surface* surface;
             std::vector<Element*> dirtyElements;
             Canvas* canvas = nullptr;
+            Event* event = nullptr;
         };
 
         TopLevelDetails* topLevelDetails = nullptr;
@@ -43,7 +44,7 @@ export namespace Rev {
         std::vector<Style*> styles;
         
         Computed computed;
-        bool dirty = true;
+        bool dirty = false;
         int draws = 0;
 
         // Create
@@ -55,7 +56,7 @@ export namespace Rev {
 
                 parent->children.push_back(this);
                 topLevelDetails = parent->topLevelDetails;
-                topLevelDetails->dirtyElements.push_back(this);
+                this->refresh(*topLevelDetails->event);
             }
 
             this->name = name;
@@ -142,6 +143,9 @@ export namespace Rev {
         virtual void draw(Event& e) {
 
             draws += 1;
+
+            // Draw = no longer dirty
+            this->dirty = false;
         }
 
         // Layout
@@ -731,11 +735,13 @@ export namespace Rev {
 
         virtual void refresh(Event& e) {
 
-            // Set self
-            this->dirty = true;
-            e.causedRefresh = true;
-            topLevelDetails->dirtyElements.push_back(this);
+            if (!this->dirty) {
 
+                this->dirty = true;
+                e.causedRefresh = true;
+                topLevelDetails->dirtyElements.push_back(this);
+            }
+    
             // Propagate upwards
             if (parent && !parent->dirty) { parent->refresh(e); }
         }
@@ -745,7 +751,6 @@ export namespace Rev {
             // Mouse down event means we are a drag target
             if (!targetFlags.drag) {
                 targetFlags.drag = true;
-                refresh(e);
             }
 
             // Tell event listeners
@@ -773,7 +778,6 @@ export namespace Rev {
             // Mouseup means dragging must end
             if (targetFlags.drag) {
                 targetFlags.drag = false;
-                refresh(e);
             }
 
             // Stop if listener does not pass "continue" flag
@@ -827,7 +831,6 @@ export namespace Rev {
 
             if (!targetFlags.hover) {
                 targetFlags.hover = true;
-                refresh(e);
             }
 
             // Tell event listeners
@@ -852,7 +855,6 @@ export namespace Rev {
 
             if (targetFlags.hover) {
                 targetFlags.hover = false;
-                refresh(e);
             }
 
             tell(&Element::mouseLeave, e);
