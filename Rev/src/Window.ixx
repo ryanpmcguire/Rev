@@ -225,7 +225,7 @@ export namespace Rev {
 
         void draw(Event& e) override {
 
-            dbg("Drawing");
+            //dbg("Drawing");
 
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();
@@ -431,7 +431,7 @@ export namespace Rev {
         // When the mouse moves
         void onCursorPos(float x, float y) {
 
-            dbg("CursorPos");
+            //dbg("CursorPos");
 
             event.mouse.pos = { x, y };
             event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;

@@ -67,18 +67,20 @@ export namespace Rev {
                 details.height = window->size.h;
                 details.scale = window->scale;
 
-                glViewport(0, 0, details.width, details.height);
+                glViewport(0, 0, (GLint)std::round(details.width), (GLint)std::round(details.height));
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,           // left
-                    static_cast<float>(details.width) / details.scale,   // right
-                    static_cast<float>(details.height) / details.scale,  // bottom
+                    static_cast<float>(details.width) / details.scale - 0.5f,   // right
+                    static_cast<float>(details.height) / details.scale - 0.5f,  // bottom
                     0.0f,           // top (flipped for top-left origin)
                     -1.0f,          // near
                     1.0f            // far
                 );
 
                 transform->set(&projection);
+
+                //dbg("[Canvas] Resize: %i, %i", details.width, details.height);
 
                 flags.resize = false;
             }
@@ -87,7 +89,7 @@ export namespace Rev {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glBlendColor(1.0f, 1.0f, 1.0f, 1.0f);
-            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
+            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);  // Transparent black
             glClear(GL_COLOR_BUFFER_BIT);
 
             transform->bind(0);
