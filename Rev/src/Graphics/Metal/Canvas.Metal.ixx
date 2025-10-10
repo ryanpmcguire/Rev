@@ -94,7 +94,7 @@ export namespace Rev {
             // Instead of glClear, call Metal clear
             metal_begin_frame(context); // red
 
-            transform->bind(context, 0);
+            transform->bind(0);
         }
 
         void endFrame() {

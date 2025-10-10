@@ -72,6 +72,8 @@ export namespace Rev {
         void swapBuffers() {};
 
         Size size;
+        float scale = 1.0f;
+        
         EventCallback callback;
         void* windowImpl = nullptr; // Opaque Cocoa types
 

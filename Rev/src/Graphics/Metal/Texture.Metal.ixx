@@ -15,11 +15,14 @@ export namespace Rev {
         size_t channels = 0;
         size_t size = 0;
 
+        void* context = nullptr;
         void* handle = nullptr;
 
         // Create
         Texture(void* context, unsigned char* data, size_t width, size_t height, size_t channels)
         : data(data), width(width), height(height), channels(channels) {
+
+            this->context = context;
 
             // By default, use nearest filtering (matches OpenGL implementation)
             handle = metal_create_texture(
@@ -39,7 +42,7 @@ export namespace Rev {
             }
         }
 
-        void bind(void* context, int unit = 0) {
+        void bind(int unit = 0) {
             if (handle) {
                 metal_bind_texture((MetalContext*)context, handle, unit);
             }

@@ -387,6 +387,8 @@ export namespace Rev {
 
             topLevelDetails->canvas->flags.resize = true;
 
+            this->onRefresh();
+            
             //this->draw(event);
         }
 
