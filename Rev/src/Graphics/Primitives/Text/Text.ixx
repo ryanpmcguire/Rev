@@ -304,9 +304,9 @@ export namespace Rev {
         void compute() {
 
             // Ensure font size matches
-            if (font->size != fontSize) {
+            if (font->size != fontSize || font->scale != canvas->details.scale) {
                 delete font;
-                font = new Font(canvas, Arial_ttf, fontSize);
+                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
             }
 
             // Prepare vertices

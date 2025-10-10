@@ -92,9 +92,10 @@ export namespace Rev {
 
         UniformBuffer* glyphData = nullptr;
 
-        Font(Canvas* canvas, Resource resource = Arial_ttf, float size = 12.0f) : resource(resource) {
+        Font(Canvas* canvas, Resource resource = Arial_ttf, float size = 12.0f, float scale = 1.0f) : resource(resource) {
 
             this->size = size;
+            this->scale = scale;
             
             // Initialize freetype if we are the first user
             if (++users == 1 && FT_Init_FreeType(&ft)) {
