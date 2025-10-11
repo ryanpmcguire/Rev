@@ -57,6 +57,9 @@ MetalContext* metal_context_create(void* nativeHandle) {
     context->view = targetView;
     context->layer = layer;
 
+    CGFloat scale = context->view.window.backingScaleFactor;
+    context->scale = scale;
+
     context->r = 1.0f;
     context->g = 0.0f;
     context->b = 0.0f;

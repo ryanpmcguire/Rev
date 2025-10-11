@@ -7,7 +7,7 @@ struct WinEvent {
         Create, Destroy, Close,
         Focus, Defocus,
         Move, Resize, Maximize, Minimize, Restore,
-        Clear, Paint,
+        Scale, Clear, Paint,
         MouseButton, MouseMove, MouseWheel,
         Keyboard, Character
     };
@@ -17,6 +17,7 @@ struct WinEvent {
     int64_t c, d;
 
     bool rejected = false;
+    void* subject = nullptr;
 
     void reject() {
         this->rejected = true;

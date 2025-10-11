@@ -43,6 +43,7 @@ export namespace HelloWorld {
             //}
 
             TextBox* text = new TextBox(greyBox, "Hello World");
+            text->style->text.size = 32_px;
         }
 
         // Destroy

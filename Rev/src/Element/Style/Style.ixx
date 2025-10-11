@@ -437,7 +437,7 @@ export namespace Rev {
         Resource font;
         Dist size;
         int weight = -1;
-        Color color;
+        Color color = rgba(255, 255, 255, 1);
         Dist lineHeight;
         Dist spacing;
 

@@ -27,7 +27,7 @@ export namespace Rev {
 
         struct Details {
             int width, height;
-            float scale;
+            float scale = 1.0f;
         };
 
         NativeWindow* window = nullptr;
@@ -43,7 +43,12 @@ export namespace Rev {
             window = w;
 
             if (window) {
+
                 context = metal_context_create(window->handle);
+
+                details.width = window->size.w;
+                details.height = window->size.h;
+                details.scale = metal_context_get_scale(context);
             }
 
             transform = new UniformBuffer(context, sizeof(glm::mat4));
@@ -55,7 +60,7 @@ export namespace Rev {
 
         void beginFrame() {
 
-            dbg("[Canvas] drawing!");
+            //dbg("[Canvas] drawing!");
 
             if (!window || !context) {
                 return;
@@ -78,15 +83,6 @@ export namespace Rev {
                     1.0f            // far
                 );
 
-                //glm::mat4 projection = glm::mat4(1.0f);
-
-                float* p = glm::value_ptr(projection);
-                for (int i = 0; i < 16; ++i) {
-                    std::cout << p[i] << " ";
-                }
-
-                dbg("[Canvas] did set transform");
-
                 transform->set(glm::value_ptr(projection));
                 flags.resize = false;
             }
@@ -94,7 +90,7 @@ export namespace Rev {
             // Instead of glClear, call Metal clear
             metal_begin_frame(context); // red
 
-            transform->bind(context, 0);
+            transform->bind(0);
         }
 
         void endFrame() {

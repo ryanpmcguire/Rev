@@ -8,6 +8,7 @@ module;
 // Win32
 #include <windowsx.h>
 #include <windows.h>
+#include <shellscalingapi.h>
 
 // Misc
 #include <glew/glew.h>
@@ -187,11 +188,41 @@ export namespace Rev {
         EventCallback callback;
         
         Size size;
+        float scale = 1.0f;
+        bool dirty = false;
 
-        NativeWindow(void* parent, Size size = { 600, 400, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
+        NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
             
             this->size = size;
             this->callback = callback;
+
+            // --------------------------------------------------
+            // Enable Per-Monitor DPI Awareness once per process
+            // --------------------------------------------------
+            static bool dpiAwareSet = false;
+            if (!dpiAwareSet) {
+
+                dpiAwareSet = true;
+
+                // Prefer modern API if available (Win10+)
+                if (SetProcessDpiAwarenessContext) {
+                    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+                }
+                
+                else {
+                    // Fallback (Win8.1)
+                    HMODULE shcore = LoadLibraryW(L"Shcore.dll");
+                    if (shcore) {
+                        using SetProcDpiAwareFn = HRESULT(WINAPI*)(PROCESS_DPI_AWARENESS);
+                        auto fn = reinterpret_cast<SetProcDpiAwareFn>(
+                            GetProcAddress(shcore, "SetProcessDpiAwareness"));
+                        if (fn) fn(PROCESS_PER_MONITOR_DPI_AWARE);
+                        FreeLibrary(shcore);
+                    } else {
+                        SetProcessDPIAware(); // legacy fallback
+                    }
+                }
+            }
 
             // Register window class
             //--------------------------------------------------
@@ -217,10 +248,17 @@ export namespace Rev {
             if (parentHwnd) { style |= WS_CHILD; }
             else { style |= WS_OVERLAPPEDWINDOW; }
 
+            // When we ask for a size, the resulting window size includes the top bar, etc.
+            // We don't want that
+            RECT rect = { 0, 0, size.w, size.h };
+            AdjustWindowRectEx(&rect, style, FALSE, 0);
+
             handle = CreateWindowExW(
                 0, kClassName, L"Room360 UI",
                 style,
-                CW_USEDEFAULT, CW_USEDEFAULT, size.w, size.h,
+                CW_USEDEFAULT, CW_USEDEFAULT,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
                 parentHwnd, nullptr, GetModuleHandle(nullptr),
                 this
             );
@@ -228,6 +266,15 @@ export namespace Rev {
             if (!handle) {
                 throw std::runtime_error("[NativeWindow] Failed to create window");
             }
+
+            // Set scale and notify parent
+            //--------------------------------------------------
+
+            UINT dpi = GetDpiForWindow(handle);
+            scale = dpi / 96.0f; // 96 DPI = 100% scaling
+
+            this->notifyEvent({ WinEvent::Type::Scale });
+            this->notifyEvent({ WinEvent::Type::Resize, 0, 0, size.w, size.h });
         }
 
         ~NativeWindow() {
@@ -245,7 +292,18 @@ export namespace Rev {
             SetWindowPos(handle, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
         }
 
+        void requestFrame() {
+            
+            // If already dirty, do not re-dirty
+            if (dirty) { return; }
+            dirty = true;
+
+            InvalidateRect(handle, nullptr, FALSE);
+        }
+
+        // Notify listener callback of event
         WinEvent notifyEvent(WinEvent event) {
+            event.subject = this;
             if (callback) { callback(event); }
             return event;
         }
@@ -334,8 +392,6 @@ export namespace Rev {
                 // When the window is resized
                 case (WM_SIZE): {
 
-                    InvalidateRect(h, nullptr, FALSE);
-
                     self->size.w = LOWORD(lp);
                     self->size.h = HIWORD(lp);
 
@@ -348,9 +404,37 @@ export namespace Rev {
                     switch (wp) {
                         case (SIZE_MINIMIZED): { self->notifyEvent({ WinEvent::Type::Minimize }); break; }
                         case (SIZE_MAXIMIZED): { self->notifyEvent({ WinEvent::Type::Maximize }); break; }
-                        case (SIZE_RESTORED): { self->notifyEvent({ WinEvent::Type::Restore }); break; }
                     }
   
+                    return 0;
+                }
+
+                case (WM_DPICHANGED): {
+
+                    UINT dpiX = HIWORD(wp);
+                    UINT dpiY = LOWORD(wp);
+
+                    RECT* const suggestedRect = reinterpret_cast<RECT*>(lp);
+
+                    SetWindowPos(
+                        h, nullptr,
+                        suggestedRect->left, suggestedRect->top,
+                        suggestedRect->right - suggestedRect->left,
+                        suggestedRect->bottom - suggestedRect->top,
+                        SWP_NOZORDER | SWP_NOACTIVATE
+                    );
+
+                    float scaleX = dpiX / 96.0f;
+                    float scaleY = dpiY / 96.0f;
+
+                    self->scale = scaleX;
+
+                    self->notifyEvent({
+                        WinEvent::Type::Scale,
+                        0, 0,
+                        (int)(scaleX * 100), (int)(scaleY * 100)
+                    });
+
                     return 0;
                 }
 
@@ -378,6 +462,8 @@ export namespace Rev {
 
                 case (WM_PAINT): {
 
+                    self->dirty = true;
+
                     PAINTSTRUCT ps;
                     HDC dc = BeginPaint(h, &ps);
 
@@ -386,6 +472,8 @@ export namespace Rev {
                     });
 
                     EndPaint(h, &ps);
+
+                    self->dirty = false;
                     
                     return 0;
                 }
@@ -620,9 +708,10 @@ export namespace Rev {
                 0x2014 /*WGL_COLOR_BITS_ARB*/,     32,
                 0x2022 /*WGL_DEPTH_BITS_ARB*/,     24,
                 0x2023 /*WGL_STENCIL_BITS_ARB*/,   8,
-                // Optional nice-to-haves:
-                // 0x20A9 /*WGL_ACCELERATION_ARB*/,   0x2027 /*WGL_FULL_ACCELERATION_ARB*/,
-                // 0x2041 /*WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB*/, TRUE,
+
+                // --- MSAA additions ---
+                //0x2041 /*WGL_SAMPLE_BUFFERS_ARB*/, 1,   // enable multisampling
+                //0x2042 /*WGL_SAMPLES_ARB*/,        4,   // 4x MSAA (you can try 2, 4, 8)
                 0, 0
             };
 

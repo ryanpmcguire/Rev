@@ -164,6 +164,12 @@ export namespace Rev {
         
         MinMax measure() {
 
+            // Ensure font size matches
+            if (font->size != fontSize || font->scale != canvas->details.scale) {
+                delete font;
+                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
+            }
+
             float xl = 0, yl = 0;
             float xr = 0, yr = 0;
 
@@ -241,9 +247,9 @@ export namespace Rev {
         Dims layout(float maxWidth) {
 
             // Ensure font size matches
-            if (font->size != fontSize) {
+            if (font->size != fontSize || font->scale != canvas->details.scale) {
                 delete font;
-                font = new Font(canvas, Arial_ttf, fontSize);
+                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
             }
 
             // Layout text
@@ -304,9 +310,9 @@ export namespace Rev {
         void compute() {
 
             // Ensure font size matches
-            if (font->size != fontSize) {
+            if (font->size != fontSize || font->scale != canvas->details.scale) {
                 delete font;
-                font = new Font(canvas, Arial_ttf, fontSize);
+                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
             }
 
             // Prepare vertices
@@ -316,7 +322,7 @@ export namespace Rev {
             size_t max = vertices->num; // total available vertex slots
             size_t count = 0;
 
-            data->pos = { xPos, yPos };
+            data->pos = { std::round(xPos), std::round(yPos) };
 
             float x = xPos;
             float y = yPos + font->ascent;

@@ -15,8 +15,6 @@ import Rev.Graphics.Rectangle;
 
 export namespace Rev {
 
-    //using namespace WebGpu;
-
     struct Box : public Element {
 
         Rectangle* rectangle = nullptr;

@@ -62,6 +62,12 @@ export namespace Rev {
             rev_mac_window_set_size(handle, w, h);
         };
 
+        void requestFrame() {
+            if (dirty) { return; }
+            dirty = true;
+            rev_mac_window_request_frame(handle);
+        }
+
         WinEvent notifyEvent(WinEvent event) {
             if (callback) { callback(event); }
             return event;
@@ -72,6 +78,9 @@ export namespace Rev {
         void swapBuffers() {};
 
         Size size;
+        float scale = 1.0f;
+        bool dirty = false;
+
         EventCallback callback;
         void* windowImpl = nullptr; // Opaque Cocoa types
 

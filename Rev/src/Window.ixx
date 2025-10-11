@@ -26,6 +26,7 @@ export namespace Rev {
 
             std::string name = "Hello World";
             
+            float scale = 1.0f;
             int width = 640, height = 480;
             int x = 0, y = 0;
 
@@ -50,7 +51,7 @@ export namespace Rev {
         Pos downPos = { 0, 0 };
 
         // With other Rev window as parent
-        Window(Window* parent, Details details = {}) {
+        Window(Window* parent, Details details = Details()) {
             
             this->parent = parent;
             this->details = details;
@@ -65,7 +66,7 @@ export namespace Rev {
         }
 
         // With native window as parent
-        Window(void* parent, Details details = {}) {
+        Window(void* parent, Details details = Details()) {
 
             this->details = details;
 
@@ -81,7 +82,7 @@ export namespace Rev {
         }
 
         // With application as parent
-        Window(std::vector<Window*>& group, Details details = {}) {
+        Window(std::vector<Window*>& group, Details details = Details()) {
 
             this->parent = this;
             this->details = details;
@@ -101,6 +102,7 @@ export namespace Rev {
         void unifiedConstructor() {
 
             topLevelDetails = new TopLevelDetails();
+            topLevelDetails->event = &event;
 
             // Canvas
             //--------------------------------------------------
@@ -147,13 +149,6 @@ export namespace Rev {
                     this->setPos(this->details.x, this->details.y);
                 });
             }
-
-            // Final
-            //--------------------------------------------------
-
-            this->draw(event);
-
-            this->draw(event);
         }
 
         // Destroy
@@ -224,7 +219,13 @@ export namespace Rev {
             Element::computeStyle(e);
         }
 
+        void refresh(Event& e) override {
+            window->requestFrame();
+        }
+
         void draw(Event& e) override {
+
+            //dbg("Drawing");
 
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();
@@ -248,9 +249,9 @@ export namespace Rev {
 
             topLevelDetails->canvas->endFrame();
 
-            /*if (e.causedRefresh) {
-                draw(e);
-            }*/
+            window->dirty = false;
+
+            Element::draw(e);
         }
 
         // Controlling window
@@ -298,6 +299,10 @@ export namespace Rev {
 
         virtual void onEvent(WinEvent& event) {
 
+            if (event.subject) {
+                window = (NativeWindow*)event.subject;
+            }
+
             switch (event.type) {
 
                 case (WinEvent::Create): { this->onOpen(); break; }
@@ -312,8 +317,9 @@ export namespace Rev {
                 case (WinEvent::Maximize): { this->onMaximize(); break; }
                 case (WinEvent::Minimize): { this->onMinimize(); break; }
                 case (WinEvent::Restore): { this->onRestore(); break; }
+                case (WinEvent::Scale): { this->onScale(window->scale); break; }
 
-                case (WinEvent::Paint): { this->onRefresh(); break; }
+                case (WinEvent::Paint): { this->draw(this->event); break; }
 
                 case (WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
                 case (WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
@@ -326,14 +332,6 @@ export namespace Rev {
 
         // Overridable callbacks
         //--------------------------------------------------
-
-        // When the content needs to be redrawn
-        virtual void onRefresh() {
-
-            //dbg("[Window] Refreshing");
-
-            //this->draw(event);
-        }
 
         void onOpen() {
             dbg("[Window] Open");
@@ -378,19 +376,27 @@ export namespace Rev {
         // When the window is resized
         virtual void onResize(int width, int height) {
 
-            //dbg("[Window] Resize: %i, %i", width, height);
+            dbg("[Window] Resize: %i, %i", width, height);
 
-            details.width = width;
-            details.height = height;
+            details.width = width / window->scale;
+            details.height = height / window->scale;
 
             if (!topLevelDetails) { return; }
             if (!topLevelDetails->canvas) { return; }
 
-            topLevelDetails->canvas->details.width = width;
-            topLevelDetails->canvas->details.height = height;
             topLevelDetails->canvas->flags.resize = true;
 
-            this->draw(event);
+            this->refresh(event);
+        }
+
+        virtual void onScale(float scale) {
+
+            dbg("[Window] scale");
+
+            details.scale = scale;
+
+            details.width = window->size.w / scale;
+            details.height = window->size.h / scale;
         }
 
         // Mouse/keyboard callbacks (window only)
@@ -419,15 +425,17 @@ export namespace Rev {
                 case (NativeWindow::ButtonAction::Release): { this->mouseUp(event); break; }
             }
 
+            this->refresh(event);
+
             if (event.causedRefresh) {
-                this->draw(event);
+                this->refresh(event);
             }
         }
 
         // When the mouse moves
         void onCursorPos(float x, float y) {
 
-            dbg("CursorPos");
+            //dbg("CursorPos");
 
             event.mouse.pos = { x, y };
             event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
@@ -443,7 +451,7 @@ export namespace Rev {
             }
 
             if (event.causedRefresh) {
-                this->draw(event);
+                this->refresh(event);
             }
         }
 
@@ -460,7 +468,7 @@ export namespace Rev {
             this->mouseWheel(event);
             
             if (event.causedRefresh) {
-                this->draw(event);
+                this->refresh(event);
             }
         }
 

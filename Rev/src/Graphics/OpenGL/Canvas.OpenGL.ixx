@@ -10,7 +10,6 @@ module;
 export module Rev.OpenGL.Canvas;
 
 import Rev.NativeWindow;
-import Rev.Graphics.RenderCommandEncoder;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
 
@@ -25,6 +24,7 @@ export namespace Rev {
 
         struct Details {
             int width, height;
+            float scale = 1.0f;
         };
 
         NativeWindow* window = nullptr;
@@ -33,7 +33,6 @@ export namespace Rev {
         Flags flags;
 
         void* context = nullptr;                        // Context is unused
-        RenderCommandEncoder* encoder = nullptr;
         UniformBuffer* transform = nullptr;
 
         // Create
@@ -48,7 +47,6 @@ export namespace Rev {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-            encoder = new RenderCommandEncoder();
             transform = new UniformBuffer(context, sizeof(glm::mat4));
         }
 
@@ -67,13 +65,14 @@ export namespace Rev {
                 // Get width and height from window size
                 details.width = window->size.w;
                 details.height = window->size.h;
+                details.scale = window->scale;
 
-                glViewport(0, 0, details.width, details.height);
+                glViewport(0, 0, (GLint)std::round(details.width), (GLint)std::round(details.height));
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,           // left
-                    static_cast<float>(details.width),   // right
-                    static_cast<float>(details.height),  // bottom
+                    static_cast<float>(details.width) / details.scale - 0.5f,   // right
+                    static_cast<float>(details.height) / details.scale - 0.5f,  // bottom
                     0.0f,           // top (flipped for top-left origin)
                     -1.0f,          // near
                     1.0f            // far
@@ -81,12 +80,16 @@ export namespace Rev {
 
                 transform->set(&projection);
 
+                //dbg("[Canvas] Resize: %i, %i", details.width, details.height);
+
                 flags.resize = false;
             }
 
+            glEnable(GL_MULTISAMPLE);
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
+            glBlendColor(1.0f, 1.0f, 1.0f, 1.0f);
+            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);  // Transparent black
             glClear(GL_COLOR_BUFFER_BIT);
 
             transform->bind(0);

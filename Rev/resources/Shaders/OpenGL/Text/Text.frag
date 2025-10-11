@@ -13,6 +13,15 @@ layout(std140, binding = 1) uniform Data {
 };
 
 void main() {
-    float alpha = texture(tex, fragUV).r;
-    FragColor = vec4(color.rgb, alpha);
+
+    float a = texture(tex, fragUV).r;
+
+    // --- Hard contrast reconstruction ---
+    // Center threshold around 0.5 with a very narrow blend band
+    const float lo = 0.2;
+    const float hi  = 0.9;
+
+    float punchy = smoothstep(lo, hi, a + 0.05);
+
+    FragColor = vec4(color.rgb, punchy * color.a);
 }

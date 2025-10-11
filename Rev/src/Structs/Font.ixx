@@ -34,7 +34,11 @@ export namespace Rev {
         FT_Face face = nullptr;
 
         // Font attributes
-        float size = 12;
+        float scale = 1.0f;
+        const int padding = 4;
+        const float rPadding = 0;
+
+        float size = 12.0f;
         int weight = 200;
         float ascent, descent;
         float lineGap, lineHeight;
@@ -88,9 +92,10 @@ export namespace Rev {
 
         UniformBuffer* glyphData = nullptr;
 
-        Font(Canvas* canvas, Resource resource = Arial_ttf, float size = 12.0f) : resource(resource) {
+        Font(Canvas* canvas, Resource resource = Arial_ttf, float size = 12.0f, float scale = 1.0f) : resource(resource) {
 
             this->size = size;
+            this->scale = scale;
             
             // Initialize freetype if we are the first user
             if (++users == 1 && FT_Init_FreeType(&ft)) {
@@ -103,7 +108,7 @@ export namespace Rev {
             }
 
             // Set pixel size
-            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(size))) {
+            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(scale * size))) {
                 throw std::runtime_error("Failed to set font pixel size");
             }
 
@@ -157,10 +162,10 @@ export namespace Rev {
         void getFontAttribs() {
 
             // Ascent, descent, line, etc...
-            ascent = face->size->metrics.ascender / 64.0f;
-            descent = fabs(face->size->metrics.descender / 64.0f);
-            lineGap = (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
-            lineHeight = face->size->metrics.height / 64.0f;
+            ascent = (1.0f / scale) * face->size->metrics.ascender / 64.0f;
+            descent = (1.0f / scale) * fabs(face->size->metrics.descender / 64.0f);
+            lineGap = (1.0f / scale) * (face->size->metrics.height - (face->size->metrics.ascender - face->size->metrics.descender)) / 64.0f;
+            lineHeight = (1.0f / scale) * face->size->metrics.height / 64.0f;
 
             // Glyphs
             //--------------------------------------------------
@@ -184,11 +189,7 @@ export namespace Rev {
                     FT_Vector delta = { 0, 0 };
                     FT_Get_Kerning(face, left.index, right.index, FT_KERNING_DEFAULT, &delta);
                     
-                    right.kerning[left.index] = static_cast<float>(delta.x) / 64.0f;
-
-                    if (delta.x != 0) {
-                        bool test = true;
-                    }
+                    right.kerning[left.index] = (1.0f / scale) * static_cast<float>(delta.x) / 64.0f;
                 }
             }
         }
@@ -197,31 +198,34 @@ export namespace Rev {
         // which can be fed to the GPU, and for each glyph the texture coordinates thereof
         // being used to write said glyph at the correct position on the screen.
         void bake() {
-            
-            const int padding = 1;
+        
             int penX = padding;
             int penY = padding;
             int rowHeight = 0;
 
-            bitmap.width = 4096;
-            bitmap.height = 4096;
+            bitmap.width = 1024;
+            bitmap.height = 1024;
             bitmap.size = bitmap.width * bitmap.height;
             bitmap.data = new unsigned char[bitmap.size];
             std::memset(bitmap.data, 0, bitmap.size);
 
             for (char c = 32; c < 127; c++) {
-                if (FT_Load_Char(face, c, FT_LOAD_RENDER))
+
+                if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
                     continue;
+                }
 
                 FT_GlyphSlot g = face->glyph;
+
                 if (penX + g->bitmap.width + padding >= bitmap.width) {
                     penX = padding;
                     penY += rowHeight + padding;
                     rowHeight = 0;
                 }
 
-                if (penY + g->bitmap.rows >= bitmap.height)
+                if (penY + g->bitmap.rows >= bitmap.height) {
                     throw std::runtime_error("Font atlas overflowed");
+                }
 
                 // Copy glyph bitmap into atlas
                 for (int y = 0; y < g->bitmap.rows; y++) {
@@ -233,16 +237,20 @@ export namespace Rev {
                 }
 
                 Glyph& glyph = glyphs[c];
-                glyph.advance = static_cast<float>(g->advance.x) / 64.0f;
-                glyph.bearingX = static_cast<float>(g->bitmap_left);
-                glyph.bearingY = static_cast<float>(g->bitmap_top);
-                glyph.width = static_cast<float>(g->bitmap.width);
-                glyph.height = static_cast<float>(g->bitmap.rows);
 
-                glyph.u0 = static_cast<float>(penX) / bitmap.width;
-                glyph.v0 = static_cast<float>(penY) / bitmap.height;
-                glyph.u1 = static_cast<float>(penX + g->bitmap.width) / bitmap.width;
-                glyph.v1 = static_cast<float>(penY + g->bitmap.rows) / bitmap.height;
+                glyphs[c] = {
+
+                    .width = (1.0f / scale) * float(g->bitmap.width),
+                    .height = (1.0f / scale) * float(g->bitmap.rows),
+                    .bearingX = (1.0f / scale) * float(g->bitmap_left),
+                    .bearingY = (1.0f / scale) * float(g->bitmap_top),
+                    .advance = (1.0f / scale) * float(g->advance.x) / 64.0f,
+
+                    .u0 = (float(penX) - scale * rPadding) / bitmap.width,
+                    .v0 = (float(penY) - scale * rPadding) / bitmap.height,
+                    .u1 = (float(penX + g->bitmap.width) + scale * rPadding) / bitmap.width,
+                    .v1 = (float(penY + g->bitmap.rows) + scale * rPadding)/ bitmap.height
+                };
 
                 penX += g->bitmap.width + padding;
                 rowHeight = std::max(rowHeight, static_cast<int>(g->bitmap.rows));
@@ -293,10 +301,10 @@ export namespace Rev {
             float penX = 0.0f;
             float penY = 0.0f;
         
-            float x0 = penX + g.bearingX;
-            float y0 = penY - g.bearingY;
-            float x1 = x0 + g.width;
-            float y1 = y0 + g.height;
+            float x0 = penX + g.bearingX - scale * rPadding;
+            float y0 = penY - g.bearingY - scale * rPadding;
+            float x1 = x0 + g.width + 2.0f * scale * rPadding;
+            float y1 = y0 + g.height + 2.0f * scale * rPadding;
         
             return {
                 .x0 = x0, .y0 = y0, .s0 = g.u0, .t0 = g.v0,
