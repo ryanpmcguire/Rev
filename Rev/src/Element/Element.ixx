@@ -97,6 +97,8 @@ export namespace Rev {
                 return;
             } 
 
+            return;
+
             // Create transitions if needed
             //--------------------------------------------------
             

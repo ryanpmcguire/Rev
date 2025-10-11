@@ -27,10 +27,6 @@ export namespace Rev {
         }
 
         void run() {
-
-            for (Window* window : windows) {
-                window->onRefresh();
-            }
         
             while (!windows.empty()) {
 

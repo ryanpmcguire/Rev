@@ -249,6 +249,8 @@ export namespace Rev {
 
             topLevelDetails->canvas->endFrame();
 
+            window->dirty = false;
+
             Element::draw(e);
         }
 
@@ -374,7 +376,7 @@ export namespace Rev {
         // When the window is resized
         virtual void onResize(int width, int height) {
 
-            //dbg("[Window] Resize: %i, %i", width, height);
+            dbg("[Window] Resize: %i, %i", width, height);
 
             details.width = width / window->scale;
             details.height = height / window->scale;

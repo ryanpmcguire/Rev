@@ -1,9 +1,8 @@
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>   // <-- needed for CATransaction
 #import <objc/runtime.h>
 #import "NativeWindow.mac.h"
 
-#import <Cocoa/Cocoa.h>
-#import "NativeWindow.mac.h"  // your WinEvent + RevMacEventAcceptor typedefs
 
 @interface RevView : NSView
     @property (nonatomic, assign) void* userData;
@@ -14,6 +13,28 @@
 
     // Ensure we can get key events
     - (BOOL)acceptsFirstResponder { return YES; }
+
+    - (instancetype)initWithFrame:(NSRect)frame {
+        if ((self = [super initWithFrame:frame])) {
+            self.wantsLayer = YES; // Always layer-backed
+            //self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize;
+            self.layer.delegate = (id<CALayerDelegate>)self; // We’ll receive drawLayer:inContext:
+        }
+        return self;
+    }
+
+    // Core paint callback (layer-backed)
+    - (void)drawLayer:(CALayer *)layer inContext:(CGContextRef)ctx {
+        if (self.acceptor) {
+            WinEvent ev { WinEvent::Paint, 0, 0, 0, 0 };
+            self.acceptor(self.userData, ev);
+        }
+    }
+
+    // Optional: keep a no-op drawRect for completeness, but not required
+    - (void)drawRect:(NSRect)dirtyRect {
+        // On modern macOS, this usually won't be called
+    }
 
     #pragma mark - Resize
 
@@ -304,16 +325,43 @@ void rev_mac_window_set_size(RevMacWindowHandle handle, int w, int h) {
 // Utility
 //--------------------------------------------------
 
+void rev_mac_window_request_frame(RevMacWindowHandle handle) {
+    if (!handle) return;
+
+    NSObject *obj = (__bridge NSObject *)handle;
+    RevView *view = nil;
+
+    if ([obj isKindOfClass:[NSWindow class]]) {
+        view = (RevView *)[(NSWindow*)obj contentView];
+    } else if ([obj isKindOfClass:[NSView class]]) {
+        view = (RevView *)obj;
+    }
+    if (!view) return;
+
+    // Mark view dirty for next compositor pass
+    [view setNeedsDisplay:YES];
+
+    // Schedule a draw callback once AppKit becomes idle again
+    RevView *weakView = view;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        RevView *strongView = weakView;
+        if (!strongView || !strongView.acceptor) return;
+
+        // Only fire if we’re still alive and visible
+        WinEvent ev { WinEvent::Paint, 0, 0, 0, 0 };
+        strongView.acceptor(strongView.userData, ev);
+    });
+}
+
 void rev_mac_wait_event() {
     @autoreleasepool {
-        // Block until the next event
-        NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
-                                            untilDate:[NSDate distantFuture]  // blocking
+        NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                            untilDate:[NSDate distantFuture]
                                                inMode:NSDefaultRunLoopMode
                                               dequeue:YES];
         if (event) {
             [NSApp sendEvent:event];
-            [NSApp updateWindows];
         }
     }
 }
