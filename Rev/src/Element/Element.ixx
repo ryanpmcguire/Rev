@@ -95,7 +95,7 @@ export namespace Rev {
             // If this is our first draw, we do not animate
             if (draws == 0) {
                 return;
-            }
+            } 
 
             // Create transitions if needed
             //--------------------------------------------------

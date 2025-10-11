@@ -67,9 +67,13 @@ export namespace Rev {
         }
 
         void computeStyle(Event& e) override {
-            
-            Text::MinMax minMax = text->measure();
 
+            Box::computeStyle(e);
+            
+            text->fontSize = computed.style.text.size.val;
+            if (!text->fontSize) { text->fontSize = 12.0f; }
+
+            Text::MinMax minMax = text->measure();
             text->layout(99999999.0f);
 
             style->size = {

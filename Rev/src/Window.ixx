@@ -51,7 +51,7 @@ export namespace Rev {
         Pos downPos = { 0, 0 };
 
         // With other Rev window as parent
-        Window(Window* parent, Details details = {}) {
+        Window(Window* parent, Details details = Details()) {
             
             this->parent = parent;
             this->details = details;
@@ -66,7 +66,7 @@ export namespace Rev {
         }
 
         // With native window as parent
-        Window(void* parent, Details details = {}) {
+        Window(void* parent, Details details = Details()) {
 
             this->details = details;
 
@@ -82,7 +82,7 @@ export namespace Rev {
         }
 
         // With application as parent
-        Window(std::vector<Window*>& group, Details details = {}) {
+        Window(std::vector<Window*>& group, Details details = Details()) {
 
             this->parent = this;
             this->details = details;
@@ -422,6 +422,8 @@ export namespace Rev {
                 case (NativeWindow::ButtonAction::Press): { this->mouseDown(event); break; }
                 case (NativeWindow::ButtonAction::Release): { this->mouseUp(event); break; }
             }
+
+            this->refresh(event);
 
             if (event.causedRefresh) {
                 this->refresh(event);

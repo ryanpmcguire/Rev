@@ -191,7 +191,7 @@ export namespace Rev {
         float scale = 1.0f;
         bool dirty = false;
 
-        NativeWindow(void* parent, Size size = { 600, 400, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
+        NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
             
             this->size = size;
             this->callback = callback;
@@ -248,10 +248,17 @@ export namespace Rev {
             if (parentHwnd) { style |= WS_CHILD; }
             else { style |= WS_OVERLAPPEDWINDOW; }
 
+            // When we ask for a size, the resulting window size includes the top bar, etc.
+            // We don't want that
+            RECT rect = { 0, 0, size.w, size.h };
+            AdjustWindowRectEx(&rect, style, FALSE, 0);
+
             handle = CreateWindowExW(
                 0, kClassName, L"Room360 UI",
                 style,
-                CW_USEDEFAULT, CW_USEDEFAULT, size.w, size.h,
+                CW_USEDEFAULT, CW_USEDEFAULT,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
                 parentHwnd, nullptr, GetModuleHandle(nullptr),
                 this
             );
