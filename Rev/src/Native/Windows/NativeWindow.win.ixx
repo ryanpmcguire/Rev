@@ -278,6 +278,19 @@ export namespace Rev {
         }
 
         ~NativeWindow() {
+            //dbg("[NativeWindow] destroying");
+        
+            if (hglrc) {
+                wglMakeCurrent(nullptr, nullptr);
+                wglDeleteContext(hglrc);
+                hglrc = nullptr;
+            }
+        
+            if (hdc && handle) {
+                ReleaseDC(handle, hdc);
+                hdc = nullptr;
+            }
+        
             if (handle) {
                 DestroyWindow(handle);
                 handle = nullptr;

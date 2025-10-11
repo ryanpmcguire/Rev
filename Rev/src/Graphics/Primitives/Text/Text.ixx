@@ -140,8 +140,8 @@ export namespace Rev {
             shared.destroy();
 
             delete vertices;
-            
-            if (font) { delete font; }
+            delete databuff;
+            delete font;
         }
 
         // Measure / layout

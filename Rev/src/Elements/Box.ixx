@@ -27,6 +27,8 @@ export namespace Rev {
 
         // Destroy
         ~Box() {
+
+            //dbg("[Box] destroying");
             delete rectangle;
         }
 

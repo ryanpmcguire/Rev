@@ -376,7 +376,7 @@ export namespace Rev {
         // When the window is resized
         virtual void onResize(int width, int height) {
 
-            dbg("[Window] Resize: %i, %i", width, height);
+            //dbg("[Window] Resize: %i, %i", width, height);
 
             details.width = width / window->scale;
             details.height = height / window->scale;
@@ -391,7 +391,7 @@ export namespace Rev {
 
         virtual void onScale(float scale) {
 
-            dbg("[Window] scale");
+            //dbg("[Window] scale");
 
             details.scale = scale;
 

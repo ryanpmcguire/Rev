@@ -2,6 +2,7 @@ module;
 
 #include <glew/glew.h>
 #include <cstring>
+#include <dbg.hpp>
 
 export module Rev.OpenGL.UniformBuffer;
 
@@ -36,6 +37,9 @@ export namespace Rev {
         }
 
         ~UniformBuffer() {
+
+            //dbg("[UniformBuffer] destroying");
+
             if (data) {
                 glBindBuffer(GL_UNIFORM_BUFFER, bufferID);
                 glUnmapBuffer(GL_UNIFORM_BUFFER);

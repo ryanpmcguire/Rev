@@ -62,6 +62,9 @@ export namespace Rev {
         // Destroy
         ~Pipeline() {
 
+            delete vert;
+            delete frag;
+
             if (id) {
                 glDeleteProgram(id);
             }

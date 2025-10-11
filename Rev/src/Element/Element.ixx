@@ -6,6 +6,8 @@ module;
 #include <ranges>
 #include <functional>
 
+#include <dbg.hpp>
+
 export module Rev.Element;
 
 import Rev.Graphics.Canvas;
@@ -63,7 +65,9 @@ export namespace Rev {
         }
         
         // Destroy
-        ~Element() {
+        virtual ~Element() {
+
+            //dbg("[Element] destroying");
 
             // Remove all children
             for (Element* child : children) { if (child) { delete child; } }

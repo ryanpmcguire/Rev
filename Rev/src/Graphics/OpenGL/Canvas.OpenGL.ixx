@@ -52,7 +52,7 @@ export namespace Rev {
 
         // Destroy
         ~Canvas() {
-            
+            delete transform;
         }
 
         void beginFrame() {
