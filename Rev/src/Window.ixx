@@ -198,8 +198,14 @@ export namespace Rev {
         // Top-level only
         void calcFlexLayouts() {
 
+            for (Element* element : topDown) { element->resetLayout(); }
+
+            for (Element* element : topDown) { element->resolveAbs(); }
+            for (Element* element : bottomUp) { element->resolveMinima(); }
+            for (Element* element : topDown) { element->resolveRel(); }
+
             // Resolve set dims and calculate layout
-            for (Element* element : topDown) { element->resolveNonFlexDims(); }
+            //for (Element* element : topDown) { element->resolveNonFlexDims(); }
             for (Element* element : bottomUp) { element->resolveLayout(); }
 
             // Resolve flex dims then remeasure layout

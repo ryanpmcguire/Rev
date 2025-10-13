@@ -24,6 +24,39 @@ namespace Rev {
         bool growable = false;
         bool fit = true;
 
+        void setAbs(Dist& newVal, Dist& newMin, Dist& newMax) {
+
+            // Set new val/min/max if type is absolute
+            if (newVal.type == Dist::Type::Abs) { val = newVal.val; }
+            if (newMin.type == Dist::Type::Abs) { min = newMin.val; }
+            if (newMax.type == Dist::Type::Abs) { max = newMax.val; }
+
+            // Any set value means min/max are also set
+            if (set(val) && !min) { min = val; }
+            if (set(val) && !max) { max = val; }
+        }
+
+        void setRel(Dist& newVal, Dist& newMin, Dist& newMax, float& compare, float& compareMin, float& compareMax) {
+
+            // Set new val/min/max if type is absolute
+            if (newVal.type == Dist::Type::Rel && compare > 0.0f) { val = newVal.val * compare; }
+            if (newMin.type == Dist::Type::Rel && compareMin > 0.0f) { min = newMin.val * compareMin; }
+            if (newMax.type == Dist::Type::Rel && compareMax > 0.0f) { max = newMax.val * compareMax; }
+
+            // Handle unset minimum
+            if (!set(min) && newVal.type == Dist::Type::Rel) {
+                min = newVal.val * compareMin;
+            }
+
+            if (!set(max) && newVal.type == Dist::Type::Rel) {
+                max = newVal.val * compareMax;
+            }
+
+            // Any set value means min/max are also set
+            if (set(val) && !min) { min = val; }
+            if (set(val) && !max) { max = val; }
+        }
+
         void setNonFlex(Dist& newVal, Dist& newMin, Dist& newMax, float& compareMin, float& compareMax) {
 
             // Set new val
@@ -103,6 +136,16 @@ namespace Rev {
 
         ResolvedDim w, h;
 
+        void setAbs(Size& size) {
+            w.setAbs(size.width, size.minWidth, size.maxWidth);
+            h.setAbs(size.height, size.minHeight, size.maxHeight);
+        }
+
+        void setRel(Size& size, float& innerWidth, float& innerHeight, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
+            w.setRel(size.width, size.minWidth, size.maxWidth, innerWidth, minInnerWidth, maxInnerWidth);
+            h.setRel(size.height, size.minHeight, size.maxHeight, innerHeight, minInnerHeight, maxInnerHeight);
+        }
+
         void setNonFlex(Size& size, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
             w.setNonFlex(size.width, size.minWidth, size.maxWidth, minInnerWidth, maxInnerWidth);
             h.setNonFlex(size.height, size.minHeight, size.maxHeight, minInnerHeight, maxInnerHeight);
@@ -144,6 +187,22 @@ namespace Rev {
 
         ResolvedDim l, r, t, b;
 
+        void setAbs(LrtbStyle& lrtb) {
+
+            l.setAbs(lrtb.left, lrtb.minLeft, lrtb.maxLeft);
+            r.setAbs(lrtb.right, lrtb.minRight, lrtb.maxRight);
+            t.setAbs(lrtb.top, lrtb.minTop, lrtb.maxTop);
+            b.setAbs(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom);
+        }
+
+        void setRel(LrtbStyle& lrtb, float& width, float& height, float& minWidth, float& minHeight, float& maxWidth, float& maxHeight) {
+
+            l.setRel(lrtb.left, lrtb.minLeft, lrtb.maxLeft, width, minWidth, maxWidth);
+            r.setRel(lrtb.right, lrtb.minRight, lrtb.maxRight, width, minWidth, maxWidth);
+            t.setRel(lrtb.top, lrtb.minTop, lrtb.maxTop, height, minHeight, maxHeight);
+            b.setRel(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom, height, minHeight, maxHeight);
+        }
+
         void setNonFlex(LrtbStyle& lrtb, ResolvedSize& size) {
             l.setNonFlex(lrtb.left, lrtb.minLeft, lrtb.maxLeft, size.w.val, size.h.max);
             r.setNonFlex(lrtb.right, lrtb.minRight, lrtb.maxRight, size.w.val, size.h.max);
@@ -169,13 +228,13 @@ namespace Rev {
 
             // Get maximum in horizontal direction
             if (axis == Axis::Horizontal) {
-                if (!l.max || !r.max) { return 0; }
+                if (!l.max || !r.max) { return -0.0f; }
                 return (l.max + r.max);
             }
 
             // Get maximum in vertical direction
             if (axis == Axis::Vertical) {
-                if (!t.max || !b.max) { return 0; }
+                if (!t.max || !b.max) { return -0.0f; }
                 return (t.max + b.max);
             }
         }
