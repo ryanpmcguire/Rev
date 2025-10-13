@@ -159,6 +159,14 @@ export namespace Rev {
         return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
     }
 
+    constexpr int operator"" _sec(long double value) {
+        return static_cast<int>(value * 1000.0);
+    }
+
+    constexpr int operator"" _ms(long double value) {
+        return static_cast<int>(value);
+    }
+
     // Color
     //--------------------------------------------------
 

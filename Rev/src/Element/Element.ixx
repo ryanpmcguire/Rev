@@ -93,15 +93,15 @@ export namespace Rev {
             computed.style.apply(styles);
             computed.style.apply(style);
 
-            if (targetFlags.hover) { computed.style.apply(hoverStyle); }
-            if (targetFlags.drag) { computed.style.apply(dragStyle); }
+            if (targetFlags.hover && hoverStyle.pStyle) { computed.style.apply(hoverStyle); }
+            if (targetFlags.drag && dragStyle.pStyle) { computed.style.apply(dragStyle); }
 
             // If this is our first draw, we do not animate
             if (draws == 0) {
                 return;
             } 
 
-            return;
+            //return;
 
             // Create transitions if needed
             //--------------------------------------------------
@@ -119,8 +119,6 @@ export namespace Rev {
                 transitions.end()
             );
 
-            bool doRefresh = false;
-
             // Do transitions
             for (Transition& transition : transitions) {
 
@@ -135,12 +133,8 @@ export namespace Rev {
 
                 if (e.time > transition.endTime) {
                     val = transition.endVal;
-                }   
-                
-                doRefresh = true;
+                }
             }
-
-            if (doRefresh) { refresh(e); }
         }
         
         // Compute attributes
@@ -152,6 +146,10 @@ export namespace Rev {
 
             // Draw = no longer dirty
             this->dirty = false;
+
+            if (!transitions.empty()) {
+                refresh(e);
+            }
         }
 
         // Layout
@@ -246,21 +244,6 @@ export namespace Rev {
             res.pad.setAbs(rStyle.padding);
         }
 
-        // Expand our minimum size if neccesary to accomodate children
-        void resolveMinima() {
-
-            float minLayoutWidth = 0.0f;
-            
-            // Find maximum of all minimum child outer widths
-            for (Element* child : this->children) {
-                minLayoutWidth = std::max(minLayoutWidth, child->res.getMinOuter(Axis::Horizontal));
-            }
-
-            if(!set(res.size.w.min) && minLayoutWidth + res.pad.l.min + res.pad.r.min > res.size.w.min) {
-                res.size.w.min = minLayoutWidth + res.pad.l.min + res.pad.r.min;
-            }
-        }
-
         void resolveRel() {
 
             // Get maximum inner width/height of parent
@@ -287,6 +270,21 @@ export namespace Rev {
             // Inherit maxima from parent if none
             if (!set(res.size.w.max)) { res.size.w.max = maxInnerWidth; }
             if (!set(res.size.h.max)) { res.size.h.max = maxInnerHeight; }
+        }
+
+        // Expand our minimum size if neccesary to accomodate children
+        void resolveMinima() {
+
+            float minLayoutWidth = 0.0f;
+
+            // Find maximum of all minimum child outer widths
+            for (Element* child : this->children) {
+                minLayoutWidth = std::max(minLayoutWidth, child->res.getMinOuter(Axis::Horizontal));
+            }
+
+            if(!set(res.size.w.min) && minLayoutWidth + res.pad.l.min + res.pad.r.min > res.size.w.min) {
+                res.size.w.min = minLayoutWidth + res.pad.l.min + res.pad.r.min;
+            }
         }
 
         // TOP DOWN
@@ -721,7 +719,9 @@ export namespace Rev {
             // Position rows
             for (Row& row : layout.rows) {
 
-                row.rect.x = layout.rect.x;
+                float rowOffsetX = center(layout.rect.w, row.rect.w, rStyle.alignment.horizontal);
+                
+                row.rect.x = layout.rect.x + rowOffsetX;
                 row.rect.y = layout.rect.y + runningY;
 
                 float runningX = 0;
@@ -834,7 +834,9 @@ export namespace Rev {
             }
     
             // Propagate upwards
-            if (parent && !parent->dirty) { parent->refresh(e); }
+            if (parent && !parent->dirty) {
+                parent->refresh(e);
+            }
         }
 
         virtual void mouseDown(Event& e) {
@@ -842,6 +844,7 @@ export namespace Rev {
             // Mouse down event means we are a drag target
             if (!targetFlags.drag) {
                 targetFlags.drag = true;
+                if (dragStyle.pStyle) { refresh(e); }
             }
 
             // Tell event listeners
@@ -869,6 +872,7 @@ export namespace Rev {
             // Mouseup means dragging must end
             if (targetFlags.drag) {
                 targetFlags.drag = false;
+                if (dragStyle.pStyle) { refresh(e); }
             }
 
             // Stop if listener does not pass "continue" flag
@@ -922,6 +926,7 @@ export namespace Rev {
 
             if (!targetFlags.hover) {
                 targetFlags.hover = true;
+                if (hoverStyle.pStyle) { refresh(e); }
             }
 
             // Tell event listeners
@@ -946,6 +951,7 @@ export namespace Rev {
 
             if (targetFlags.hover) {
                 targetFlags.hover = false;
+                if (hoverStyle.pStyle) { refresh(e); }
             }
 
             tell(&Element::mouseLeave, e);

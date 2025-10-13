@@ -308,7 +308,10 @@ export namespace Rev {
         void requestFrame() {
             
             // If already dirty, do not re-dirty
-            if (dirty) { return; }
+            if (dirty) {
+                return;
+            }
+            
             dirty = true;
 
             InvalidateRect(handle, nullptr, FALSE);

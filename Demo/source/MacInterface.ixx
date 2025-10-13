@@ -24,7 +24,7 @@ export namespace HelloWorld {
         MacInterface(Element* parent) : Box(parent) {
 
             // Self
-            this->style->alignment = { Axis::Vertical, Align::Center, Align::Center };
+            this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
             this->style->background.color = rgba(25, 25, 25, 1.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
@@ -35,8 +35,8 @@ export namespace HelloWorld {
                 Box* greyBox = new Box(this, "GreyBox");
                 greyBox->style = {
                     .size = { .width = Grow(), .height = Grow(), .maxWidth = 600_px, .maxHeight = 400_px },
-                    .alignment = { Axis::Vertical, Align::Center, Align::Center },
-                    .padding = { 10_px, 10_px, 10_px, 10_px },
+                    .alignment = { Axis::Horizontal, Align::Center, Align::Center },
+                    //.padding = { 10_px, 10_px, 10_px, 10_px },
                     .margin = { 5_px, 5_px, 5_px, 5_px },
                     .border = { .radius = 10_px },
                     .background { .color = rgba(255, 255, 255, 0.1) },
@@ -50,11 +50,13 @@ export namespace HelloWorld {
             Chart* chart = new Chart(greyBox);
             
             chart->style = {
-                .size = { .width = 100_pct, .height = Grow(), .minHeight = 100_px },
+                .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
                 .background { .color = rgba(0, 0, 0, 0.1) },
             };
 
             chart->data = { { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 } };
+
+            Slider* slider = new Slider(chart);
         }
 
         // Destroy

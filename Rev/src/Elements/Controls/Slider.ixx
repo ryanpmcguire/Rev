@@ -38,7 +38,7 @@ export namespace Rev {
                 .padding = { 6_px, 6_px, 6_px, 6_px },
                 .alignment = { Axis::Vertical, Align::Start, Align::Center },
                 .border = { .radius = 4_px },
-                .background = { .color = rgba(255, 255, 255, 0.1), .transition = 100 },
+                .background = { .color = rgba(255, 255, 255, 0.1), .transition = 0.1_sec },
             };
 
                 Style SliderHover = {
@@ -105,12 +105,13 @@ export namespace Rev {
                 textContainer->styles = { &Styles::TextContainer };
                 
                     // Label text
-                    labelText = new TextBox(textContainer);
+                    labelText = new TextBox(textContainer, "Value: ");
                     labelText->styles = { &Styles::LabelText };
 
                     // Value textContainer
                     valueText = new TextBox(textContainer);
                     valueText->styles = { &Styles::ValueText };
+                    valueText->setContent(data.val);
                     
                 // SliderContainer
                 sliderContainer = new Box(this, "SliderContainer");
@@ -148,7 +149,7 @@ export namespace Rev {
             // Calc clamped value, check if anything changed
             float clamped = std::clamp(newVal, data.min, data.max);
             if (clamped == data.val) { return false; }
-            else { data.val = clamped; return true; }
+            else { data.val = clamped; valueText->setContent(data.val); return true; }
         }
 
         float posToVal(Pos& pos) {
@@ -161,14 +162,6 @@ export namespace Rev {
             track->style->padding.left = Pct(100.0f * pctVal);
         
             Box::computeStyle(e);
-        }
-
-        void computePrimitives(Event& e) override {
-        
-            labelText->text->content = "Value: ";
-            valueText->setContent(data.val);
-
-            Box::computePrimitives(e);
         }
     };
 };

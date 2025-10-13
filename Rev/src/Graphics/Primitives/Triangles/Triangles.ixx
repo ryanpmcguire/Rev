@@ -76,16 +76,11 @@ export namespace Rev {
             delete vertices;
         }
 
-        void compute() {
+        void compute() override {
             
         }
 
-        void draw(Canvas* canvas) override {
-
-            if (dirty) {
-                this->compute();
-                dirty = false;
-            }
+        void draw() override {
 
             shared.pipeline->bind();
             vertices->bind();
