@@ -20,8 +20,12 @@ export namespace Rev {
             
         }
 
+        virtual void compute() {
+
+        }
+
         // Draw
-        virtual void draw(Canvas* canvas) {
+        virtual void draw() {
             
         }
     };

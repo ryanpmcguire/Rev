@@ -18,7 +18,7 @@ export namespace Rev {
         Text* text = nullptr;
 
         // Create
-        TextBox(Element* parent, std::string content = "Test Kerning") : Box(parent, "TextBox") {
+        TextBox(Element* parent, std::string content = "Hello World") : Box(parent, "TextBox") {
 
             measure = true;
 
@@ -95,6 +95,11 @@ export namespace Rev {
                 computed.style.text.color.b, computed.style.text.color.a
             };
 
+            text->xPos = rect.x;
+            text->yPos = rect.y;
+
+            text->compute();
+
             Box::computePrimitives(e);
         }
 
@@ -102,10 +107,7 @@ export namespace Rev {
 
             Box::draw(e);
 
-            text->xPos = rect.x;
-            text->yPos = rect.y;
-
-            text->draw(e.canvas);
+            text->draw();
         }
     };
 };

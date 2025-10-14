@@ -307,7 +307,7 @@ export namespace Rev {
         }
 
         // Compute vertices
-        void compute() {
+        void compute() override {
 
             // Ensure font size matches
             if (font->size != fontSize || font->scale != canvas->details.scale) {
@@ -354,11 +354,7 @@ export namespace Rev {
         }
 
         // Draw vertices
-        void draw(Canvas* canvas) override {
-
-            if (true) {
-                this->compute();
-            }
+        void draw() override {
         
             shared.pipeline->bind();
             font->texture->bind(0);

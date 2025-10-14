@@ -198,8 +198,14 @@ export namespace Rev {
         // Top-level only
         void calcFlexLayouts() {
 
+            for (Element* element : topDown) { element->resetLayout(); }
+
+            for (Element* element : topDown) { element->resolveAbs(); }
+            for (Element* element : topDown) { element->resolveRel(); }
+            for (Element* element : bottomUp) { element->resolveMinima(); }
+
             // Resolve set dims and calculate layout
-            for (Element* element : topDown) { element->resolveNonFlexDims(); }
+            //for (Element* element : topDown) { element->resolveNonFlexDims(); }
             for (Element* element : bottomUp) { element->resolveLayout(); }
 
             // Resolve flex dims then remeasure layout
@@ -220,12 +226,15 @@ export namespace Rev {
         }
 
         void refresh(Event& e) override {
+            this->dirty = true;
             window->requestFrame();
         }
 
         void draw(Event& e) override {
 
-            //dbg("Drawing");
+            dbg("Drawing");
+
+            this->dirty = false;
 
             event.resetBeforeDispatch();
             topLevelDetails->dirtyElements.clear();
@@ -251,7 +260,9 @@ export namespace Rev {
 
             window->dirty = false;
 
-            Element::draw(e);
+            if (this->dirty) {
+                refresh(e);
+            }
         }
 
         // Controlling window

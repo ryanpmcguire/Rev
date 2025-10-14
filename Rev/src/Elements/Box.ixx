@@ -5,7 +5,7 @@ module;
 #include <dbg.hpp>
 
 export module Rev.Box;
-
+ 
 import Rev.Element;
 import Rev.Event;
 import Rev.Style;
@@ -69,14 +69,14 @@ export namespace Rev {
                 }
             };
 
-            rectangle->dirty = true;
+            rectangle->compute();
 
             Element::computePrimitives(e);
         }
 
         void draw(Event& e) override {
             
-            rectangle->draw(e.canvas);
+            rectangle->draw();
 
             Element::draw(e);
         }

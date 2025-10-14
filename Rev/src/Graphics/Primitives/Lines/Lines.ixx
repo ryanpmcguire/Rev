@@ -81,7 +81,7 @@ export namespace Rev {
             delete vertices;
         }
 
-        void compute() {
+        void compute() override {
 
             VertexBuffer::Vertex* verts = vertices->verts();
             size_t vtx = 0;
@@ -103,12 +103,7 @@ export namespace Rev {
             vertexCount = maxVertices;
         }
 
-        void draw(Canvas* canvas) override {
-
-            if (dirty) {
-                this->compute();
-                dirty = false;
-            }
+        void draw() override {
 
             shared.pipeline->bind();
             vertices->bind();

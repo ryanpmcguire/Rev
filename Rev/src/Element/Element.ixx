@@ -93,15 +93,15 @@ export namespace Rev {
             computed.style.apply(styles);
             computed.style.apply(style);
 
-            if (targetFlags.hover) { computed.style.apply(hoverStyle); }
-            if (targetFlags.drag) { computed.style.apply(dragStyle); }
+            if (targetFlags.hover && hoverStyle.pStyle) { computed.style.apply(hoverStyle); }
+            if (targetFlags.drag && dragStyle.pStyle) { computed.style.apply(dragStyle); }
 
             // If this is our first draw, we do not animate
             if (draws == 0) {
                 return;
             } 
 
-            return;
+            //return;
 
             // Create transitions if needed
             //--------------------------------------------------
@@ -119,8 +119,6 @@ export namespace Rev {
                 transitions.end()
             );
 
-            bool doRefresh = false;
-
             // Do transitions
             for (Transition& transition : transitions) {
 
@@ -135,12 +133,8 @@ export namespace Rev {
 
                 if (e.time > transition.endTime) {
                     val = transition.endVal;
-                }   
-                
-                doRefresh = true;
+                }
             }
-
-            if (doRefresh) { refresh(e); }
         }
         
         // Compute attributes
@@ -152,10 +146,36 @@ export namespace Rev {
 
             // Draw = no longer dirty
             this->dirty = false;
+
+            if (!transitions.empty()) {
+                refresh(e);
+            }
         }
 
         // Layout
         //--------------------------------------------------
+
+        /*
+        
+            How the layout system works:
+
+                1.  Resolve all absolute values (these are set pixel values and therefore can be known).
+                    This can technically be done in any order, but we choose top down.
+                
+                2.  Resolve (some) relative values. This is a bit tricky, as we technically can only properly
+                    resolve relative values *relative* to *known* values, aka, those which have been set
+                    in the prior step of resolving absolute values. Some elements will have dimensions which
+                    are set relative to values which are yet unresolved (grow/shrink), and therefore can only
+                    be resolved AFTER we know the actual values following the grow step.
+
+                3.  Layout. We resolve the layout by wrapping children according to their own minimum compared
+                    to *our* own maximum inner width. The logic is simple: if we have a known maximum inner
+                    width and the current row (would) exceed that width, compressed to its minimum size (sum)
+                    of minimum outer widths of all children in the row, then we simply cannot fit any more
+                    children and we must wrap. This is done bottom up, as for when we have an element who's
+                    maximum or minimum size is unresolved, we take on the min/max of our layout.
+        
+        */
 
         struct Row {
 
@@ -205,13 +225,71 @@ export namespace Rev {
         bool measure = false;
         virtual void measureDims(float maxWidth, float maxHeight) {}
 
+        // Step zero is to reset all data which will be modified
+        void resetLayout() {
+
+            // Reset res, rect, layout
+            res = Resolved();
+            rect = Rect();
+            layout = Layout();
+        }
+
+        // The first step is to resolve all absolute values
+        void resolveAbs() {
+
+            Style& rStyle = computed.style;
+
+            res.size.setAbs(rStyle.size);
+            res.mar.setAbs(rStyle.margin);
+            res.pad.setAbs(rStyle.padding);
+        }
+
+        void resolveRel() {
+
+            // Get maximum inner width/height of parent
+            float innerWidth = parent->res.getInner(Axis::Horizontal);
+            float innerHeight = parent->res.getInner(Axis::Vertical);
+
+            float maxInnerWidth = parent->res.getMaxInner(Axis::Horizontal);
+            float maxInnerHeight = parent->res.getMaxInner(Axis::Vertical);
+            
+            float minInnerWidth = parent->res.getMinInner(Axis::Horizontal);
+            float minInnerHeight = parent->res.getMinInner(Axis::Vertical);
+
+            Style& rStyle = computed.style;
+
+            res.size.setRel(rStyle.size, innerWidth, innerHeight, minInnerWidth, minInnerHeight, maxInnerWidth, maxInnerHeight);
+            res.mar.setRel(rStyle.margin, res.size.w.val, res.size.h.val, res.size.w.min, res.size.h.min, res.size.w.max, res.size.h.max);
+            res.pad.setRel(rStyle.padding, res.size.w.val, res.size.h.val, res.size.w.min, res.size.h.min, res.size.w.max, res.size.h.max);
+
+            // Set grow min/max, ignoring pos as that cannot grow
+            res.size.setGrow(rStyle.size, maxInnerWidth);
+            res.mar.setGrow(rStyle.margin, maxInnerWidth);
+            res.pad.setGrow(rStyle.padding, maxInnerWidth);
+
+            // Inherit maxima from parent if none
+            if (!set(res.size.w.max)) { res.size.w.max = maxInnerWidth; }
+            if (!set(res.size.h.max)) { res.size.h.max = maxInnerHeight; }
+        }
+
+        // Expand our minimum size if neccesary to accomodate children
+        void resolveMinima() {
+
+            float minLayoutWidth = 0.0f;
+
+            // Find maximum of all minimum child outer widths
+            for (Element* child : this->children) {
+                minLayoutWidth = std::max(minLayoutWidth, child->res.getMinOuter(Axis::Horizontal));
+            }
+
+            if(!set(res.size.w.min) && minLayoutWidth + res.pad.l.min + res.pad.r.min > res.size.w.min) {
+                res.size.w.min = minLayoutWidth + res.pad.l.min + res.pad.r.min;
+            }
+        }
+
         // TOP DOWN
         // Resolve dims that don't flex (px/pct)
         void resolveNonFlexDims() {
-
-            // Reset resolved and rect
-            res = Resolved();
-            rect = Rect();
 
             // Get maximum inner width/height of parent
             float maxInnerWidth = parent->res.getMaxInner(Axis::Horizontal);
@@ -250,12 +328,17 @@ export namespace Rev {
         // This is by far the slowest function
         void resolveLayout() {
 
-            // Reset layout
-            layout = Layout();
-            Row row = Row();
-
             // Wrap children
             //--------------------------------------------------
+
+            Row row = Row();
+
+            /*
+
+            */
+            
+            float minInnerWidth = res.getMinInner(Axis::Horizontal);
+            float minInnerHeight = res.getMinInner(Axis::Vertical);
 
             // The maximum size this element can possibly contain
             float maxInnerWidth = res.getMaxInner(Axis::Horizontal);
@@ -636,7 +719,9 @@ export namespace Rev {
             // Position rows
             for (Row& row : layout.rows) {
 
-                row.rect.x = layout.rect.x;
+                float rowOffsetX = center(layout.rect.w, row.rect.w, rStyle.alignment.horizontal);
+                
+                row.rect.x = layout.rect.x + rowOffsetX;
                 row.rect.y = layout.rect.y + runningY;
 
                 float runningX = 0;
@@ -749,7 +834,9 @@ export namespace Rev {
             }
     
             // Propagate upwards
-            if (parent && !parent->dirty) { parent->refresh(e); }
+            if (parent && !parent->dirty) {
+                parent->refresh(e);
+            }
         }
 
         virtual void mouseDown(Event& e) {
@@ -757,6 +844,7 @@ export namespace Rev {
             // Mouse down event means we are a drag target
             if (!targetFlags.drag) {
                 targetFlags.drag = true;
+                if (dragStyle.pStyle) { refresh(e); }
             }
 
             // Tell event listeners
@@ -784,6 +872,7 @@ export namespace Rev {
             // Mouseup means dragging must end
             if (targetFlags.drag) {
                 targetFlags.drag = false;
+                if (dragStyle.pStyle) { refresh(e); }
             }
 
             // Stop if listener does not pass "continue" flag
@@ -837,6 +926,7 @@ export namespace Rev {
 
             if (!targetFlags.hover) {
                 targetFlags.hover = true;
+                if (hoverStyle.pStyle) { refresh(e); }
             }
 
             // Tell event listeners
@@ -861,6 +951,7 @@ export namespace Rev {
 
             if (targetFlags.hover) {
                 targetFlags.hover = false;
+                if (hoverStyle.pStyle) { refresh(e); }
             }
 
             tell(&Element::mouseLeave, e);

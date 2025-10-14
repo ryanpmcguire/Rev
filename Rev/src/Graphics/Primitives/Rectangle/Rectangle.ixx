@@ -105,7 +105,7 @@ export namespace Rev {
             delete databuff;
         }
 
-        void compute() {
+        void compute() override {
 
             Data& data = (*this->data);
 
@@ -120,9 +120,7 @@ export namespace Rev {
             });*/
         }
 
-        void draw(Canvas* canvas) override {
-
-            //compute();
+        void draw() override {
          
             shared.pipeline->bind();
             shared.vertices->bind();
