@@ -101,6 +101,21 @@ export namespace Rev {
 
                     break;
                 }
+
+                case (WinEvent::Type::MouseButton): {
+
+                    // Flip y axis
+                    ev.d = selfWin->size.h - ev.d;
+
+                    break;
+                }
+
+                case (WinEvent::Type::MouseMove): {
+
+                    ev.d = selfWin->size.h - ev.d;
+
+                    break;
+                }
             }
 
             selfWin->notifyEvent(ev);
