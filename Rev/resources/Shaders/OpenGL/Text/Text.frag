@@ -18,7 +18,7 @@ void main() {
 
     // --- Hard contrast reconstruction ---
     // Center threshold around 0.5 with a very narrow blend band
-    const float lo = 0.2;
+    const float lo = 0.0;
     const float hi  = 0.9;
 
     float punchy = smoothstep(lo, hi, a + 0.05);

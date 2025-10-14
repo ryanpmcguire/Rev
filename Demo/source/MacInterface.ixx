@@ -36,7 +36,7 @@ export namespace HelloWorld {
                 greyBox->style = {
                     .size = { .width = Grow(), .height = Grow(), .maxWidth = 600_px, .maxHeight = 400_px },
                     .alignment = { Axis::Horizontal, Align::Center, Align::Center },
-                    //.padding = { 10_px, 10_px, 10_px, 10_px },
+                    .padding = { 10_px, 10_px, 10_px, 10_px },
                     .margin = { 5_px, 5_px, 5_px, 5_px },
                     .border = { .radius = 10_px },
                     .background { .color = rgba(255, 255, 255, 0.1) },
