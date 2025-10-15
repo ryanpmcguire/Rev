@@ -22,11 +22,9 @@ export namespace Rev {
         size_t size = 0;
         size_t divisor = 0;
 
-        VertexBuffer(void* context, size_t num, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
+        VertexBuffer(void* context, size_t num = 0, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
 
-            this->num = num;
             this->vertSize = vertSize;
-            this->size = num * vertSize;
             this->divisor = divisor;
 
             glGenVertexArrays(1, &vaoID);
@@ -56,6 +54,9 @@ export namespace Rev {
         }
 
         void resize(size_t newNum) {
+
+            // If no change, do nothing
+            if (newNum == num) { return; }
 
             this->num = newNum;
             this->size = newNum * vertSize;

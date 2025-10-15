@@ -9,11 +9,14 @@ export module Rev.Graphics.Lines;
 
 import Rev.Graphics.Canvas;
 import Rev.Graphics.Primitive;
+import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 import Resources.Shaders.OpenGL.Lines.Lines_vert;
 import Resources.Shaders.OpenGL.Lines.Lines_frag;
+
+import Rev.Pos;
 
 export namespace Rev {
 
@@ -36,7 +39,10 @@ export namespace Rev {
 
                 if (refCount > 1) { return; }
 
-                pipeline = new Pipeline(canvas->context, {});
+                pipeline = new Pipeline(canvas->context, {
+                    .openGlVert = Lines_vert,
+                    .openGlFrag = Lines_frag
+                });
             }
 
             void destroy() {
@@ -44,33 +50,41 @@ export namespace Rev {
                 // Subtract refcount, return if remaining
                 if (refCount--) { return; }
 
-                // Delete resources
+                // Delete resourcesfg
                 delete pipeline;
             }
         };
 
+        // Instance-specific data
+        struct Data {
+
+            struct Color { float r, g, b, a; };
+
+            Color color = { 1, 1, 1, 1 };
+            float strokeWidth = 1.0f;
+            float miterLimit = 1.0f;
+        };
+
         inline static Shared shared;
+        UniformBuffer* databuff = nullptr;
         VertexBuffer* vertices = nullptr;
+
+        Data* data = nullptr;
         bool dirty = true;
+        
+        size_t vertexCount, maxTriangles, maxVertices;
 
-        struct Point { float x, y; };
-
-        size_t num, vertexCount, maxTriangles, maxVertices;
-        std::vector<Point> points;
+        std::vector<Pos> points;
 
         // Create
-        Lines(Canvas* canvas, size_t num) : Primitive(canvas) {
-
-            this->num = num;
+        Lines(Canvas* canvas) : Primitive(canvas) {
 
             shared.create(canvas);
 
-            maxTriangles = 4 * num - 2;
-            maxVertices = maxTriangles * 3;
-
-            // Num points, 6 * num points for quads
-            points.resize(num);
-            vertices = new VertexBuffer(canvas->context, 2 * 6 * (points.size() - 1));
+            vertices = new VertexBuffer(canvas->context);
+            databuff = new UniformBuffer(canvas->context, sizeof(Data));
+            data = (Data*)databuff->data;
+            *data = Data();
         }
 
         // Destroy
@@ -83,19 +97,22 @@ export namespace Rev {
 
         void compute() override {
 
+            size_t num = 2 * 6 * (points.size() - 1);
+            maxTriangles = 4 * num - 2;
+            maxVertices = maxTriangles * 3;
+
+            // Num points, 6 * num points for quads
+            vertices->resize(num);
             VertexBuffer::Vertex* verts = vertices->verts();
+
             size_t vtx = 0;
-            const float strokeWidth = 50.f;       // total width (not half)
-            const float miterLimit = 0.0f;
-        
             size_t count = points.size();
             if (count < 2) return;
         
             int numTriangles = triangulatePolyline(
                 reinterpret_cast<float*>(points.data()),
                 static_cast<int>(count),
-                strokeWidth,
-                miterLimit,
+                data->strokeWidth,
                 reinterpret_cast<float*>(verts),
                 maxTriangles
             );
@@ -106,6 +123,8 @@ export namespace Rev {
         void draw() override {
 
             shared.pipeline->bind();
+
+            databuff->bind(1);
             vertices->bind();
             
             canvas->drawArrays(Pipeline::Topology::TriangleList, 0, vertexCount);

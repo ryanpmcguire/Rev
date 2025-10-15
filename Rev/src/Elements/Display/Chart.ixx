@@ -13,6 +13,8 @@ import Rev.Element;
 import Rev.Box;
 import Rev.TextBox;
 
+import Rev.Graphics.Lines;
+
 export namespace Rev {
 
     namespace Styles {
@@ -25,17 +27,21 @@ export namespace Rev {
 
     struct Chart : public Box {
 
-        struct Point {
-            float x, y;
+        std::vector<Pos> points = {
+            { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 }
         };
 
-        std::vector<Point> data;
+        Lines* lines = nullptr;
 
         // Create
         Chart(Element* parent) : Box(parent, "Chart") {
 
             // Self
             this->styles = { &Styles::Chart };
+
+            lines = new Lines(topLevelDetails->canvas);
+
+            lines->points = points;
         }
 
         void computeStyle(Event& e) override {
@@ -45,7 +51,28 @@ export namespace Rev {
 
         void computePrimitives(Event& e) override {
 
+            lines->points.resize(points.size());
+            lines->data->color = { 0, 1, 0, 0.5 };
+            lines->data->strokeWidth = 10.0;
+
+            for (size_t i = 0; i < points.size(); i++) {
+
+                Pos& chartPoint = points[i];
+                Pos& linePoint = lines->points[i];
+
+                linePoint = this->rect.relToAbs(chartPoint);
+            }
+
+            lines->compute();
+
             Box::computePrimitives(e);
+        }
+
+        void draw(Event& e) override {
+
+            lines->draw();
+
+            Box::draw(e);
         }
     };
 };

@@ -1,6 +1,7 @@
 module;
 
 #include <cstddef>
+#include <cmath>
 
 export module MacInterface;
 
@@ -54,7 +55,15 @@ export namespace HelloWorld {
                 .background { .color = rgba(0, 0, 0, 0.1) },
             };
 
-            chart->data = { { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 } };
+            chart->points = { { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 }, { 0.5, 0.75 } };
+
+            size_t num = 100000;
+            for (size_t i = 0; i < num; i++) {
+
+                float t = float(i) / float(num);
+
+                chart->points.push_back({ cos(t), sin(t) });
+            }
 
             Slider* slider = new Slider(chart);
         }
