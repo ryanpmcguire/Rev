@@ -726,8 +726,8 @@ export namespace Rev {
                 0x2023 /*WGL_STENCIL_BITS_ARB*/,   8,
 
                 // --- MSAA additions ---
-                //0x2041 /*WGL_SAMPLE_BUFFERS_ARB*/, 1,   // enable multisampling
-                //0x2042 /*WGL_SAMPLES_ARB*/,        4,   // 4x MSAA (you can try 2, 4, 8)
+                0x2041 /*WGL_SAMPLE_BUFFERS_ARB*/, 1,   // enable multisampling
+                0x2042 /*WGL_SAMPLES_ARB*/,        4,   // 4x MSAA (you can try 2, 4, 8)
                 0, 0
             };
 

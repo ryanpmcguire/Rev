@@ -77,5 +77,14 @@ export namespace Rev {
             // Return true by default
             return true;
         }
+
+        // Transform relative position to absolute position, relative to this rect
+        Pos relToAbs(Pos& pos) {
+            
+            return {
+                x + pos.x * w,
+                y + pos.y * h
+            };
+        }
     };
 };

@@ -106,18 +106,7 @@ export namespace Rev {
         }
 
         void compute() override {
-
             Data& data = (*this->data);
-
-            /*float& l = data.rect.x;
-            float& t = data.rect.y;
-            float r = l + data.rect.w;
-            float b = t + data.rect.h;
-
-            vertices->set({
-                {l, t}, {r, t}, {l, b}, 
-                {l, b}, {r, t}, {r, b}
-            });*/
         }
 
         void draw() override {

@@ -74,6 +74,11 @@ export namespace Rev {
             children.clear();
         }
 
+        // Cast as pointer to canvas
+        explicit operator Canvas*() {
+            return topLevelDetails ? topLevelDetails->canvas : nullptr;
+        }
+
         // Computing
         //--------------------------------------------------
 
