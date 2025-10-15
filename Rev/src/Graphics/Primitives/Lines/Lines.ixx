@@ -13,8 +13,11 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
+
+// Shader file resources
 import Resources.Shaders.OpenGL.Lines.Lines_vert;
 import Resources.Shaders.OpenGL.Lines.Lines_frag;
+import Resources.Shaders.Metal.Lines.Lines_metal;
 
 import Rev.Pos;
 
@@ -41,7 +44,8 @@ export namespace Rev {
 
                 pipeline = new Pipeline(canvas->context, {
                     .openGlVert = Lines_vert,
-                    .openGlFrag = Lines_frag
+                    .openGlFrag = Lines_frag,
+                    .metalUniversal = Lines_metal
                 });
             }
 
@@ -74,10 +78,15 @@ export namespace Rev {
         
         size_t vertexCount, maxTriangles, maxVertices;
 
+        // We may own our points, or we may be given a pointer to some other points
         std::vector<Pos> points;
+        std::vector<Pos>* pPoints = nullptr;
 
         // Create
-        Lines(Canvas* canvas) : Primitive(canvas) {
+        Lines(Canvas* canvas, std::vector<Pos>* pPoints = nullptr) : Primitive(canvas) {
+
+            if (pPoints) { this->pPoints = pPoints; }
+            else { this->pPoints = &points; }
 
             shared.create(canvas);
 
@@ -97,7 +106,9 @@ export namespace Rev {
 
         void compute() override {
 
-            size_t num = 2 * 6 * (points.size() - 1);
+            std::vector<Pos>& rPoints = *pPoints;
+
+            size_t num = 2 * 6 * (rPoints.size() - 1);
             maxTriangles = 4 * num - 2;
             maxVertices = maxTriangles * 3;
 
@@ -106,11 +117,11 @@ export namespace Rev {
             VertexBuffer::Vertex* verts = vertices->verts();
 
             size_t vtx = 0;
-            size_t count = points.size();
+            size_t count = rPoints.size();
             if (count < 2) return;
         
             int numTriangles = triangulatePolyline(
-                reinterpret_cast<float*>(points.data()),
+                reinterpret_cast<float*>(rPoints.data()),
                 static_cast<int>(count),
                 data->strokeWidth,
                 reinterpret_cast<float*>(verts),

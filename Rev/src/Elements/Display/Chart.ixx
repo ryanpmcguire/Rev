@@ -7,6 +7,7 @@ module;
 export module Rev.Chart;
 
 import Rev.Pos;
+import Rev.Rect;
 import Rev.Event;
 import Rev.Style;
 import Rev.Element;
@@ -27,9 +28,9 @@ export namespace Rev {
 
     struct Chart : public Box {
 
-        std::vector<Pos> points = {
-            { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 }
-        };
+        // Points in chart-space, and screen-space
+        std::vector<Pos> points;
+        std::vector<Pos> screenPoints;
 
         Lines* lines = nullptr;
 
@@ -39,7 +40,7 @@ export namespace Rev {
             // Self
             this->styles = { &Styles::Chart };
 
-            lines = new Lines(topLevelDetails->canvas);
+            lines = new Lines(topLevelDetails->canvas, &screenPoints);
 
             lines->points = points;
         }
@@ -51,16 +52,22 @@ export namespace Rev {
 
         void computePrimitives(Event& e) override {
 
-            lines->points.resize(points.size());
-            lines->data->color = { 0, 1, 0, 0.5 };
-            lines->data->strokeWidth = 10.0;
+            screenPoints.resize(points.size());
+            
+            lines->data->color = { 1, 0, 0, 0.5 };
+            lines->data->strokeWidth = 50.0f;
+
+            Rect flippedRect = {
+                rect.x, rect.y + rect.h,
+                rect.w, -1.0f * rect.h
+            };
 
             for (size_t i = 0; i < points.size(); i++) {
 
                 Pos& chartPoint = points[i];
-                Pos& linePoint = lines->points[i];
+                Pos& screenPoint = screenPoints[i];
 
-                linePoint = this->rect.relToAbs(chartPoint);
+                screenPoint = flippedRect.relToAbs(chartPoint);
             }
 
             lines->compute();
@@ -70,9 +77,9 @@ export namespace Rev {
 
         void draw(Event& e) override {
 
-            lines->draw();
-
             Box::draw(e);
+
+            lines->draw();
         }
     };
 };

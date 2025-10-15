@@ -82,8 +82,8 @@ int32_t triangulatePolyline(float* polylineFloats, int32_t polylineCount,
         }
 
         float denom = dir.x * dirNext.y - dir.y * dirNext.x;
-        Vec2 innerJoin = B;
-        if (std::fabs(denom) > 1e-6f) {
+        Vec2 innerJoin = inner2;
+        if (std::fabs(denom) > 1e-3f) {
             float t = ((inner2.x - inner1.x) * dirNext.y - (inner2.y - inner1.y) * dirNext.x) / denom;
             innerJoin = { inner1.x + dir.x * t, inner1.y + dir.y * t };
         }

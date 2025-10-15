@@ -55,14 +55,15 @@ export namespace HelloWorld {
                 .background { .color = rgba(0, 0, 0, 0.1) },
             };
 
-            chart->points = { { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 }, { 0.5, 0.75 } };
+            //chart->points = { { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 }, { 0.5, 0.75 } };
+            chart->points.clear();
 
-            size_t num = 100000;
+            size_t num = 1000;
             for (size_t i = 0; i < num; i++) {
 
                 float t = float(i) / float(num);
 
-                chart->points.push_back({ cos(t), sin(t) });
+                chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
             }
 
             Slider* slider = new Slider(chart);
