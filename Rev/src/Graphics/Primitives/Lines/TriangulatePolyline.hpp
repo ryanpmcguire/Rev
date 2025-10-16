@@ -15,7 +15,7 @@ struct Tri {
 };
 
 int32_t triangulatePolyline(float* polylineFloats, int32_t polylineCount,
-                            float thickness, float* triangleFloats, int32_t /*triangleCapacity*/) {
+                            float* triangleFloats, int32_t triangleCount, float thickness) {
 
     if (polylineCount < 2) return 0;
 
@@ -46,6 +46,7 @@ int32_t triangulatePolyline(float* polylineFloats, int32_t polylineCount,
 
     // --- Iterate through remaining segments ---
     for (int32_t i = 1; i < polylineCount - 1; ++i) {
+
         Vec2 C = polyline[i + 1];
 
         Vec2 dirNext{ C.x - B.x, C.y - B.y };
@@ -69,6 +70,7 @@ int32_t triangulatePolyline(float* polylineFloats, int32_t polylineCount,
         float cross = dir.x * dirNext.y - dir.y * dirNext.x;
 
         Vec2 inner1, inner2, outer1, outer2;
+        
         if (cross < 0) {
             inner1 = thisQuad.b;
             inner2 = nextQuad.b;

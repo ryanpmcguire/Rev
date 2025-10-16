@@ -22,7 +22,7 @@ export namespace Rev {
         size_t size = 0;
         size_t divisor = 0;
 
-        VertexBuffer(void* context, size_t num = 0, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
+        VertexBuffer(void* context, size_t vertSize = sizeof(Vertex), size_t divisor = 0, size_t num = 0) {
 
             this->vertSize = vertSize;
             this->divisor = divisor;

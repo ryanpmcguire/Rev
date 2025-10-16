@@ -2,7 +2,6 @@ module;
 
 #include <cmath>
 #include <vector>
-#include <glew/glew.h>
 #include "./TriangulatePolyline.hpp"
 
 export module Rev.Graphics.Lines;
@@ -75,12 +74,12 @@ export namespace Rev {
 
         Data* data = nullptr;
         bool dirty = true;
-        
-        size_t vertexCount, maxTriangles, maxVertices;
 
         // We may own our points, or we may be given a pointer to some other points
         std::vector<Pos> points;
         std::vector<Pos>* pPoints = nullptr;
+
+        size_t numSegments, numQuads, numJoins, numVerts;
 
         // Create
         Lines(Canvas* canvas, std::vector<Pos>* pPoints = nullptr) : Primitive(canvas) {
@@ -108,27 +107,18 @@ export namespace Rev {
 
             std::vector<Pos>& rPoints = *pPoints;
 
-            size_t num = 2 * 6 * (rPoints.size() - 1);
-            maxTriangles = 4 * num - 2;
-            maxVertices = maxTriangles * 3;
+            numQuads = numSegments = rPoints.size() - 1;
+            numJoins = numSegments - 1;
+            numVerts = 6 * numQuads + 3 * numJoins;
 
-            // Num points, 6 * num points for quads
-            vertices->resize(maxVertices);
+            vertices->resize(numVerts);
             VertexBuffer::Vertex* verts = vertices->verts();
-
-            size_t vtx = 0;
-            size_t count = rPoints.size();
-            if (count < 2) return;
         
             int numTriangles = triangulatePolyline(
-                reinterpret_cast<float*>(rPoints.data()),
-                static_cast<int>(count),
-                data->strokeWidth,
-                reinterpret_cast<float*>(verts),
-                maxTriangles
+                reinterpret_cast<float*>(rPoints.data()), rPoints.size(),
+                reinterpret_cast<float*>(verts), numVerts,
+                data->strokeWidth
             );
-            
-            vertexCount = maxVertices;
         }
 
         void draw() override {
@@ -138,7 +128,7 @@ export namespace Rev {
             databuff->bind(1);
             vertices->bind();
             
-            canvas->drawArrays(Pipeline::Topology::TriangleList, 0, vertexCount);
+            canvas->drawArrays(Pipeline::Topology::TriangleList, 0, numVerts);
         }
     };
 };

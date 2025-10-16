@@ -37,7 +37,7 @@ export namespace Rev {
         };
 
         // Create
-        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0) {
+        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0, bool instanced = true) {
             
             vert = new Shader(params.openGlVert, Shader::Stage::Vertex);
             frag = new Shader(params.openGlFrag, Shader::Stage::Fragment);

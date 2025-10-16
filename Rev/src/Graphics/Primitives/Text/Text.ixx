@@ -68,8 +68,6 @@ export namespace Rev {
             }
         };
 
-        inline static Shared shared;
-
         // Own resources
         //--------------------------------------------------
 
@@ -89,10 +87,9 @@ export namespace Rev {
             Pos pos;
         };
 
+        inline static Shared shared;
         UniformBuffer* databuff = nullptr;
-
         VertexBuffer* vertices = nullptr;
-        size_t vertexCount = 0;
 
         Font* font = nullptr;
         Data* data = nullptr;
@@ -125,7 +122,7 @@ export namespace Rev {
             this->content = content;
 
             font = new Font(canvas);
-            vertices = new VertexBuffer(canvas->context, 100, sizeof(CharVertex), 1);
+            vertices = new VertexBuffer(canvas->context, sizeof(CharVertex), 1);
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
 
             data = static_cast<Data*>(databuff->data);
@@ -318,14 +315,14 @@ export namespace Rev {
             // Prepare vertices
             //--------------------------------------------------
 
+            vertices->resize(content.size());
             CharVertex* verts = (CharVertex*)vertices->data;
-            size_t max = vertices->num; // total available vertex slots
-            size_t count = 0;
 
             data->pos = { std::round(xPos), std::round(yPos) };
 
             float x = xPos;
             float y = yPos + font->ascent;
+            size_t count = 0;
 
             for (Line& line : lines) {
 
@@ -336,7 +333,6 @@ export namespace Rev {
 
                     // Continue / break conditions
                     if (c < 32 || c >= 128) { continue; }
-                    if (count + 6 > max) { break; }
 
                     Font::Glyph& glyph = font->glyphs[c];
                     Font::Glyph& prevGlyph = font->glyphs[prev];
@@ -349,8 +345,6 @@ export namespace Rev {
                     prev = c;
                 }
             }
-
-            vertexCount = count;
         }
 
         // Draw vertices
@@ -363,7 +357,7 @@ export namespace Rev {
             vertices->bind();
             databuff->bind(1);
 
-            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, vertexCount);
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, content.size());
         }
     };
 };
