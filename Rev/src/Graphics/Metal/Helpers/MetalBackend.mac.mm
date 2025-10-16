@@ -384,7 +384,7 @@ void metal_destroy_shader(void* shader) {
 // Pipeline
 //--------------------------------------------------
 
-void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex) {
+void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex, bool instanced) {
     
     if (!ctx || !ctx->device) {
         NSLog(@"Failed to create pipeline: no context/device");
@@ -407,7 +407,9 @@ void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPe
         vdesc.attributes[0].bufferIndex = 0;
 
         vdesc.layouts[0].stride = sizeof(float) * floatsPerVertex;
-        vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerInstance;
+
+        if (instanced) { vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerInstance; }
+        else { vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex; }
     }
 
     MTLRenderPipelineDescriptor* pdesc = [[MTLRenderPipelineDescriptor alloc] init];
@@ -464,6 +466,21 @@ void metal_bind_pipeline(MetalContext* ctx, void* pipeline) {
 
 // Functions
 //--------------------------------------------------
+
+void metal_draw_arrays(MetalContext* ctx,
+                                 int topology,     // your enum -> Metal primitive type
+                                 size_t start,
+                                 size_t verticesPer) {
+
+    if (!ctx || !ctx->enc) {
+        NSLog(@"Couldn't draw instanced arrays!");
+        return;
+    };
+
+    [ctx->enc drawPrimitives:MTLPrimitiveTypeTriangle
+                 vertexStart:(NSUInteger)start
+                 vertexCount:(NSUInteger)verticesPer];
+}
 
 void metal_draw_arrays_instanced(MetalContext* ctx,
                                  int topology,     // your enum -> Metal primitive type

@@ -46,7 +46,7 @@ export namespace Rev {
                     .openGlVert = Lines_vert,
                     .openGlFrag = Lines_frag,
                     .metalUniversal = Lines_metal
-                });
+                }, 2, false);
             }
 
             void destroy() {
@@ -113,7 +113,7 @@ export namespace Rev {
             maxVertices = maxTriangles * 3;
 
             // Num points, 6 * num points for quads
-            vertices->resize(num);
+            vertices->resize(maxVertices);
             VertexBuffer::Vertex* verts = vertices->verts();
 
             size_t vtx = 0;

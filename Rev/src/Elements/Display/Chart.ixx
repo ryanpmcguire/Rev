@@ -55,7 +55,7 @@ export namespace Rev {
             screenPoints.resize(points.size());
             
             lines->data->color = { 1, 0, 0, 0.5 };
-            lines->data->strokeWidth = 50.0f;
+            lines->data->strokeWidth = 4.0f;
 
             Rect flippedRect = {
                 rect.x, rect.y + rect.h,

@@ -271,6 +271,7 @@ RevMacWindowHandle rev_mac_window_create(int width, int height,
 
             [window setContentView:view];
             [window makeKeyAndOrderFront:nil];
+            [window setAcceptsMouseMovedEvents:YES];
 
             // Keep view alive via association (window owns it now)
             objc_setAssociatedObject(window, "rev_view", view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);

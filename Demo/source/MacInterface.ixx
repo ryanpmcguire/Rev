@@ -55,7 +55,7 @@ export namespace HelloWorld {
                 .background { .color = rgba(0, 0, 0, 0.1) },
             };
 
-            //chart->points = { { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 }, { 0.5, 0.75 } };
+            chart->points = { { 0, 0 }, { 0.5, 1.0 }, { 1.0, 0.5 }, { 0.5, 0.75 } };
             chart->points.clear();
 
             size_t num = 1000;
@@ -66,7 +66,7 @@ export namespace HelloWorld {
                 chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
             }
 
-            Slider* slider = new Slider(chart);
+            Slider* slider = new Slider(greyBox);
         }
 
         // Destroy

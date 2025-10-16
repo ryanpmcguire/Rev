@@ -24,18 +24,12 @@ export namespace Rev {
         size_t size = 0;
         size_t divisor = 0;
 
-        VertexBuffer(void* context, size_t num, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
+        VertexBuffer(void* context, size_t num = 0, size_t vertSize = sizeof(Vertex), size_t divisor = 0) {
 
             this->context = context;
 
-            this->num = num;
             this->vertSize = vertSize;
-            this->size = num * vertSize;
             this->divisor = divisor;
-
-            // Create buffer, map data
-            buffer = metal_create_vertex_buffer((MetalContext*)context, size);
-            data = metal_map_vertex_buffer(buffer);
 
             this->resize(num);
         }
@@ -57,8 +51,16 @@ export namespace Rev {
 
         void resize(size_t newNum) {
 
+            if (newNum == num) { return; }
+
             this->num = newNum;
-            this->size = newNum * vertSize;
+            this->size = num * vertSize;
+
+            if (buffer) { metal_destroy_vertex_buffer(buffer); }
+
+            // Create buffer, map data
+            buffer = metal_create_vertex_buffer((MetalContext*)context, size);
+            data = metal_map_vertex_buffer(buffer);
         }
 
         void bind() {

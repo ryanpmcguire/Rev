@@ -37,12 +37,12 @@ export namespace Rev {
         };
 
         // Create
-        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0) {
+        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0, bool instanced = true) {
 
             this->context = context;
 
             shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal);
-            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex);
+            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex, instanced);
         }
 
         // Destroy

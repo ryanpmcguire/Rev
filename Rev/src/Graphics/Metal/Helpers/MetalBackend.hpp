@@ -38,9 +38,10 @@ void* metal_create_shader(MetalContext* ctx, const char* source, size_t length);
 void  metal_destroy_shader(void* shader);
 
 // Pipeline
-void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex);
+void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex, bool instanced);
 void  metal_destroy_pipeline(void* pipeline);
 void  metal_bind_pipeline(MetalContext* ctx, void* pipeline);
 
 // Functions
+void metal_draw_arrays(MetalContext* ctx, int topology, size_t start, size_t verticesPer);
 void metal_draw_arrays_instanced(MetalContext* ctx, int topology, size_t start, size_t verticesPer, size_t numInstances);

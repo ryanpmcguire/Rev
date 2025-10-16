@@ -100,7 +100,7 @@ export namespace Rev {
         }
 
         void drawArrays(Pipeline::Topology topology, size_t start, size_t verticesPer) {
-            //glDrawArrays(topology, start, verticesPer);
+            metal_draw_arrays(context, topology, start, verticesPer);
         }
 
         void drawArraysInstanced(Pipeline::Topology topology, size_t start, size_t verticesPer, size_t numInstances) {
