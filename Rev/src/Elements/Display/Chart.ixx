@@ -15,6 +15,7 @@ import Rev.Box;
 import Rev.TextBox;
 
 import Rev.Graphics.Lines;
+import Rev.Graphics.Triangles;
 
 export namespace Rev {
 
@@ -32,6 +33,7 @@ export namespace Rev {
         std::vector<Pos> points;
         std::vector<Pos> screenPoints;
 
+        Triangles* shading = nullptr;
         Lines* lines = nullptr;
 
         // Create
@@ -41,8 +43,7 @@ export namespace Rev {
             this->styles = { &Styles::Chart };
 
             lines = new Lines(topLevelDetails->canvas, &screenPoints);
-
-            lines->points = points;
+            shading = new Triangles(topLevelDetails->canvas, { .topology = Triangles::Topology::Fan, .points = &screenPoints });
         }
 
         void computeStyle(Event& e) override {
@@ -70,6 +71,7 @@ export namespace Rev {
                 screenPoint = flippedRect.relToAbs(chartPoint);
             }
 
+            shading->compute();
             lines->compute();
 
             Box::computePrimitives(e);
@@ -79,6 +81,7 @@ export namespace Rev {
 
             Box::draw(e);
 
+            shading->draw();
             lines->draw();
         }
     };

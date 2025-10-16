@@ -1,6 +1,5 @@
 #version 430 core
 
-in float vDist;
 out vec4 FragColor;
 
 layout(std140, binding = 1) uniform Data {

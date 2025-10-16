@@ -2,6 +2,12 @@
 
 out vec4 FragColor;
 
+layout(std140, binding = 1) uniform Data {
+    float r, g, b, a;       // Color
+};
+
 void main() {
-    FragColor = vec4(1.0); // solid white
+
+    // Final color (semi-transparent white)
+    FragColor = vec4(r, g, b, a);
 }

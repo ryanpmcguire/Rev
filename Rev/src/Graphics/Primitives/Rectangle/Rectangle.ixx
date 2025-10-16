@@ -100,8 +100,6 @@ export namespace Rev {
         ~Rectangle() {
 
             shared.destroy();
-
-            //delete vertices;
             delete databuff;
         }
 

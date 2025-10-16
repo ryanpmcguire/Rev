@@ -101,6 +101,7 @@ export namespace Rev {
             shared.destroy();
 
             delete vertices;
+            delete databuff;
         }
 
         void compute() override {

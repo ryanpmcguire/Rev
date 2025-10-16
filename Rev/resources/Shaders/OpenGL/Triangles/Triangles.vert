@@ -2,12 +2,12 @@
 
 layout(location = 0) in vec2 aPos;
 
-// Uniform block (binding = 0 must match what C++ uses)
 layout(std140, binding = 0) uniform Transform {
     mat4 uProjection;
 };
 
+out float vDist;
+
 void main() {
     gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
-    //gl_position = vec4(aPos, 0.0, 1.0);
 }
