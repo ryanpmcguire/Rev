@@ -32,6 +32,7 @@ export namespace Rev {
         // Points in chart-space, and screen-space
         std::vector<Pos> points;
         std::vector<Pos> screenPoints;
+        std::vector<Pos> screenBottom;
 
         Triangles* shading = nullptr;
         Lines* lines = nullptr;
@@ -43,7 +44,11 @@ export namespace Rev {
             this->styles = { &Styles::Chart };
 
             lines = new Lines(topLevelDetails->canvas, &screenPoints);
-            shading = new Triangles(topLevelDetails->canvas, { .topology = Triangles::Topology::Fan, .points = &screenPoints });
+
+            shading = new Triangles(topLevelDetails->canvas, {
+                .topology = Triangles::Topology::Strip,
+                .left = &screenPoints, .right = &screenBottom
+            });
         }
 
         void computeStyle(Event& e) override {
@@ -54,7 +59,8 @@ export namespace Rev {
         void computePrimitives(Event& e) override {
 
             screenPoints.resize(points.size());
-            
+            screenBottom.resize(points.size());
+
             lines->data->color = { 1, 0, 0, 0.5 };
             lines->data->strokeWidth = 4.0f;
 
@@ -67,8 +73,12 @@ export namespace Rev {
 
                 Pos& chartPoint = points[i];
                 Pos& screenPoint = screenPoints[i];
+                Pos& bottomPoint = screenBottom[i];
+
+                bottomPoint = { chartPoint.x, 0 };
 
                 screenPoint = flippedRect.relToAbs(chartPoint);
+                bottomPoint = flippedRect.relToAbs(bottomPoint);
             }
 
             shading->compute();

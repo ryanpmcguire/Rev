@@ -167,10 +167,58 @@ export namespace Rev {
             }
         }
 
+        void doStrip() {
+
+            // Dereference left and right line segments
+            std::vector<Pos>& rLeft = *pLeft;
+            std::vector<Pos>& rRight = *pRight;
+
+            // Calculate number of faces and vertices
+            size_t numQuads = (rLeft.size() - 1);
+            numFaces = numQuads * 2;
+            numVerts = numFaces * 3;
+
+            // Resize vertex buffer to match needed vertices
+            vertices->resize(numVerts);
+            VertexBuffer::Vertex* verts = vertices->verts();
+
+            for (size_t i = 0; i < numQuads; i++) {
+
+                size_t vertIndex = 6 * i;
+
+                // Points a and b on left side
+                Pos& left_a = rLeft[i];
+                Pos& left_b = rLeft[i + 1];
+
+                // Points a and b on right side
+                Pos& right_a = rRight[i];
+                Pos& right_b = rRight[i + 1];
+
+                // References to vertices for both triangles
+                VertexBuffer::Vertex& a = verts[vertIndex];
+                VertexBuffer::Vertex& b = verts[vertIndex + 1];
+                VertexBuffer::Vertex& c = verts[vertIndex + 2];
+                VertexBuffer::Vertex& d = verts[vertIndex + 3];
+                VertexBuffer::Vertex& e = verts[vertIndex + 4];
+                VertexBuffer::Vertex& f = verts[vertIndex + 5];
+
+                // Construct first triangle
+                a = { left_a.x, left_a.y };
+                b = { left_b.x, left_b.y };
+                c = { right_a.x, right_a.y};
+
+                // Construct second triangle
+                d = { right_a.x, right_a.y };
+                e = { right_b.x, right_b.y };
+                f = { left_b.x, left_b.y };
+            }
+        }
+
         void compute() override {
 
             switch (topology) {
-                case (Topology::Fan): { this->doFan(); }
+                case (Topology::Fan): { this->doFan(); break; }
+                case (Topology::Strip): { this->doStrip(); break; }
             }
         }
 

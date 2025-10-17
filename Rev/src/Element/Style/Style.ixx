@@ -303,36 +303,36 @@ export namespace Rev {
     // Alignment
     //--------------------------------------------------
 
-    enum Axis {
-        NoAxis,
+    enum class Axis {
+        Unset,
         Horizontal,
         Vertical
     };
 
-    enum Align {
-        NoAlign,
+    enum class Align {
+        Unset,
         Start, End, Center,
         SpaceAorund, SpaceBetween
     };
 
-    enum Break {
-        NoBreak,
+    enum class Break {
+        Unset,
         False,
         True
     };
 
     struct Alignment {
 
-        Axis direction = Axis::NoAxis;
-        Align horizontal = Align::NoAlign;
-        Align vertical = Align::NoAlign;
-        Break breakWrap = Break::NoBreak;
+        Axis direction = Axis::Unset;
+        Align horizontal = Align::Unset;
+        Align vertical = Align::Unset;
+        Break breakWrap = Break::Unset;
 
         inline void apply(Alignment& other) {
-            if (other.direction != Axis::NoAxis) { direction = other.direction; }
-            if (other.horizontal != Align::NoAlign) { horizontal = other.horizontal; }
-            if (other.vertical != Align::NoAlign) { vertical = other.vertical; }
-            if (other.breakWrap != Break::NoBreak) { breakWrap = other.breakWrap; }
+            if (other.direction != Axis::Unset) { direction = other.direction; }
+            if (other.horizontal != Align::Unset) { horizontal = other.horizontal; }
+            if (other.vertical != Align::Unset) { vertical = other.vertical; }
+            if (other.breakWrap != Break::Unset) { breakWrap = other.breakWrap; }
         }
     };
 
@@ -470,7 +470,7 @@ export namespace Rev {
     // Cursor
     //--------------------------------------------------
 
-    enum Cursor {
+    enum class Cursor {
         Unset,
         Arrow,
         Caret,
