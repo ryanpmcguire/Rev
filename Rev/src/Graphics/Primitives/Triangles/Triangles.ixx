@@ -11,6 +11,7 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
+import Rev.Vertex;
 
 // Shader file resources
 import Resources.Shaders.OpenGL.Triangles.Triangles_vert;
@@ -76,8 +77,8 @@ export namespace Rev {
         bool dirty = true;
 
         // We may own our points, or we may be given a pointer to some other points
-        Pos center; std::vector<Pos> points, left, right;
-        Pos* pCenter; std::vector<Pos>* pPoints, *pLeft, *pRight;
+        Vertex center; std::vector<Vertex> points, left, right;
+        Vertex* pCenter; std::vector<Vertex>* pPoints, *pLeft, *pRight;
 
         size_t numFaces, numVerts;
 
@@ -85,11 +86,11 @@ export namespace Rev {
 
             Topology topology;
 
-            Pos* center;
-            std::vector<Pos>* points;
+            Vertex* center;
+            std::vector<Vertex>* points;
 
-            std::vector<Pos>* left;
-            std::vector<Pos>* right;
+            std::vector<Vertex>* left;
+            std::vector<Vertex>* right;
         };
         
         // Create
@@ -117,7 +118,7 @@ export namespace Rev {
             
             shared.create(canvas);
 
-            vertices = new VertexBuffer(canvas->context);
+            vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
 
             data = (Data*)databuff->data;
@@ -135,8 +136,8 @@ export namespace Rev {
 
         void doFan() {
 
-            Pos& rCenter = *pCenter;
-            std::vector<Pos>& rPoints = *pPoints;
+            Vertex& rCenter = *pCenter;
+            std::vector<Vertex>& rPoints = *pPoints;
 
             // Calculate number of faces and vertices
             numFaces = rPoints.size() - 1;
@@ -144,7 +145,7 @@ export namespace Rev {
 
             // Resize vertex buffer to match needed vertices
             vertices->resize(numVerts);
-            VertexBuffer::Vertex* verts = vertices->verts();
+            Vertex* verts = vertices->verts();
         
             // Compute faces for triangle fan from center and perimeter (points)
             for (size_t i = 0; i < numFaces; i++) {
@@ -152,26 +153,25 @@ export namespace Rev {
                 size_t vertIndex = 3 * i;
 
                 // Left and right points respectively
-                Pos& left = rPoints[i];
-                Pos& right = rPoints[i + 1];
+                Vertex& left = rPoints[i];
+                Vertex& right = rPoints[i + 1];
 
                 // References to the vertices which will form our triangle
-                VertexBuffer::Vertex& a = verts[vertIndex];
-                VertexBuffer::Vertex& b = verts[vertIndex + 1];
-                VertexBuffer::Vertex& c = verts[vertIndex + 2];
+                Vertex& a = verts[vertIndex];
+                Vertex& b = verts[vertIndex + 1];
+                Vertex& c = verts[vertIndex + 2];
 
-                // Construct triangle
-                a = { rCenter.x, rCenter.y };
-                b = { left.x, left.y };
-                c = { right.x, right.y };
+                a = rCenter;
+                b = left;
+                c = right;
             }
         }
 
         void doStrip() {
 
             // Dereference left and right line segments
-            std::vector<Pos>& rLeft = *pLeft;
-            std::vector<Pos>& rRight = *pRight;
+            std::vector<Vertex>& rLeft = *pLeft;
+            std::vector<Vertex>& rRight = *pRight;
 
             // Calculate number of faces and vertices
             size_t numQuads = (rLeft.size() - 1);
@@ -180,37 +180,37 @@ export namespace Rev {
 
             // Resize vertex buffer to match needed vertices
             vertices->resize(numVerts);
-            VertexBuffer::Vertex* verts = vertices->verts();
+            Vertex* verts = vertices->verts();
 
             for (size_t i = 0; i < numQuads; i++) {
 
                 size_t vertIndex = 6 * i;
 
                 // Points a and b on left side
-                Pos& left_a = rLeft[i];
-                Pos& left_b = rLeft[i + 1];
+                Vertex& left_a = rLeft[i];
+                Vertex& left_b = rLeft[i + 1];
 
                 // Points a and b on right side
-                Pos& right_a = rRight[i];
-                Pos& right_b = rRight[i + 1];
+                Vertex& right_a = rRight[i];
+                Vertex& right_b = rRight[i + 1];
 
                 // References to vertices for both triangles
-                VertexBuffer::Vertex& a = verts[vertIndex];
-                VertexBuffer::Vertex& b = verts[vertIndex + 1];
-                VertexBuffer::Vertex& c = verts[vertIndex + 2];
-                VertexBuffer::Vertex& d = verts[vertIndex + 3];
-                VertexBuffer::Vertex& e = verts[vertIndex + 4];
-                VertexBuffer::Vertex& f = verts[vertIndex + 5];
+                Vertex& a = verts[vertIndex];
+                Vertex& b = verts[vertIndex + 1];
+                Vertex& c = verts[vertIndex + 2];
+                Vertex& d = verts[vertIndex + 3];
+                Vertex& e = verts[vertIndex + 4];
+                Vertex& f = verts[vertIndex + 5];
 
                 // Construct first triangle
-                a = { left_a.x, left_a.y };
-                b = { left_b.x, left_b.y };
-                c = { right_a.x, right_a.y};
+                a = left_a;
+                b = left_b;
+                c = right_a;
 
                 // Construct second triangle
-                d = { right_a.x, right_a.y };
-                e = { right_b.x, right_b.y };
-                f = { left_b.x, left_b.y };
+                d = right_a;
+                e = right_b;
+                f = left_b;
             }
         }
 

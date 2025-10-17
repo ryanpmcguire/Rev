@@ -473,7 +473,7 @@ export namespace Rev {
                         WinEvent::Type::Clear
                     });
 
-                    return 1;
+                    return 0;
                 }
 
                 case (WM_PAINT): {

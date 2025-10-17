@@ -12,13 +12,14 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
+import Rev.Vertex;
 
 // Shader file resources
 import Resources.Shaders.OpenGL.Lines.Lines_vert;
 import Resources.Shaders.OpenGL.Lines.Lines_frag;
 import Resources.Shaders.Metal.Lines.Lines_metal;
 
-import Rev.Pos;
+import Rev.Vertex;
 
 export namespace Rev {
 
@@ -76,20 +77,20 @@ export namespace Rev {
         bool dirty = true;
 
         // We may own our points, or we may be given a pointer to some other points
-        std::vector<Pos> points;
-        std::vector<Pos>* pPoints = nullptr;
+        std::vector<Vertex> points;
+        std::vector<Vertex>* pPoints = nullptr;
 
         size_t numSegments, numQuads, numJoins, numVerts;
 
         // Create
-        Lines(Canvas* canvas, std::vector<Pos>* pPoints = nullptr) : Primitive(canvas) {
+        Lines(Canvas* canvas, std::vector<Vertex>* pPoints = nullptr) : Primitive(canvas) {
 
             if (pPoints) { this->pPoints = pPoints; }
             else { this->pPoints = &points; }
 
             shared.create(canvas);
 
-            vertices = new VertexBuffer(canvas->context);
+            vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
             data = (Data*)databuff->data;
             *data = Data();
@@ -106,14 +107,14 @@ export namespace Rev {
 
         void compute() override {
 
-            std::vector<Pos>& rPoints = *pPoints;
+            std::vector<Vertex>& rPoints = *pPoints;
 
             numQuads = numSegments = rPoints.size() - 1;
             numJoins = numSegments - 1;
             numVerts = 6 * numQuads + 3 * numJoins;
 
             vertices->resize(numVerts);
-            VertexBuffer::Vertex* verts = vertices->verts();
+            Vertex* verts = vertices->verts();
         
             int numTriangles = triangulatePolyline(
                 reinterpret_cast<float*>(rPoints.data()), rPoints.size(),

@@ -16,6 +16,7 @@ import Rev.TextBox;
 
 import Rev.Graphics.Lines;
 import Rev.Graphics.Triangles;
+import Rev.Vertex;
 
 export namespace Rev {
 
@@ -30,12 +31,12 @@ export namespace Rev {
     struct Chart : public Box {
 
         // Points in chart-space, and screen-space
-        std::vector<Pos> points;
-        std::vector<Pos> screenPoints;
-        std::vector<Pos> screenBottom;
+        std::vector<Vertex> points;
+        std::vector<Vertex> screenPoints;
+        std::vector<Vertex> screenBottom;
 
-        Triangles* shading = nullptr;
-        Lines* lines = nullptr;
+        Triangles* fill = nullptr;
+        Lines* line = nullptr;
 
         // Create
         Chart(Element* parent) : Box(parent, "Chart") {
@@ -43,9 +44,9 @@ export namespace Rev {
             // Self
             this->styles = { &Styles::Chart };
 
-            lines = new Lines(topLevelDetails->canvas, &screenPoints);
+            line = new Lines(topLevelDetails->canvas, &screenPoints);
 
-            shading = new Triangles(topLevelDetails->canvas, {
+            fill = new Triangles(topLevelDetails->canvas, {
                 .topology = Triangles::Topology::Strip,
                 .left = &screenPoints, .right = &screenBottom
             });
@@ -61,8 +62,10 @@ export namespace Rev {
             screenPoints.resize(points.size());
             screenBottom.resize(points.size());
 
-            lines->data->color = { 1, 0, 0, 0.5 };
-            lines->data->strokeWidth = 4.0f;
+            line->data->color = { 1, 0, 0, 1.0 };
+            line->data->strokeWidth = 2.0f;
+
+            fill->data->color = { 1, 0, 0, 0.2 };
 
             Rect flippedRect = {
                 rect.x, rect.y + rect.h,
@@ -75,14 +78,14 @@ export namespace Rev {
                 Pos& screenPoint = screenPoints[i];
                 Pos& bottomPoint = screenBottom[i];
 
-                bottomPoint = { chartPoint.x, 0 };
+                bottomPoint = { chartPoint.x, 0.5 };
 
                 screenPoint = flippedRect.relToAbs(chartPoint);
                 bottomPoint = flippedRect.relToAbs(bottomPoint);
             }
 
-            shading->compute();
-            lines->compute();
+            line->compute();
+            fill->compute();
 
             Box::computePrimitives(e);
         }
@@ -91,8 +94,8 @@ export namespace Rev {
 
             Box::draw(e);
 
-            shading->draw();
-            lines->draw();
+            fill->draw();
+            line->draw();
         }
     };
 };

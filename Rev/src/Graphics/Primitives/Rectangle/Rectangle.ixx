@@ -45,7 +45,7 @@ export namespace Rev {
                     .metalUniversal = Rectangle_metal
                 });
 
-                vertices = new VertexBuffer(canvas->context, 2, 1, 6);
+                vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = { 2, 4 } });
             }
 
             void destroy() {

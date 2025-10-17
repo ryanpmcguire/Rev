@@ -122,7 +122,7 @@ export namespace Rev {
             this->content = content;
 
             font = new Font(canvas);
-            vertices = new VertexBuffer(canvas->context, sizeof(CharVertex), 1);
+            vertices = new VertexBuffer(canvas->context, { .divisor = 1, .attribs = { 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
 
             data = static_cast<Data*>(databuff->data);
