@@ -4,21 +4,23 @@ module;
 #include <vector>
 #include <algorithm>
 
-export module Rev.Chart;
+export module Rev.Element.Chart;
 
-import Rev.Pos;
-import Rev.Rect;
-import Rev.Event;
-import Rev.Style;
+import Rev.Core.Pos;
+import Rev.Core.Vertex;
+import Rev.Core.Rect;
+
 import Rev.Element;
-import Rev.Box;
-import Rev.TextBox;
+import Rev.Element.Event;
+import Rev.Element.Style;
 
-import Rev.Graphics.Lines;
-import Rev.Graphics.Triangles;
-import Rev.Vertex;
+import Rev.Element.Box;
+import Rev.Element.TextBox;
 
-export namespace Rev {
+import Rev.Primitive.Lines;
+import Rev.Primitive.Triangles;
+
+export namespace Rev::Element {
 
     namespace Styles {
         
@@ -65,7 +67,7 @@ export namespace Rev {
             line->data->color = { 1, 0, 0, 1.0 };
             line->data->strokeWidth = 2.0f;
 
-            fill->data->color = { 1, 0, 0, 0.2 };
+            fill->data->color = { 1, 0, 0, 0.0 };
 
             Rect flippedRect = {
                 rect.x, rect.y + rect.h,
@@ -74,18 +76,21 @@ export namespace Rev {
 
             for (size_t i = 0; i < points.size(); i++) {
 
-                Pos& chartPoint = points[i];
-                Pos& screenPoint = screenPoints[i];
-                Pos& bottomPoint = screenBottom[i];
+                Vertex& chartPoint = points[i];
+                Vertex& screenPoint = screenPoints[i];
+                Vertex& bottomPoint = screenBottom[i];
 
                 bottomPoint = { chartPoint.x, 0.5 };
 
                 screenPoint = flippedRect.relToAbs(chartPoint);
                 bottomPoint = flippedRect.relToAbs(bottomPoint);
+
+                bottomPoint.r = 1; bottomPoint.g = 0; bottomPoint.b = 0; bottomPoint.a = 0.1;
+                screenPoint.r = 1; screenPoint.g = 0; screenPoint.b = 0; screenPoint.a = 0.4;
             }
 
-            line->compute();
             fill->compute();
+            line->compute();
 
             Box::computePrimitives(e);
         }

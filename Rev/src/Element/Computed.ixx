@@ -2,11 +2,11 @@ module;
 
 #include <cstdint>
 
-export module Rev.Computed;
+export module Rev.Element.Computed;
 
-import Rev.Style;
+import Rev.Element.Style;
 
-export namespace Rev {
+export namespace Rev::Element {
 
     struct Computed {
 

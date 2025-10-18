@@ -4,14 +4,16 @@ module;
 #include <ctime>
 #include <chrono>
 
-export module Rev.Event;
+export module Rev.Element.Event;
 
 import Rev.Graphics.Canvas;
 import Rev.GlobalTime;
-import Rev.Pos;
-import Rev.Style;
+import Rev.Core.Pos;
+import Rev.Element.Style;
 
-export namespace Rev {
+export namespace Rev::Element {
+
+    using namespace Rev::Core;
 
     struct Event {
 
@@ -94,7 +96,7 @@ export namespace Rev {
         uint64_t firstTime = 0; uint64_t time = 0;
         int id = 0;
 
-        Canvas* canvas;
+        Graphics::Canvas* canvas;
 
         // Set time
         void resetBeforeDispatch() {

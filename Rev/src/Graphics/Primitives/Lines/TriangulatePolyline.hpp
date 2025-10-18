@@ -3,7 +3,7 @@
 #include <cstdint>
 
 struct Vec2 {
-    float x, y;
+    float x, y, r, g, b, a;
 };
 
 struct Quad {

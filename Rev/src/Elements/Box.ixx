@@ -4,20 +4,23 @@ module;
 #include <vector>
 #include <dbg.hpp>
 
-export module Rev.Box;
+export module Rev.Element.Box;
  
+import Rev.Core.Rect;
+
 import Rev.Element;
-import Rev.Event;
-import Rev.Style;
-import Rev.Rect;
+import Rev.Element.Event;
+import Rev.Element.Style;
 
-import Rev.Graphics.Rectangle;
+import Rev.Primitive.Rectangle;
 
-export namespace Rev {
+export namespace Rev::Element {
+
+    using namespace Rev::Primitive;
 
     struct Box : public Element {
 
-        Rectangle* rectangle = nullptr;
+        Primitive::Rectangle* rectangle = nullptr;
 
         // Create
         Box(Element* parent, std::string name = "Box") : Element(parent, name) {

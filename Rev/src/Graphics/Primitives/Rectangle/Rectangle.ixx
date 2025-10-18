@@ -2,11 +2,13 @@ module;
 
 #include <cstddef>
 
-export module Rev.Graphics.Rectangle;
+export module Rev.Primitive.Rectangle;
+
+import Rev.Core.Pos;
+import Rev.Primitive.Primitive;
 
 // Rev graphics modules
 import Rev.Graphics.Canvas;
-import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
@@ -17,7 +19,7 @@ import Resources.Shaders.Metal.Rectangle.Rectangle_metal;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
-export namespace Rev {
+export namespace Rev::Primitive {
 
     struct Rectangle : public Primitive {
 

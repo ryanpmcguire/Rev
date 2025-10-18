@@ -7,13 +7,13 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <dbg.hpp>
 
-export module Rev.OpenGL.Canvas;
+export module Rev.Graphics.Canvas;
 
 import Rev.NativeWindow;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
 
-export namespace Rev {
+export namespace Rev::Graphics {
 
     struct Canvas {
 

@@ -4,24 +4,26 @@ module;
 #include <vector>
 #include <string>
 
-export module Rev.Graphics.Text;
+export module Rev.Primitive.Text;
+
+import Rev.Core.Font;
+import Rev.Core.Pos;
 
 import Rev.Graphics.Canvas;
-import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
-import Rev.Font;
-import Resources.Fonts.Arial.Arial_ttf;
+import Rev.Primitive.Primitive;
 
-// Shader resources
+// Resources
+import Resources.Fonts.Arial.Arial_ttf;
 import Resources.Shaders.OpenGL.Text.Text_vert;
 import Resources.Shaders.OpenGL.Text.Text_frag;
 import Resources.Shaders.Metal.Text.Text_metal;
 
-export namespace Rev {
+export namespace Rev::Primitive {
 
     struct Text : public Primitive {
 

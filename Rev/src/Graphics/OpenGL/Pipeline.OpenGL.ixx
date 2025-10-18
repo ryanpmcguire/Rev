@@ -6,12 +6,14 @@ module;
 #include <glew/glew.h>
 #include <dbg.hpp>
 
-export module Rev.OpenGL.Pipeline;
+export module Rev.Graphics.Pipeline;
 
-import Resource;
-import Rev.OpenGL.Shader;
+import Rev.Core.Resource;
+import Rev.Graphics.Shader;
 
-export namespace Rev {
+export namespace Rev::Graphics {
+
+    using namespace Rev::Core;
 
     struct Pipeline {
 

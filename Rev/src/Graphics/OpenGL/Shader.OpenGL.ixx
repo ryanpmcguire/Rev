@@ -4,11 +4,13 @@ module;
 #include <stdexcept>
 #include <glew/glew.h>
 
-export module Rev.OpenGL.Shader;
+export module Rev.Graphics.Shader;
 
-import Resource;
+import Rev.Core.Resource;
 
-export namespace Rev {
+export namespace Rev::Graphics {
+
+    using namespace Rev::Core;
 
     struct Shader {
 

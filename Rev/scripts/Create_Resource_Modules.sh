@@ -39,7 +39,7 @@ echo "CREATING RESOURCE MODULES"
 echo "--------------------------------------------------"
 echo ""
 
-RESOURCE_MODULE_NAME="Resource"
+RESOURCE_MODULE_NAME="Rev.Core.Resource"
 
 # Find and embed all files in Resources/
 find "$INPUT_DIR" -type f ! -path "$OUTPUT_DIR/*" | while read -r FILE; do
@@ -72,6 +72,6 @@ find "$INPUT_DIR" -type f ! -path "$OUTPUT_DIR/*" | while read -r FILE; do
         echo "inline const unsigned char ${SYMBOL_NAME}_data[] = {"
         xxd -i "$FILE" | grep -vE '^(unsigned char|unsigned int)'
         echo
-        echo "export constinit Resource ${SYMBOL_NAME} = { &${SYMBOL_NAME}_data[0], sizeof(${SYMBOL_NAME}_data) };"
+        echo "export constinit Rev::Core::Resource ${SYMBOL_NAME} = { &${SYMBOL_NAME}_data[0], sizeof(${SYMBOL_NAME}_data) };"
     } > "$OUT_FILE"
 done

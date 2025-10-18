@@ -4,24 +4,23 @@ module;
 #include <vector>
 #include "./TriangulatePolyline.hpp"
 
-export module Rev.Graphics.Lines;
+export module Rev.Primitive.Lines;
+
+import Rev.Core.Vertex;
+import Rev.Primitive.Primitive;
 
 import Rev.Graphics.Canvas;
-import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
-import Rev.Vertex;
 
 // Shader file resources
 import Resources.Shaders.OpenGL.Lines.Lines_vert;
 import Resources.Shaders.OpenGL.Lines.Lines_frag;
 import Resources.Shaders.Metal.Lines.Lines_metal;
 
-import Rev.Vertex;
-
-export namespace Rev {
+export namespace Rev::Primitive {
 
     struct Lines : public Primitive {
 

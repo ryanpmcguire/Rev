@@ -8,17 +8,19 @@ module;
 
 #include "./Native/WinEvent.hpp"
 
-export module Rev.Window;
+export module Rev.Element.Window;
 
-import Rev.Style;
-import Rev.Event;
-import Rev.Pos;
+import Rev.Core.Pos;
+
 import Rev.Element;
-import Rev.Box;
+import Rev.Element.Box;
+import Rev.Element.Style;
+import Rev.Element.Event;
+
 import Rev.NativeWindow;
 import Rev.Graphics.Canvas;
 
-export namespace Rev {
+export namespace Rev::Element {
 
     struct Window : public Element {
 
@@ -107,7 +109,7 @@ export namespace Rev {
             // Canvas
             //--------------------------------------------------
 
-            topLevelDetails->canvas = new Canvas(window);
+            topLevelDetails->canvas = new Graphics::Canvas(window);
             event.canvas = topLevelDetails->canvas;
 
             // Children

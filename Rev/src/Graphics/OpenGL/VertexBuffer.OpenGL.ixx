@@ -4,11 +4,13 @@ module;
 #include <numeric>
 #include <glew/glew.h>
 
-export module Rev.OpenGL.VertexBuffer;
+export module Rev.Graphics.VertexBuffer;
 
-import Rev.Vertex;
+import Rev.Core.Vertex;
 
-export namespace Rev {
+export namespace Rev::Graphics {
+
+    using namespace Rev::Core;
 
     struct VertexBuffer {
 

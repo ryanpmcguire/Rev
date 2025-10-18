@@ -2,9 +2,9 @@ module;
 
 #include <cmath>
 
-export module Rev.Pos;
+export module Rev.Core.Pos;
 
-export namespace Rev {
+export namespace Rev::Core {
 
     // A position
     struct Pos {

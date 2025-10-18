@@ -2,9 +2,9 @@ module;
 
 #include <cmath>
 
-export module Rev.Color;
+export module Rev.Core.Color;
 
-export namespace Rev {
+export namespace Rev::Core {
 
     struct Color {
         float r, g, b, a;

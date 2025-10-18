@@ -2,9 +2,9 @@ module;
 
 #include <glew/glew.h>
 
-export module Rev.OpenGL.Texture;
+export module Rev.Graphics.Texture;
 
-export namespace Rev {
+export namespace Rev::Graphics {
 
     struct Texture {
 

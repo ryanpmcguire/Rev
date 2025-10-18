@@ -3,11 +3,11 @@ module;
 #include <bit>
 #include <algorithm>
 
-export module Rev.Resolved;
+export module Rev.Element.Resolved;
 
-import Rev.Style;
+import Rev.Element.Style;
 
-namespace Rev {
+namespace Rev::Element {
 
     export struct ResolvedDim {
 

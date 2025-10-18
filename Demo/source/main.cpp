@@ -2,8 +2,7 @@
 #include <stdexcept>
 
 import Rev.Application;
-import Rev.Window;
-import Rev.Box;
+import Rev.Element.Window;
 
 import MacInterface;
 
