@@ -1,6 +1,6 @@
 module;
 
-export module Rev.Primitive.Primitive;
+export module Rev.Primitive;
 
 import Rev.Graphics.Canvas;
 

@@ -81,6 +81,10 @@ export namespace Rev::Core {
 
         // Transform relative position to absolute position, relative to this rect
         Pos relToAbs(Pos& pos) { return { x + pos.x * w,  y + pos.y * h }; }
-        Vertex relToAbs(Vertex& pos) { return { x + pos.x * w,  y + pos.y * h }; }
+        Vertex relToAbs(Vertex& vert) { return { x + vert.x * w,  y + vert.y * h }; }
+
+        inline operator bool() const {
+            return !(x || y || w || h);
+        }
     };
 };

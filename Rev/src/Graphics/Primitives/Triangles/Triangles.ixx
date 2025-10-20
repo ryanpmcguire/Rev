@@ -5,6 +5,8 @@ module;
 
 export module Rev.Primitive.Triangles;
 
+import Rev.Primitive;
+import Rev.Core.Color;
 import Rev.Core.Vertex;
 
 import Rev.Graphics.Canvas;
@@ -12,8 +14,6 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
-
-import Rev.Primitive.Primitive;
 
 // Shader file resources
 import Resources.Shaders.OpenGL.Triangles.Triangles_vert;
@@ -64,7 +64,6 @@ export namespace Rev::Primitive {
 
         // Instance-specific data
         struct Data {
-            struct Color { float r, g, b, a; };
             Color color = { 1, 1, 1, 1 };
         };
 
@@ -75,6 +74,8 @@ export namespace Rev::Primitive {
         Topology topology;
         Data* data = nullptr;
         bool dirty = true;
+
+        Color color = { 1, 1, 1, 1 };
 
         // We may own our points, or we may be given a pointer to some other points
         Vertex center; std::vector<Vertex> points, left, right;
@@ -120,9 +121,7 @@ export namespace Rev::Primitive {
 
             vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
-
             data = (Data*)databuff->data;
-            *data = Data();
         }
 
         // Destroy
@@ -215,6 +214,8 @@ export namespace Rev::Primitive {
         }
 
         void compute() override {
+
+            data->color = color;
 
             switch (topology) {
                 case (Topology::Fan): { this->doFan(); break; }

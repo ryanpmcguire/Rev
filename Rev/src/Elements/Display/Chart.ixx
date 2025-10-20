@@ -7,6 +7,7 @@ module;
 export module Rev.Element.Chart;
 
 import Rev.Core.Pos;
+import Rev.Core.Color;
 import Rev.Core.Vertex;
 import Rev.Core.Rect;
 
@@ -19,6 +20,8 @@ import Rev.Element.TextBox;
 
 import Rev.Primitive.Lines;
 import Rev.Primitive.Triangles;
+
+import Rev.Graphics.Canvas;
 
 export namespace Rev::Element {
 
@@ -36,7 +39,9 @@ export namespace Rev::Element {
         std::vector<Vertex> points;
         std::vector<Vertex> screenPoints;
         std::vector<Vertex> screenBottom;
+        std::vector<Vertex> gridPoints;
 
+        Lines* grid = nullptr;
         Triangles* fill = nullptr;
         Lines* line = nullptr;
 
@@ -45,13 +50,17 @@ export namespace Rev::Element {
 
             // Self
             this->styles = { &Styles::Chart };
+            
+            Graphics::Canvas* canvas = topLevelDetails->canvas;
 
-            line = new Lines(topLevelDetails->canvas, &screenPoints);
+            grid = new Lines(canvas);
 
-            fill = new Triangles(topLevelDetails->canvas, {
+            fill = new Triangles(canvas, {
                 .topology = Triangles::Topology::Strip,
                 .left = &screenPoints, .right = &screenBottom
             });
+
+            line = new Lines(canvas, { &screenPoints });
         }
 
         void computeStyle(Event& e) override {
@@ -64,15 +73,35 @@ export namespace Rev::Element {
             screenPoints.resize(points.size());
             screenBottom.resize(points.size());
 
-            line->data->color = { 1, 0, 0, 1.0 };
-            line->data->strokeWidth = 2.0f;
-
-            fill->data->color = { 1, 0, 0, 0.0 };
+            line->color = { 1, 0, 0, 1 };
+            fill->color = { 1, 0, 0, 0.0 };
 
             Rect flippedRect = {
                 rect.x, rect.y + rect.h,
                 rect.w, -1.0f * rect.h
             };
+            
+            // Calculate grid points
+            //--------------------------------------------------
+
+            grid->color = { 1, 1, 1, 1.0 };
+
+            Core::Color color = { 1, 1, 1, 1 };
+
+            grid->view = flippedRect;
+
+            // Four vertical, four horizontal
+            grid->lines = {
+                { .points = { { 0.0, 0.25, color }, { 1.0, 0.25, color } } },
+                { .points = { { 0.0, 0.5, color }, { 1.0, 0.5, color } } },
+                { .points = { { 0.0, 0.75, color }, { 1.0, 0.75, color } } },
+                { .points = { { 0.25, 0.0, color }, { 0.25, 1.0, color } } },
+                { .points = { { 0.5, 0.0, color }, { 0.5, 1.0, color } } },
+                { .points = { { 0.75, 0.0, color }, { 0.75, 1.0, color } } }
+            };
+
+            // Calculate line points
+            //--------------------------------------------------
 
             for (size_t i = 0; i < points.size(); i++) {
 
@@ -85,10 +114,11 @@ export namespace Rev::Element {
                 screenPoint = flippedRect.relToAbs(chartPoint);
                 bottomPoint = flippedRect.relToAbs(bottomPoint);
 
-                bottomPoint.r = 1; bottomPoint.g = 0; bottomPoint.b = 0; bottomPoint.a = 0.1;
-                screenPoint.r = 1; screenPoint.g = 0; screenPoint.b = 0; screenPoint.a = 0.4;
+                bottomPoint.color = { 1, 0, 0, 0.1 };
+                screenPoint.color = { 1, 0, 0, 0.4 };
             }
 
+            grid->compute();
             fill->compute();
             line->compute();
 
@@ -99,6 +129,7 @@ export namespace Rev::Element {
 
             Box::draw(e);
 
+            grid->draw();
             fill->draw();
             line->draw();
         }

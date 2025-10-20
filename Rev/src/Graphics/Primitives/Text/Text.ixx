@@ -6,6 +6,7 @@ module;
 
 export module Rev.Primitive.Text;
 
+import Rev.Primitive;
 import Rev.Core.Font;
 import Rev.Core.Pos;
 
@@ -14,8 +15,6 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
-
-import Rev.Primitive.Primitive;
 
 // Resources
 import Resources.Fonts.Arial.Arial_ttf;

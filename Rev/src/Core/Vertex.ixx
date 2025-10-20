@@ -1,16 +1,16 @@
 export module Rev.Core.Vertex;
 
 import Rev.Core.Pos;
+import Rev.Core.Color;
 
 export namespace Rev::Core {
 
-    struct Vertex : Pos {
-        float r{}, g{}, b{}, a{};
+    struct Vertex : public Pos {
 
-        Vertex() = default;
-        Vertex(float x, float y) : Pos{x, y} {}
-        Vertex(float x, float y, float r, float g, float b, float a)
-            : Pos{x, y}, r{r}, g{g}, b{b}, a{a} {}
-        Vertex(const Pos& pos) : Pos{pos} {}
+        Color color;
+
+        Vertex() : Pos() {}
+        Vertex(float x, float y) : Pos(x, y) {}
+        Vertex(float x, float y, Color c) : Pos(x, y) { color = c; }
     };
-}
+};

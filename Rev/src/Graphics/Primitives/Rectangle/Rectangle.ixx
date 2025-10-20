@@ -4,8 +4,8 @@ module;
 
 export module Rev.Primitive.Rectangle;
 
+import Rev.Primitive;
 import Rev.Core.Pos;
-import Rev.Primitive.Primitive;
 
 // Rev graphics modules
 import Rev.Graphics.Canvas;

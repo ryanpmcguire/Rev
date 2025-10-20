@@ -6,8 +6,10 @@ module;
 
 export module Rev.Primitive.Lines;
 
+import Rev.Primitive;
+import Rev.Core.Color;
 import Rev.Core.Vertex;
-import Rev.Primitive.Primitive;
+import Rev.Core.Rect;
 
 import Rev.Graphics.Canvas;
 import Rev.Graphics.UniformBuffer;
@@ -60,12 +62,7 @@ export namespace Rev::Primitive {
 
         // Instance-specific data
         struct Data {
-
-            struct Color { float r, g, b, a; };
-
             Color color = { 1, 1, 1, 1 };
-            float strokeWidth = 1.0f;
-            float miterLimit = 1.0f;
         };
 
         inline static Shared shared;
@@ -75,22 +72,44 @@ export namespace Rev::Primitive {
         Data* data = nullptr;
         bool dirty = true;
 
-        // We may own our points, or we may be given a pointer to some other points
-        std::vector<Vertex> points;
-        std::vector<Vertex>* pPoints = nullptr;
+        Color color = { 1, 1, 1, 1 };
+        float strokeWidth = 1.0f;
+
+        struct Line {
+
+            std::vector<Vertex> points;
+            std::vector<Vertex>* pPoints = nullptr;
+
+            Color color = { 1, 1, 1, 1 };
+            float strokeWidth = 0.25f;
+
+            size_t segs, quads, joins, verts;
+
+            // Allow valid pointer to override points
+            std::vector<Vertex>& getPoints() {
+                if (pPoints) { return *pPoints; }
+                return points;
+            }
+        };
+
+        Core::Rect view = { 0, 0, 0, 0 };
+        std::vector<Line> lines;
 
         size_t numSegments, numQuads, numJoins, numVerts;
 
         // Create
-        Lines(Canvas* canvas, std::vector<Vertex>* pPoints = nullptr) : Primitive(canvas) {
+        Lines(Canvas* canvas, std::vector<std::vector<Vertex>*> pLines = {}) : Primitive(canvas) {
 
-            if (pPoints) { this->pPoints = pPoints; }
-            else { this->pPoints = &points; }
+            // Initialize lines with pLines if possible
+            for (std::vector<Vertex>*& pPoints : pLines) {
+                lines.push_back({ .pPoints = pPoints });
+            }
 
             shared.create(canvas);
 
             vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
+
             data = (Data*)databuff->data;
             *data = Data();
         }
@@ -106,20 +125,54 @@ export namespace Rev::Primitive {
 
         void compute() override {
 
-            std::vector<Vertex>& rPoints = *pPoints;
+            // Reset
+            numSegments = numQuads = numJoins = numVerts = 0;
 
-            numQuads = numSegments = rPoints.size() - 1;
-            numJoins = numSegments - 1;
-            numVerts = 6 * numQuads + 3 * numJoins;
+            // Transform points according to rect
+            if (view.w && view.h) {
+                for (Line& line : lines) {
+                    for (Vertex& points : line.getPoints()) {
+                        points = view.relToAbs(points);
+                    }
+                }
+            }
 
+            // Calculate needed quads/joins/verts
+            for (Line& line : lines) {
+
+                // Deref, disqualify if too small
+                std::vector<Vertex>& points = line.getPoints();
+
+                // Calculate for line
+                line.segs = points.size() - 1;
+                line.quads = line.segs;
+                line.joins = line.segs - 1;
+                line.verts = 6 * line.quads + 3 * line.joins;
+
+                // Sum globally
+                numVerts += line.verts;
+            }
+
+            // Resize vertex buffer to match needed/expected vertices
             vertices->resize(numVerts);
-            Vertex* verts = vertices->verts();
-        
-            int numTriangles = triangulatePolyline(
-                reinterpret_cast<float*>(rPoints.data()), rPoints.size(),
-                reinterpret_cast<float*>(verts), numVerts,
-                data->strokeWidth
-            );
+
+            size_t offset = 0;
+
+            for (Line& line : lines) {
+
+                std::vector<Vertex>& rPoints = line.getPoints();
+                Vertex* pVerts = vertices->verts();
+
+                int numTriangles = triangulatePolyline(
+                    reinterpret_cast<float*>(rPoints.data()), rPoints.size(),
+                    reinterpret_cast<float*>(pVerts + offset), line.verts,
+                    line.strokeWidth
+                );
+
+                offset += line.verts;
+            }
+
+            data->color = color;
         }
 
         void draw() override {
