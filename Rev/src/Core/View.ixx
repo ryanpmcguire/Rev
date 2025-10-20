@@ -18,8 +18,15 @@ export namespace Rev::Core {
 
         View transform(View& in) {
             return {
-                x + in.x, y + in.y,
-                w, h
+                x - in.x * w, y - in.y * h,
+                w / in.w, h / in.h
+            };
+        }
+
+        Pos transform(Pos& in) {
+            return {
+                x + in.x * w,
+                y + in.y * h
             };
         }
 

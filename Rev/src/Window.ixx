@@ -421,7 +421,7 @@ export namespace Rev::Element {
             dbg("[Window] mouseButton");
 
             // Get mouse position
-            event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
+            event.mouse.pos = { float(x), float(y) };
 
             event.resetBeforeDispatch();
             event.id += 1;

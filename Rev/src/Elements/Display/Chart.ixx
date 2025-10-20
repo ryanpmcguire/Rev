@@ -36,7 +36,7 @@ export namespace Rev::Element {
 
     struct Chart : public Box {
 
-        Core::View view = {};
+        Core::View view = { 0, 0, 0.5, 0.5 };
 
         // Points in chart-space, and screen-space
         std::vector<Vertex> points;
@@ -66,7 +66,21 @@ export namespace Rev::Element {
             line = new Lines(canvas, { &screenPoints });
         }
 
+        View pinView;
+
+        void mouseDown(Event& e) override {
+
+            pinView = view;
+
+            Box::mouseDown(e);
+        }
+
         void mouseDrag(Event& e) override {
+
+            view.x = pinView.x - e.mouse.diff.x / rect.w;
+            view.y = pinView.y + e.mouse.diff.y / rect.h;
+
+            refresh(e);
 
             Box::mouseDrag(e);
         }
@@ -84,10 +98,12 @@ export namespace Rev::Element {
             line->color = { 1, 0, 0, 1 };
             fill->color = { 1, 0, 0, 0.5 };
 
-            view = {
+            View flippedRect = {
                 rect.x, rect.y + rect.h,
                 rect.w, -1.0f * rect.h
             };
+
+            View screenView = flippedRect.transform(view);
             
             // Calculate grid points
             //--------------------------------------------------
@@ -108,7 +124,7 @@ export namespace Rev::Element {
             };
 
             for (Lines::Line& line : grid->lines) {
-                view.transform(line.points, line.points);
+                screenView.transform(line.points, line.points);
             }
 
             // Calculate line points
@@ -121,8 +137,8 @@ export namespace Rev::Element {
                 screenBottom[i] = { points[i].x, 0.5, { 1, 0, 0, 0.1 } };
             }
 
-            view.transform(points, screenPoints);
-            view.transform(screenBottom);
+            screenView.transform(points, screenPoints);
+            screenView.transform(screenBottom);
 
             grid->compute();
             fill->compute();
