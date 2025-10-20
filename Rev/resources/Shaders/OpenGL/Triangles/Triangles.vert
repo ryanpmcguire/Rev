@@ -16,7 +16,7 @@ out vec4 vColor;
 void main()
 {
     // If uColor.a != 0.0, use the uniform color; otherwise use the vertex color.
-    vColor = (uColor.a != 0.0) ? uColor : aColor;
+    vColor = (aColor.a != 0.0) ? aColor : uColor;
 
     gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
 }

@@ -81,7 +81,7 @@ export namespace Rev::Primitive {
             std::vector<Vertex>* pPoints = nullptr;
 
             Color color = { 1, 1, 1, 1 };
-            float strokeWidth = 0.25f;
+            float strokeWidth = 0.0f;
 
             size_t segs, quads, joins, verts;
 
@@ -92,7 +92,6 @@ export namespace Rev::Primitive {
             }
         };
 
-        Core::Rect view = { 0, 0, 0, 0 };
         std::vector<Line> lines;
 
         size_t numSegments, numQuads, numJoins, numVerts;
@@ -128,15 +127,6 @@ export namespace Rev::Primitive {
             // Reset
             numSegments = numQuads = numJoins = numVerts = 0;
 
-            // Transform points according to rect
-            if (view.w && view.h) {
-                for (Line& line : lines) {
-                    for (Vertex& points : line.getPoints()) {
-                        points = view.relToAbs(points);
-                    }
-                }
-            }
-
             // Calculate needed quads/joins/verts
             for (Line& line : lines) {
 
@@ -166,7 +156,7 @@ export namespace Rev::Primitive {
                 int numTriangles = triangulatePolyline(
                     reinterpret_cast<float*>(rPoints.data()), rPoints.size(),
                     reinterpret_cast<float*>(pVerts + offset), line.verts,
-                    line.strokeWidth
+                    strokeWidth ? strokeWidth : line.strokeWidth
                 );
 
                 offset += line.verts;

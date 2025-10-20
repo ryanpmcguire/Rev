@@ -10,6 +10,7 @@ import Rev.Core.Pos;
 import Rev.Core.Color;
 import Rev.Core.Vertex;
 import Rev.Core.Rect;
+import Rev.Core.View;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -34,6 +35,8 @@ export namespace Rev::Element {
     };
 
     struct Chart : public Box {
+
+        Core::View view = {};
 
         // Points in chart-space, and screen-space
         std::vector<Vertex> points;
@@ -63,6 +66,11 @@ export namespace Rev::Element {
             line = new Lines(canvas, { &screenPoints });
         }
 
+        void mouseDrag(Event& e) override {
+
+            Box::mouseDrag(e);
+        }
+
         void computeStyle(Event& e) override {
         
             Box::computeStyle(e);
@@ -74,9 +82,9 @@ export namespace Rev::Element {
             screenBottom.resize(points.size());
 
             line->color = { 1, 0, 0, 1 };
-            fill->color = { 1, 0, 0, 0.0 };
+            fill->color = { 1, 0, 0, 0.5 };
 
-            Rect flippedRect = {
+            view = {
                 rect.x, rect.y + rect.h,
                 rect.w, -1.0f * rect.h
             };
@@ -85,10 +93,9 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             grid->color = { 1, 1, 1, 1.0 };
+            grid->strokeWidth = 0.25f;
 
             Core::Color color = { 1, 1, 1, 1 };
-
-            grid->view = flippedRect;
 
             // Four vertical, four horizontal
             grid->lines = {
@@ -100,23 +107,22 @@ export namespace Rev::Element {
                 { .points = { { 0.75, 0.0, color }, { 0.75, 1.0, color } } }
             };
 
+            for (Lines::Line& line : grid->lines) {
+                view.transform(line.points, line.points);
+            }
+
             // Calculate line points
             //--------------------------------------------------
 
+            screenPoints.resize(points.size());
+            screenBottom.resize(points.size());
+            
             for (size_t i = 0; i < points.size(); i++) {
-
-                Vertex& chartPoint = points[i];
-                Vertex& screenPoint = screenPoints[i];
-                Vertex& bottomPoint = screenBottom[i];
-
-                bottomPoint = { chartPoint.x, 0.5 };
-
-                screenPoint = flippedRect.relToAbs(chartPoint);
-                bottomPoint = flippedRect.relToAbs(bottomPoint);
-
-                bottomPoint.color = { 1, 0, 0, 0.1 };
-                screenPoint.color = { 1, 0, 0, 0.4 };
+                screenBottom[i] = { points[i].x, 0.5, { 1, 0, 0, 0.1 } };
             }
+
+            view.transform(points, screenPoints);
+            view.transform(screenBottom);
 
             grid->compute();
             fill->compute();
