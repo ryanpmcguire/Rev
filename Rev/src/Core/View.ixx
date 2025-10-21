@@ -16,12 +16,23 @@ export namespace Rev::Core {
         
         using Lrtb::Lrtb;
 
-        void shift(Pos& pos) {
+        void shift(Pos pos) {
             l += pos.x; r += pos.x;
             t += pos.y; b += pos.y;
         }
 
-        View shifted(Pos& pos) {
+        void zoom(Pos focus, Pos factor) {
+
+            // Shrink distance to left and right equally
+            l = focus.x - factor.x * (focus.x - l);
+            r = focus.x + factor.x * (r - focus.x);
+
+            // Shrink distance to top and bottom equally
+            t = focus.y - factor.y * (focus.y - t);
+            b = focus.y + factor.y * (b - focus.y);
+        }
+
+        View shifted(Pos pos) {
             return {
                 l + pos.x, r + pos.x,
                 t + pos.y, b + pos.y

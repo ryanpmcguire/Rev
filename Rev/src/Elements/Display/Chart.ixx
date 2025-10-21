@@ -40,7 +40,7 @@ export namespace Rev::Element {
     using namespace Core;
     struct Chart : public Box {
 
-        View chartView = { 0, 1, 0, 1 };
+        View view = { 0, 1, 0, 1 };
         Transform chartToScreen;
         Transform screenToChart;
 
@@ -81,7 +81,7 @@ export namespace Rev::Element {
         void mouseDown(Event& e) override {
 
             pinPos = screenToChart * e.mouse.pos;
-            pinView = chartView;
+            pinView = view;
 
             Box::mouseDown(e);
         }
@@ -92,7 +92,7 @@ export namespace Rev::Element {
             Pos scaledDiff = e.mouse.diff * scale;
             scaledDiff *= { -1, 1 };
             
-            chartView = pinView.shifted(scaledDiff);
+            view = pinView.shifted(scaledDiff);
 
             refresh(e);
 
@@ -104,6 +104,20 @@ export namespace Rev::Element {
             dbg("wheel");
 
             float wheelSensitivity = 10.0f * (1.0f / 120.0f);
+
+            if (e.keyboard.ctrl || e.keyboard.shift) {
+                                
+                float scale = (e.mouse.wheel.y > 0) ? 0.9f : 1.1f;
+
+                view.zoom(screenToChart * e.mouse.pos, {
+                    e.keyboard.ctrl ? scale : 1.0f,
+                    e.keyboard.shift ? scale : 1.0f
+                });
+
+                refresh(e);
+
+                return Box::mouseWheel(e);
+            }
 
             // Calculate movement, swap axis if shift
             Pos shiftBy = {
@@ -119,7 +133,7 @@ export namespace Rev::Element {
                 shiftBy.x *= -1.0f;
             }
 
-            chartView.shift(shiftBy);
+            view.shift(shiftBy);
             
             refresh(e);
 
@@ -129,37 +143,86 @@ export namespace Rev::Element {
         // Computing
         //--------------------------------------------------
 
+        float niceStep(float range) {
+
+            // Target around 10 lines across the view
+            float rough = range / 10.0f;
+        
+            // Find nearest power of ten
+            float exponent = std::floor(std::log10(rough));
+            float base = std::pow(10.0f, exponent);
+        
+            base *= 5.0f;
+        
+            return base;
+        }
+
+        // Major steps at powers of ten only
+        float majorStep(float range) {
+            return niceStep(range);
+        }
+        
+        // Use the existing nice step
+        float minorStep(float range) {
+            return majorStep(range) / 5.0f;
+        }
+
         void computePrimitives(Event& e) override {
 
             // Calculate transforms
             //--------------------------------------------------
 
-            Pos viewSpan = chartView.span();
+            Pos viewSpan = view.span();
 
             chartToScreen = Transform::Translation(rect.x, rect.y + rect.h) *
                             Transform::Scale(rect.w / viewSpan.x, -rect.h / viewSpan.y) *
-                            Transform::Translation(-chartView.l, -chartView.t);
+                            Transform::Translation(-view.l, -view.t);
 
             screenToChart = Transform::Inverse(chartToScreen);
             
             // Calculate grid
             //--------------------------------------------------
 
-            grid->color = { 1, 1, 1, 1.0 };
-            grid->strokeWidth = 0.25f;
+            grid->color = { 0.0, 0, 0, 0.0 };
+            grid->strokeWidth = 0.25f;            
+            grid->lines.clear();
 
-            Core::Color color = { 1, 1, 1, 1 };
+            Core::Color majorColor = { 1, 1, 1, 1.0f };
+            Core::Color minorColor = { 1, 1, 1, 0.1f };
 
-            // Four vertical, four horizontal
-            grid->lines = {
-                { .points = { { 0.0, 0.25, color }, { 1.0, 0.25, color } } },
-                { .points = { { 0.0, 0.5, color }, { 1.0, 0.5, color } } },
-                { .points = { { 0.0, 0.75, color }, { 1.0, 0.75, color } } },
-                { .points = { { 0.25, 0.0, color }, { 0.25, 1.0, color } } },
-                { .points = { { 0.5, 0.0, color }, { 0.5, 1.0, color } } },
-                { .points = { { 0.75, 0.0, color }, { 0.75, 1.0, color } } }
-            };
+            float xMajor = majorStep(view.r - view.l);
+            float yMajor = majorStep(view.b - view.t);
 
+            float xMinor = minorStep(view.r - view.l);
+            float yMinor = minorStep(view.b - view.t);
+
+            // Major lines
+            float xStartMajor = std::floor(view.l / xMajor) * xMajor;
+            float xEndMajor   = std::ceil(view.r / xMajor) * xMajor;
+            float yStartMajor = std::floor(view.t / yMajor) * yMajor;
+            float yEndMajor   = std::ceil(view.b / yMajor) * yMajor;
+
+            for (float x = xStartMajor; x <= xEndMajor + xMajor * 0.5f; x += xMajor)
+                grid->lines.push_back({ .points = { {x, view.t, majorColor}, {x, view.b, majorColor} } });
+
+            for (float y = yStartMajor; y <= yEndMajor + yMajor * 0.5f; y += yMajor)
+                grid->lines.push_back({ .points = { {view.l, y, majorColor}, {view.r, y, majorColor} } });
+
+            // Minor lines
+            float xStartMinor = std::floor(view.l / xMinor) * xMinor;
+            float xEndMinor   = std::ceil(view.r / xMinor) * xMinor;
+            float yStartMinor = std::floor(view.t / yMinor) * yMinor;
+            float yEndMinor   = std::ceil(view.b / yMinor) * yMinor;
+
+            for (float x = xStartMinor; x <= xEndMinor + xMinor * 0.5f; x += xMinor) {
+                grid->lines.push_back({ .points = { {x, view.t, minorColor}, {x, view.b, minorColor} } });
+            }
+
+            for (float y = yStartMinor; y <= yEndMinor + yMinor * 0.5f; y += yMinor) {
+                grid->lines.push_back({ .points = { {view.l, y, minorColor}, {view.r, y, minorColor} } });
+            }
+
+            // Transform to screen space
             for (Lines::Line& line : grid->lines) {
                 for (Vertex& point : line.getPoints()) {
                     point = chartToScreen * point;
