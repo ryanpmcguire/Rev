@@ -12,5 +12,11 @@ export namespace Rev::Core {
         Vertex() : Pos() {}
         Vertex(float x, float y) : Pos(x, y) {}
         Vertex(float x, float y, Color c) : Pos(x, y) { color = c; }
+
+        // We preserve color when assigning from a pos
+        Vertex& operator=(const Pos& other) {
+            x = other.x; y = other.y;
+            return *this;
+        }
     };
 };

@@ -471,7 +471,7 @@ export namespace Rev::Element {
         // When mouse wheel or trackpad scrolls
         void onMouseWheel(float dx, float dy) {
 
-            dbg("[Window] mouseWheel: %i, %i", dx, dy);
+            dbg("[Window] mouseWheel: %f, %f", dx, dy);
 
             event.mouse.wheel = { dx, dy };
             event.resetBeforeDispatch();
@@ -489,6 +489,23 @@ export namespace Rev::Element {
         void onKeyboard(int key, int action) {
 
             dbg("[Window] Key %s", window->keyToString(key));
+
+            NativeWindow::Key winKey = static_cast<NativeWindow::Key>(key);
+
+            switch (winKey) {
+                case (NativeWindow::Key::Ctrl): { event.keyboard.ctrl.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Shift): { event.keyboard.shift.set(action, event.mouse.pos); break; }
+            }
+
+            event.resetBeforeDispatch();
+            this->setTargets(event);
+
+            if (action) { this->keyDown(event); }
+            else { this->keyUp(event); }
+
+            if (event.causedRefresh) {
+                this->refresh(event);
+            }
         }
 
         void onCharacter(char32_t character) {

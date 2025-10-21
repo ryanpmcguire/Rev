@@ -34,7 +34,7 @@ export namespace Rev {
         //--------------------------------------------------
         
         // Unified key enum
-        enum class Key {
+        enum class Key : int {
             
             Unknown,
 

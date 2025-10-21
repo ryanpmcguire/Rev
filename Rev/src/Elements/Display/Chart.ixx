@@ -4,6 +4,8 @@ module;
 #include <vector>
 #include <algorithm>
 
+#include <dbg.hpp>
+
 export module Rev.Element.Chart;
 
 import Rev.Core.Pos;
@@ -11,6 +13,7 @@ import Rev.Core.Color;
 import Rev.Core.Vertex;
 import Rev.Core.Rect;
 import Rev.Core.View;
+import Rev.Core.Transform;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -34,9 +37,12 @@ export namespace Rev::Element {
         };
     };
 
+    using namespace Core;
     struct Chart : public Box {
 
-        Core::View view = { 0, 0, 0.5, 0.5 };
+        View chartView = { 0, 1, 0, 1 };
+        Transform chartToScreen;
+        Transform screenToChart;
 
         // Points in chart-space, and screen-space
         std::vector<Vertex> points;
@@ -65,47 +71,78 @@ export namespace Rev::Element {
 
             line = new Lines(canvas, { &screenPoints });
         }
+        
+        // Adjusting view
+        //--------------------------------------------------
 
+        Pos pinPos;
         View pinView;
 
         void mouseDown(Event& e) override {
 
-            pinView = view;
+            pinPos = screenToChart * e.mouse.pos;
+            pinView = chartView;
 
             Box::mouseDown(e);
         }
 
         void mouseDrag(Event& e) override {
 
-            view.x = pinView.x - e.mouse.diff.x / rect.w;
-            view.y = pinView.y + e.mouse.diff.y / rect.h;
+            Pos scale = screenToChart.getScale();
+            Pos scaledDiff = e.mouse.diff * scale;
+            scaledDiff *= { -1, 1 };
+            
+            chartView = pinView.shifted(scaledDiff);
 
             refresh(e);
 
             Box::mouseDrag(e);
         }
 
-        void computeStyle(Event& e) override {
-        
-            Box::computeStyle(e);
+        void mouseWheel(Event& e) override {
+
+            dbg("wheel");
+
+            float wheelSensitivity = 10.0f * (1.0f / 120.0f);
+
+            // Calculate movement, swap axis if shift
+            Pos shiftBy = {
+                (wheelSensitivity * e.mouse.wheel.x),
+                (wheelSensitivity * e.mouse.wheel.y)
+            };
+
+            Pos scale = screenToChart.getScale();
+            shiftBy *= scale;
+            
+            if (e.keyboard.shift) {
+                shiftBy = shiftBy.swapAxis();
+                shiftBy.x *= -1.0f;
+            }
+
+            chartView.shift(shiftBy);
+            
+            refresh(e);
+
+            Box::mouseWheel(e);
         }
+
+        // Computing
+        //--------------------------------------------------
 
         void computePrimitives(Event& e) override {
 
-            screenPoints.resize(points.size());
-            screenBottom.resize(points.size());
+            // Calculate transforms
+            //--------------------------------------------------
 
-            line->color = { 1, 0, 0, 1 };
-            fill->color = { 1, 0, 0, 0.5 };
+            Pos viewSpan = chartView.span();
 
-            View flippedRect = {
-                rect.x, rect.y + rect.h,
-                rect.w, -1.0f * rect.h
-            };
+            chartToScreen = Transform::Translation(rect.x, rect.y + rect.h) *
+                            Transform::Scale(rect.w / viewSpan.x, -rect.h / viewSpan.y) *
+                            Transform::Translation(-chartView.l, -chartView.t);
 
-            View screenView = flippedRect.transform(view);
+            screenToChart = Transform::Inverse(chartToScreen);
             
-            // Calculate grid points
+            // Calculate grid
             //--------------------------------------------------
 
             grid->color = { 1, 1, 1, 1.0 };
@@ -124,11 +161,16 @@ export namespace Rev::Element {
             };
 
             for (Lines::Line& line : grid->lines) {
-                screenView.transform(line.points, line.points);
+                for (Vertex& point : line.getPoints()) {
+                    point = chartToScreen * point;
+                }
             }
 
-            // Calculate line points
+            // Calculate line(s)
             //--------------------------------------------------
+            
+            line->color = { 1, 0, 0, 1 };
+            fill->color = { 1, 0, 0, 0.5 };
 
             screenPoints.resize(points.size());
             screenBottom.resize(points.size());
@@ -137,8 +179,10 @@ export namespace Rev::Element {
                 screenBottom[i] = { points[i].x, 0.5, { 1, 0, 0, 0.1 } };
             }
 
-            screenView.transform(points, screenPoints);
-            screenView.transform(screenBottom);
+            screenPoints = points;
+
+            for (Vertex& point : screenPoints) { point = chartToScreen * point; }
+            for (Vertex& point : screenBottom) { point = chartToScreen * point; }
 
             grid->compute();
             fill->compute();

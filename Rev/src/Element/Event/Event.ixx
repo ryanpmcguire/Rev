@@ -73,23 +73,23 @@ export namespace Rev::Element {
 
             Cursor cursor = Cursor::Unset;
 
-            Pos down;
-            Pos up;
-            Pos pos;
-            Pos drag;
-            Pos diff;
-            Pos dragStart;
-            Pos dragEnd;
+            Pos pos, down, up;
+            Pos drag, diff;
+            Pos dragStart, dragEnd;
             Pos wheel;
 
-            Button lb;
-            Button mb;
-            Button rb;
+            Button lb, mb, rb;
 
             Mouse() {}
         };
 
+        struct Keyboard {
+
+            Button ctrl, alt, shift;
+        };
+
         Mouse mouse;
+        Keyboard keyboard;
 
         bool propagate = true;
         bool causedRefresh = false;

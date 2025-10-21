@@ -1,6 +1,7 @@
 module;
 
 #include <cmath>
+#include <dbg.hpp>
 
 export module Rev.Core.Pos;
 
@@ -83,6 +84,10 @@ export namespace Rev::Core {
         inline Pos centerTo(const Pos& pos) const { return (*this + pos) / 2.f; }
         inline Pos& normalize() { *this /= pythag(); return *this; }
         inline Pos normalized() { return (*this) / this->pythag(); }
+
+        void print() {
+            dbg("Pos: { %2f, %2f }", x, y);
+        }
 
         inline float angleTo(const Pos& pos) const {
             return atan2(
