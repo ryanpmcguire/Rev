@@ -76,10 +76,14 @@ export namespace Rev::Primitive {
             // Create shared pipeline
             shared.create([canvas]() {
                 pipeline = new Pipeline(canvas->context, {
+
+                    .instanced = false,
+                    .attribs = { 2, 4 },
+
                     .openGlVert = Lines_vert,
                     .openGlFrag = Lines_frag,
                     .metalUniversal = Lines_metal
-                }, 2, false);
+                });
             });
 
             vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });

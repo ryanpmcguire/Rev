@@ -49,6 +49,9 @@ export namespace Rev::Primitive {
             shared.create([canvas]() {
 
                 pipeline = new Pipeline(canvas->context, {
+
+                    .attribs = { 2, 4 },
+
                     .openGlVert = Rectangle_vert,
                     .openGlFrag = Rectangle_frag,
                     .metalUniversal = Rectangle_metal

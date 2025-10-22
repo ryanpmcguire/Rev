@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <stdexcept>
+#include <vector>
 
 #include <glew/glew.h>
 #include <dbg.hpp>
@@ -30,6 +31,9 @@ export namespace Rev::Graphics {
 
         struct PipelineParams {
 
+            bool instanced = true;
+            std::vector<float> attribs;
+
             Resource openGlVert;
             Resource openGlFrag;
 
@@ -40,7 +44,7 @@ export namespace Rev::Graphics {
         };
 
         // Create
-        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0, bool instanced = true) {
+        Pipeline(void* context, PipelineParams params) {
             
             vert = new Shader(params.openGlVert, Shader::Stage::Vertex);
             frag = new Shader(params.openGlFrag, Shader::Stage::Fragment);

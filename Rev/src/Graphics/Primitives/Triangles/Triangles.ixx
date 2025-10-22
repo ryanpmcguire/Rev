@@ -90,10 +90,14 @@ export namespace Rev::Primitive {
             shared.create([canvas]() {
 
                 pipeline = new Pipeline(canvas->context, {
+
+                    .instanced = false,
+                    .attribs = { 2, 4 },
+
                     .openGlVert = Triangles_vert,
                     .openGlFrag = Triangles_frag,
                     .metalUniversal = Triangles_metal
-                }, 2, false);
+                });
             });
 
             vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });

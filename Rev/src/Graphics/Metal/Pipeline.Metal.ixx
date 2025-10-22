@@ -27,6 +27,9 @@ export namespace Rev::Graphics {
 
         struct PipelineParams {
 
+            bool instanced = true;
+            std::vector<float> attribs;
+
             Resource openGlVert;
             Resource openGlFrag;
 
@@ -37,12 +40,12 @@ export namespace Rev::Graphics {
         };
 
         // Create
-        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0, bool instanced = true) {
+        Pipeline(void* context, PipelineParams params) {
 
             this->context = context;
 
             shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal);
-            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, floatsPerVertex, instanced);
+            pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, params.attribs, params.instanced);
         }
 
         // Destroy

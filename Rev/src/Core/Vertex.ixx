@@ -1,3 +1,7 @@
+module;
+
+#include <vector>
+
 export module Rev.Core.Vertex;
 
 import Rev.Core.Pos;
@@ -6,6 +10,10 @@ import Rev.Core.Color;
 export namespace Rev::Core {
 
     struct Vertex : public Pos {
+
+        inline static std::vector<float> attribs = {
+            2, 4
+        };
 
         Color color;
 

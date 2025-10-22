@@ -79,12 +79,14 @@ export namespace Rev::Primitive {
             shared.create([canvas]() {
                 
                 pipeline = new Pipeline(canvas->context, {
+
+                    .attribs = { 4 },
                     
                     .openGlVert = Text_vert,
                     .openGlFrag = Text_frag,
 
                     .metalUniversal = Text_metal
-                }, 4);
+                });
             });
 
             this->content = content;
