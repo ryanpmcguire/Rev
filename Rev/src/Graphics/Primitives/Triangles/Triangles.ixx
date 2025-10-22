@@ -6,6 +6,7 @@ module;
 export module Rev.Primitive.Triangles;
 
 import Rev.Primitive;
+import Rev.Core.Shared;
 import Rev.Core.Color;
 import Rev.Core.Vertex;
 
@@ -24,40 +25,6 @@ export namespace Rev::Primitive {
 
     struct Triangles : public Primitive {
 
-        // Shared across instances
-        struct Shared {
-
-            size_t refCount = 0;
-
-            Pipeline* pipeline = nullptr;
-
-            Shared() {
-                
-            }
-
-            void create(Canvas* canvas) {
-
-                refCount++;
-
-                if (refCount > 1) { return; }
-
-                pipeline = new Pipeline(canvas->context, {
-                    .openGlVert = Triangles_vert,
-                    .openGlFrag = Triangles_frag,
-                    .metalUniversal = Triangles_metal
-                }, 2, false);
-            }
-
-            void destroy() {
-
-                // Subtract refcount, return if remaining
-                if (refCount--) { return; }
-
-                // Delete resourcesfg
-                delete pipeline;
-            }
-        };
-
         enum Topology {
             List, Fan, Strip
         };
@@ -68,6 +35,8 @@ export namespace Rev::Primitive {
         };
 
         inline static Shared shared;
+        inline static Pipeline* pipeline;
+
         UniformBuffer* databuff = nullptr;
         VertexBuffer* vertices = nullptr;
 
@@ -117,7 +86,15 @@ export namespace Rev::Primitive {
             // Initialize resources
             //--------------------------------------------------
             
-            shared.create(canvas);
+            // Create shared pipeline
+            shared.create([canvas]() {
+
+                pipeline = new Pipeline(canvas->context, {
+                    .openGlVert = Triangles_vert,
+                    .openGlFrag = Triangles_frag,
+                    .metalUniversal = Triangles_metal
+                }, 2, false);
+            });
 
             vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
@@ -127,7 +104,10 @@ export namespace Rev::Primitive {
         // Destroy
         ~Triangles() {
 
-            shared.destroy();
+            // Destroy shared pipeline
+            shared.destroy([]() {
+                delete pipeline;
+            });
 
             delete vertices;
             delete databuff;
@@ -225,7 +205,7 @@ export namespace Rev::Primitive {
 
         void draw() override {
 
-            shared.pipeline->bind();
+            pipeline->bind();
 
             databuff->bind(1);
             vertices->bind();

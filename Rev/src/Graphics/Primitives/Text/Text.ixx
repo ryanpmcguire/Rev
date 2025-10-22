@@ -7,6 +7,7 @@ module;
 export module Rev.Primitive.Text;
 
 import Rev.Primitive;
+import Rev.Core.Shared;
 import Rev.Core.Font;
 import Rev.Core.Pos;
 
@@ -26,52 +27,6 @@ export namespace Rev::Primitive {
 
     struct Text : public Primitive {
 
-        // Fonts
-        //--------------------------------------------------
-
-        // Shared resources
-        //--------------------------------------------------
-
-        struct Shared {
-
-            size_t refCount = 0;
-
-            Shader* vert = nullptr;
-            Shader* frag = nullptr;
-            Pipeline* pipeline = nullptr;
-
-            Shared() {
-                
-            }
-
-            void create(Canvas* canvas) {
-
-                refCount++;
-
-                if (refCount > 1) { return; }
-
-                pipeline = new Pipeline(canvas->context, {
-                    
-                    .openGlVert = Text_vert,
-                    .openGlFrag = Text_frag,
-
-                    .metalUniversal = Text_metal
-                }, 4);
-            }
-
-            void destroy() {
-
-                // Subtract refcount, return if remaining
-                if (refCount--) { return; }
-
-                // Delete resources
-                delete pipeline;
-            }
-        };
-
-        // Own resources
-        //--------------------------------------------------
-
         // Position and texture coords
         struct CharVertex {
             float x, y;
@@ -89,6 +44,8 @@ export namespace Rev::Primitive {
         };
 
         inline static Shared shared;
+        inline static Pipeline* pipeline;
+
         UniformBuffer* databuff = nullptr;
         VertexBuffer* vertices = nullptr;
 
@@ -118,7 +75,17 @@ export namespace Rev::Primitive {
         // Create
         Text(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create(canvas);
+            // Create shared pipeline
+            shared.create([canvas]() {
+                
+                pipeline = new Pipeline(canvas->context, {
+                    
+                    .openGlVert = Text_vert,
+                    .openGlFrag = Text_frag,
+
+                    .metalUniversal = Text_metal
+                }, 4);
+            });
 
             this->content = content;
 
@@ -135,7 +102,10 @@ export namespace Rev::Primitive {
         // Destroy
         ~Text() {
 
-            shared.destroy();
+            // Destroy shared pipeline
+            shared.destroy([]() {
+                delete pipeline;
+            });
 
             delete vertices;
             delete databuff;
@@ -351,7 +321,7 @@ export namespace Rev::Primitive {
         // Draw vertices
         void draw() override {
         
-            shared.pipeline->bind();
+            pipeline->bind();
             font->texture->bind(0);
             font->glyphData->bind(2);
 

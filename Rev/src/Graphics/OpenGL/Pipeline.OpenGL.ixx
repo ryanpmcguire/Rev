@@ -23,6 +23,7 @@ export namespace Rev::Graphics {
         };
 
         GLuint id = 0;
+        size_t users = 0;
 
         Shader* vert = nullptr;
         Shader* frag = nullptr;

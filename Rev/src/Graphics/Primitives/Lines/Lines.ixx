@@ -7,6 +7,7 @@ module;
 export module Rev.Primitive.Lines;
 
 import Rev.Primitive;
+import Rev.Core.Shared;
 import Rev.Core.Color;
 import Rev.Core.Vertex;
 import Rev.Core.Rect;
@@ -26,46 +27,14 @@ export namespace Rev::Primitive {
 
     struct Lines : public Primitive {
 
-        // Shared across instances
-        struct Shared {
-
-            size_t refCount = 0;
-
-            Pipeline* pipeline = nullptr;
-
-            Shared() {
-                
-            }
-
-            void create(Canvas* canvas) {
-
-                refCount++;
-
-                if (refCount > 1) { return; }
-
-                pipeline = new Pipeline(canvas->context, {
-                    .openGlVert = Lines_vert,
-                    .openGlFrag = Lines_frag,
-                    .metalUniversal = Lines_metal
-                }, 2, false);
-            }
-
-            void destroy() {
-
-                // Subtract refcount, return if remaining
-                if (refCount--) { return; }
-
-                // Delete resourcesfg
-                delete pipeline;
-            }
-        };
-
         // Instance-specific data
         struct Data {
             Color color = { 1, 1, 1, 1 };
         };
 
         inline static Shared shared;
+        inline static Pipeline* pipeline;
+
         UniformBuffer* databuff = nullptr;
         VertexBuffer* vertices = nullptr;
 
@@ -104,7 +73,14 @@ export namespace Rev::Primitive {
                 lines.push_back({ .pPoints = pPoints });
             }
 
-            shared.create(canvas);
+            // Create shared pipeline
+            shared.create([canvas]() {
+                pipeline = new Pipeline(canvas->context, {
+                    .openGlVert = Lines_vert,
+                    .openGlFrag = Lines_frag,
+                    .metalUniversal = Lines_metal
+                }, 2, false);
+            });
 
             vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
@@ -116,7 +92,9 @@ export namespace Rev::Primitive {
         // Destroy
         ~Lines() {
 
-            shared.destroy();
+            shared.destroy([]() {
+                delete pipeline;
+            });
 
             delete vertices;
             delete databuff;
