@@ -3,15 +3,15 @@ module;
 #include <cstdio>
 #include <string>
 
-export module Rev.TextBox;
+export module Rev.Element.TextBox;
 
-import Rev.Style;
-import Rev.Event;
-import Rev.Box;
+import Rev.Element.Style;
+import Rev.Element.Event;
+import Rev.Element.Box;
 
-import Rev.Graphics.Text;
+import Rev.Primitive.Text;
 
-export namespace Rev {
+export namespace Rev::Element {
 
     struct TextBox : public Box {
 

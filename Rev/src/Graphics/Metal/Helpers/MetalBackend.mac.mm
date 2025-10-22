@@ -384,43 +384,63 @@ void metal_destroy_shader(void* shader) {
 // Pipeline
 //--------------------------------------------------
 
-void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex, bool instanced) {
-    
+void* metal_create_pipeline(MetalContext* ctx,
+                            MetalShader* shader,
+                            std::vector<float> attribs,
+                            bool instanced)
+{
     if (!ctx || !ctx->device) {
-        NSLog(@"Failed to create pipeline: no context/device");
+        NSLog(@"[Metal] Failed to create pipeline: no context/device");
         return nullptr;
     }
 
-    // Optional vertex descriptor
+    // Create a vertex descriptor only if attributes are defined
     MTLVertexDescriptor* vdesc = nil;
 
-    if (floatsPerVertex > 0) {
+    if (!attribs.empty()) {
+
         vdesc = [MTLVertexDescriptor vertexDescriptor];
 
-        vdesc.attributes[0].format =
-            (floatsPerVertex == 1) ? MTLVertexFormatFloat :
-            (floatsPerVertex == 2) ? MTLVertexFormatFloat2 :
-            (floatsPerVertex == 3) ? MTLVertexFormatFloat3 :
-                                     MTLVertexFormatFloat4;
+        // Compute stride (sum of attribute sizes * sizeof(float))
+        size_t stride = 0;
+        for (float a : attribs)
+            stride += static_cast<size_t>(a);
+        stride *= sizeof(float);
 
-        vdesc.attributes[0].offset = 0;
-        vdesc.attributes[0].bufferIndex = 0;
+        // Build each vertex attribute
+        size_t offset = 0;
+        for (NSUInteger i = 0; i < attribs.size(); ++i) {
 
-        vdesc.layouts[0].stride = sizeof(float) * floatsPerVertex;
+            size_t comps = static_cast<size_t>(attribs[i]);
+            MTLVertexFormat fmt =
+                (comps == 1) ? MTLVertexFormatFloat  :
+                (comps == 2) ? MTLVertexFormatFloat2 :
+                (comps == 3) ? MTLVertexFormatFloat3 :
+                               MTLVertexFormatFloat4;
 
-        if (instanced) { vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerInstance; }
-        else { vdesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex; }
+            vdesc.attributes[i].format = fmt;
+            vdesc.attributes[i].offset = offset;
+            vdesc.attributes[i].bufferIndex = 0; // single interleaved vertex buffer
+
+            offset += comps * sizeof(float);
+        }
+
+        vdesc.layouts[0].stride = stride;
+        vdesc.layouts[0].stepFunction = instanced
+            ? MTLVertexStepFunctionPerInstance
+            : MTLVertexStepFunctionPerVertex;
+        vdesc.layouts[0].stepRate = 1;
     }
 
+    // Build pipeline descriptor
     MTLRenderPipelineDescriptor* pdesc = [[MTLRenderPipelineDescriptor alloc] init];
     pdesc.vertexFunction   = shader->vertexFn;
     pdesc.fragmentFunction = shader->fragmentFn;
-    pdesc.vertexDescriptor = vdesc; // nil is valid if no vertex inputs
+    pdesc.vertexDescriptor = vdesc; // nil OK for no vertex inputs
 
-    // Color attachment & blending
+    // Color attachment setup & blending
     MTLRenderPipelineColorAttachmentDescriptor* colorAttachment = pdesc.colorAttachments[0];
     colorAttachment.pixelFormat = MTLPixelFormatBGRA8Unorm;
-
     colorAttachment.blendingEnabled = YES;
     colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
     colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
@@ -429,9 +449,11 @@ void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPe
     colorAttachment.sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
     colorAttachment.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
 
+    // Create the pipeline state
     NSError* err = nil;
     id<MTLRenderPipelineState> pso =
         [ctx->device newRenderPipelineStateWithDescriptor:pdesc error:&err];
+
     if (!pso) {
         NSLog(@"[Metal] Failed to create pipeline: %@", err);
         return nullptr;
@@ -439,6 +461,7 @@ void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPe
 
     return (__bridge_retained void*)pso;
 }
+
 
 
 void metal_destroy_pipeline(void* pipeline) {

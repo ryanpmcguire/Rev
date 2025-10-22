@@ -2,36 +2,44 @@ module;
 
 #include <cstddef>
 #include <vector>
+#include <numeric>
 
 #include "./Helpers/MetalBackend.hpp"
 
-export module Rev.Metal.VertexBuffer;
+export module Rev.Graphics.VertexBuffer;
 
-export namespace Rev {
+import Rev.Core.Vertex;
+
+export namespace Rev::Graphics {
+
+    using namespace Rev::Core;
 
     struct VertexBuffer {
 
-        struct Vertex {
-            float x, y;
+        struct Props {
+
+            size_t divisor = 0;
+            size_t num = 0;
+
+            std::vector<size_t> attribs;
         };
 
+        Props props;
+
+        // Track buffer
         void* context = nullptr;
         void* buffer = nullptr;
 
+        // Buffer data and size
         void* data = nullptr;
-        size_t vertSize = sizeof(Vertex);
-        size_t num = 0;
         size_t size = 0;
-        size_t divisor = 0;
 
-        VertexBuffer(void* context, size_t vertSize = sizeof(Vertex), size_t divisor = 0, size_t num = 0) {
+        VertexBuffer(void* context, Props props) {
 
+            this->props = props;
             this->context = context;
 
-            this->vertSize = vertSize;
-            this->divisor = divisor;
-
-            this->resize(num);
+            this->resize(props.num);
         }
 
         ~VertexBuffer() {
@@ -51,10 +59,13 @@ export namespace Rev {
 
         void resize(size_t newNum) {
 
-            if (newNum == num) { return; }
+            // If no change, do nothing
+            if (newNum == props.num) { return; }
+            else { props.num = newNum; }
 
-            this->num = newNum;
-            this->size = num * vertSize;
+            // Derive vertex size, calculate needed size
+            size_t vertSize = sizeof(float) * std::accumulate(props.attribs.begin(), props.attribs.end(), 0);
+            size = props.num * vertSize;
 
             if (buffer) { metal_destroy_vertex_buffer(buffer); }
 

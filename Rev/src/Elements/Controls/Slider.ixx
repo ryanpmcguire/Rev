@@ -3,16 +3,18 @@ module;
 #include <cmath>
 #include <algorithm>
 
-export module Rev.Slider;
+export module Rev.Element.Slider;
 
-import Rev.Pos;
-import Rev.Event;
-import Rev.Style;
+import Rev.Core.Pos;
+
 import Rev.Element;
-import Rev.Box;
-import Rev.TextBox;
+import Rev.Element.Event;
+import Rev.Element.Style;
 
-export namespace Rev {
+import Rev.Element.Box;
+import Rev.Element.TextBox;
+
+export namespace Rev::Element {
 
     namespace Styles {
         

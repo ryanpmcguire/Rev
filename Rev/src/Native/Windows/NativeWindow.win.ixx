@@ -34,7 +34,7 @@ export namespace Rev {
         //--------------------------------------------------
         
         // Unified key enum
-        enum class Key {
+        enum class Key : int {
             
             Unknown,
 
@@ -473,7 +473,7 @@ export namespace Rev {
                         WinEvent::Type::Clear
                     });
 
-                    return 1;
+                    return 0;
                 }
 
                 case (WM_PAINT): {
@@ -557,7 +557,7 @@ export namespace Rev {
                 case (WM_MBUTTONUP): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 0, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
                 
                 // Mouse down
-                case (WM_LBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
+                case (WM_LBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 0, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
                 case (WM_RBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
                 case (WM_MBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
         

@@ -3,11 +3,12 @@ module;
 #include <cmath>
 #include <algorithm>
 
-export module Rev.Rect;
+export module Rev.Core.Rect;
 
-import Rev.Pos;
+import Rev.Core.Pos;
+import Rev.Core.Vertex;
 
-export namespace Rev {
+export namespace Rev::Core {
 
     struct Rect {
 
@@ -79,12 +80,11 @@ export namespace Rev {
         }
 
         // Transform relative position to absolute position, relative to this rect
-        Pos relToAbs(Pos& pos) {
-            
-            return {
-                x + pos.x * w,
-                y + pos.y * h
-            };
+        Pos relToAbs(Pos& pos) { return { x + pos.x * w,  y + pos.y * h }; }
+        Vertex relToAbs(Vertex& vert) { return { x + vert.x * w,  y + vert.y * h }; }
+
+        inline operator bool() const {
+            return !(x || y || w || h);
         }
     };
 };

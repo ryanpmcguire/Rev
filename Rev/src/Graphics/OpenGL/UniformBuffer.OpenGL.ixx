@@ -4,9 +4,9 @@ module;
 #include <cstring>
 #include <dbg.hpp>
 
-export module Rev.OpenGL.UniformBuffer;
+export module Rev.Graphics.UniformBuffer;
 
-export namespace Rev {
+export namespace Rev::Graphics {
 
     struct UniformBuffer {
 

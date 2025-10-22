@@ -12,22 +12,22 @@ export module Rev.Element;
 
 import Rev.Graphics.Canvas;
 
-import Rev.Pos;
-import Rev.Rect;
-import Rev.Style;
-import Rev.Computed;
-import Rev.Event;
+import Rev.Core.Pos;
+import Rev.Core.Rect;
 
-import Rev.Resolved;
+import Rev.Element.Style;
+import Rev.Element.Computed;
+import Rev.Element.Event;
+import Rev.Element.Resolved;
 
-export namespace Rev {
+export namespace Rev::Element {
 
     struct Element {
 
         struct TopLevelDetails {
             //WebGpu::Surface* surface;
             std::vector<Element*> dirtyElements;
-            Canvas* canvas = nullptr;
+            Graphics::Canvas* canvas = nullptr;
             Event* event = nullptr;
         };
 
@@ -75,7 +75,7 @@ export namespace Rev {
         }
 
         // Cast as pointer to canvas
-        explicit operator Canvas*() {
+        explicit operator Graphics::Canvas*() {
             return topLevelDetails ? topLevelDetails->canvas : nullptr;
         }
 

@@ -1,10 +1,12 @@
 module;
 
-export module Rev.Graphics.Primitive;
+export module Rev.Primitive;
 
 import Rev.Graphics.Canvas;
 
-export namespace Rev {
+export namespace Rev::Primitive {
+
+    using namespace Rev::Graphics;
 
     struct Primitive {
 

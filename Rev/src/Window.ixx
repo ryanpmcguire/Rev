@@ -8,17 +8,19 @@ module;
 
 #include "./Native/WinEvent.hpp"
 
-export module Rev.Window;
+export module Rev.Element.Window;
 
-import Rev.Style;
-import Rev.Event;
-import Rev.Pos;
+import Rev.Core.Pos;
+
 import Rev.Element;
-import Rev.Box;
+import Rev.Element.Box;
+import Rev.Element.Style;
+import Rev.Element.Event;
+
 import Rev.NativeWindow;
 import Rev.Graphics.Canvas;
 
-export namespace Rev {
+export namespace Rev::Element {
 
     struct Window : public Element {
 
@@ -107,7 +109,7 @@ export namespace Rev {
             // Canvas
             //--------------------------------------------------
 
-            topLevelDetails->canvas = new Canvas(window);
+            topLevelDetails->canvas = new Graphics::Canvas(window);
             event.canvas = topLevelDetails->canvas;
 
             // Children
@@ -419,7 +421,9 @@ export namespace Rev {
             dbg("[Window] mouseButton");
 
             // Get mouse position
-            event.mouse.pos.x = float(x); event.mouse.pos.y = float(y);
+            event.mouse.pos = { float(x), float(y) };
+            if (action == NativeWindow::ButtonAction::Press) { event.mouse.down = event.mouse.pos; }
+            if (action == NativeWindow::ButtonAction::Release) { event.mouse.up = event.mouse.pos; }
 
             event.resetBeforeDispatch();
             event.id += 1;
@@ -449,7 +453,7 @@ export namespace Rev {
             //dbg("CursorPos");
 
             event.mouse.pos = { x, y };
-            event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
+            event.mouse.diff = event.mouse.pos - event.mouse.down;
             event.resetBeforeDispatch();
 
             this->setTargets(event);
@@ -469,7 +473,7 @@ export namespace Rev {
         // When mouse wheel or trackpad scrolls
         void onMouseWheel(float dx, float dy) {
 
-            dbg("[Window] mouseWheel: %i, %i", dx, dy);
+            dbg("[Window] mouseWheel: %f, %f", dx, dy);
 
             event.mouse.wheel = { dx, dy };
             event.resetBeforeDispatch();
@@ -487,6 +491,23 @@ export namespace Rev {
         void onKeyboard(int key, int action) {
 
             dbg("[Window] Key %s", window->keyToString(key));
+
+            NativeWindow::Key winKey = static_cast<NativeWindow::Key>(key);
+
+            switch (winKey) {
+                case (NativeWindow::Key::Ctrl): { event.keyboard.ctrl.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Shift): { event.keyboard.shift.set(action, event.mouse.pos); break; }
+            }
+
+            event.resetBeforeDispatch();
+            this->setTargets(event);
+
+            if (action) { this->keyDown(event); }
+            else { this->keyUp(event); }
+
+            if (event.causedRefresh) {
+                this->refresh(event);
+            }
         }
 
         void onCharacter(char32_t character) {

@@ -2,9 +2,9 @@ module;
 
 #include <vector>
 
-export module Rev.DirtyFlag;
+export module Rev.Core.DirtyFlag;
 
-export namespace Rev {
+export namespace Rev::Core {
 
     struct DirtyFlag {
 

@@ -4,72 +4,28 @@ module;
 #include <vector>
 #include <string>
 
-export module Rev.Graphics.Text;
+export module Rev.Primitive.Text;
+
+import Rev.Primitive;
+import Rev.Core.Shared;
+import Rev.Core.Font;
+import Rev.Core.Pos;
 
 import Rev.Graphics.Canvas;
-import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
-import Rev.Font;
+// Resources
 import Resources.Fonts.Arial.Arial_ttf;
-
-// Shader resources
 import Resources.Shaders.OpenGL.Text.Text_vert;
 import Resources.Shaders.OpenGL.Text.Text_frag;
 import Resources.Shaders.Metal.Text.Text_metal;
 
-export namespace Rev {
+export namespace Rev::Primitive {
 
     struct Text : public Primitive {
-
-        // Fonts
-        //--------------------------------------------------
-
-        // Shared resources
-        //--------------------------------------------------
-
-        struct Shared {
-
-            size_t refCount = 0;
-
-            Shader* vert = nullptr;
-            Shader* frag = nullptr;
-            Pipeline* pipeline = nullptr;
-
-            Shared() {
-                
-            }
-
-            void create(Canvas* canvas) {
-
-                refCount++;
-
-                if (refCount > 1) { return; }
-
-                pipeline = new Pipeline(canvas->context, {
-                    
-                    .openGlVert = Text_vert,
-                    .openGlFrag = Text_frag,
-
-                    .metalUniversal = Text_metal
-                }, 4);
-            }
-
-            void destroy() {
-
-                // Subtract refcount, return if remaining
-                if (refCount--) { return; }
-
-                // Delete resources
-                delete pipeline;
-            }
-        };
-
-        // Own resources
-        //--------------------------------------------------
 
         // Position and texture coords
         struct CharVertex {
@@ -88,6 +44,8 @@ export namespace Rev {
         };
 
         inline static Shared shared;
+        inline static Pipeline* pipeline;
+
         UniformBuffer* databuff = nullptr;
         VertexBuffer* vertices = nullptr;
 
@@ -117,12 +75,24 @@ export namespace Rev {
         // Create
         Text(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create(canvas);
+            // Create shared pipeline
+            shared.create([canvas]() {
+                
+                pipeline = new Pipeline(canvas->context, {
+
+                    .attribs = { 4 },
+                    
+                    .openGlVert = Text_vert,
+                    .openGlFrag = Text_frag,
+
+                    .metalUniversal = Text_metal
+                });
+            });
 
             this->content = content;
 
             font = new Font(canvas);
-            vertices = new VertexBuffer(canvas->context, sizeof(CharVertex), 1);
+            vertices = new VertexBuffer(canvas->context, { .divisor = 1, .attribs = { 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
 
             data = static_cast<Data*>(databuff->data);
@@ -134,7 +104,10 @@ export namespace Rev {
         // Destroy
         ~Text() {
 
-            shared.destroy();
+            // Destroy shared pipeline
+            shared.destroy([]() {
+                delete pipeline;
+            });
 
             delete vertices;
             delete databuff;
@@ -350,7 +323,7 @@ export namespace Rev {
         // Draw vertices
         void draw() override {
         
-            shared.pipeline->bind();
+            pipeline->bind();
             font->texture->bind(0);
             font->glyphData->bind(2);
 

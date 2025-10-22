@@ -9,16 +9,19 @@ module;
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-export module Rev.Font;
+export module Rev.Core.Font;
+
+import Rev.Core.Resource;
 
 import Rev.Graphics.Canvas;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.Texture;
 
-import Resource;
 import Resources.Fonts.Arial.Arial_ttf;
 
-export namespace Rev {
+export namespace Rev::Core {
+
+    using namespace Rev::Graphics;
 
     struct Font {
 

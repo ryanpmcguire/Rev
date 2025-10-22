@@ -5,11 +5,11 @@ module;
 #include <cmath>
 #include <vector>
 
-export module Rev.Style;
+export module Rev.Element.Style;
 
-import Resource;
+import Rev.Core.Resource;
 
-export namespace Rev {
+export namespace Rev::Element {
 
     // Returns if value is set
     inline bool set(float& f) {
@@ -442,7 +442,7 @@ export namespace Rev {
 
     struct TextStyle {
 
-        Resource font;
+        Core::Resource font;
         Dist size;
         int weight = -1;
         Color color = rgba(255, 255, 255, 1);

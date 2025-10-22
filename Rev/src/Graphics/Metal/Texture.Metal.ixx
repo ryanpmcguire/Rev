@@ -4,9 +4,9 @@ module;
 
 #include "./Helpers/MetalBackend.hpp"
 
-export module Rev.Metal.Texture;
+export module Rev.Graphics.Texture;
 
-export namespace Rev {
+export namespace Rev::Graphics {
 
     struct Texture {
 

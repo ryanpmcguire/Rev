@@ -2,11 +2,14 @@ module;
 
 #include <cstddef>
 
-export module Rev.Graphics.Rectangle;
+export module Rev.Primitive.Rectangle;
+
+import Rev.Primitive;
+import Rev.Core.Shared;
+import Rev.Core.Pos;
 
 // Rev graphics modules
 import Rev.Graphics.Canvas;
-import Rev.Graphics.Primitive;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
@@ -17,47 +20,9 @@ import Resources.Shaders.Metal.Rectangle.Rectangle_metal;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
-export namespace Rev {
+export namespace Rev::Primitive {
 
     struct Rectangle : public Primitive {
-
-        // Shared across instances
-        struct Shared {
-
-            size_t refCount = 0;
-
-            Pipeline* pipeline = nullptr;
-            VertexBuffer* vertices = nullptr;
-
-            Shared() {
-                
-            }
-
-            void create(Canvas* canvas) {
-
-                refCount++;
-
-                if (refCount > 1) { return; }
-                
-                pipeline = new Pipeline(canvas->context, {
-                    .openGlVert = Rectangle_vert,
-                    .openGlFrag = Rectangle_frag,
-                    .metalUniversal = Rectangle_metal
-                });
-
-                vertices = new VertexBuffer(canvas->context, 2, 1, 6);
-            }
-
-            void destroy() {
-
-                // Subtract refcount, return if remaining
-                if (refCount--) { return; }
-
-                // Delete resources
-                delete vertices;
-                delete pipeline;
-            }
-        };
 
         // Instance-specific data
         struct Data {
@@ -72,21 +37,31 @@ export namespace Rev {
         };
 
         inline static Shared shared;
+        inline static Pipeline* pipeline = nullptr;
+        inline static VertexBuffer* vertices = nullptr;
 
-        //VertexBuffer* vertices = nullptr;
         UniformBuffer* databuff = nullptr;
-
         Data* data = nullptr;
-        bool dirty = true;
 
         // Create
         Rectangle(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create(canvas);
+            shared.create([canvas]() {
+
+                pipeline = new Pipeline(canvas->context, {
+
+                    .attribs = { 2, 4 },
+
+                    .openGlVert = Rectangle_vert,
+                    .openGlFrag = Rectangle_frag,
+                    .metalUniversal = Rectangle_metal
+                });
+
+                vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = { 2, 4 } });
+            });
 
             //vertices = new VertexBuffer(4);
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
-            
             data = static_cast<Data*>(databuff->data);
 
             *data = {
@@ -99,7 +74,11 @@ export namespace Rev {
         // Destroy
         ~Rectangle() {
 
-            shared.destroy();
+            shared.destroy([]() {
+                delete pipeline;
+                delete vertices;
+            });
+            
             delete databuff;
         }
 
@@ -109,8 +88,8 @@ export namespace Rev {
 
         void draw() override {
          
-            shared.pipeline->bind();
-            shared.vertices->bind();
+            pipeline->bind();
+            vertices->bind();
             databuff->bind(1);
 
             canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);

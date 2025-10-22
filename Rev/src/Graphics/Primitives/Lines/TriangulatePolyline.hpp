@@ -3,7 +3,7 @@
 #include <cstdint>
 
 struct Vec2 {
-    float x, y;
+    float x, y, r, g, b, a;
 };
 
 struct Quad {
@@ -38,10 +38,10 @@ int32_t triangulatePolyline(float* polylineFloats, int32_t polylineCount,
     Vec2 perp{ -dir.y, dir.x };
 
     Quad thisQuad = {
-        { A.x + perp.x * halfT, A.y + perp.y * halfT }, // A+
-        { A.x - perp.x * halfT, A.y - perp.y * halfT }, // A-
-        { B.x - perp.x * halfT, B.y - perp.y * halfT }, // B-
-        { B.x + perp.x * halfT, B.y + perp.y * halfT }  // B+
+        { A.x + perp.x * halfT, A.y + perp.y * halfT, A.r, A.g, A.b, A.a }, // A+
+        { A.x - perp.x * halfT, A.y - perp.y * halfT, A.r, A.g, A.b, A.a }, // A-
+        { B.x - perp.x * halfT, B.y - perp.y * halfT, B.r, B.g, B.b, B.a }, // B-
+        { B.x + perp.x * halfT, B.y + perp.y * halfT, B.r, B.g, B.b, B.a }  // B+
     };
 
     // --- Iterate through remaining segments ---

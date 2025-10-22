@@ -1,36 +1,45 @@
 module;
 
 #include <vector>
+#include <numeric>
 #include <glew/glew.h>
 
-export module Rev.OpenGL.VertexBuffer;
+export module Rev.Graphics.VertexBuffer;
 
-export namespace Rev {
+import Rev.Core.Vertex;
+
+export namespace Rev::Graphics {
+
+    using namespace Rev::Core;
 
     struct VertexBuffer {
 
-        struct Vertex {
-            float x, y;
+        struct Props {
+
+            size_t divisor = 0;
+            size_t num = 0;
+
+            std::vector<size_t> attribs;
         };
-        
+
+        Props props;
+
+        // Track buffer
         GLuint vaoID = 0;
         GLuint bufferID = 0;
 
+        // Buffer data and size
         void* data = nullptr;
-        size_t vertSize = sizeof(Vertex);
-        size_t num = 0;
         size_t size = 0;
-        size_t divisor = 0;
 
-        VertexBuffer(void* context, size_t vertSize = sizeof(Vertex), size_t divisor = 0, size_t num = 0) {
+        VertexBuffer(void* context, Props props) {
 
-            this->vertSize = vertSize;
-            this->divisor = divisor;
+            this->props = props;
 
             glGenVertexArrays(1, &vaoID);
             glBindVertexArray(vaoID);
 
-            this->resize(num);
+            this->resize(props.num);
         }
 
         ~VertexBuffer() {
@@ -56,11 +65,13 @@ export namespace Rev {
         void resize(size_t newNum) {
 
             // If no change, do nothing
-            if (newNum == num) { return; }
+            if (newNum == props.num) { return; }
+            else { props.num = newNum; }
 
-            this->num = newNum;
-            this->size = newNum * vertSize;
-        
+            // Derive vertex size, calculate buffer size
+            size_t vertSize = sizeof(float) * std::accumulate(props.attribs.begin(), props.attribs.end(), 0);
+            size = props.num * vertSize;
+            
             // Delete previous buffer
             if (data) {
                 glBindBuffer(GL_ARRAY_BUFFER, bufferID);
@@ -89,13 +100,19 @@ export namespace Rev {
                 GL_MAP_PERSISTENT_BIT |
                 GL_MAP_COHERENT_BIT
             );
+
+            size_t idx = 0, offset = 0;
+            for (size_t attrib : props.attribs) {
+
+                glVertexAttribPointer(idx, attrib, GL_FLOAT, GL_FALSE, vertSize, (void*)(offset * sizeof(float)));
+                glEnableVertexAttribArray(idx);
+
+                idx += 1;
+                offset += attrib;
+            }
         
-            // Re-specify the attribute pointer
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, vertSize / sizeof(float), GL_FLOAT, GL_FALSE, vertSize, (void*)0);
-        
-            if (divisor) {
-                glVertexAttribDivisor(0, divisor);
+            if (props.divisor) {
+                glVertexAttribDivisor(0, props.divisor);
             }
         
             glBindVertexArray(0);

@@ -4,18 +4,19 @@ module;
 
 export module Interface;
 
-import Rev.Style;
 import Rev.Element;
-import Rev.Box;
-import Rev.TextBox;
+import Rev.Element.Style;
 
-import Rev.Slider;
+import Rev.Element.Box;
+import Rev.Element.TextBox;
+import Rev.Element.Slider;
 
 import Resources.Fonts.Arial.Arial_ttf;
 
 export namespace HelloWorld {
 
     using namespace Rev;
+    using namespace Rev::Element;
 
     struct Interface : public Box {
 

@@ -1,6 +1,8 @@
 // MetalBackend.hpp
 #pragma once
 
+#include <vector>
+
 struct MetalContext;
 struct MetalTexture;
 struct MetalShader;
@@ -38,7 +40,7 @@ void* metal_create_shader(MetalContext* ctx, const char* source, size_t length);
 void  metal_destroy_shader(void* shader);
 
 // Pipeline
-void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, int floatsPerVertex, bool instanced);
+void* metal_create_pipeline(MetalContext* ctx, MetalShader* shader, std::vector<float> attribs, bool instanced);
 void  metal_destroy_pipeline(void* pipeline);
 void  metal_bind_pipeline(MetalContext* ctx, void* pipeline);
 

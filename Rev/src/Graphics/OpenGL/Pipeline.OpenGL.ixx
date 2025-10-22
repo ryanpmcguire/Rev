@@ -2,16 +2,19 @@ module;
 
 #include <string>
 #include <stdexcept>
+#include <vector>
 
 #include <glew/glew.h>
 #include <dbg.hpp>
 
-export module Rev.OpenGL.Pipeline;
+export module Rev.Graphics.Pipeline;
 
-import Resource;
-import Rev.OpenGL.Shader;
+import Rev.Core.Resource;
+import Rev.Graphics.Shader;
 
-export namespace Rev {
+export namespace Rev::Graphics {
+
+    using namespace Rev::Core;
 
     struct Pipeline {
 
@@ -21,11 +24,15 @@ export namespace Rev {
         };
 
         GLuint id = 0;
+        size_t users = 0;
 
         Shader* vert = nullptr;
         Shader* frag = nullptr;
 
         struct PipelineParams {
+
+            bool instanced = true;
+            std::vector<float> attribs;
 
             Resource openGlVert;
             Resource openGlFrag;
@@ -37,7 +44,7 @@ export namespace Rev {
         };
 
         // Create
-        Pipeline(void* context, PipelineParams params, int floatsPerVertex = 0, bool instanced = true) {
+        Pipeline(void* context, PipelineParams params) {
             
             vert = new Shader(params.openGlVert, Shader::Stage::Vertex);
             frag = new Shader(params.openGlFrag, Shader::Stage::Fragment);
