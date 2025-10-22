@@ -145,7 +145,7 @@ export namespace Rev::Primitive {
 
         void draw() override {
 
-            shared.pipeline->bind();
+            pipeline->bind();
 
             databuff->bind(1);
             vertices->bind();
