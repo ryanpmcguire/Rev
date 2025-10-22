@@ -152,7 +152,7 @@ export namespace Rev::Element {
             float exponent = std::floor(std::log10(rough));
             float base = std::pow(10.0f, exponent);
         
-            base *= 5.0f;
+            base *= 10.0f;
         
             return base;
         }
@@ -164,7 +164,7 @@ export namespace Rev::Element {
         
         // Use the existing nice step
         float minorStep(float range) {
-            return majorStep(range) / 5.0f;
+            return majorStep(range) / 2.0f;
         }
 
         void computePrimitives(Event& e) override {
@@ -187,14 +187,42 @@ export namespace Rev::Element {
             grid->strokeWidth = 0.25f;            
             grid->lines.clear();
 
-            Core::Color majorColor = { 1, 1, 1, 1.0f };
-            Core::Color minorColor = { 1, 1, 1, 0.1f };
+            float rangeX = view.r - view.l;
+            float logScale = std::log10(rangeX);
+            float frac = logScale - std::floor(logScale);
+            float zoomFade = 1.0f - frac;
 
             float xMajor = majorStep(view.r - view.l);
             float yMajor = majorStep(view.b - view.t);
 
-            float xMinor = minorStep(view.r - view.l);
-            float yMinor = minorStep(view.b - view.t);
+            float xMinor = xMajor / 10.0f;
+            float yMinor = yMajor / 10.0f;
+
+            float xMid = xMajor / 2.0f;
+            float yMid = yMajor / 2.0f;
+
+            // Compute fade as ratio of step-to-view
+            auto fade = [](float step, float viewRange) {
+                return std::clamp(step / viewRange, 0.0f, 1.0f);
+            };
+
+            float majorFadeX = fade(xMajor, view.r - view.l);
+            float midFadeX   = fade(xMid,   view.r - view.l);
+            float minorFadeX = fade(xMinor, view.r - view.l);
+
+            float majorFadeY = fade(yMajor, view.b - view.t);
+            float midFadeY   = fade(yMid,   view.b - view.t);
+            float minorFadeY = fade(yMinor, view.b - view.t);
+
+            // Combine both axes (average)
+            float majorFade = 0.5f * (majorFadeX + majorFadeY);
+            float midFade   = 0.5f * (midFadeX   + midFadeY);
+            float minorFade = 0.5f * (minorFadeX + minorFadeY);
+
+            // Colors
+            Core::Color majorColor = { 1, 1, 1, majorFade };
+            Core::Color midColor   = { 1, 1, 1, midFade   };
+            Core::Color minorColor = { 1, 1, 1, minorFade };
 
             // Major lines
             float xStartMajor = std::floor(view.l / xMajor) * xMajor;
@@ -220,6 +248,20 @@ export namespace Rev::Element {
 
             for (float y = yStartMinor; y <= yEndMinor + yMinor * 0.5f; y += yMinor) {
                 grid->lines.push_back({ .points = { {view.l, y, minorColor}, {view.r, y, minorColor} } });
+            }
+
+            // Mid lines
+            float xStartMid = std::floor(view.l / xMid) * xMid;
+            float xEndMid   = std::ceil(view.r / xMid) * xMid;
+            float yStartMid = std::floor(view.t / yMid) * yMid;
+            float yEndMid   = std::ceil(view.b / yMid) * yMid;
+
+            for (float x = xStartMid; x <= xEndMid + xMid * 0.5f; x += xMid) {
+                grid->lines.push_back({ .points = { {x, view.t, midColor}, {x, view.b, midColor} } });
+            }
+
+            for (float y = yStartMid; y <= yEndMid + yMid * 0.5f; y += yMid) {
+                grid->lines.push_back({ .points = { {view.l, y, midColor}, {view.r, y, midColor} } });
             }
 
             // Transform to screen space

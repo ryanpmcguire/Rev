@@ -422,6 +422,8 @@ export namespace Rev::Element {
 
             // Get mouse position
             event.mouse.pos = { float(x), float(y) };
+            if (action == NativeWindow::ButtonAction::Press) { event.mouse.down = event.mouse.pos; }
+            if (action == NativeWindow::ButtonAction::Release) { event.mouse.up = event.mouse.pos; }
 
             event.resetBeforeDispatch();
             event.id += 1;
@@ -451,7 +453,7 @@ export namespace Rev::Element {
             //dbg("CursorPos");
 
             event.mouse.pos = { x, y };
-            event.mouse.diff = event.mouse.pos - event.mouse.lb.lastPressPos;
+            event.mouse.diff = event.mouse.pos - event.mouse.down;
             event.resetBeforeDispatch();
 
             this->setTargets(event);
