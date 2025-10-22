@@ -5,11 +5,13 @@ module;
 
 #include "./Helpers/MetalBackend.hpp"
 
-export module Rev.Metal.Shader;
+export module Rev.Graphics.Shader;
 
-import Resource;
+import Rev.Core.Resource;
 
-export namespace Rev {
+export namespace Rev::Graphics {
+
+    using namespace Rev::Core;
 
     struct Shader {
 
@@ -37,25 +39,6 @@ export namespace Rev {
             if (!shader) {
                 throw std::runtime_error("Failed to create shader!");
             }
-
-            /*shader = glCreateShader(shaderType);
-
-            glShaderSource(shader, 1, &srcStr, &srcLen);
-
-            return;
-            glCompileShader(shader);
-
-            // Check for errors
-            GLint success;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-
-            if (!success) {
-
-                char infoLog[512];
-                glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-
-                throw std::runtime_error(std::string("Shader compilation failed: ") + infoLog);
-            }*/
         }
 
         // Destroy
@@ -65,9 +48,6 @@ export namespace Rev {
                 metal_destroy_shader(shader);
                 shader = nullptr;
             }
-
-            // Shader no longer needed after linking
-            //glDeleteShader(shader);
         }
     };
 };

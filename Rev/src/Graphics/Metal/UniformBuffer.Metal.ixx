@@ -5,13 +5,12 @@ module;
 
 #include "./Helpers/MetalBackend.hpp"
 
-export module Rev.Metal.UniformBuffer;
+export module Rev.Graphics.UniformBuffer;
 
-export namespace Rev {
+export namespace Rev::Graphics {
 
     struct UniformBuffer {
 
-        //GLuint bufferID = 0;
         void* context = nullptr;
         void* buffer = nullptr;
         void* data = nullptr;
@@ -42,7 +41,7 @@ export namespace Rev {
         }
 
         void unbind() {
-            //glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
         }
     };
 };

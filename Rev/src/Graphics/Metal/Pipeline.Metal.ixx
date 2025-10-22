@@ -7,12 +7,12 @@ module;
 
 #include "./Helpers/MetalBackend.hpp"
 
-export module Rev.Metal.Pipeline;
+export module Rev.Graphics.Pipeline;
 
-import Resource;
-import Rev.Metal.Shader;
+import Rev.Core.Resource;
+import Rev.Graphics.Shader;
 
-export namespace Rev {
+export namespace Rev::Graphics {
 
     struct Pipeline {
 

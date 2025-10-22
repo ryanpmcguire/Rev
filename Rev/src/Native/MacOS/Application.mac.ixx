@@ -7,9 +7,11 @@ module;
 
 export module Rev.Application;
 
-import Rev.Window;
+import Rev.Element.Window;
 
 export namespace Rev {
+
+    using namespace Rev::Element;
 
     struct Application {
 

@@ -22,13 +22,15 @@ export namespace Rev::Graphics {
             std::vector<size_t> attribs;
         };
 
+        Props props;
+
+        // Track buffer
         GLuint vaoID = 0;
         GLuint bufferID = 0;
 
+        // Buffer data and size
         void* data = nullptr;
         size_t size = 0;
-
-        Props props;
 
         VertexBuffer(void* context, Props props) {
 
@@ -66,6 +68,7 @@ export namespace Rev::Graphics {
             if (newNum == props.num) { return; }
             else { props.num = newNum; }
 
+            // Derive vertex size, calculate buffer size
             size_t vertSize = sizeof(float) * std::accumulate(props.attribs.begin(), props.attribs.end(), 0);
             size = props.num * vertSize;
             
