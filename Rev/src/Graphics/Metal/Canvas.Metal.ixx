@@ -10,13 +10,13 @@ module;
 
 #include "Helpers/MetalBackend.hpp"
 
-export module Rev.Metal.Canvas;
+export module Rev.Graphics.Canvas;
 
 import Rev.NativeWindow;
-import Rev.Metal.Pipeline;
-import Rev.Metal.UniformBuffer;
+import Rev.Graphics.Pipeline;
+import Rev.Graphics.UniformBuffer;
 
-export namespace Rev {
+export namespace Rev::Graphics {
 
     struct Canvas {
 
