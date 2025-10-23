@@ -14,7 +14,7 @@ export namespace Rev::Graphics {
 
     struct VertexBuffer {
 
-        struct Props {
+        struct Params {
 
             size_t divisor = 0;
             size_t num = 0;
@@ -22,7 +22,7 @@ export namespace Rev::Graphics {
             std::vector<size_t> attribs;
         };
 
-        Props props;
+        Params params;
 
         // Track buffer
         GLuint vaoID = 0;
@@ -32,14 +32,14 @@ export namespace Rev::Graphics {
         void* data = nullptr;
         size_t size = 0;
 
-        VertexBuffer(void* context, Props props) {
+        VertexBuffer(void* context, Params params) {
 
-            this->props = props;
+            this->params = params;
 
             glGenVertexArrays(1, &vaoID);
             glBindVertexArray(vaoID);
 
-            this->resize(props.num);
+            this->resize(params.num);
         }
 
         ~VertexBuffer() {
@@ -65,12 +65,12 @@ export namespace Rev::Graphics {
         void resize(size_t newNum) {
 
             // If no change, do nothing
-            if (newNum == props.num) { return; }
-            else { props.num = newNum; }
+            if (newNum == params.num) { return; }
+            else { params.num = newNum; }
 
             // Derive vertex size, calculate buffer size
-            size_t vertSize = sizeof(float) * std::accumulate(props.attribs.begin(), props.attribs.end(), 0);
-            size = props.num * vertSize;
+            size_t vertSize = sizeof(float) * std::accumulate(params.attribs.begin(), params.attribs.end(), 0);
+            size = params.num * vertSize;
             
             // Delete previous buffer
             if (data) {
@@ -102,7 +102,7 @@ export namespace Rev::Graphics {
             );
 
             size_t idx = 0, offset = 0;
-            for (size_t attrib : props.attribs) {
+            for (size_t attrib : params.attribs) {
 
                 glVertexAttribPointer(idx, attrib, GL_FLOAT, GL_FALSE, vertSize, (void*)(offset * sizeof(float)));
                 glEnableVertexAttribArray(idx);
@@ -111,8 +111,8 @@ export namespace Rev::Graphics {
                 offset += attrib;
             }
         
-            if (props.divisor) {
-                glVertexAttribDivisor(0, props.divisor);
+            if (params.divisor) {
+                glVertexAttribDivisor(0, params.divisor);
             }
         
             glBindVertexArray(0);

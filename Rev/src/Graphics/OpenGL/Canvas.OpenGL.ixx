@@ -10,6 +10,7 @@ module;
 export module Rev.Graphics.Canvas;
 
 import Rev.NativeWindow;
+import Rev.Graphics.FrameBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
 
@@ -20,6 +21,7 @@ export namespace Rev::Graphics {
         struct Flags {
             bool resize = true;
             bool record = true;
+            bool stencil = true;
         };
 
         struct Details {
@@ -34,6 +36,11 @@ export namespace Rev::Graphics {
 
         void* context = nullptr;                        // Context is unused
         UniformBuffer* transform = nullptr;
+
+        // Render target
+        //--------------------------------------------------
+
+        FrameBuffer* frameBuffer = nullptr;
 
         // Create
         Canvas(NativeWindow* window = nullptr) {
@@ -58,6 +65,8 @@ export namespace Rev::Graphics {
         void beginFrame() {
             
             if (!window) { return; }
+
+            glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT);
 
             // If canvas needs to adjust size to window
             if (flags.resize) {
@@ -85,20 +94,50 @@ export namespace Rev::Graphics {
                 flags.resize = false;
             }
 
-            glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT);
-
+            // Framebuffer
             glEnable(GL_MULTISAMPLE);
+
+            // Blend func and color
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glBlendColor(1.0f, 1.0f, 1.0f, 1.0f);
-            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);  // Transparent black
-            glClear(GL_COLOR_BUFFER_BIT);
+
+            // Stencil
+            glEnable(GL_STENCIL_TEST);
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
+
+            // Clear before drawing
+            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            glStencilMask(0xFF);
 
             transform->bind(0);
         }
 
         void endFrame() {
             window->swapBuffers();
+        }
+
+        void clearStencil() {
+            glClear(GL_STENCIL_BUFFER_BIT);
+        }
+
+        void stencilWrite(bool enable) {
+            
+            // Return if state would not change
+            if (enable == flags.stencil) { return; }
+            else { flags.stencil = enable; }
+
+            // Enable writing
+            if (enable) {
+                glStencilMask(0xFF);
+            }
+
+            // Disable writing
+            else {
+                glStencilMask(0x00);
+            }
         }
 
         void drawArrays(Pipeline::Topology topology, size_t start, size_t verticesPer) {

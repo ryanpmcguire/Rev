@@ -184,7 +184,7 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             grid->color = { 0.0, 0, 0, 0.0 };
-            grid->strokeWidth = 0.25f;            
+            grid->strokeWidth = 1.0f;
             grid->lines.clear();
 
             float rangeX = view.r - view.l;

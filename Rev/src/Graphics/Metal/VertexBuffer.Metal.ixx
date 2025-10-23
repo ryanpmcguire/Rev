@@ -16,7 +16,7 @@ export namespace Rev::Graphics {
 
     struct VertexBuffer {
 
-        struct Props {
+        struct Params {
 
             size_t divisor = 0;
             size_t num = 0;
@@ -24,7 +24,7 @@ export namespace Rev::Graphics {
             std::vector<size_t> attribs;
         };
 
-        Props props;
+        Params params;
 
         // Track buffer
         void* context = nullptr;
@@ -34,12 +34,12 @@ export namespace Rev::Graphics {
         void* data = nullptr;
         size_t size = 0;
 
-        VertexBuffer(void* context, Props props) {
+        VertexBuffer(void* context, Params params) {
 
-            this->props = props;
+            this->params = params;
             this->context = context;
 
-            this->resize(props.num);
+            this->resize(params.num);
         }
 
         ~VertexBuffer() {
@@ -60,12 +60,12 @@ export namespace Rev::Graphics {
         void resize(size_t newNum) {
 
             // If no change, do nothing
-            if (newNum == props.num) { return; }
-            else { props.num = newNum; }
+            if (newNum == params.num) { return; }
+            else { params.num = newNum; }
 
             // Derive vertex size, calculate needed size
-            size_t vertSize = sizeof(float) * std::accumulate(props.attribs.begin(), props.attribs.end(), 0);
-            size = props.num * vertSize;
+            size_t vertSize = sizeof(float) * std::accumulate(params.attribs.begin(), params.attribs.end(), 0);
+            size = params.num * vertSize;
 
             if (buffer) { metal_destroy_vertex_buffer(buffer); }
 

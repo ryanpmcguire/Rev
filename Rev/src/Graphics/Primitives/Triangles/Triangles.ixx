@@ -52,7 +52,7 @@ export namespace Rev::Primitive {
 
         size_t numFaces, numVerts;
 
-        struct Props {
+        struct Params {
 
             Topology topology;
 
@@ -64,23 +64,23 @@ export namespace Rev::Primitive {
         };
         
         // Create
-        Triangles(Canvas* canvas, Props props = {}) : Primitive(canvas) {
+        Triangles(Canvas* canvas, Params params = {}) : Primitive(canvas) {
 
-            // Set props
+            // Set params
             //--------------------------------------------------
 
-            topology = props.topology;
+            topology = params.topology;
 
-            if (props.center) { pCenter = props.center; }
+            if (params.center) { pCenter = params.center; }
             else { pCenter = &center; }
 
-            if (props.points) { pPoints = props.points; }
+            if (params.points) { pPoints = params.points; }
             else { pPoints = &points; }
 
-            if (props.left) { pLeft = props.left; }
+            if (params.left) { pLeft = params.left; }
             else { pLeft = &left; }
 
-            if (props.right) { pRight = props.right; }
+            if (params.right) { pRight = params.right; }
             else { pRight = &right; }
 
             // Initialize resources

@@ -25,7 +25,7 @@ export namespace Rev::Graphics {
         void* pipeline = nullptr;
         Shader* shader = nullptr;
 
-        struct PipelineParams {
+        struct Params {
 
             bool instanced = true;
             std::vector<float> attribs;
@@ -40,7 +40,7 @@ export namespace Rev::Graphics {
         };
 
         // Create
-        Pipeline(void* context, PipelineParams params) {
+        Pipeline(void* context, Params params) {
 
             this->context = context;
 

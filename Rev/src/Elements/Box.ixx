@@ -79,7 +79,9 @@ export namespace Rev::Element {
 
         void draw(Event& e) override {
             
+            topLevelDetails->canvas->stencilWrite(true);
             rectangle->draw();
+            topLevelDetails->canvas->stencilWrite(false);
 
             Element::draw(e);
         }

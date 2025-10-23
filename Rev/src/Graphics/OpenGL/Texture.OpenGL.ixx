@@ -15,9 +15,20 @@ export namespace Rev::Graphics {
 
         GLuint id = 0;
 
+        struct Params {
+            
+            unsigned char* data = nullptr;
+
+            size_t width = 0, height = 0;
+            size_t channels = 4;
+        };
+
         // Create
-        Texture(void* context, unsigned char* data, size_t width, size_t height, size_t channels)
-        : data(data), width(width), height(height), channels(channels) {
+        Texture(void* context, Params params) {
+
+            data = params.data;
+            width = params.width; height = params.height;
+            channels = params.channels;
 
             // Determine format
             GLenum format = GL_RED;
