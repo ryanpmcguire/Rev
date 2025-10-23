@@ -11,7 +11,7 @@ using namespace HelloWorld;
 
 int main() {
 
-    try {
+    //try {
 
         Application* application = new Application();
         Window* window = new Window(application->windows);
@@ -21,10 +21,10 @@ int main() {
         application->run();
 
         return 0;
-    }
+    //}
 
-    catch (std::exception& e) {
+    /*catch (std::exception& e) {
         std::cerr << "Exception: " << e.what() << std::endl;
         return 1;
-    }
+    }*/
 }

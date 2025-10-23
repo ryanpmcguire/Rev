@@ -25,7 +25,7 @@ export namespace Rev::Graphics {
         };
 
         struct Details {
-            int width, height;
+            size_t width, height;
             float scale = 1.0f;
         };
 
@@ -55,6 +55,10 @@ export namespace Rev::Graphics {
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
             transform = new UniformBuffer(context, sizeof(glm::mat4));
+
+            frameBuffer = new FrameBuffer(context, {
+                .width = 1, .height = 1
+            });
         }
 
         // Destroy
@@ -87,12 +91,15 @@ export namespace Rev::Graphics {
                     1.0f            // far
                 );
 
+                frameBuffer->resize(details.width, details.height);
                 transform->set(&projection);
 
                 //dbg("[Canvas] Resize: %i, %i", details.width, details.height);
 
                 flags.resize = false;
             }
+
+            frameBuffer->bind();
 
             // Framebuffer
             glEnable(GL_MULTISAMPLE);
@@ -109,13 +116,27 @@ export namespace Rev::Graphics {
 
             // Clear before drawing
             glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
             glStencilMask(0xFF);
 
             transform->bind(0);
         }
 
         void endFrame() {
+
+            // Blit from our framebuffer to the default window framebuffer
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer->fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // Default framebuffer
+
+            glBlitFramebuffer(
+                0, 0, details.width, details.height,
+                0, 0, details.width, details.height,
+                GL_COLOR_BUFFER_BIT, GL_NEAREST
+            );
+
+            // Unbind
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
             window->swapBuffers();
         }
 

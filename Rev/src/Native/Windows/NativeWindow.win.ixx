@@ -724,6 +724,8 @@ export namespace Rev {
                 0x2001 /*WGL_DRAW_TO_WINDOW_ARB*/, TRUE,
                 0x2010 /*WGL_SUPPORT_OPENGL_ARB*/, TRUE,
                 0x2011 /*WGL_DOUBLE_BUFFER_ARB*/, TRUE,
+                0x201C /*WGL_SWAP_METHOD_ARB*/,     0x2028,   // WGL_SWAP_EXCHANGE_ARB — swap buffers efficiently
+    
                 0x2013 /*WGL_PIXEL_TYPE_ARB*/,     0x202B /*WGL_TYPE_RGBA_ARB*/,
                 0x2014 /*WGL_COLOR_BITS_ARB*/,     24,
                 0x2022 /*WGL_DEPTH_BITS_ARB*/,     24,
