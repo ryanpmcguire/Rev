@@ -298,11 +298,18 @@ export namespace Rev::Element {
 
         void draw(Event& e) override {
 
+            topLevelDetails->canvas->stencilWrite(true);
+            topLevelDetails->canvas->fillStencil(0);
             Box::draw(e);
+            topLevelDetails->canvas->stencilWrite(false);
 
             grid->draw();
             fill->draw();
             line->draw();
+
+            topLevelDetails->canvas->stencilWrite(true);
+            topLevelDetails->canvas->fillStencil(1);
+            topLevelDetails->canvas->stencilWrite(false);
         }
     };
 };

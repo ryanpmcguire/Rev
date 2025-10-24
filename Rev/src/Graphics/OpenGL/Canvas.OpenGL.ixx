@@ -111,13 +111,16 @@ export namespace Rev::Graphics {
 
             // Stencil
             glEnable(GL_STENCIL_TEST);
+            glStencilFunc(GL_NOTEQUAL, 0, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);
 
             // Clear before drawing
             glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-            glStencilMask(0xFF);
+
+            stencilWrite(true);
+            fillStencil(1);
+            stencilWrite(false);
 
             transform->bind(0);
         }
@@ -144,6 +147,11 @@ export namespace Rev::Graphics {
             glClear(GL_STENCIL_BUFFER_BIT);
         }
 
+        void fillStencil(uint8_t value) {
+            glClearStencil(value);                      // specify clear value
+            glClear(GL_STENCIL_BUFFER_BIT);             // fill stencil with 'value'
+        }
+
         void stencilWrite(bool enable) {
             
             // Return if state would not change
@@ -152,12 +160,17 @@ export namespace Rev::Graphics {
 
             // Enable writing
             if (enable) {
-                glStencilMask(0xFF);
+
+                glStencilFunc(GL_ALWAYS, 1, 0xFF);   // Always pass
+                glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);  // Replace stencil with refValue
+                glStencilMask(0xFF);                        // Enable writing
             }
 
             // Disable writing
             else {
-                glStencilMask(0x00);
+                glStencilFunc(GL_NOTEQUAL, 0, 0xFF);        // Or GL_EQUAL, depending on your logic
+                glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);     // Don’t modify
+                glStencilMask(0x00);                        // Disable writing
             }
         }
 
