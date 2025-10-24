@@ -49,5 +49,7 @@ void main() {
     // Compute alpha
     float alpha = 1.0 - smoothstep(-smoothing, smoothing, dist);
 
+    if (alpha < 0.01) { discard; }
+
     FragColor = vec4(r, g, b, a * alpha);
 }
