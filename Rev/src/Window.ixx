@@ -297,7 +297,7 @@ export namespace Rev::Element {
                         if (element->depth <= thisLayer.depth) {
 
                             stencilStack.pop_back();                    // Remove last item (unwind stack)
-                            canvas.stencilSet(stencilStack.size() - 1);                        // Anything at or greater than current depth is set to that depth
+                            canvas.stencilSet(stencilStack.size() - 0);                        // Anything at or greater than current depth is set to that depth
 
                             stencilStack.back().box->Box::draw(e);                  // Redraw top of stack
                         }

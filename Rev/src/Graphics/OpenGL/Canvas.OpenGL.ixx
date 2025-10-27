@@ -196,7 +196,7 @@ export namespace Rev::Graphics {
         }
 
         void stencilSet(size_t depth) {
-            glStencilFunc(GL_GEQUAL, depth, 0xFF);
+            glStencilFunc(GL_LEQUAL, depth, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         }
 
