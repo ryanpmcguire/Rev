@@ -2,14 +2,13 @@
 
 layout(std140, binding = 1) uniform Data {
     vec4 uColor;
-    float strokeWidth;
-    float miterLimit;
+    float depth, pad1, pad2, pad3;
 };
 
 in vec4 vColor;
 out vec4 FragColor;
 
-void main()
-{
+void main() {
     FragColor = vColor;
+    gl_FragDepth = depth;
 }

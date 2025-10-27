@@ -103,14 +103,14 @@ export namespace Rev::Element {
 
         void unifiedConstructor() {
 
-            topLevelDetails = new TopLevelDetails();
-            topLevelDetails->event = &event;
+            shared = new Shared();
+            shared->event = &event;
 
             // Canvas
             //--------------------------------------------------
 
-            topLevelDetails->canvas = new Graphics::Canvas(window);
-            event.canvas = topLevelDetails->canvas;
+            shared->canvas = new Graphics::Canvas(window);
+            event.canvas = shared->canvas;
 
             // Children
             //--------------------------------------------------
@@ -156,8 +156,8 @@ export namespace Rev::Element {
         // Destroy
         ~Window() {
 
-            delete topLevelDetails->canvas;
-            delete topLevelDetails;
+            delete shared->canvas;
+            delete shared;
 
             delete window;
         }
@@ -170,12 +170,13 @@ export namespace Rev::Element {
         std::vector<Element*> bottomUp;
 
         // Calculate top-down call order
-        void calcTopDownQueue(Element* element) {
+        void calcTopDownQueue(Element* element, size_t depth = 0) {
 
             topDown.push_back(element);
+            element->depth = depth;
         
             for (Element* child : element->children) {
-                calcTopDownQueue(child);
+                calcTopDownQueue(child, depth + 1);
             }
         }
 
@@ -202,15 +203,13 @@ export namespace Rev::Element {
 
             for (Element* element : topDown) { element->resetLayout(); }
 
+            // Resolve dimensions necessary to layout
             for (Element* element : topDown) { element->resolveAbs(); }
             for (Element* element : topDown) { element->resolveRel(); }
             for (Element* element : bottomUp) { element->resolveMinima(); }
-
-            // Resolve set dims and calculate layout
-            //for (Element* element : topDown) { element->resolveNonFlexDims(); }
             for (Element* element : bottomUp) { element->resolveLayout(); }
 
-            // Resolve flex dims then remeasure layout
+            // Resolve flex dims and distribute space post-layout
             for (Element* element : bottomUp) { element->promoteFlexDims(); }
             for (Element* element : topDown) { element->resolveFlexDims(); }
             for (Element* element : bottomUp) { element->remeasureLayout(); }
@@ -239,7 +238,7 @@ export namespace Rev::Element {
             this->dirty = false;
 
             event.resetBeforeDispatch();
-            topLevelDetails->dirtyElements.clear();
+            shared->dirtyElements.clear();
 
             this->calculateQueues();
 
@@ -249,16 +248,79 @@ export namespace Rev::Element {
 
             for (Element* element : topDown) { element->computePrimitives(e); }
 
-            topLevelDetails->dirtyElements.clear();
+            shared->dirtyElements.clear();
 
-            topLevelDetails->canvas->beginFrame();
+            Graphics::Canvas& canvas = *shared->canvas;
+
+            canvas.beginFrame();
+
+            canvas.colorWrite(true);
+
+            canvas.stencilWrite(true);
+            size_t stencilDepth = 0;
+            canvas.stencilFill(0);
+            canvas.stencilDepth(stencilDepth);     // Write to stencil
+            canvas.stencilWrite(false);
+
+            /*Box* topBox = nullptr;
+            Box* currentBox = nullptr;
+            Box* bottomBox = nullptr;
+            Box* lastBox = nullptr;
+
+            size_t currentDepth = 0;
+            size_t lastDepth = 0;*/
+
+            struct StencilLayer {
+                size_t depth = 0;
+                Box* box = nullptr;
+            };
+
+            std::vector<StencilLayer> stencilStack;
 
             for (Element* element : topDown) {
+
                 if (element == this) { continue; }
+
+                // Does this element support stenciling?
+                if (element->scissor) {
+
+                    canvas.colorWrite(false);                   // Switch to writing stencil
+                    canvas.stencilWrite(true);
+
+                    // Unwind and redraw parent if there are at least two layers
+                    if (stencilStack.size() >= 2) {
+
+                        StencilLayer& thisLayer = stencilStack[stencilStack.size() - 1];
+                        StencilLayer& lastLayer = stencilStack[stencilStack.size() - 2];
+
+                        // If stencil stack needs to be unwound (we need to go up a layer)
+                        if (element->depth <= thisLayer.depth) {
+
+                            stencilStack.pop_back();                    // Remove last item (unwind stack)
+                            canvas.stencilSet(stencilStack.size() - 1);                        // Anything at or greater than current depth is set to that depth
+
+                            stencilStack.back().box->Box::draw(e);                  // Redraw top of stack
+                        }
+                    }
+
+                    stencilStack.push_back({ element->depth, (Box*)element });
+                    canvas.stencilPush(stencilStack.size() - 1);
+
+                    stencilStack.back().box->Box::draw(e);
+
+                    canvas.stencilDepth(stencilStack.size());
+
+                    // Unwind parent
+
+                    
+                    canvas.stencilWrite(false);                 // Switch to writing color
+                    canvas.colorWrite(true);
+                }
+
                 element->draw(e);
             }
 
-            topLevelDetails->canvas->endFrame();
+            shared->canvas->endFrame();
 
             window->dirty = false;
 
@@ -394,10 +456,10 @@ export namespace Rev::Element {
             details.width = width / window->scale;
             details.height = height / window->scale;
 
-            if (!topLevelDetails) { return; }
-            if (!topLevelDetails->canvas) { return; }
+            if (!shared) { return; }
+            if (!shared->canvas) { return; }
 
-            topLevelDetails->canvas->flags.resize = true;
+            shared->canvas->flags.resize = true;
 
             this->refresh(event);
         }

@@ -41,6 +41,8 @@ export namespace Rev::Primitive {
 
             Color color;
             Pos pos;
+
+            float depth, pad1;
         };
 
         inline static Shared shared;

@@ -25,7 +25,8 @@ export namespace Rev::Element {
         // Create
         Box(Element* parent, std::string name = "Box") : Element(parent, name) {
 
-            rectangle = new Rectangle(topLevelDetails->canvas);
+            rectangle = new Rectangle(shared->canvas);
+            scissor = true;
         }
 
         // Destroy
@@ -69,7 +70,9 @@ export namespace Rev::Element {
                 
                 .corners = {
                     tl, tr, bl, br
-                }
+                },
+
+                .depth = (float)depth / 100.0f
             };
 
             rectangle->compute();

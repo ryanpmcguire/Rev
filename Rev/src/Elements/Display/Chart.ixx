@@ -34,6 +34,7 @@ export namespace Rev::Element {
         Style Chart = {
             .size = { .width = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
+            .background = { .color = rgba(255, 255, 255, 0.1) }
         };
     };
 
@@ -60,7 +61,7 @@ export namespace Rev::Element {
             // Self
             this->styles = { &Styles::Chart };
             
-            Graphics::Canvas* canvas = topLevelDetails->canvas;
+            Graphics::Canvas* canvas = shared->canvas;
 
             grid = new Lines(canvas);
 
@@ -120,21 +121,16 @@ export namespace Rev::Element {
             }
 
             // Calculate movement, swap axis if shift
-            Pos shiftBy = {
-                (wheelSensitivity * e.mouse.wheel.x),
-                (wheelSensitivity * e.mouse.wheel.y)
-            };
-
             Pos scale = screenToChart.getScale();
-            shiftBy *= scale;
+            Pos shiftBy = scale * wheelSensitivity * e.mouse.wheel;
             
             if (e.keyboard.shift) {
                 shiftBy = shiftBy.swapAxis();
                 shiftBy.x *= -1.0f;
             }
 
-            view.shift(shiftBy);
-            
+            // Shift view and refresh
+            view.shift(shiftBy);            
             refresh(e);
 
             Box::mouseWheel(e);
@@ -184,6 +180,7 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             grid->color = { 0.0, 0, 0, 0.0 };
+            grid->data->depth = (float)depth / 100.0f;
             grid->strokeWidth = 1.0f;
             grid->lines.clear();
 
@@ -274,8 +271,13 @@ export namespace Rev::Element {
             // Calculate line(s)
             //--------------------------------------------------
             
+            // Set color
             line->color = { 1, 0, 0, 1 };
             fill->color = { 1, 0, 0, 0.5 };
+
+            // Set depth
+            line->data->depth = (float)depth / 100.0f;
+            fill->data->depth = (float)depth / 100.0f;
 
             screenPoints.resize(points.size());
             screenBottom.resize(points.size());
@@ -298,18 +300,11 @@ export namespace Rev::Element {
 
         void draw(Event& e) override {
 
-            topLevelDetails->canvas->stencilWrite(true);
-            topLevelDetails->canvas->fillStencil(0);
             Box::draw(e);
-            topLevelDetails->canvas->stencilWrite(false);
 
             grid->draw();
             fill->draw();
             line->draw();
-
-            topLevelDetails->canvas->stencilWrite(true);
-            topLevelDetails->canvas->fillStencil(1);
-            topLevelDetails->canvas->stencilWrite(false);
         }
     };
 };

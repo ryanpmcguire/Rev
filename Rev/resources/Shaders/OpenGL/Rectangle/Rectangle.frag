@@ -7,6 +7,7 @@ layout(std140, binding = 1) uniform Data {
     float x, y, w, h;       // Rect
     float r, g, b, a;       // Color
     float tl, tr, bl, br;   // Corner radii
+    float depth, pad1, pad2, pad3;
 };
 
 float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
@@ -46,10 +47,11 @@ void main() {
     // Adaptive smoothing
     float smoothing = 0.5 * fwidth(dist);
 
-    // Compute alpha
+    // Compute alpha, discard if near zero
     float alpha = 1.0 - smoothstep(-smoothing, smoothing, dist);
-
     if (alpha < 0.01) { discard; }
 
+    // Output color and depth
     FragColor = vec4(r, g, b, a * alpha);
+    gl_FragDepth = depth;
 }

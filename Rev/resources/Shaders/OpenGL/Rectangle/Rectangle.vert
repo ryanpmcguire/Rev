@@ -10,6 +10,7 @@ layout(std140, binding = 1) uniform Data {
     float x, y, w, h;       // Rect
     float r, g, b, a;       // Color
     float tl, tr, bl, br;   // Corner radii
+    float depth, pad1, pad2, pad3;
 };
 
 out vec2 fragLocalPos;

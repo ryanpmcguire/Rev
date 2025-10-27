@@ -22,7 +22,7 @@ export namespace Rev::Element {
 
             measure = true;
 
-            text = new Text(topLevelDetails->canvas);
+            text = new Text(shared->canvas);
             text->content = content;
         }
 
@@ -94,6 +94,8 @@ export namespace Rev::Element {
                 computed.style.text.color.r, computed.style.text.color.g,
                 computed.style.text.color.b, computed.style.text.color.a
             };
+
+            text->data->depth = (float)depth / 100.0f;
 
             text->xPos = rect.x;
             text->yPos = rect.y;

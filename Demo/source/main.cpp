@@ -1,10 +1,9 @@
-#include <iostream>
 #include <stdexcept>
 
 import Rev.Application;
 import Rev.Element.Window;
 
-import MacInterface;
+import Interface;
 
 using namespace Rev;
 using namespace HelloWorld;
@@ -14,9 +13,8 @@ int main() {
     //try {
 
         Application* application = new Application();
-        Window* window = new Window(application->windows);
-
-        MacInterface* interface = new MacInterface(window);
+            Window* window = new Window(application->windows);
+                Interface* interface = new Interface(window);
 
         application->run();
 

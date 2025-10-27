@@ -21,7 +21,8 @@ export namespace Rev::Graphics {
         struct Flags {
             bool resize = true;
             bool record = true;
-            bool stencil = true;
+            bool stencil = false;
+            bool color = false;
         };
 
         struct Details {
@@ -66,10 +67,16 @@ export namespace Rev::Graphics {
             delete transform;
         }
 
+        // Frame setup / blitting
+        //--------------------------------------------------
+
         void beginFrame() {
             
             if (!window) { return; }
 
+            // Ensure cache coherency (wait for flush) before proceeding
+            // (this is because any changes to buffers need to make it to
+            // ram before we can tell the GPU everything is good)
             glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT);
 
             // If canvas needs to adjust size to window
@@ -83,96 +90,118 @@ export namespace Rev::Graphics {
                 glViewport(0, 0, (GLint)std::round(details.width), (GLint)std::round(details.height));
 
                 glm::mat4 projection = glm::ortho(
-                    0.0f,           // left
-                    static_cast<float>(details.width) / details.scale - 0.5f,   // right
-                    static_cast<float>(details.height) / details.scale - 0.5f,  // bottom
-                    0.0f,           // top (flipped for top-left origin)
-                    -1.0f,          // near
-                    1.0f            // far
+                    0.0f, static_cast<float>(details.width) / details.scale - 0.5f,     // Left / right
+                    static_cast<float>(details.height) / details.scale - 0.5f, 0.0f,    // Bottom / top
+                    -1.0f, 1.0f                                                         // Near / far
                 );
 
+                // Resize framebuffer, bind transform
                 frameBuffer->resize(details.width, details.height);
                 transform->set(&projection);
-
-                //dbg("[Canvas] Resize: %i, %i", details.width, details.height);
-
                 flags.resize = false;
             }
 
-            frameBuffer->bind();
-
             // Framebuffer
+            frameBuffer->bind();
             glEnable(GL_MULTISAMPLE);
+            glDisable(GL_DEPTH_TEST);
 
             // Blend func and color
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glBlendColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // Stencil
+            // Stencil (using depth instead of normal stencil)
             glEnable(GL_STENCIL_TEST);
-            glStencilFunc(GL_NOTEQUAL, 0, 0xFF);
-            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+            glStencilMask(0xFF);                      // allow writing all bits
 
             // Clear before drawing
+            glClearStencil(0x00);
             glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-            stencilWrite(true);
-            fillStencil(1);
-            stencilWrite(false);
+            glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
             transform->bind(0);
         }
 
+        // We end the frame by blitting and swapping buffers (present)
         void endFrame() {
 
-            // Blit from our framebuffer to the default window framebuffer
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer->fbo);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // Default framebuffer
+            // Bind both render target and actual (window) framebuffer
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer->buffer);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
+            // Copy (blit)
             glBlitFramebuffer(
                 0, 0, details.width, details.height,
                 0, 0, details.width, details.height,
                 GL_COLOR_BUFFER_BIT, GL_NEAREST
             );
 
-            // Unbind
+            // Unbind and swap
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
             window->swapBuffers();
         }
 
-        void clearStencil() {
+        // Stencil (depth) management
+        //--------------------------------------------------
+
+        // Set depth test (0.0f = near, 1.0f = far)
+        void stencilDepth(uint8_t refValue) {
+            glStencilFunc(GL_LEQUAL, refValue, 0xFF);
+        }
+
+        // Set to all zeroes
+        void stencilClear() {
+            glClearStencil(0.0f);
             glClear(GL_STENCIL_BUFFER_BIT);
         }
 
-        void fillStencil(uint8_t value) {
-            glClearStencil(value);                      // specify clear value
-            glClear(GL_STENCIL_BUFFER_BIT);             // fill stencil with 'value'
+        // Fill depth buffer with uniform value(s)
+        void stencilFill(size_t value) {
+            glClearStencil(value);
+            glClear(GL_STENCIL_BUFFER_BIT);
         }
 
+        // Enable / disable writing to color buffer
+        void colorWrite(bool enable) {
+
+            // Avoid redundant state changes
+            if (enable == flags.color) { return; }
+            else { flags.color = enable; }
+
+            // Set color mask to enable/disable writing
+            if (enable) { glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); }
+            else { glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); }
+        }
+
+        // Enable / disable writing to stencil (depth) buffer
         void stencilWrite(bool enable) {
-            
-            // Return if state would not change
-            if (enable == flags.stencil) { return; }
+
+            // Avoid redundant state changes
+            if (enable == flags.stencil ) { return; }
             else { flags.stencil = enable; }
 
-            // Enable writing
-            if (enable) {
-
-                glStencilFunc(GL_ALWAYS, 1, 0xFF);   // Always pass
-                glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);  // Replace stencil with refValue
-                glStencilMask(0xFF);                        // Enable writing
-            }
-
-            // Disable writing
-            else {
-                glStencilFunc(GL_NOTEQUAL, 0, 0xFF);        // Or GL_EQUAL, depending on your logic
-                glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);     // Don’t modify
-                glStencilMask(0x00);                        // Disable writing
-            }
+            // Set stencil mask to enable/disable writing
+            if (enable) { glStencilMask(0xFF); }
+            else { glStencilMask(0x00); glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP); }
         }
+
+        void stencilPush(size_t depth) {
+            glStencilFunc(GL_LEQUAL, depth, 0xFF);
+            glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+        }
+
+        void stencilPop() {
+            glStencilOp(GL_KEEP, GL_KEEP, GL_DECR);
+        }
+
+        void stencilSet(size_t depth) {
+            glStencilFunc(GL_GEQUAL, depth, 0xFF);
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        }
+
+        // Drawing functions
+        //--------------------------------------------------
 
         void drawArrays(Pipeline::Topology topology, size_t start, size_t verticesPer) {
             glDrawArrays(topology, start, verticesPer);

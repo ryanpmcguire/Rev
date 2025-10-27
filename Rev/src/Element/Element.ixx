@@ -24,30 +24,33 @@ export namespace Rev::Element {
 
     struct Element {
 
-        struct TopLevelDetails {
-            //WebGpu::Surface* surface;
+        struct Shared {
             std::vector<Element*> dirtyElements;
             Graphics::Canvas* canvas = nullptr;
             Event* event = nullptr;
         };
 
-        TopLevelDetails* topLevelDetails = nullptr;
+        // Shared betweeen elements
+        Shared* shared = nullptr;
 
-        std::string name = "Element";
+        // Self and parent
         Element* parent = nullptr;
         std::vector<Element*> children;
-        
-        Rect rect;
+        std::string name = "Element";
 
-        StylePtr style;
-        StylePtr hoverStyle;
-        StylePtr dragStyle;
-
+        // Style
+        StylePtr style, hoverStyle, dragStyle;
         std::vector<Style*> styles;
         
-        Computed computed;
+        // Computing
         bool dirty = false;
-        int draws = 0;
+        Computed computed;
+        Rect rect;
+
+        // Tracking
+        size_t draws = 0;
+        size_t depth = 0;
+        size_t scissor = false;
 
         // Create
         Element(Element* parent = nullptr, std::string name = "Element") {
@@ -57,8 +60,8 @@ export namespace Rev::Element {
                 this->parent = parent;
 
                 parent->children.push_back(this);
-                topLevelDetails = parent->topLevelDetails;
-                this->refresh(*topLevelDetails->event);
+                shared = parent->shared;
+                this->refresh(*shared->event);
             }
 
             this->name = name;
@@ -76,7 +79,7 @@ export namespace Rev::Element {
 
         // Cast as pointer to canvas
         explicit operator Graphics::Canvas*() {
-            return topLevelDetails ? topLevelDetails->canvas : nullptr;
+            return shared ? shared->canvas : nullptr;
         }
 
         // Computing
@@ -131,7 +134,7 @@ export namespace Rev::Element {
 
                 if (e.time < transition.startTime) { continue; }
 
-                if (e.time < transition.endTime) { 
+                if (e.time < transition.endTime) {
                     float t = float((e.time - transition.startTime)) / float((transition.endTime - transition.startTime));
                     val = Transition::ease(transition.startVal, transition.endVal, t);
                 }
@@ -835,7 +838,7 @@ export namespace Rev::Element {
 
                 this->dirty = true;
                 e.causedRefresh = true;
-                topLevelDetails->dirtyElements.push_back(this);
+                shared->dirtyElements.push_back(this);
             }
     
             // Propagate upwards
@@ -862,13 +865,8 @@ export namespace Rev::Element {
                 Element& child = *pChild;
 
                 // If child contains event, we propagate
-                if (child.targetFlags.hit) {
-                    child.mouseDown(e);
-                }
-
-                if (!e.propagate) {
-                    return;
-                }
+                if (child.targetFlags.hit) { child.mouseDown(e); }
+                if (!e.propagate) { return; }
             }
         }
 

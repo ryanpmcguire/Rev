@@ -14,16 +14,15 @@ export namespace Rev::Graphics {
 
         void* context = nullptr;    // Unused for OpenGL implementation
 
-        GLuint fbo = 0;
-        GLuint depthStencil = 0;
-        GLuint colorTex = 0;  // optional: use your Texture abstraction later
+        GLuint buffer = 0;
+        GLuint stencil = 0;
+        GLuint depth = 0;
 
         Texture* texture = nullptr;
 
         struct Params {
             size_t width = 0, height = 0;
             size_t colorChannels = 4;
-            size_t stencilChannels = 1;
         };
 
         Params params;
@@ -32,7 +31,7 @@ export namespace Rev::Graphics {
         FrameBuffer(void* context, Params params) {
 
             this->params = params;
-            glGenFramebuffers(1, &fbo);
+            glGenFramebuffers(1, &buffer);
 
             this->resize(params.width, params.height);
         }
@@ -40,8 +39,8 @@ export namespace Rev::Graphics {
         // Destroy
         ~FrameBuffer() {
 
-            if (depthStencil) { glDeleteRenderbuffers(1, &depthStencil); }
-            if (fbo) { glDeleteFramebuffers(1, &fbo); }
+            if (stencil) { glDeleteRenderbuffers(1, &stencil); }
+            if (buffer) { glDeleteFramebuffers(1, &buffer); }
 
             delete texture;
         }
@@ -59,7 +58,7 @@ export namespace Rev::Graphics {
 
             // Delete old attachments
             if (texture) { delete texture; texture = nullptr; }
-            if (depthStencil) { glDeleteRenderbuffers(1, &depthStencil); depthStencil = 0; }
+            if (stencil) { glDeleteRenderbuffers(1, &stencil); stencil = 0; }
 
             // Create color texture
             texture = new Texture(context, {
@@ -69,14 +68,14 @@ export namespace Rev::Graphics {
             });
 
             // Create depth and stencil buffers
-            glGenRenderbuffers(1, &depthStencil);
-            glBindRenderbuffer(GL_RENDERBUFFER, depthStencil);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+            glGenRenderbuffers(1, &stencil);
+            glBindRenderbuffer(GL_RENDERBUFFER, stencil);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, width, height);
 
             // Attach to framebuffer
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, buffer);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture->id, 0);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthStencil);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, stencil);
 
             // Check completeness
             GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -88,7 +87,7 @@ export namespace Rev::Graphics {
         }
 
         void bind() {
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, buffer);
         }
     };
 };
