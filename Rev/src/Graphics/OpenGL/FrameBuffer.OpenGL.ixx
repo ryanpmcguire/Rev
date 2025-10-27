@@ -16,7 +16,6 @@ export namespace Rev::Graphics {
 
         GLuint buffer = 0;
         GLuint stencil = 0;
-        GLuint depth = 0;
 
         Texture* texture = nullptr;
 
@@ -67,7 +66,7 @@ export namespace Rev::Graphics {
                 .channels = params.colorChannels
             });
 
-            // Create depth and stencil buffers
+            // Create stencil buffer
             glGenRenderbuffers(1, &stencil);
             glBindRenderbuffer(GL_RENDERBUFFER, stencil);
             glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, width, height);

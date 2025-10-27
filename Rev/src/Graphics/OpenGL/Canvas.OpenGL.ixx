@@ -111,9 +111,9 @@ export namespace Rev::Graphics {
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glBlendColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // Stencil (using depth instead of normal stencil)
+            // Stencil
             glEnable(GL_STENCIL_TEST);
-            glStencilMask(0xFF);                      // allow writing all bits
+            glStencilMask(0xFF);
 
             // Clear before drawing
             glClearStencil(0x00);
@@ -142,25 +142,8 @@ export namespace Rev::Graphics {
             window->swapBuffers();
         }
 
-        // Stencil (depth) management
+        // Stencil management
         //--------------------------------------------------
-
-        // Set depth test (0.0f = near, 1.0f = far)
-        void stencilDepth(uint8_t refValue) {
-            glStencilFunc(GL_LEQUAL, refValue, 0xFF);
-        }
-
-        // Set to all zeroes
-        void stencilClear() {
-            glClearStencil(0.0f);
-            glClear(GL_STENCIL_BUFFER_BIT);
-        }
-
-        // Fill depth buffer with uniform value(s)
-        void stencilFill(size_t value) {
-            glClearStencil(value);
-            glClear(GL_STENCIL_BUFFER_BIT);
-        }
 
         // Enable / disable writing to color buffer
         void colorWrite(bool enable) {
@@ -174,7 +157,7 @@ export namespace Rev::Graphics {
             else { glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); }
         }
 
-        // Enable / disable writing to stencil (depth) buffer
+        // Enable / disable writing to stencil buffer
         void stencilWrite(bool enable) {
 
             // Avoid redundant state changes
@@ -183,18 +166,39 @@ export namespace Rev::Graphics {
 
             // Set stencil mask to enable/disable writing
             if (enable) { glStencilMask(0xFF); }
-            else { glStencilMask(0x00); glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP); }
+            else { glStencilMask(0x00); }
         }
 
+        // Set stencil depth
+        void stencilDepth(size_t value) {
+            glStencilFunc(GL_LEQUAL, value, 0xFF);
+        }
+
+        // Set to all zeroes
+        void stencilClear() {
+            glClearStencil(0.0f);
+            glClear(GL_STENCIL_BUFFER_BIT);
+        }
+
+        // Fill stencil buffer with uniform value(s)
+        void stencilFill(size_t value) {
+            glClearStencil(value);
+            glClear(GL_STENCIL_BUFFER_BIT);
+        }
+
+        // Pushing to stencil (increasing depth where test passes)
         void stencilPush(size_t depth) {
             glStencilFunc(GL_LEQUAL, depth, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
         }
 
-        void stencilPop() {
+        // Popping from stencil (decreasing depth where test passes)
+        void stencilPop(size_t depth) {
+            glStencilFunc(GL_LEQUAL, depth, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_DECR);
         }
 
+        // Setting stencil (set depth where test passes)
         void stencilSet(size_t depth) {
             glStencilFunc(GL_LEQUAL, depth, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);

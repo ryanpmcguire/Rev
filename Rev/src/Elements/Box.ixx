@@ -71,8 +71,6 @@ export namespace Rev::Element {
                 .corners = {
                     tl, tr, bl, br
                 },
-
-                .depth = (float)depth / 100.0f
             };
 
             rectangle->compute();
@@ -80,10 +78,15 @@ export namespace Rev::Element {
             Element::computePrimitives(e);
         }
 
-        void draw(Event& e) override {
-
+        // Draw own rect
+        void stencil(Event& e) override {
             rectangle->draw();
+            Element::stencil(e);
+        }
 
+        // Draw own rect
+        void draw(Event& e) override {
+            rectangle->draw();
             Element::draw(e);
         }
     };

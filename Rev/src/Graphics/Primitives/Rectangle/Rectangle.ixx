@@ -34,7 +34,6 @@ export namespace Rev::Primitive {
             Rect rect;
             Color color;
             Corners corners;
-            float depth, pad1, pad2, pad3;
         };
 
         inline static Shared shared;
@@ -68,8 +67,7 @@ export namespace Rev::Primitive {
             *data = {
                 .rect = { .x = 100, .y = 100, .w = 100, .h = 100 },
                 .color = { .r = 1, .g = 1, .b = 1, .a = 1 },
-                .corners = { 5, 10, 15, 25 },
-                .depth = 0
+                .corners = { 5, 10, 15, 25 }
             };
         }
 

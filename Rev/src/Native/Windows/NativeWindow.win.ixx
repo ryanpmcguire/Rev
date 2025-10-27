@@ -624,11 +624,6 @@ export namespace Rev {
             dbg("Renderer: %s", glGetString(GL_RENDERER));
             dbg("Vendor: %s", glGetString(GL_VENDOR));
             dbg("");
-
-            GLint stencilBits = 0, depthBits = 0;
-            glGetIntegerv(GL_STENCIL_BITS, &stencilBits);
-            glGetIntegerv(GL_DEPTH_BITS, &depthBits);
-            dbg("Depth bits: %d, Stencil bits: %d", depthBits, stencilBits);
         }
 
         void makeContextCurrent() {

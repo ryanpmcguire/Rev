@@ -107,7 +107,7 @@ export namespace Rev::Element {
             // If this is our first draw, we do not animate
             if (draws == 0) {
                 return;
-            } 
+            }
 
             //return;
 
@@ -148,13 +148,19 @@ export namespace Rev::Element {
         // Compute attributes
         virtual void computePrimitives(Event& e) {}
 
-        virtual void draw(Event& e) {
+        // Draw stencil (this must be seperate from draw logic)
+        virtual void stencil(Event& e) {
 
-            draws += 1;
+        }
+
+        // Draw color
+        virtual void draw(Event& e) {
 
             // Draw = no longer dirty
             this->dirty = false;
+            draws += 1;
 
+            // If there are any incomplte transitions, we must continue drawing
             if (!transitions.empty()) {
                 refresh(e);
             }

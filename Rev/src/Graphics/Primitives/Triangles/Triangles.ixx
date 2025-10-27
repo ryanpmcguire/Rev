@@ -32,7 +32,6 @@ export namespace Rev::Primitive {
         // Instance-specific data
         struct Data {
             Color color = { 1, 1, 1, 1 };
-            float depth, pad1, pad2, pad3;
         };
 
         inline static Shared shared;
