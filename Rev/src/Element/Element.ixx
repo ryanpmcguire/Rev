@@ -369,6 +369,7 @@ export namespace Rev::Element {
                     float minOuterWidth = child->res.getMinOuter(Axis::Horizontal);
                     float minOuterHeight = child->res.getMinOuter(Axis::Vertical);
 
+                    // PAY ATTENTION TO THIS LINE
                     if (res.size.w.growable) { minOuterWidth = child->res.getMaxOuter(Axis::Horizontal); }
 
                     // Should we create a new row, or are we add more?
