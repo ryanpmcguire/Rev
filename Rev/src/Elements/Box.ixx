@@ -25,7 +25,8 @@ export namespace Rev::Element {
         // Create
         Box(Element* parent, std::string name = "Box") : Element(parent, name) {
 
-            rectangle = new Rectangle(topLevelDetails->canvas);
+            rectangle = new Rectangle(shared->canvas);
+            scissor = true;
         }
 
         // Destroy
@@ -69,7 +70,7 @@ export namespace Rev::Element {
                 
                 .corners = {
                     tl, tr, bl, br
-                }
+                },
             };
 
             rectangle->compute();
@@ -77,10 +78,15 @@ export namespace Rev::Element {
             Element::computePrimitives(e);
         }
 
-        void draw(Event& e) override {
-            
-            rectangle->draw();
+        // Draw own rect
+        void stencil(Event& e) override {
+            rectangle->stencil();
+            Element::stencil(e);
+        }
 
+        // Draw own rect
+        void draw(Event& e) override {
+            rectangle->draw();
             Element::draw(e);
         }
     };

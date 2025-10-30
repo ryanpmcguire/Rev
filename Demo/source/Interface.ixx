@@ -1,6 +1,7 @@
 module;
 
 #include <cstddef>
+#include <cmath>
 
 export module Interface;
 
@@ -10,6 +11,7 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.TextBox;
 import Rev.Element.Slider;
+import Rev.Element.Chart;
 
 import Resources.Fonts.Arial.Arial_ttf;
 
@@ -24,71 +26,38 @@ export namespace HelloWorld {
         Interface(Element* parent) : Box(parent) {
 
             // Self
-            this->style->alignment = { Axis::Vertical, Align::Center, Align::Center };
+            this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
             this->style->background.color = rgba(25, 25, 25, 1.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
-            // Grey box
             Box* greyBox = new Box(this, "GreyBox");
             greyBox->style = {
-                .size = { .width = Shrink(), .maxWidth = 600_px, .maxHeight = 400_px },
+                .size = { .width = Grow(), .height = Grow(), .maxWidth = 2000_px, .maxHeight = 2000_px },
+                .alignment = { Axis::Horizontal, Align::Center, Align::Center },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
+                .margin = { 5_px, 5_px, 5_px, 5_px },
                 .border = { .radius = 10_px },
-                .background { .color = rgba(255, 255, 255, 0.1) },
+                .background { .color = rgba(255, 255, 255, 0.05) },
             };
 
-            for (size_t i = 0; i < 10; i++) {
-                Slider* slider = new Slider(greyBox);
-            }
+                TextBox* text = new TextBox(greyBox, "Hello World");
+                text->style->text.size = 32_px;
+                text->style->background.color = rgba(1, 0, 0, 0.2);
 
-            //Slider* sliderA = new Slider(greyBox, { .val = 0.0 });
-            //Slider* sliderB = new Slider(greyBox, { .val = 1.0 });
-
-            /*sliderA->style.size.minWidth = 100_px;
-            sliderB->style.size.minWidth = 50_px;*/
-
-            /*TextBox* textBox = new TextBox(greyBox);
-            textBox->style = {
-                .text = {
-                    .font = Arial_ttf,
-                    .size = 20_px
-                }
-            };*/
-
-            /*Box* testBox = new Box(greyBox, "TestBox");
-            testBox->style = {
-                .size = { },
-                .margin = { 4_px, 4_px, 4_px, 4_px },
-                .padding = { 10_px, 10_px, 10_px, 10_px },
-                .border = { .radius = 10_px },
-                .background { .color = Color(1, 1, 1, 0.1) },
-            };
-
-                static Style childStyle = {
-                    .size = { 10_px, 10_px },
-                    .margin = { 4_px, 4_px, 4_px, 4_px },
-                    .background = { .color = Color(1, 0.5, 0.5, 1.0) }
+                Chart* chart = new Chart(greyBox);
+                
+                chart->style = {
+                    .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
                 };
 
-                for (size_t i = 0; i < 10000; i++) {
-                    Box* testBoxChild = new Box(testBox);
-                    testBoxChild->styles = { &childStyle };
-                }*/
+                size_t num = 1000;
+                for (size_t i = 0; i < num; i++) {
+                    float t = float(i) / float(num);
+                    chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
+                }
 
-            /*Box* testBox2 = new Box(testBox, "TestBox");
-            testBox2->style = {
-                .size = { .width = Shrink() },
-                .margin = { 4_px, 4_px, 4_px, 4_px },
-                .padding = { 10_px, 10_px, 10_px, 10_px },
-                .border = { .radius = 10_px },
-                .background { .color = Color(1, 1, 1, 0.1) },
-            };
-
-                for (size_t i = 0; i < 100000; i++) {
-                    Element* testBoxChild = new Element(testBox2);
-                    testBoxChild->style = &textBoxChildStyle;
-                }*/
+                Slider* slider = new Slider(greyBox);
         }
 
         // Destroy

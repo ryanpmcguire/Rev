@@ -29,7 +29,7 @@ export namespace Rev::Graphics {
         Shader* vert = nullptr;
         Shader* frag = nullptr;
 
-        struct PipelineParams {
+        struct Params {
 
             bool instanced = true;
             std::vector<float> attribs;
@@ -44,7 +44,7 @@ export namespace Rev::Graphics {
         };
 
         // Create
-        Pipeline(void* context, PipelineParams params) {
+        Pipeline(void* context, Params params) {
             
             vert = new Shader(params.openGlVert, Shader::Stage::Vertex);
             frag = new Shader(params.openGlFrag, Shader::Stage::Fragment);

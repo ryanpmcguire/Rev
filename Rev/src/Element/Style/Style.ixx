@@ -484,11 +484,19 @@ export namespace Rev::Element {
         ArrowsOmni
     };
 
+    // Overflow
+    //--------------------------------------------------
+
+    enum class Overflow {
+        Show, Hide,
+        Scroll, ScrollH, ScrollV
+    };
+
     // Style per-se
     //--------------------------------------------------
 
     struct Style {
-
+        Overflow overflow;
         LrtbStyle position; bool absolute = false;
         Size size;
         LrtbStyle margin;
@@ -506,6 +514,9 @@ export namespace Rev::Element {
         void apply(Style& style) {
 
             if (style.transition) { transition = style.transition; }
+
+            if (style.overflow != Overflow::Show) { overflow = style.overflow; }
+            if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
 
             size.apply(style.size);
             background.apply(style.background);

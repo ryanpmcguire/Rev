@@ -27,7 +27,7 @@ namespace Rev::Element {
         void setAbs(Dist& newVal, Dist& newMin, Dist& newMax) {
 
             // Set new val/min/max if type is absolute
-            if (newVal.type == Dist::Type::Abs) { val = newVal.val; }
+            if (newVal.type == Dist::Type::Abs) { val = newVal.val; growable = false; }
             if (newMin.type == Dist::Type::Abs) { min = newMin.val; }
             if (newMax.type == Dist::Type::Abs) { max = newMax.val; }
 
@@ -39,7 +39,7 @@ namespace Rev::Element {
         void setRel(Dist& newVal, Dist& newMin, Dist& newMax, float& compare, float& compareMin, float& compareMax) {
 
             // Set new val/min/max if type is absolute
-            if (newVal.type == Dist::Type::Rel && compare > 0.0f) { val = newVal.val * compare; }
+            if (newVal.type == Dist::Type::Rel && compare > 0.0f) { val = newVal.val * compare; growable = false; }
             if (newMin.type == Dist::Type::Rel && compareMin > 0.0f) { min = newMin.val * compareMin; }
             if (newMax.type == Dist::Type::Rel && compareMax > 0.0f) { max = newMax.val * compareMax; }
 

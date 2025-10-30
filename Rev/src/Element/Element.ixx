@@ -24,30 +24,33 @@ export namespace Rev::Element {
 
     struct Element {
 
-        struct TopLevelDetails {
-            //WebGpu::Surface* surface;
+        struct Shared {
             std::vector<Element*> dirtyElements;
             Graphics::Canvas* canvas = nullptr;
             Event* event = nullptr;
         };
 
-        TopLevelDetails* topLevelDetails = nullptr;
+        // Shared betweeen elements
+        Shared* shared = nullptr;
 
-        std::string name = "Element";
+        // Self and parent
         Element* parent = nullptr;
         std::vector<Element*> children;
-        
-        Rect rect;
+        std::string name = "Element";
 
-        StylePtr style;
-        StylePtr hoverStyle;
-        StylePtr dragStyle;
-
+        // Style
+        StylePtr style, hoverStyle, dragStyle;
         std::vector<Style*> styles;
         
-        Computed computed;
+        // Computing
         bool dirty = false;
-        int draws = 0;
+        Computed computed;
+        Rect rect;
+
+        // Tracking
+        size_t draws = 0;
+        size_t depth = 0;
+        size_t scissor = false;
 
         // Create
         Element(Element* parent = nullptr, std::string name = "Element") {
@@ -57,8 +60,8 @@ export namespace Rev::Element {
                 this->parent = parent;
 
                 parent->children.push_back(this);
-                topLevelDetails = parent->topLevelDetails;
-                this->refresh(*topLevelDetails->event);
+                shared = parent->shared;
+                this->refresh(*shared->event);
             }
 
             this->name = name;
@@ -76,7 +79,7 @@ export namespace Rev::Element {
 
         // Cast as pointer to canvas
         explicit operator Graphics::Canvas*() {
-            return topLevelDetails ? topLevelDetails->canvas : nullptr;
+            return shared ? shared->canvas : nullptr;
         }
 
         // Computing
@@ -104,7 +107,7 @@ export namespace Rev::Element {
             // If this is our first draw, we do not animate
             if (draws == 0) {
                 return;
-            } 
+            }
 
             //return;
 
@@ -131,7 +134,7 @@ export namespace Rev::Element {
 
                 if (e.time < transition.startTime) { continue; }
 
-                if (e.time < transition.endTime) { 
+                if (e.time < transition.endTime) {
                     float t = float((e.time - transition.startTime)) / float((transition.endTime - transition.startTime));
                     val = Transition::ease(transition.startVal, transition.endVal, t);
                 }
@@ -145,13 +148,19 @@ export namespace Rev::Element {
         // Compute attributes
         virtual void computePrimitives(Event& e) {}
 
-        virtual void draw(Event& e) {
+        // Draw stencil (this must be seperate from draw logic)
+        virtual void stencil(Event& e) {
 
-            draws += 1;
+        }
+
+        // Draw color
+        virtual void draw(Event& e) {
 
             // Draw = no longer dirty
             this->dirty = false;
+            draws += 1;
 
+            // If there are any incomplte transitions, we must continue drawing
             if (!transitions.empty()) {
                 refresh(e);
             }
@@ -360,6 +369,7 @@ export namespace Rev::Element {
                     float minOuterWidth = child->res.getMinOuter(Axis::Horizontal);
                     float minOuterHeight = child->res.getMinOuter(Axis::Vertical);
 
+                    // PAY ATTENTION TO THIS LINE
                     if (res.size.w.growable) { minOuterWidth = child->res.getMaxOuter(Axis::Horizontal); }
 
                     // Should we create a new row, or are we add more?
@@ -835,7 +845,7 @@ export namespace Rev::Element {
 
                 this->dirty = true;
                 e.causedRefresh = true;
-                topLevelDetails->dirtyElements.push_back(this);
+                shared->dirtyElements.push_back(this);
             }
     
             // Propagate upwards
@@ -862,13 +872,8 @@ export namespace Rev::Element {
                 Element& child = *pChild;
 
                 // If child contains event, we propagate
-                if (child.targetFlags.hit) {
-                    child.mouseDown(e);
-                }
-
-                if (!e.propagate) {
-                    return;
-                }
+                if (child.targetFlags.hit) { child.mouseDown(e); }
+                if (!e.propagate) { return; }
             }
         }
 

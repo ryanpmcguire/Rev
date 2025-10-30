@@ -22,7 +22,7 @@ export namespace Rev::Element {
 
             measure = true;
 
-            text = new Text(topLevelDetails->canvas);
+            text = new Text(shared->canvas);
             text->content = content;
         }
 

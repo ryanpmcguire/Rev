@@ -13,6 +13,12 @@ struct MetalContext {
 
     id<CAMetalDrawable> drawable;
     id<MTLCommandQueue> queue;
+
+    // Own cmd and enc
+    id<MTLCommandBuffer> _cmd;
+    id<MTLRenderCommandEncoder> _enc;
+
+    // Currently bound cmd and enc
     id<MTLCommandBuffer> cmd;
     id<MTLRenderCommandEncoder> enc;
 
@@ -91,142 +97,385 @@ float metal_context_get_scale(MetalContext* c) {
 void metal_begin_frame(MetalContext* c) {
 
     c->drawable = [c->layer nextDrawable];
-    
     if (!c->drawable) {
-        NSLog(@"No drawable this frame");
+        NSLog(@"[Metal] No drawable this frame");
         return;
     }
 
+    // Create pass descriptor
     MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
     desc.colorAttachments[0].texture = c->drawable.texture;
     desc.colorAttachments[0].loadAction = MTLLoadActionClear;
-    desc.colorAttachments[0].clearColor = MTLClearColorMake(c->r, c->g, c->b, c->a);
     desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    desc.colorAttachments[0].clearColor = MTLClearColorMake(c->r, c->g, c->b, c->a);
 
-    c->cmd = [c->queue commandBuffer];
-    c->enc = [c->cmd renderCommandEncoderWithDescriptor:desc];
+    c->_cmd = [c->queue commandBuffer];
+    c->_enc = [c->_cmd renderCommandEncoderWithDescriptor:desc];
 
-    MTLViewport vp = {
-        0.0, 0.0,
-        (double)c->width * c->scale, (double)c->height * c->scale,
-        0.0, 1.0
-    };
+    // Set as current active encoder
+    c->cmd = c->_cmd;
+    c->enc = c->_enc;
 
+    // Viewport and scissor
+    MTLViewport vp = { 0.0, 0.0,
+                       (double)c->width * c->scale,
+                       (double)c->height * c->scale,
+                       0.0, 1.0 };
     [c->enc setViewport:vp];
 
-    MTLScissorRect scissor = {
-        0, 0,
-        (NSUInteger)(c->width * c->scale), (NSUInteger)(c->height * c->scale)
-    };
-
+    MTLScissorRect scissor = { 0, 0,
+                               (NSUInteger)(c->width * c->scale),
+                               (NSUInteger)(c->height * c->scale) };
     [c->enc setScissorRect:scissor];
 }
 
-// End frame (show result)
 void metal_end_frame(MetalContext* c) {
-    
-    [c->enc endEncoding];
+    if (!c || !c->cmd) return;
 
-    if (c->drawable == nil) {
-        NSLog(@"[Metal] Warning: No drawable available this frame.");
-    } else {
-        [c->cmd presentDrawable:c->drawable];
-    }
-
+    // No need to end encoding again — we ended both render/blit encoders already
+    [c->cmd presentDrawable:c->drawable];
     [c->cmd commit];
     [c->cmd waitUntilCompleted];
+
+    c->cmd = nil;
+    c->enc = nil;
+    c->_cmd = nil;
+    c->_enc = nil;
 }
 
 
-// Uniform Buffer
+// Framebuffer
 //--------------------------------------------------
 
-void* metal_create_uniform_buffer(MetalContext* ctx, size_t size) {
+struct MetalFramebuffer {
 
+    id<MTLTexture> color;
+    id<MTLTexture> stencil;
+
+    id<MTLDepthStencilState> stencilPush;
+    id<MTLDepthStencilState> stencilPop;
+    id<MTLDepthStencilState> stencilSet;
+    id<MTLDepthStencilState> stencilTest;
+
+    MTLRenderPassDescriptor* desc;
+    id<MTLCommandBuffer> cmd;
+    id<MTLRenderCommandEncoder> enc;
+
+    size_t width;
+    size_t height;
+    size_t colorChannels;
+};
+
+MTLDepthStencilDescriptor* makeStencilDesc(MTLCompareFunction compare,
+                                           MTLStencilOperation op) {
+    MTLDepthStencilDescriptor* d = [[MTLDepthStencilDescriptor alloc] init];
+    d.depthCompareFunction = MTLCompareFunctionAlways;
+    d.depthWriteEnabled = NO;
+
+    MTLStencilDescriptor* s = [[MTLStencilDescriptor alloc] init];
+    s.stencilCompareFunction = compare;
+    s.readMask = 0xFF;
+    s.writeMask = 0xFF;
+    s.stencilFailureOperation = MTLStencilOperationKeep;
+    s.depthFailureOperation = MTLStencilOperationKeep;
+    s.depthStencilPassOperation = op;
+
+    d.frontFaceStencil = s;
+    d.backFaceStencil = s;
+    return d;
+}
+
+// Create a new framebuffer
+void* metal_create_framebuffer(MetalContext* ctx,
+                               size_t width,
+                               size_t height,
+                               size_t colorChannels)
+{
     if (!ctx || !ctx->device) return nullptr;
 
-    id<MTLBuffer> buf = [ctx->device newBufferWithLength:size
-                                                 options:MTLResourceStorageModeShared];
-    if (!buf) return nullptr;
+    MetalFramebuffer* fb = new MetalFramebuffer();
+    fb->width = width;
+    fb->height = height;
+    fb->colorChannels = colorChannels;
 
-    // Return as opaque pointer, retaining ownership
-    return (__bridge_retained void*)buf;
+    // Apply scaling (so offscreen rendering matches onscreen resolution)
+    CGFloat scale = ctx->scale > 0.0 ? ctx->scale : 1.0;
+    NSUInteger scaledWidth  = (NSUInteger)(width  * scale);
+    NSUInteger scaledHeight = (NSUInteger)(height * scale);
+
+    // --- Color attachment ---
+    MTLPixelFormat colorFormat = MTLPixelFormatBGRA8Unorm;
+    if (colorChannels == 1) colorFormat = MTLPixelFormatR8Unorm;
+
+    MTLTextureDescriptor* colorDesc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:colorFormat
+                                                           width:scaledWidth
+                                                          height:scaledHeight
+                                                       mipmapped:NO];
+
+    // Allow both render target and shader sampling (common use)
+    colorDesc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    colorDesc.storageMode = MTLStorageModePrivate;
+
+    fb->color = [ctx->device newTextureWithDescriptor:colorDesc];
+    if (!fb->color) {
+        NSLog(@"[MetalFramebuffer] Failed to create color texture (%lux%lu)", scaledWidth, scaledHeight);
+        delete fb;
+        return nullptr;
+    }
+
+    // --- Stencil attachment ---
+    MTLTextureDescriptor* stencilDesc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatStencil8
+                                                           width:scaledWidth
+                                                          height:scaledHeight
+                                                       mipmapped:NO];
+    stencilDesc.usage = MTLTextureUsageRenderTarget;
+    stencilDesc.storageMode = MTLStorageModePrivate;
+
+    fb->stencil = [ctx->device newTextureWithDescriptor:stencilDesc];
+    if (!fb->stencil) {
+        NSLog(@"[MetalFramebuffer] Failed to create stencil texture");
+        fb->color = nil;
+        delete fb;
+        return nullptr;
+    }
+
+    fb->stencilPush = [ctx->device newDepthStencilStateWithDescriptor:
+                   makeStencilDesc(MTLCompareFunctionLessEqual,
+                                   MTLStencilOperationIncrementClamp)];
+
+    fb->stencilPop = [ctx->device newDepthStencilStateWithDescriptor:
+                    makeStencilDesc(MTLCompareFunctionLessEqual,
+                                    MTLStencilOperationDecrementClamp)];
+
+    fb->stencilSet = [ctx->device newDepthStencilStateWithDescriptor:
+                    makeStencilDesc(MTLCompareFunctionLessEqual,
+                                    MTLStencilOperationReplace)];
+
+    fb->stencilTest = [ctx->device newDepthStencilStateWithDescriptor:
+                    makeStencilDesc(MTLCompareFunctionLessEqual, MTLStencilOperationKeep)];
+
+    NSLog(@"[MetalFramebuffer] Created (%lux%lu) at scale %.2f",
+          scaledWidth, scaledHeight, scale);
+
+    return fb;
 }
 
-void metal_destroy_uniform_buffer(void* buffer) {
-
-    if (!buffer) return;
-
-    // Transfer ownership back, dropping ref
-    id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buffer;
-    (void)buf; // ARC/release cleans up
+// Destroy framebuffer
+void metal_destroy_framebuffer(void* framebuffer) {
+    if (!framebuffer) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    fb->color = nil;
+    fb->stencil = nil;
+    fb->desc = nil;
+    delete fb;
 }
 
-void* metal_map_uniform_buffer(void* buffer) {
+void metal_framebuffer_begin_frame(MetalContext* ctx, void* framebuffer) {
+    if (!ctx || !framebuffer) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
 
-    if (!buffer) return nullptr;
+    fb->cmd = [ctx->queue commandBuffer];
 
-    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
-    return [buf contents]; // CPU-visible pointer
-}
+    // --- Rebuild render pass descriptor every frame ---
+    MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
+    desc.colorAttachments[0].texture = fb->color;
+    desc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    desc.colorAttachments[0].clearColor = MTLClearColorMake(1.0, 1.0, 1.0, 1.0);
+    desc.stencilAttachment.texture = fb->stencil;
+    desc.stencilAttachment.loadAction = MTLLoadActionClear;
+    desc.stencilAttachment.storeAction = MTLStoreActionStore;
+    desc.stencilAttachment.clearStencil = 0;
 
-void metal_bind_uniform_buffer(MetalContext* ctx, void* buffer, int index) {
+    fb->desc = desc; // update reference
 
-    if (!ctx || !ctx->enc || !buffer) {
-        
-        NSLog(@"Couldn't bind uniform buffer!");
-
+    fb->enc = [fb->cmd renderCommandEncoderWithDescriptor:fb->desc];
+    if (!fb->enc) {
+        NSLog(@"[MetalFramebuffer] Failed to create encoder for offscreen pass");
         return;
     }
 
-    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
-    id<MTLRenderCommandEncoder> enc = ctx->enc;
+    // --- Apply Retina scaling just like metal_begin_frame ---
+    double scaledWidth  = fb->width  * ctx->scale;
+    double scaledHeight = fb->height * ctx->scale;
 
-    [enc setVertexBuffer:buf offset:0 atIndex:index];
-    [enc setFragmentBuffer:buf offset:0 atIndex:index];
+    MTLViewport vp = {0.0, 0.0, scaledWidth, scaledHeight, 0.0, 1.0};
+    [fb->enc setViewport:vp];
+
+    MTLScissorRect sc = {0, 0, (NSUInteger)scaledWidth, (NSUInteger)scaledHeight};
+    [fb->enc setScissorRect:sc];
+
+    ctx->enc = fb->enc;
+    ctx->cmd = fb->cmd;
+
+    NSLog(@"[MetalFramebuffer] Began offscreen frame (%zux%zu @ scale %.2f)",
+          fb->width, fb->height, ctx->scale);
 }
 
-// Vertex Buffer
-//--------------------------------------------------
+void metal_framebuffer_end_frame(MetalContext* ctx, void* framebuffer) {
 
-void* metal_create_vertex_buffer(MetalContext* ctx, size_t size) {
+    if (!ctx || !framebuffer) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
 
-    if (!ctx || !ctx->device) return nullptr;
+    if (!fb->enc || !fb->cmd) return;
 
-    id<MTLBuffer> buf = [ctx->device newBufferWithLength:size
-                                                 options:MTLResourceStorageModeShared];
-    return (__bridge_retained void*)buf;
+    [fb->enc endEncoding];
+    [fb->cmd commit];
+    [fb->cmd waitUntilCompleted];
+
+    fb->enc = nil;
+    fb->cmd = nil;
+
+    // Unbind the framebuffer (back to onscreen context)
+    ctx->enc = ctx->_enc;
+    ctx->cmd = ctx->_cmd;
+
+    NSLog(@"[MetalFramebuffer] Ended offscreen frame");
 }
 
-void metal_destroy_vertex_buffer(void* buffer) {
+void metal_framebuffer_blit_to_drawable(MetalContext* ctx, void* framebuffer) {
 
-    if (!buffer) return;
-
-    id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buffer;
-    (void)buf; // ARC handles release
-}
-
-void* metal_map_vertex_buffer(void* buffer) {
-
-    if (!buffer) return nullptr;
-
-    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
-    return [buf contents];
-}
-
-void metal_bind_vertex_buffer(MetalContext* ctx, void* buffer, int index) {
-
-    if (!ctx || !ctx->enc || !buffer) {
-
-        NSLog(@"Couldn't bind vertex buffer!");
-
+    if (!ctx || !framebuffer || !ctx->drawable || !ctx->cmd) {
+        NSLog(@"[Metal] Blit failed: missing context/drawable/cmd");
         return;
     }
 
-    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
-    id<MTLRenderCommandEncoder> enc = ctx->enc;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    id<MTLTexture> src = fb->color;
+    id<MTLTexture> dst = ctx->drawable.texture; // valid: id<CAMetalDrawable> has `texture`
 
-    [enc setVertexBuffer:buf offset:0 atIndex:index];
+    id<MTLBlitCommandEncoder> blit = [ctx->cmd blitCommandEncoder];
+    if (!blit) {
+        NSLog(@"[Metal] Failed to create blit encoder");
+        return;
+    }
+
+    // Region to copy
+    MTLOrigin origin = {0, 0, 0};
+    MTLSize size = {(NSUInteger)MIN(fb->width, ctx->width),
+                    (NSUInteger)MIN(fb->height, ctx->height),
+                    1};
+
+    [blit copyFromTexture:src
+              sourceSlice:0
+              sourceLevel:0
+             sourceOrigin:origin
+               sourceSize:size
+                toTexture:dst
+         destinationSlice:0
+         destinationLevel:0
+        destinationOrigin:origin];
+
+    [blit endEncoding];
+}
+
+void metal_present(MetalContext* ctx, void* framebuffer)
+{
+    if (!ctx || !framebuffer || !ctx->layer) {
+        NSLog(@"[Metal] metal_present: invalid context or framebuffer");
+        return;
+    }
+
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+
+    // 1. Acquire a drawable from the layer
+    id<CAMetalDrawable> drawable = [ctx->layer nextDrawable];
+    if (!drawable) {
+        NSLog(@"[Metal] metal_present: no drawable available");
+        return;
+    }
+
+    // 2. Create a fresh command buffer
+    id<MTLCommandBuffer> cmd = [ctx->queue commandBuffer];
+    if (!cmd) {
+        NSLog(@"[Metal] metal_present: failed to create command buffer");
+        return;
+    }
+
+    // 3. Create a blit encoder
+    id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+    if (!blit) {
+        NSLog(@"[Metal] metal_present: failed to create blit encoder");
+        return;
+    }
+
+    // 4. Copy framebuffer color texture → drawable’s texture
+    id<MTLTexture> src = fb->color;
+    id<MTLTexture> dst = drawable.texture;
+
+    // Apply Retina scaling when defining the region to copy
+    NSUInteger scaledWidth  = (NSUInteger)(fb->width  * ctx->scale);
+    NSUInteger scaledHeight = (NSUInteger)(fb->height * ctx->scale);
+
+    MTLOrigin origin = {0, 0, 0};
+    MTLSize size = {
+        MIN(scaledWidth,  dst.width),
+        MIN(scaledHeight, dst.height),
+        1
+    };
+
+    [blit copyFromTexture:src
+              sourceSlice:0
+              sourceLevel:0
+             sourceOrigin:origin
+               sourceSize:size
+                toTexture:dst
+         destinationSlice:0
+         destinationLevel:0
+        destinationOrigin:origin];
+
+    [blit endEncoding];
+
+    // 5. Present the drawable and submit work
+    [cmd presentDrawable:drawable];
+    [cmd commit];
+    [cmd waitUntilCompleted];
+
+    NSLog(@"[Metal] Presented framebuffer (%zux%zu @ scale %.2f)",
+          fb->width, fb->height, ctx->scale);
+}
+
+void metal_stencil_clear(MetalContext* ctx, void* framebuffer, size_t value)
+{
+    if (!ctx || !framebuffer) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    fb->desc.stencilAttachment.loadAction = MTLLoadActionClear;
+    fb->desc.stencilAttachment.clearStencil = (uint8_t)value;
+}
+
+
+void metal_stencil_push(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilPush];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
+}
+
+void metal_stencil_pop(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilPop];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
+}
+
+void metal_stencil_set(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilSet];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
+}
+
+void metal_stencil_depth(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilTest];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
 }
 
 // Texture
@@ -336,6 +585,97 @@ void metal_unbind_texture(MetalContext* ctx, int unit) {
     [ctx->enc setFragmentSamplerState:nil atIndex:unit];
 }
 
+// Uniform Buffer
+//--------------------------------------------------
+
+void* metal_create_uniform_buffer(MetalContext* ctx, size_t size) {
+
+    if (!ctx || !ctx->device) return nullptr;
+
+    id<MTLBuffer> buf = [ctx->device newBufferWithLength:size
+                                                 options:MTLResourceStorageModeShared];
+    if (!buf) return nullptr;
+
+    // Return as opaque pointer, retaining ownership
+    return (__bridge_retained void*)buf;
+}
+
+void metal_destroy_uniform_buffer(void* buffer) {
+
+    if (!buffer) return;
+
+    // Transfer ownership back, dropping ref
+    id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buffer;
+    (void)buf; // ARC/release cleans up
+}
+
+void* metal_map_uniform_buffer(void* buffer) {
+
+    if (!buffer) return nullptr;
+
+    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
+    return [buf contents]; // CPU-visible pointer
+}
+
+void metal_bind_uniform_buffer(MetalContext* ctx, void* buffer, int index) {
+
+    if (!ctx || !ctx->enc || !buffer) {
+        
+        NSLog(@"Couldn't bind uniform buffer!");
+
+        return;
+    }
+
+    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
+    id<MTLRenderCommandEncoder> enc = ctx->enc;
+
+    [enc setVertexBuffer:buf offset:0 atIndex:index];
+    [enc setFragmentBuffer:buf offset:0 atIndex:index];
+}
+
+// Vertex Buffer
+//--------------------------------------------------
+
+void* metal_create_vertex_buffer(MetalContext* ctx, size_t size) {
+
+    if (!ctx || !ctx->device) return nullptr;
+
+    id<MTLBuffer> buf = [ctx->device newBufferWithLength:size
+                                                 options:MTLResourceStorageModeShared];
+    return (__bridge_retained void*)buf;
+}
+
+void metal_destroy_vertex_buffer(void* buffer) {
+
+    if (!buffer) return;
+
+    id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buffer;
+    (void)buf; // ARC handles release
+}
+
+void* metal_map_vertex_buffer(void* buffer) {
+
+    if (!buffer) return nullptr;
+
+    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
+    return [buf contents];
+}
+
+void metal_bind_vertex_buffer(MetalContext* ctx, void* buffer, int index) {
+
+    if (!ctx || !ctx->enc || !buffer) {
+
+        NSLog(@"Couldn't bind vertex buffer!");
+
+        return;
+    }
+
+    id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer;
+    id<MTLRenderCommandEncoder> enc = ctx->enc;
+
+    [enc setVertexBuffer:buf offset:0 atIndex:index];
+}
+
 // Shader
 //--------------------------------------------------
 
@@ -437,9 +777,14 @@ void* metal_create_pipeline(MetalContext* ctx,
     pdesc.vertexFunction   = shader->vertexFn;
     pdesc.fragmentFunction = shader->fragmentFn;
     pdesc.vertexDescriptor = vdesc; // nil OK for no vertex inputs
+    
+    // Match framebuffer pixel formats
+    pdesc.depthAttachmentPixelFormat      = MTLPixelFormatInvalid;
+    pdesc.stencilAttachmentPixelFormat    = MTLPixelFormatStencil8;
 
     // Color attachment setup & blending
     MTLRenderPipelineColorAttachmentDescriptor* colorAttachment = pdesc.colorAttachments[0];
+    
     colorAttachment.pixelFormat = MTLPixelFormatBGRA8Unorm;
     colorAttachment.blendingEnabled = YES;
     colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
@@ -448,6 +793,7 @@ void* metal_create_pipeline(MetalContext* ctx,
     colorAttachment.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     colorAttachment.sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
     colorAttachment.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    
 
     // Create the pipeline state
     NSError* err = nil;

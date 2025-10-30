@@ -10,6 +10,7 @@ layout(std140, binding = 0) uniform Transform {
 layout(std140, binding = 1) uniform Data {
     vec4 color;
     vec2 pos;
+    float depth, pad1;
 };
 
 struct CharVertex {

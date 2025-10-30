@@ -18,11 +18,22 @@ export namespace Rev::Graphics {
         void* context = nullptr;
         void* handle = nullptr;
 
-        // Create
-        Texture(void* context, unsigned char* data, size_t width, size_t height, size_t channels)
-        : data(data), width(width), height(height), channels(channels) {
+        struct Params {
+            
+            unsigned char* data = nullptr;
 
+            size_t width = 0, height = 0;
+            size_t channels = 4;
+        };
+
+        // Create
+        Texture(void* context, Params params) {
+            
             this->context = context;
+
+            data = params.data;
+            width = params.width; height = params.height;
+            channels = params.channels;
 
             // By default, use nearest filtering (matches OpenGL implementation)
             handle = metal_create_texture(

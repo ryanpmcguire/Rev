@@ -30,8 +30,6 @@ export namespace Rev::Graphics {
             shader = glCreateShader(shaderType);
 
             glShaderSource(shader, 1, &srcStr, &srcLen);
-
-            return;
             glCompileShader(shader);
 
             // Check for errors

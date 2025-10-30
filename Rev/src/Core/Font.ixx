@@ -70,7 +70,7 @@ export namespace Rev::Core {
 
         struct Bitmap {
             
-            int width, height;
+            size_t width, height;
             size_t size;
 
             unsigned char* data = nullptr;
@@ -120,7 +120,11 @@ export namespace Rev::Core {
             this->getFontAttribs();
             this->bake();
 
-            texture = new Texture(canvas->context, bitmap.data, bitmap.width, bitmap.height, 1);
+            texture = new Texture(canvas->context, {
+                .data = bitmap.data,
+                .width = bitmap.width, .height = bitmap.height,
+                .channels = 1
+            });
 
             // Make glyph data ubo
             //--------------------------------------------------

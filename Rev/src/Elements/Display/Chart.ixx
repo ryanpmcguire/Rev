@@ -32,8 +32,10 @@ export namespace Rev::Element {
     namespace Styles {
         
         Style Chart = {
+            .overflow = Overflow::Hide,
             .size = { .width = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
+            .background = { .color = rgba(255, 255, 255, 0.05) }
         };
     };
 
@@ -60,7 +62,7 @@ export namespace Rev::Element {
             // Self
             this->styles = { &Styles::Chart };
             
-            Graphics::Canvas* canvas = topLevelDetails->canvas;
+            Graphics::Canvas* canvas = shared->canvas;
 
             grid = new Lines(canvas);
 
@@ -120,21 +122,16 @@ export namespace Rev::Element {
             }
 
             // Calculate movement, swap axis if shift
-            Pos shiftBy = {
-                (wheelSensitivity * e.mouse.wheel.x),
-                (wheelSensitivity * e.mouse.wheel.y)
-            };
-
             Pos scale = screenToChart.getScale();
-            shiftBy *= scale;
+            Pos shiftBy = scale * wheelSensitivity * e.mouse.wheel;
             
             if (e.keyboard.shift) {
                 shiftBy = shiftBy.swapAxis();
                 shiftBy.x *= -1.0f;
             }
 
-            view.shift(shiftBy);
-            
+            // Shift view and refresh
+            view.shift(shiftBy);            
             refresh(e);
 
             Box::mouseWheel(e);
@@ -167,113 +164,170 @@ export namespace Rev::Element {
             return majorStep(range) / 2.0f;
         }
 
-        void computePrimitives(Event& e) override {
+        // Compute grid
+        void computeGrid() {
 
-            // Calculate transforms
             //--------------------------------------------------
-
-            Pos viewSpan = view.span();
-
-            chartToScreen = Transform::Translation(rect.x, rect.y + rect.h) *
-                            Transform::Scale(rect.w / viewSpan.x, -rect.h / viewSpan.y) *
-                            Transform::Translation(-view.l, -view.t);
-
-            screenToChart = Transform::Inverse(chartToScreen);
-            
-            // Calculate grid
+            // Setup
             //--------------------------------------------------
-
-            grid->color = { 0.0, 0, 0, 0.0 };
-            grid->strokeWidth = 0.25f;            
+        
+            grid->color = { 1, 1, 1, 0.25f };
+            grid->strokeWidth = 1.0f;
             grid->lines.clear();
-
+        
             float rangeX = view.r - view.l;
-            float logScale = std::log10(rangeX);
-            float frac = logScale - std::floor(logScale);
-            float zoomFade = 1.0f - frac;
+            float rangeY = view.b - view.t;
+        
+            //--------------------------------------------------
+            // Determine order of magnitude and step size
+            //--------------------------------------------------
+        
+            // Determine logarithmic scale position
+            float logRangeX = std::log10(rangeX);
+            float orderExpX = std::floor(logRangeX);
+            float fracX = logRangeX - orderExpX; // 0..1 across current decade
+        
+            // Determine neighboring orders
+            float orderBelowX   = std::pow(10.0f, orderExpX - 1.0f);
+            float orderCurrentX = std::pow(10.0f, orderExpX);
+            float orderAboveX   = std::pow(10.0f, orderExpX + 1.0f);
+        
+            // Step sizes for each order
+            float stepBelowX   = orderBelowX;
+            float stepCurrentX = orderCurrentX;
+            float stepAboveX   = orderAboveX;
+    
+            // Determine logarithmic scale position
+            float logRangeY = std::log10(rangeY);
+            float orderExpY = std::floor(logRangeY);
+            float fracY = logRangeY - orderExpY; // 0..1 across current decade
+        
+            // Determine neighboring orders
+            float orderBelowY   = std::pow(10.0f, orderExpY - 1.0f);
+            float orderCurrentY = std::pow(10.0f, orderExpY);
+            float orderAboveY   = std::pow(10.0f, orderExpY + 1.0f);
+        
+            // Step sizes for each order
+            float stepBelowY   = orderBelowY;
+            float stepCurrentY = orderCurrentY;
+            float stepAboveY   = orderAboveY;
 
-            float xMajor = majorStep(view.r - view.l);
-            float yMajor = majorStep(view.b - view.t);
-
-            float xMinor = xMajor / 10.0f;
-            float yMinor = yMajor / 10.0f;
-
-            float xMid = xMajor / 2.0f;
-            float yMid = yMajor / 2.0f;
-
-            // Compute fade as ratio of step-to-view
-            auto fade = [](float step, float viewRange) {
-                return std::clamp(step / viewRange, 0.0f, 1.0f);
+            // Minor grid lines are two orders finer
+            float stepX = stepBelowX;
+            float stepY = stepBelowY;
+        
+            //--------------------------------------------------
+            // Compute uniform alpha multiplier (zoom fade)
+            //--------------------------------------------------
+        
+            auto zoomFade = [](float range) {
+                float logRange = std::log10(range);
+                float frac = logRange - std::floor(logRange);
+                return std::clamp(1.0f - frac, 0.0f, 1.0f);
             };
+        
+            float uniformAlphaX = zoomFade(rangeX);
+            float uniformAlphaY = zoomFade(rangeY);
+        
+            //--------------------------------------------------
+            // Alpha per line: smooth transition across orders
+            //--------------------------------------------------
 
-            float majorFadeX = fade(xMajor, view.r - view.l);
-            float midFadeX   = fade(xMid,   view.r - view.l);
-            float minorFadeX = fade(xMinor, view.r - view.l);
+            auto alphaForValue = [&](float value, bool horizontal) -> float {
 
-            float majorFadeY = fade(yMajor, view.b - view.t);
-            float midFadeY   = fade(yMid,   view.b - view.t);
-            float minorFadeY = fade(yMinor, view.b - view.t);
+                float frac = fracY;
+            
+                float stepAbove = stepAboveY;
+                float stepBelow = stepBelowY;
+                float stepCurrent = stepCurrentY;
 
-            // Combine both axes (average)
-            float majorFade = 0.5f * (majorFadeX + majorFadeY);
-            float midFade   = 0.5f * (midFadeX   + midFadeY);
-            float minorFade = 0.5f * (minorFadeX + minorFadeY);
+                if (horizontal) {
+                    frac = fracX;
+                    stepAbove = stepAboveX;
+                    stepBelow = stepBelowX;
+                    stepCurrent = stepCurrentX;
+                }
 
-            // Colors
-            Core::Color majorColor = { 1, 1, 1, majorFade };
-            Core::Color midColor   = { 1, 1, 1, midFade   };
-            Core::Color minorColor = { 1, 1, 1, minorFade };
+                // Helper: detect alignment with a step
+                auto isMultipleOf = [&](float value, float step, float tighterTol = 0.0001f) {
+                    float mod = std::fmod(std::fabs(value), step);
+                    float proximity = std::min(mod, step - mod);
+                    float tol = std::max(step * tighterTol, 1e-6f); // dynamic small tolerance
+                    return (proximity < tol);
+                };
+            
+                // 1. Lines aligned to the *next higher* order (major decades)
+                if (isMultipleOf(value, stepAbove))
+                    return 1.0f; // Always full bright
 
-            // Major lines
-            float xStartMajor = std::floor(view.l / xMajor) * xMajor;
-            float xEndMajor   = std::ceil(view.r / xMajor) * xMajor;
-            float yStartMajor = std::floor(view.t / yMajor) * yMajor;
-            float yEndMajor   = std::ceil(view.b / yMajor) * yMajor;
+                // 2. Lines aligned to the *current* order
+                if (isMultipleOf(value, stepCurrent, 0.001f)) {
+                    // Fade from bright (zoomed in) to dim (zoomed out)
+                    float t = std::clamp(1.0f - frac, 0.0f, 1.0f);
+                    float fade = t * t; // quadratic
+                    return 0.2f + 0.8f * fade; // 1.0 → 0.2
+                }
 
-            for (float x = xStartMajor; x <= xEndMajor + xMajor * 0.5f; x += xMajor)
-                grid->lines.push_back({ .points = { {x, view.t, majorColor}, {x, view.b, majorColor} } });
-
-            for (float y = yStartMajor; y <= yEndMajor + yMajor * 0.5f; y += yMajor)
-                grid->lines.push_back({ .points = { {view.l, y, majorColor}, {view.r, y, majorColor} } });
-
-            // Minor lines
-            float xStartMinor = std::floor(view.l / xMinor) * xMinor;
-            float xEndMinor   = std::ceil(view.r / xMinor) * xMinor;
-            float yStartMinor = std::floor(view.t / yMinor) * yMinor;
-            float yEndMinor   = std::ceil(view.b / yMinor) * yMinor;
-
-            for (float x = xStartMinor; x <= xEndMinor + xMinor * 0.5f; x += xMinor) {
-                grid->lines.push_back({ .points = { {x, view.t, minorColor}, {x, view.b, minorColor} } });
+                // 3. Everything else = minor lines
+                // Fade out completely before reaching the next order boundary
+                float t = std::clamp(frac / 0.85f, 0.0f, 1.0f);
+                float fade = 1 - frac;
+                return 0.2f * fade;
+            };
+            
+        
+            //--------------------------------------------------
+            // Compute grid extents
+            //--------------------------------------------------
+        
+            float xStart = std::floor(view.l / stepX) * stepX;
+            float xEnd   = std::ceil(view.r / stepX) * stepX;
+            float yStart = std::floor(view.t / stepY) * stepY;
+            float yEnd   = std::ceil(view.b / stepY) * stepY;
+        
+            //--------------------------------------------------
+            // Create vertical lines
+            //--------------------------------------------------
+        
+            for (float x = xStart; x <= xEnd + stepX * 0.5f; x += stepX) {
+                float baseAlpha = alphaForValue(x, true);
+                Core::Color color = { 1, 1, 1, baseAlpha };
+                grid->lines.push_back({
+                    .points = { { x, view.t, color }, { x, view.b, color } }
+                });
             }
-
-            for (float y = yStartMinor; y <= yEndMinor + yMinor * 0.5f; y += yMinor) {
-                grid->lines.push_back({ .points = { {view.l, y, minorColor}, {view.r, y, minorColor} } });
+        
+            //--------------------------------------------------
+            // Create horizontal lines
+            //--------------------------------------------------
+        
+            for (float y = yStart; y <= yEnd + stepY * 0.5f; y += stepY) {
+                float baseAlpha = alphaForValue(y, false);
+                Core::Color color = { 1, 1, 1, baseAlpha};
+                grid->lines.push_back({
+                    .points = { { view.l, y, color }, { view.r, y, color } }
+                });
             }
-
-            // Mid lines
-            float xStartMid = std::floor(view.l / xMid) * xMid;
-            float xEndMid   = std::ceil(view.r / xMid) * xMid;
-            float yStartMid = std::floor(view.t / yMid) * yMid;
-            float yEndMid   = std::ceil(view.b / yMid) * yMid;
-
-            for (float x = xStartMid; x <= xEndMid + xMid * 0.5f; x += xMid) {
-                grid->lines.push_back({ .points = { {x, view.t, midColor}, {x, view.b, midColor} } });
-            }
-
-            for (float y = yStartMid; y <= yEndMid + yMid * 0.5f; y += yMid) {
-                grid->lines.push_back({ .points = { {view.l, y, midColor}, {view.r, y, midColor} } });
-            }
-
+        
+            //--------------------------------------------------
             // Transform to screen space
+            //--------------------------------------------------
+        
             for (Lines::Line& line : grid->lines) {
                 for (Vertex& point : line.getPoints()) {
                     point = chartToScreen * point;
                 }
             }
+        
+            grid->compute();
+        }
+        
 
-            // Calculate line(s)
-            //--------------------------------------------------
-            
+
+
+        void computeLines() {
+
+            // Set color
             line->color = { 1, 0, 0, 1 };
             fill->color = { 1, 0, 0, 0.5 };
 
@@ -289,9 +343,25 @@ export namespace Rev::Element {
             for (Vertex& point : screenPoints) { point = chartToScreen * point; }
             for (Vertex& point : screenBottom) { point = chartToScreen * point; }
 
-            grid->compute();
             fill->compute();
             line->compute();
+        }
+
+        void computePrimitives(Event& e) override {
+
+            // Calculate transforms
+            //--------------------------------------------------
+
+            Pos viewSpan = view.span();
+
+            chartToScreen = Transform::Translation(rect.x, rect.y + rect.h) *
+                            Transform::Scale(rect.w / viewSpan.x, -rect.h / viewSpan.y) *
+                            Transform::Translation(-view.l, -view.t);
+
+            screenToChart = Transform::Inverse(chartToScreen);
+            
+            this->computeGrid();
+            this->computeLines();
 
             Box::computePrimitives(e);
         }
