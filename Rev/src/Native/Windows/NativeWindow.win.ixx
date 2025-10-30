@@ -319,8 +319,17 @@ export namespace Rev {
 
         // Notify listener callback of event
         WinEvent notifyEvent(WinEvent event) {
+
             event.subject = this;
+
+            // Scale mouse button positions
+            if (event.type == WinEvent::Type::MouseButton || event.type == WinEvent::Type::MouseMove) {
+                event.c = (float)event.c / scale;
+                event.d = (float)event.d / scale;
+            }
+            
             if (callback) { callback(event); }
+            
             return event;
         }
         

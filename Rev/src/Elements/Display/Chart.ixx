@@ -182,16 +182,39 @@ export namespace Rev::Element {
             // Determine order of magnitude and step size
             //--------------------------------------------------
         
-            auto orderOfMagnitude = [](float range) {
-                return std::pow(10.0f, std::ceil(std::log10(range)));
-            };
+            // Determine logarithmic scale position
+            float logRangeX = std::log10(rangeX);
+            float orderExpX = std::floor(logRangeX);
+            float fracX = logRangeX - orderExpX; // 0..1 across current decade
         
-            float orderX = orderOfMagnitude(rangeX);
-            float orderY = orderOfMagnitude(rangeY);
+            // Determine neighboring orders
+            float orderBelowX   = std::pow(10.0f, orderExpX - 1.0f);
+            float orderCurrentX = std::pow(10.0f, orderExpX);
+            float orderAboveX   = std::pow(10.0f, orderExpX + 1.0f);
         
+            // Step sizes for each order
+            float stepBelowX   = orderBelowX;
+            float stepCurrentX = orderCurrentX;
+            float stepAboveX   = orderAboveX;
+    
+            // Determine logarithmic scale position
+            float logRangeY = std::log10(rangeY);
+            float orderExpY = std::floor(logRangeY);
+            float fracY = logRangeY - orderExpY; // 0..1 across current decade
+        
+            // Determine neighboring orders
+            float orderBelowY   = std::pow(10.0f, orderExpY - 1.0f);
+            float orderCurrentY = std::pow(10.0f, orderExpY);
+            float orderAboveY   = std::pow(10.0f, orderExpY + 1.0f);
+        
+            // Step sizes for each order
+            float stepBelowY   = orderBelowY;
+            float stepCurrentY = orderCurrentY;
+            float stepAboveY   = orderAboveY;
+
             // Minor grid lines are two orders finer
-            float stepX = orderX / 100.0f;
-            float stepY = orderY / 100.0f;
+            float stepX = stepBelowX;
+            float stepY = stepBelowY;
         
             //--------------------------------------------------
             // Compute uniform alpha multiplier (zoom fade)
@@ -210,23 +233,21 @@ export namespace Rev::Element {
             // Alpha per line: smooth transition across orders
             //--------------------------------------------------
 
-            auto alphaForValue = [&](float value, float range) -> float {
+            auto alphaForValue = [&](float value, bool horizontal) -> float {
 
-                // Determine logarithmic scale position
-                float logRange = std::log10(range);
-                float orderExp = std::floor(logRange);
-                float frac = logRange - orderExp; // 0..1 across current decade
+                float frac = fracY;
             
-                // Determine neighboring orders
-                float orderBelow   = std::pow(10.0f, orderExp - 1.0f);
-                float orderCurrent = std::pow(10.0f, orderExp);
-                float orderAbove   = std::pow(10.0f, orderExp + 1.0f);
-            
-                // Step sizes for each order
-                float stepBelow   = orderBelow;
-                float stepCurrent = orderCurrent;
-                float stepAbove   = orderAbove;
-            
+                float stepAbove = stepAboveY;
+                float stepBelow = stepBelowY;
+                float stepCurrent = stepCurrentY;
+
+                if (horizontal) {
+                    frac = fracX;
+                    stepAbove = stepAboveX;
+                    stepBelow = stepBelowX;
+                    stepCurrent = stepCurrentX;
+                }
+
                 // Helper: detect alignment with a step
                 auto isMultipleOf = [&](float value, float step, float tighterTol = 0.0001f) {
                     float mod = std::fmod(std::fabs(value), step);
@@ -269,7 +290,7 @@ export namespace Rev::Element {
             //--------------------------------------------------
         
             for (float x = xStart; x <= xEnd + stepX * 0.5f; x += stepX) {
-                float baseAlpha = alphaForValue(x, rangeX);
+                float baseAlpha = alphaForValue(x, true);
                 Core::Color color = { 1, 1, 1, baseAlpha };
                 grid->lines.push_back({
                     .points = { { x, view.t, color }, { x, view.b, color } }
@@ -281,7 +302,7 @@ export namespace Rev::Element {
             //--------------------------------------------------
         
             for (float y = yStart; y <= yEnd + stepY * 0.5f; y += stepY) {
-                float baseAlpha = alphaForValue(y, rangeY);
+                float baseAlpha = alphaForValue(y, false);
                 Core::Color color = { 1, 1, 1, baseAlpha};
                 grid->lines.push_back({
                     .points = { { view.l, y, color }, { view.r, y, color } }
