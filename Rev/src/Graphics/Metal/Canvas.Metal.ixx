@@ -15,6 +15,7 @@ export module Rev.Graphics.Canvas;
 import Rev.NativeWindow;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
+import Rev.Graphics.FrameBuffer;
 
 export namespace Rev::Graphics {
 
@@ -23,6 +24,8 @@ export namespace Rev::Graphics {
         struct Flags {
             bool resize = true;
             bool record = true;
+            bool stencil = false;
+            bool color = false;
         };
 
         struct Details {
@@ -30,13 +33,15 @@ export namespace Rev::Graphics {
             float scale = 1.0f;
         };
 
+        // Context management
         NativeWindow* window = nullptr;
         MetalContext* context = nullptr;
+        UniformBuffer* transform = nullptr;
+        FrameBuffer* frameBuffer = nullptr;
 
+        // Configurable details
         Details details;
         Flags flags;
-
-        UniformBuffer* transform = nullptr;
 
         Canvas(NativeWindow* w = nullptr) {
 
@@ -52,11 +57,19 @@ export namespace Rev::Graphics {
             }
 
             transform = new UniformBuffer(context, sizeof(glm::mat4));
+            frameBuffer = new FrameBuffer(context, { .width = 1, .height = 1 });
         }
 
         ~Canvas() {
+
+            delete transform;
+            delete frameBuffer;
+
             if (context) { metal_context_destroy(context); }
         }
+
+        // Frame setup / blitting
+        //--------------------------------------------------
 
         void beginFrame() {
 
@@ -83,21 +96,79 @@ export namespace Rev::Graphics {
                     1.0f            // far
                 );
 
+                frameBuffer->resize(details.width, details.height);
                 transform->set(glm::value_ptr(projection));
                 flags.resize = false;
             }
 
-            // Instead of glClear, call Metal clear
-            metal_begin_frame(context); // red
+            metal_framebuffer_begin_frame(context, frameBuffer->buffer);
 
             transform->bind(0);
         }
 
         void endFrame() {
-            if (context) {
-                metal_end_frame(context);
-            }
+
+            metal_framebuffer_end_frame(context, frameBuffer->buffer);
+            metal_present(context, frameBuffer->buffer);
+
+            //metal_begin_frame(context);
+            //metal_framebuffer_blit_to_drawable(context, frameBuffer->buffer);
+            //metal_end_frame(context);
         }
+
+        // Stencil management
+        //--------------------------------------------------
+
+        // Enable / disable writing to color buffer
+        void colorWrite(bool enable) {
+
+            // Avoid redundant state changes
+            if (enable == flags.color) { return; }
+            else { flags.color = enable; }
+
+        }
+
+        // Enable / disable writing to stencil buffer
+        void stencilWrite(bool enable) {
+
+            // Avoid redundant state changes
+            if (enable == flags.stencil ) { return; }
+            else { flags.stencil = enable; }
+
+        }
+
+        // Set stencil depth
+        void stencilDepth(size_t value) {
+
+        }
+
+        // Set to all zeroes
+        void stencilClear() {
+
+        }
+
+        // Fill stencil buffer with uniform value(s)
+        void stencilFill(size_t value) {
+
+        }
+
+        // Pushing to stencil (increasing depth where test passes)
+        void stencilPush(size_t depth) {
+
+        }
+
+        // Popping from stencil (decreasing depth where test passes)
+        void stencilPop(size_t depth) {
+
+        }
+
+        // Setting stencil (set depth where test passes)
+        void stencilSet(size_t depth) {
+
+        }
+
+        // Drawing functions
+        //--------------------------------------------------
 
         void drawArrays(Pipeline::Topology topology, size_t start, size_t verticesPer) {
             metal_draw_arrays(context, topology, start, verticesPer);

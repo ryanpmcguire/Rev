@@ -39,6 +39,7 @@ export namespace Rev::Graphics {
             glGenVertexArrays(1, &vaoID);
             glBindVertexArray(vaoID);
 
+            this->params.num = 0;
             this->resize(params.num);
         }
 

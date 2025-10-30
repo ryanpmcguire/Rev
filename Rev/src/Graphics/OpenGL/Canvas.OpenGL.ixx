@@ -30,18 +30,15 @@ export namespace Rev::Graphics {
             float scale = 1.0f;
         };
 
+        // Context management
+        void* context = nullptr;  // (context is unused)
         NativeWindow* window = nullptr;
+        UniformBuffer* transform = nullptr;
+        FrameBuffer* frameBuffer = nullptr;
 
+        // Configurable details
         Details details;
         Flags flags;
-
-        void* context = nullptr;                        // Context is unused
-        UniformBuffer* transform = nullptr;
-
-        // Render target
-        //--------------------------------------------------
-
-        FrameBuffer* frameBuffer = nullptr;
 
         // Create
         Canvas(NativeWindow* window = nullptr) {
@@ -56,15 +53,13 @@ export namespace Rev::Graphics {
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
             transform = new UniformBuffer(context, sizeof(glm::mat4));
-
-            frameBuffer = new FrameBuffer(context, {
-                .width = 1, .height = 1
-            });
+            frameBuffer = new FrameBuffer(context, { .width = 1, .height = 1 });
         }
 
         // Destroy
         ~Canvas() {
             delete transform;
+            delete frameBuffer;
         }
 
         // Frame setup / blitting

@@ -39,6 +39,7 @@ export namespace Rev::Graphics {
             this->params = params;
             this->context = context;
 
+            this->params.num = 0;
             this->resize(params.num);
         }
 
