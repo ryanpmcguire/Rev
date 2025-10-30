@@ -148,15 +148,42 @@ void metal_end_frame(MetalContext* c) {
 //--------------------------------------------------
 
 struct MetalFramebuffer {
+
     id<MTLTexture> color;
     id<MTLTexture> stencil;
+
+    id<MTLDepthStencilState> stencilPush;
+    id<MTLDepthStencilState> stencilPop;
+    id<MTLDepthStencilState> stencilSet;
+    id<MTLDepthStencilState> stencilTest;
+
     MTLRenderPassDescriptor* desc;
     id<MTLCommandBuffer> cmd;
     id<MTLRenderCommandEncoder> enc;
+
     size_t width;
     size_t height;
     size_t colorChannels;
 };
+
+MTLDepthStencilDescriptor* makeStencilDesc(MTLCompareFunction compare,
+                                           MTLStencilOperation op) {
+    MTLDepthStencilDescriptor* d = [[MTLDepthStencilDescriptor alloc] init];
+    d.depthCompareFunction = MTLCompareFunctionAlways;
+    d.depthWriteEnabled = NO;
+
+    MTLStencilDescriptor* s = [[MTLStencilDescriptor alloc] init];
+    s.stencilCompareFunction = compare;
+    s.readMask = 0xFF;
+    s.writeMask = 0xFF;
+    s.stencilFailureOperation = MTLStencilOperationKeep;
+    s.depthFailureOperation = MTLStencilOperationKeep;
+    s.depthStencilPassOperation = op;
+
+    d.frontFaceStencil = s;
+    d.backFaceStencil = s;
+    return d;
+}
 
 // Create a new framebuffer
 void* metal_create_framebuffer(MetalContext* ctx,
@@ -213,6 +240,21 @@ void* metal_create_framebuffer(MetalContext* ctx,
         delete fb;
         return nullptr;
     }
+
+    fb->stencilPush = [ctx->device newDepthStencilStateWithDescriptor:
+                   makeStencilDesc(MTLCompareFunctionLessEqual,
+                                   MTLStencilOperationIncrementClamp)];
+
+    fb->stencilPop = [ctx->device newDepthStencilStateWithDescriptor:
+                    makeStencilDesc(MTLCompareFunctionLessEqual,
+                                    MTLStencilOperationDecrementClamp)];
+
+    fb->stencilSet = [ctx->device newDepthStencilStateWithDescriptor:
+                    makeStencilDesc(MTLCompareFunctionLessEqual,
+                                    MTLStencilOperationReplace)];
+
+    fb->stencilTest = [ctx->device newDepthStencilStateWithDescriptor:
+                    makeStencilDesc(MTLCompareFunctionLessEqual, MTLStencilOperationKeep)];
 
     NSLog(@"[MetalFramebuffer] Created (%lux%lu) at scale %.2f",
           scaledWidth, scaledHeight, scale);
@@ -271,8 +313,6 @@ void metal_framebuffer_begin_frame(MetalContext* ctx, void* framebuffer) {
     NSLog(@"[MetalFramebuffer] Began offscreen frame (%zux%zu @ scale %.2f)",
           fb->width, fb->height, ctx->scale);
 }
-
-
 
 void metal_framebuffer_end_frame(MetalContext* ctx, void* framebuffer) {
 
@@ -397,6 +437,46 @@ void metal_present(MetalContext* ctx, void* framebuffer)
           fb->width, fb->height, ctx->scale);
 }
 
+void metal_stencil_clear(MetalContext* ctx, void* framebuffer, size_t value)
+{
+    if (!ctx || !framebuffer) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    fb->desc.stencilAttachment.loadAction = MTLLoadActionClear;
+    fb->desc.stencilAttachment.clearStencil = (uint8_t)value;
+}
+
+
+void metal_stencil_push(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilPush];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
+}
+
+void metal_stencil_pop(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilPop];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
+}
+
+void metal_stencil_set(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilSet];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
+}
+
+void metal_stencil_depth(MetalContext* ctx, void* framebuffer, size_t depth)
+{
+    if (!ctx || !framebuffer || !ctx->enc) return;
+    MetalFramebuffer* fb = static_cast<MetalFramebuffer*>(framebuffer);
+    [ctx->enc setDepthStencilState:fb->stencilTest];
+    [ctx->enc setStencilReferenceValue:(uint32_t)depth];
+}
 
 // Texture
 //--------------------------------------------------
@@ -697,9 +777,14 @@ void* metal_create_pipeline(MetalContext* ctx,
     pdesc.vertexFunction   = shader->vertexFn;
     pdesc.fragmentFunction = shader->fragmentFn;
     pdesc.vertexDescriptor = vdesc; // nil OK for no vertex inputs
+    
+    // Match framebuffer pixel formats
+    pdesc.depthAttachmentPixelFormat      = MTLPixelFormatInvalid;
+    pdesc.stencilAttachmentPixelFormat    = MTLPixelFormatStencil8;
 
     // Color attachment setup & blending
     MTLRenderPipelineColorAttachmentDescriptor* colorAttachment = pdesc.colorAttachments[0];
+    
     colorAttachment.pixelFormat = MTLPixelFormatBGRA8Unorm;
     colorAttachment.blendingEnabled = YES;
     colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
@@ -708,6 +793,7 @@ void* metal_create_pipeline(MetalContext* ctx,
     colorAttachment.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     colorAttachment.sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
     colorAttachment.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    
 
     // Create the pipeline state
     NSError* err = nil;

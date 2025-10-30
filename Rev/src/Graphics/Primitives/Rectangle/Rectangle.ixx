@@ -17,6 +17,7 @@ import Rev.Graphics.Shader;
 
 // Shader resources
 import Resources.Shaders.Metal.Rectangle.Rectangle_metal;
+import Resources.Shaders.Metal.Rectangle.RectangleStencil_metal;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
 import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
 
@@ -38,6 +39,7 @@ export namespace Rev::Primitive {
 
         inline static Shared shared;
         inline static Pipeline* pipeline = nullptr;
+        inline static Pipeline* stencilPipeline = nullptr;
         inline static VertexBuffer* vertices = nullptr;
 
         UniformBuffer* databuff = nullptr;
@@ -48,6 +50,7 @@ export namespace Rev::Primitive {
 
             shared.create([canvas]() {
 
+                // Color pipeline
                 pipeline = new Pipeline(canvas->context, {
 
                     .attribs = { 2, 4 },
@@ -55,6 +58,15 @@ export namespace Rev::Primitive {
                     .openGlVert = Rectangle_vert,
                     .openGlFrag = Rectangle_frag,
                     .metalUniversal = Rectangle_metal
+                });
+
+                stencilPipeline = new Pipeline(canvas->context, {
+
+                    .attribs = { 2, 4 },
+
+                    .openGlVert = Rectangle_vert,
+                    .openGlFrag = Rectangle_frag,
+                    .metalUniversal = RectangleStencil_metal
                 });
 
                 vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = { 2, 4 } });
@@ -76,6 +88,7 @@ export namespace Rev::Primitive {
 
             shared.destroy([]() {
                 delete pipeline;
+                delete stencilPipeline;
                 delete vertices;
             });
             
@@ -86,6 +99,17 @@ export namespace Rev::Primitive {
             Data& data = (*this->data);
         }
 
+        // Draw stencil
+        void stencil() {
+
+            stencilPipeline->bind();
+            vertices->bind();
+            databuff->bind(1);
+
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
+        }
+
+        // Draw color
         void draw() override {
          
             pipeline->bind();

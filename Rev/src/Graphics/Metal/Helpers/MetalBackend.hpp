@@ -32,6 +32,13 @@ void metal_framebuffer_begin_frame(MetalContext* ctx, void* framebuffer);
 void metal_framebuffer_end_frame(MetalContext* ctx, void* framebuffer);
 void metal_framebuffer_blit_to_drawable(MetalContext* ctx, void* framebuffer);
 
+// Stencil
+void metal_stencil_clear(MetalContext* ctx, void* framebuffer, size_t depth);
+void metal_stencil_push(MetalContext* ctx, void* framebuffer, size_t depth);
+void metal_stencil_pop(MetalContext* ctx, void* framebuffer, size_t depth);
+void metal_stencil_set(MetalContext* ctx, void* framebuffer, size_t depth);
+void metal_stencil_depth(MetalContext* ctx, void* framebuffer, size_t depth);
+
 // Uniform Buffer
 void* metal_create_uniform_buffer(MetalContext* ctx, size_t size);
 void  metal_destroy_uniform_buffer(void* buffer);

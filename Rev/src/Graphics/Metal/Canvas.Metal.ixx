@@ -138,33 +138,28 @@ export namespace Rev::Graphics {
         }
 
         // Set stencil depth
-        void stencilDepth(size_t value) {
-
+        void stencilDepth(size_t depth) {
+            metal_stencil_depth(context, frameBuffer->buffer, depth);
         }
 
         // Set to all zeroes
-        void stencilClear() {
-
-        }
-
-        // Fill stencil buffer with uniform value(s)
-        void stencilFill(size_t value) {
-
+        void stencilFill(size_t value = 0) {
+            metal_stencil_clear(context, frameBuffer->buffer, value);
         }
 
         // Pushing to stencil (increasing depth where test passes)
         void stencilPush(size_t depth) {
-
+            metal_stencil_push(context, frameBuffer->buffer, depth);
         }
 
         // Popping from stencil (decreasing depth where test passes)
         void stencilPop(size_t depth) {
-
+            metal_stencil_pop(context, frameBuffer->buffer, depth);
         }
 
         // Setting stencil (set depth where test passes)
         void stencilSet(size_t depth) {
-
+            metal_stencil_set(context, frameBuffer->buffer, depth);
         }
 
         // Drawing functions

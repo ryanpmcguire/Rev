@@ -80,7 +80,7 @@ export namespace Rev::Element {
 
         // Draw own rect
         void stencil(Event& e) override {
-            rectangle->draw();
+            rectangle->stencil();
             Element::stencil(e);
         }
 

@@ -297,7 +297,7 @@ export namespace Rev::Element {
                 }
 
                 // Do we have to push to the stencil stack (this element contains/hides its children)?
-                if (element->computed.style.overflow == Overflow::Hide) {
+                if (element->computed.style.overflow == Overflow::Hide || true) {
 
                     // Switch to writing stencil instead of color
                     canvas.colorWrite(false);
