@@ -51,7 +51,7 @@ void main() {
     float alpha = 1.0 - smoothstep(-smoothing, smoothing, dist);
     if (alpha < 0.01) { discard; }
 
-    // Output color and depth
-    FragColor = vec4(r, g, b, a * alpha);
+    // Output color and depth (always zero as we are stenciling)
+    FragColor = vec4(0, 0, 0, 0);
     gl_FragDepth = depth;
 }

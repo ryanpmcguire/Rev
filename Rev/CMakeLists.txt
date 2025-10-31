@@ -14,17 +14,12 @@ file(GLOB_RECURSE RESOURCE_FILES
     ${RCS_DIR}/*.*       # whatever extensions you use
 )
 
-add_custom_command(
-    OUTPUT ${RCS_DIR}/.modules/timestamp
+add_custom_target(EmbedResources ALL
     COMMAND ${CMAKE_COMMAND} -E echo "Running resource embed script..."
     COMMAND ${CMAKE_COMMAND} -E env bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/Create_Resource_Modules.sh
-    COMMAND ${CMAKE_COMMAND} -E touch ${RCS_DIR}/.modules/timestamp
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS ${RESOURCE_FILES}
-    COMMENT "Embedding resources with embed.sh"
+    COMMENT "Embedding resources (forced run every build)"
 )
-
-add_custom_target(EmbedResources ALL DEPENDS ${RCS_DIR}/.modules/timestamp)
 
 # Collect sources
 #--------------------------------------------------

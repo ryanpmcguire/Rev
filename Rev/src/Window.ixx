@@ -168,7 +168,6 @@ export namespace Rev::Element {
         // Pre-constructed queues of all children
         std::vector<Element*> topDown;
         std::vector<Element*> bottomUp;
-        std::vector<Element*> stencilStack;
 
         // Calculate top-down call order
         void calcTopDownQueue(Element* element, size_t depth = 0) {
@@ -238,11 +237,12 @@ export namespace Rev::Element {
 
             this->dirty = false;
 
+            // Reset before 
             event.resetBeforeDispatch();
             shared->dirtyElements.clear();
+            shared->stencilStack.clear();
 
             this->calculateQueues();
-            this->stencilStack.clear();
 
             for (Element* element : topDown) { element->computeStyle(e); }
          
@@ -250,18 +250,10 @@ export namespace Rev::Element {
 
             for (Element* element : topDown) { element->computePrimitives(e); }
 
-            shared->dirtyElements.clear();
-
             Graphics::Canvas& canvas = *shared->canvas;
 
             canvas.beginFrame();
-
-            canvas.colorWrite(true);
-            canvas.stencilWrite(true);
-            size_t stencilDepth = 0;
-            canvas.stencilFill(0);
-            canvas.stencilDepth(stencilDepth);     // Write to stencil
-            canvas.stencilWrite(false);
+            canvas.stencilReset(0);
 
             // Draw all elements
             //--------------------------------------------------
@@ -270,53 +262,29 @@ export namespace Rev::Element {
 
                 if (element == this) { continue; }
 
-                // If we need to unwind the stencil stack but there is no parent
-                if (stencilStack.size() == 1 && element->depth <= stencilStack.back()->depth) {
-                    stencilStack.pop_back();
-                    canvas.stencilWrite(true);
-                    canvas.stencilFill(0);
-                    canvas.stencilDepth(0);
-                    canvas.stencilWrite(false);
+                Graphics::Canvas& canvas = *(shared->canvas);
+                std::vector<Element*>& stencilStack = shared->stencilStack;
+
+                size_t size = stencilStack.size();
+                Element* back = size ? stencilStack.back() : nullptr;
+
+                // Ensure we don't run twice for the same element
+                if (back && back != this) {
+
+                    if (depth <= back->depth) {
+
+                        // Pop back, get new size
+                        stencilStack.pop_back();
+                        size = stencilStack.size();
+                        back = size ? stencilStack.back() : nullptr;
+                        canvas.stencilSet(size);
+
+                        // Either draw stencil or reset
+                        if (back) { back->stencil(e); }
+                        else { canvas.stencilReset(0); }
+                    }
                 }
 
-                // Do we have to unwind the stencil stack (revert to a prior stencil state)?
-                if (stencilStack.size() >= 2 && element->depth <= stencilStack.back()->depth) {
-
-                    // Switch to writing stencil instead of color
-                    canvas.colorWrite(false);
-                    canvas.stencilWrite(true);
-                    
-                    // Pop stack, set pre-draw depth, draw parent stencil
-                    stencilStack.pop_back();
-                    canvas.stencilSet(stencilStack.size());
-                    stencilStack.back()->stencil(e);
-     
-                    // Switch to writing color
-                    canvas.stencilWrite(false);
-                    canvas.colorWrite(true);
-                }
-
-                // Do we have to push to the stencil stack (this element contains/hides its children)?
-                if (element->computed.style.overflow == Overflow::Hide) {
-
-                    // Switch to writing stencil instead of color
-                    canvas.colorWrite(false);
-                    canvas.stencilWrite(true);
-
-                    // Push element, set pre-draw stencil depth
-                    stencilStack.push_back(element);
-                    canvas.stencilPush(stencilStack.size() - 1);
-
-                    // Draw stencil, set post-draw stencil depth
-                    stencilStack.back()->stencil(e);
-                    canvas.stencilDepth(stencilStack.size());
-
-                    // Switch to writing color
-                    canvas.stencilWrite(false);
-                    canvas.colorWrite(true);
-                }
-
-                // The simplest part, drawing the actual element
                 element->draw(e);
             }
 

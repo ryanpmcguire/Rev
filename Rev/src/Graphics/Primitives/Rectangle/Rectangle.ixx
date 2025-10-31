@@ -15,11 +15,15 @@ import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
-// Shader resources
+// Shader resources (color)
 import Resources.Shaders.Rectangle.Rectangle_metal;
-import Resources.Shaders.Rectangle.RectangleStencil_metal;
 import Resources.Shaders.Rectangle.Rectangle_vert;
 import Resources.Shaders.Rectangle.Rectangle_frag;
+
+// Shader resources (stencil)
+import Resources.Shaders.Rectangle.Stencil.RectangleStencil_metal;
+import Resources.Shaders.Rectangle.Stencil.RectangleStencil_vert;
+import Resources.Shaders.Rectangle.Stencil.RectangleStencil_frag;
 
 export namespace Rev::Primitive {
 
@@ -69,8 +73,8 @@ export namespace Rev::Primitive {
 
                     .attribs = { 2, 4 },
 
-                    .openGlVert = Rectangle_vert,
-                    .openGlFrag = Rectangle_frag,
+                    .openGlVert = RectangleStencil_vert,
+                    .openGlFrag = RectangleStencil_frag,
                     .metalUniversal = RectangleStencil_metal
                 });
 
@@ -111,7 +115,9 @@ export namespace Rev::Primitive {
             vertices->bind();
             databuff->bind(1);
 
+            canvas->stencilWrite(true);
             canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
+            canvas->stencilWrite(false);
         }
 
         // Draw color

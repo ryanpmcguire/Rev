@@ -12,6 +12,7 @@ import Rev.Element;
 import Rev.Element.Event;
 import Rev.Element.Style;
 
+import Rev.Graphics.Canvas;
 import Rev.Primitive.Rectangle;
 
 export namespace Rev::Element {
@@ -86,6 +87,22 @@ export namespace Rev::Element {
 
         // Draw own rect
         void draw(Event& e) override {
+
+            /*Graphics::Canvas& canvas = *(shared->canvas);
+            std::vector<Element*>& stencilStack = shared->stencilStack;
+
+            // Do we have to push to the stencil stack? (increase depth)
+            if (computed.style.overflow == Overflow::Hide) {
+
+                // Push element, set pre-draw stencil depth
+                stencilStack.push_back(this);
+                canvas.stencilPush(stencilStack.size() - 1);
+
+                // Draw stencil, set post-draw stencil depth
+                stencilStack.back()->stencil(e);
+                canvas.stencilDepth(stencilStack.size());
+            }*/
+
             rectangle->draw();
             Element::draw(e);
         }

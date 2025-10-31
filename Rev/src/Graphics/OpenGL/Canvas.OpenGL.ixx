@@ -164,6 +164,13 @@ export namespace Rev::Graphics {
             else { glStencilMask(0x00); }
         }
 
+        void stencilReset(size_t value) {
+            stencilWrite(true);
+            stencilFill(value);
+            stencilDepth(value);
+            stencilWrite(false);
+        }
+
         // Set stencil depth
         void stencilDepth(size_t value) {
             glStencilFunc(GL_LEQUAL, value, 0xFF);
