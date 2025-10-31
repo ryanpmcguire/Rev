@@ -19,9 +19,9 @@ import Rev.Graphics.Shader;
 
 // Resources
 import Resources.Fonts.Arial.Arial_ttf;
-import Resources.Shaders.OpenGL.Text.Text_vert;
-import Resources.Shaders.OpenGL.Text.Text_frag;
-import Resources.Shaders.Metal.Text.Text_metal;
+import Resources.Shaders.Text.Text_vert;
+import Resources.Shaders.Text.Text_frag;
+import Resources.Shaders.Text.Text_metal;
 
 export namespace Rev::Primitive {
 

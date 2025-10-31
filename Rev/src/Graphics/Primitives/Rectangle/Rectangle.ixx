@@ -16,10 +16,10 @@ import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
 // Shader resources
-import Resources.Shaders.Metal.Rectangle.Rectangle_metal;
-import Resources.Shaders.Metal.Rectangle.RectangleStencil_metal;
-import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
-import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
+import Resources.Shaders.Rectangle.Rectangle_metal;
+import Resources.Shaders.Rectangle.RectangleStencil_metal;
+import Resources.Shaders.Rectangle.Rectangle_vert;
+import Resources.Shaders.Rectangle.Rectangle_frag;
 
 export namespace Rev::Primitive {
 
@@ -31,10 +31,15 @@ export namespace Rev::Primitive {
             struct Rect { float x, y, w, h; };
             struct Color { float r, g, b, a; };
             struct Corners { float tl, tr, bl, br; };
-
+            
+            struct BorderWidth { float l, r, t, b; };
+            struct BorderColor { Color l, r, t, b; };
+            
             Rect rect;
             Color color;
             Corners corners;
+            BorderWidth borderWidth;
+            BorderColor borderColor;
         };
 
         inline static Shared shared;

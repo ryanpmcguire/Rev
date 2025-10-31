@@ -17,9 +17,9 @@ import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
 // Shader file resources
-import Resources.Shaders.OpenGL.Triangles.Triangles_vert;
-import Resources.Shaders.OpenGL.Triangles.Triangles_frag;
-import Resources.Shaders.Metal.Triangles.Triangles_metal;
+import Resources.Shaders.Triangles.Triangles_vert;
+import Resources.Shaders.Triangles.Triangles_frag;
+import Resources.Shaders.Triangles.Triangles_metal;
 
 export namespace Rev::Primitive {
 

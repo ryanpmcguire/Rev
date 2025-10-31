@@ -19,9 +19,9 @@ import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
 // Shader file resources
-import Resources.Shaders.OpenGL.Lines.Lines_vert;
-import Resources.Shaders.OpenGL.Lines.Lines_frag;
-import Resources.Shaders.Metal.Lines.Lines_metal;
+import Resources.Shaders.Lines.Lines_vert;
+import Resources.Shaders.Lines.Lines_frag;
+import Resources.Shaders.Lines.Lines_metal;
 
 export namespace Rev::Primitive {
 
