@@ -22,8 +22,9 @@ void main() {
     const float lo = 0.0;
     const float hi  = 0.9;
 
-    float punchy = smoothstep(lo, hi, a + 0.05);
+    //float punchy = smoothstep(lo, hi, a + 0.05);
 
-    FragColor = vec4(color.rgb, punchy * color.a);
+    //FragColor = vec4(color.rgb, punchy * color.a);
+    FragColor = vec4(color.rgb, color.a * a);
     gl_FragDepth = depth;
 }

@@ -85,6 +85,17 @@ export namespace Rev::Element {
 
             data.borderColor = { cl, cr, ct, cb };
 
+            // Compute shadow
+            //--------------------------------------------------
+
+            data.shadow = {
+                .x = styleRef.shadow.x.resolve(rect.w),
+                .y = styleRef.shadow.y.resolve(rect.h),
+                .size = styleRef.shadow.size.resolve(0),
+                .blur = styleRef.shadow.blur.resolve(0),
+                .color = styleRef.shadow.color
+            };
+
             Element::computePrimitives(e);
         }
 

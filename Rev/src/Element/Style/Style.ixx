@@ -94,7 +94,7 @@ export namespace Rev::Element {
             if  (type == Type::Abs) { return val; }
             else if (type == Type::Rel) { return compare * val; }
 
-            else return 0.0f;
+            else return val;
         }
 
         inline void animate(Dist& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
@@ -350,7 +350,7 @@ export namespace Rev::Element {
         }
     };
 
-    // Background and shadow
+    // Background
     //--------------------------------------------------
 
     struct Background {
@@ -370,17 +370,6 @@ export namespace Rev::Element {
 
             color.animate(old.color, transitions, time, transitionLength);
         }
-    };
-
-    struct Shadow {
-
-        Color color;
-
-        Dist size;
-        Dist blur;
-        Dist x, y;
-
-        int transition = -1;
     };
 
     // Border
@@ -453,6 +442,44 @@ export namespace Rev::Element {
         }
     };
 
+    // Shadow
+    //--------------------------------------------------
+
+    struct Shadow {
+
+        Color color;
+
+        Dist size;
+        Dist blur;
+        Dist x, y;
+
+        int transition = -1;
+
+        // Apply new style
+        inline void apply(Shadow& shadow) {
+
+            // Apply to self
+            if (shadow.color) { color = shadow.color; }
+            if (shadow.size) { size = shadow.size; }
+            if (shadow.blur) { blur = shadow.blur; }
+            if (shadow.x) { x = shadow.x; }
+            if (shadow.y) { y = shadow.y; }
+
+            if (shadow.transition > 0) { transition = shadow.transition; }
+        }
+
+        inline void animate(Shadow& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+            
+            int transitionLength = transition > 0 ? transition : ms;
+
+            color.animate(old.color, transitions, time, transitionLength);
+            size.animate(old.size, transitions, time, transitionLength);
+            blur.animate(old.blur, transitions, time, transitionLength);
+            x.animate(old.x, transitions, time, transitionLength);
+            y.animate(old.y, transitions, time, transitionLength);
+        }
+    };
+
     // Font
     //--------------------------------------------------
 
@@ -461,7 +488,7 @@ export namespace Rev::Element {
         Core::Resource font;
         Dist size;
         int weight = -1;
-        Color color = rgba(255, 255, 255, 1);
+        Color color;
         Dist lineHeight;
         Dist spacing;
 
@@ -514,12 +541,12 @@ export namespace Rev::Element {
     struct Style {
         Overflow overflow;
         LrtbStyle position; bool absolute = false;
+        Alignment alignment;
         Size size;
         LrtbStyle margin;
         LrtbStyle padding;
-        Alignment alignment;
-        Border border;
         Background background;
+        Border border;
         Shadow shadow;
         TextStyle text;
         Cursor cursor;
@@ -535,12 +562,14 @@ export namespace Rev::Element {
             if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
 
             size.apply(style.size);
-            background.apply(style.background);
-            border.apply(style.border);
             margin.apply(style.margin);
             padding.apply(style.padding);
             alignment.apply(style.alignment);
             text.apply(style.text);
+            
+            background.apply(style.background);
+            border.apply(style.border);
+            shadow.apply(style.shadow);
         }
 
         // Apply vector of styles
@@ -555,6 +584,7 @@ export namespace Rev::Element {
             size.animate(old.size, transitions, time, transition);
             background.animate(old.background, transitions, time, transition);
             border.animate(old.border, transitions, time, transition);
+            shadow.animate(old.shadow, transitions, time, transition);
             margin.animate(old.margin, transitions, time, transition);
             padding.animate(old.padding, transitions, time, transition);
             text.animate(old.text, transitions, time, transition);

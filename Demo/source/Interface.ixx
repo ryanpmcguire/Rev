@@ -27,7 +27,7 @@ export namespace HelloWorld {
 
             // Self
             this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
-            this->style->background.color = rgba(25, 25, 25, 1.0);
+            this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
@@ -37,19 +37,21 @@ export namespace HelloWorld {
                 .alignment = { Axis::Horizontal, Align::Center, Align::Center },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
+                .background { .color = rgba(0, 0, 0, 0.05) },
                 .border = { .radius = 10_px },
-                .background { .color = rgba(255, 255, 255, 0.05) },
+                .shadow = { .blur = 20_px, .size = Px(-10), .color = rgba(0, 0, 0, 0.5) }
             };
 
                 TextBox* text = new TextBox(greyBox, "Hello World");
                 text->style->text.size = 32_px;
+                text->style->text.color = rgba(0, 0, 0, 1);
                 text->style->background.color = rgba(1, 0, 0, 0.2);
 
                 Chart* chart = new Chart(greyBox);
                 
                 chart->style = {
                     .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
-                    .border = { .radius = 10_px, .width = 1_px, .color = rgba(255, 255, 255, 0.5), .transition = 200 }
+                    .border = { .radius = 10_px, .width = 1_px, .color = rgba(0, 0, 0, 0.1), .transition = 200 }
                 };
 
                 chart->hoverStyle = {
@@ -63,6 +65,14 @@ export namespace HelloWorld {
                 }
 
                 Slider* slider = new Slider(greyBox);
+
+                slider->sliderContainer->style = {
+                    .shadow = { .transition = 200 }
+                };
+
+                slider->sliderContainer->hoverStyle = {
+                    .shadow = { .size = Px(-5), .blur = 10_px, .color = rgba(0, 0, 0, 0.5), .x = 2_px, .y = 2_px }
+                };
         }
 
         // Destroy

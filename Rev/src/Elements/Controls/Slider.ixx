@@ -29,11 +29,11 @@ export namespace Rev::Element {
             };
 
                 Style LabelText = {
-                    .text = { .size = 12_px }
+                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
                 };
 
                 Style ValueText = {
-                    .text = { .size = 12_px }
+                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
                 };
 
             Style Slider = {
@@ -41,17 +41,17 @@ export namespace Rev::Element {
                 .padding = { 6_px, 6_px, 6_px, 6_px },
                 .alignment = { Axis::Vertical, Align::Start, Align::Center },
                 .border = { .radius = 4_px },
-                .background = { .color = rgba(255, 255, 255, 0.1), .transition = 0.1_sec },
+                .background = { .color = rgba(0, 0, 0, 0.1), .transition = 0.1_sec },
             };
 
                 Style SliderHover = {
-                    .background = { .color = rgba(255, 255, 255, 0.15) }
+                    .background = { .color = rgba(0, 0, 0, 0.15) }
                 };
 
             Style Track = {
                 .size = { .width = 100_pct, .height = 2_px, .minWidth = 100_px },
                 .alignment = { Axis::Vertical, Align::Start, Align::Center, Break::True },
-                .background = { .color = rgba(255, 255, 255, 0.25) },
+                .background = { .color = rgba(0, 0, 0, 0.25) },
             };
 
                 Style ThumbContainer = {
@@ -61,7 +61,7 @@ export namespace Rev::Element {
 
                     Style Thumb = {
                         .size = { .width = 4_px, .height = 8_px, .transition = 100 },
-                        .background = { .color = rgba(255, 255, 255, 0.5) },
+                        .background = { .color = rgba(0, 0, 0, 0.5) },
                     };
 
                     Style ThumbHover = {
@@ -156,6 +156,11 @@ export namespace Rev::Element {
             track->style->padding.left = Pct(100.0f * pctVal);
         
             Box::computeStyle(e);
+        }
+
+        void computePrimitives(Event& e) override {
+
+            Box::computePrimitives(e);
         }
     };
 };

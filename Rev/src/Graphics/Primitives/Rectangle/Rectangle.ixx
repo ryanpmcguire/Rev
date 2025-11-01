@@ -37,12 +37,16 @@ export namespace Rev::Primitive {
             struct Corners { float tl, tr, bl, br; };            
             struct BorderWidth { float l, r, t, b; };
             struct BorderColor { Core::Color l, r, t, b; };
-            
+            struct Shadow { float x, y, size, blur; Core::Color color; };
+
             Core::Rect rect;
             Core::Color color;
             Corners corners;
+
             BorderWidth borderWidth;
             BorderColor borderColor;
+
+            Shadow shadow;
         };
 
         inline static Shared shared;
@@ -87,15 +91,24 @@ export namespace Rev::Primitive {
             data = static_cast<Data*>(databuff->data);
 
             *data = {
+
                 .rect = { 100, 100, 100, 100 },
                 .color = { 1, 1, 1, 1 },
+
                 .corners = { 5, 10, 15, 25 },
+
                 .borderWidth = { 0, 0, 0, 0 },
                 .borderColor = {
                     { 1, 1, 1, 1 },
                     { 1, 1, 1, 1 },
                     { 1, 1, 1, 1 },
                     { 1, 1, 1, 1 }
+                },
+
+                .shadow = {
+                    .x = 0, .y = 0,
+                    .size = 10, .blur = 10,
+                    .color = { 1, 1, 1, 0 }
                 }
             };
         }

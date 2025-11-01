@@ -11,6 +11,8 @@ layout(std140, binding = 1) uniform Data {
     float tl, tr, bl, br;                       // Corner radii
     float b_l, b_r, b_t, b_b;                   // Border widths
     vec4 l_color, r_color, t_color, b_color;    // Border colors
+    float shadowX, shadowY, shadowSize, shadowBlur;
+    vec4 shadowColor;
 };
 
 float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
@@ -55,8 +57,20 @@ void main() {
     vec2 innerHalfSize = max(halfSize - vec2(localBorderW * 0.5), vec2(0.0));
     float distInner = roundedBoxSDF(localPos, innerHalfSize, max(cornerRadius - localBorderW * 0.5, 0.0));
 
-    // Smoothing
-    float smoothing = 0.5 * fwidth(distOuter);
+    // Smoothing (only for corners)
+    float smoothingBase = 0.5 * fwidth(distOuter);
+
+    // Corner detection: both x and y near edge
+    vec2 edgeDist = abs(localPos) - (halfSize - vec2(cornerRadius));
+
+    // Instead of a hard step, fade in as we approach the corner region
+    float fade = 20.0; // pixels before corner where we start smoothing
+    float cornerFactor =
+        smoothstep(-fade, 0.0, edgeDist.x) *
+        smoothstep(-fade, 0.0, edgeDist.y);
+
+    // Blend smoothing — only apply at corners
+    float smoothing = mix(0.0, smoothingBase, cornerFactor);
 
     // Alpha for outer shape (to clip)
     float outerAlpha = 1.0 - smoothstep(-smoothing, smoothing, distOuter);
@@ -74,22 +88,58 @@ void main() {
 #else
     // --- Normal rendering path ---
 
-    // Base fill color
     vec4 fillColor = vec4(r, g, b, a);
 
-    // Compute directional blend for border colors
-    // Blend left-right horizontally, top-bottom vertically
+    // Directional border blending
     float sideX = smoothstep(-halfSize.x, halfSize.x, localPos.x);
     float sideY = smoothstep(-halfSize.y, halfSize.y, localPos.y);
-
     vec4 horizColor = mix(l_color, r_color, sideX);
     vec4 vertColor  = mix(t_color, b_color, sideY);
-    vec4 borderColor = mix(horizColor, vertColor, 0.5); // combined blend
+    vec4 borderColor = mix(horizColor, vertColor, 0.5);
 
-    // Mix fill and border
-    vec4 color = mix(fillColor, borderColor, vec4(borderMask));
+    // Fill + border
+    vec4 shapeColor = mix(fillColor, borderColor, vec4(borderMask));
+    float shapeAlpha = max(outerAlpha, borderMask);
 
-    float alpha = max(outerAlpha, borderMask);
-    FragColor = vec4(color.rgb, color.a * alpha);
+    // --- Shadow ---
+
+    vec2 shadowPos = localPos - vec2(shadowX, shadowY);
+
+    // Signed distance field for the shadow's shape (expanded)
+    float shadowDist = roundedBoxSDF(
+        shadowPos,
+        halfSize + vec2(shadowSize),
+        cornerRadius + shadowSize
+    );
+
+    // Raw blur falloff
+    float rawShadowAlpha = 1.0 - smoothstep(0.0, shadowBlur, shadowDist);
+
+    // Scale shadow opacity inversely with blur radius
+    // Ensures that large blurs appear softer, not darker
+    float blurAttenuation = 1.0 / (1.0 + shadowBlur * 0.05);
+
+    // Optionally, make attenuation weaker for small shadows (more perceptual)
+    blurAttenuation = mix(1.0, blurAttenuation, clamp(shadowBlur / 50.0, 0.0, 1.0));
+
+    // Final shadow alpha (never overlaps shape)
+    float shadowAlpha = rawShadowAlpha * blurAttenuation * (1.0 - shapeAlpha);
+    
+    // --- Combine ---
+
+    // Total alpha = union of shape + shadow
+    float finalAlpha = clamp(shapeAlpha + shadowAlpha, 0.0, 1.0);
+
+    // Decide which region contributes color
+    // Use shadow when it's dominant, shape otherwise
+    float shadowWeight = shadowAlpha / max(finalAlpha, 1e-5);
+    float shapeWeight  = 1.0 - shadowWeight;
+
+    // Mix the two explicitly (now including alpha)
+    vec4 finalRGBA = shadowColor * shadowWeight + shapeColor * shapeWeight;
+
+    // Output: color independent of alpha intensity
+    FragColor = vec4(finalRGBA.rgb, finalRGBA.a * finalAlpha);
+
 #endif
 }
