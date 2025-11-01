@@ -8,9 +8,9 @@ layout(std140, binding = 0) uniform Transform {
 
 layout(std140, binding = 1) uniform Data {
     float x, y, w, h;       // Rect
-    float r, g, b, a;       // Color
+    float r, g, b, a;       // Fill color
     float tl, tr, bl, br;   // Corner radii
-    float depth, pad1, pad2, pad3;
+    float b_l, b_r, b_t, b_b; // Border widths (currently unused)
 };
 
 out vec2 fragLocalPos;

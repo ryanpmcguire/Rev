@@ -7,10 +7,11 @@ layout(std140, binding = 0) uniform Transform {
 };
 
 layout(std140, binding = 1) uniform Data {
-    float x, y, w, h;       // Rect
-    float r, g, b, a;       // Color
-    float tl, tr, bl, br;   // Corner radii
-    float depth, pad1, pad2, pad3;
+    float x, y, w, h;                           // Rect
+    float r, g, b, a;                           // Fill color
+    float tl, tr, bl, br;                       // Corner radii
+    float b_l, b_r, b_t, b_b;                   // Border widths
+    vec4 l_color, r_color, t_color, b_color;    // Border colors
 };
 
 out vec2 fragLocalPos;

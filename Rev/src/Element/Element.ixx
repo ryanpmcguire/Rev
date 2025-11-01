@@ -159,21 +159,6 @@ export namespace Rev::Element {
         // Draw color
         virtual void draw(Event& e) {
 
-            Graphics::Canvas& canvas = *(shared->canvas);
-            std::vector<Element*>& stencilStack = shared->stencilStack;
-
-            // Do we have to push to the stencil stack (this element contains/hides its children)?
-            if (computed.style.overflow == Overflow::Hide) {
-
-                // Push element, set pre-draw stencil depth
-                stencilStack.push_back(this);
-                canvas.stencilPush(stencilStack.size() - 1);
-
-                // Draw stencil, set post-draw stencil depth
-                stencilStack.back()->stencil(e);
-                canvas.stencilDepth(stencilStack.size());
-            }
-
             // Draw = no longer dirty
             this->dirty = false;
             draws += 1;

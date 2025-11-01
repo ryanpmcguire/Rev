@@ -321,9 +321,6 @@ export namespace Rev::Element {
         
             grid->compute();
         }
-        
-
-
 
         void computeLines() {
 

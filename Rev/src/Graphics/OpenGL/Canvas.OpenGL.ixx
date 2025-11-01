@@ -82,12 +82,14 @@ export namespace Rev::Graphics {
                 details.height = window->size.h;
                 details.scale = window->scale;
 
-                glViewport(0, 0, (GLint)std::round(details.width), (GLint)std::round(details.height));
+                glViewport(0, 0, details.width, details.height);
 
                 glm::mat4 projection = glm::ortho(
-                    0.0f, static_cast<float>(details.width) / details.scale - 0.5f,     // Left / right
-                    static_cast<float>(details.height) / details.scale - 0.5f, 0.0f,    // Bottom / top
-                    -1.0f, 1.0f                                                         // Near / far
+                    0.5f,                                      // left
+                    (static_cast<float>(details.width) / details.scale) - 0.5f,  // right
+                    (static_cast<float>(details.height) / details.scale) - 0.5f,  // bottom
+                    0.5f,                                      // top
+                    -1.0f, 1.0f
                 );
 
                 // Resize framebuffer, bind transform

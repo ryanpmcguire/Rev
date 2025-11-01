@@ -8,6 +8,7 @@ module;
 export module Rev.Element.Style;
 
 import Rev.Core.Resource;
+import Rev.Core.Color;
 
 export namespace Rev::Element {
 
@@ -86,6 +87,15 @@ export namespace Rev::Element {
         float val = -0.0f;
 
         int transition = -1;
+
+        // Directly resolve by comparing to value
+        inline float resolve(float compare) {
+
+            if  (type == Type::Abs) { return val; }
+            else if (type == Type::Rel) { return compare * val; }
+
+            else return 0.0f;
+        }
 
         inline void animate(Dist& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
 
@@ -174,6 +184,10 @@ export namespace Rev::Element {
 
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
         int transition = -1;
+
+        [[nodiscard]] inline operator Core::Color() const noexcept {
+            return { r, g, b, a };
+        }
 
         // Apply other color to this one
         inline void apply(Color& other) {
@@ -386,7 +400,7 @@ export namespace Rev::Element {
             inline void apply(Corner& corner) {
                 if (corner.color) { color = corner.color; }
                 if (corner.radius) { radius = corner.radius; }
-                if (corner.width) { radius = corner.width; }
+                if (corner.width) { width = corner.width; }
             }
 
             inline void animate(Corner& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
@@ -395,7 +409,7 @@ export namespace Rev::Element {
 
                 color.animate(old.color, transitions, time, transitionLength);
                 radius.animate(old.radius, transitions, time, transitionLength);
-                width.animate(old.radius, transitions, time, transitionLength);
+                width.animate(old.width, transitions, time, transitionLength);
             }
         };
 
@@ -415,7 +429,7 @@ export namespace Rev::Element {
             // Apply to self
             if (border.color) { color = border.color; }
             if (border.radius) { radius = border.radius; }
-            if (border.width) { radius = border.width; }
+            if (border.width) { width = border.width; }
 
             // Apply to corners
             tl.apply(border.tl); tr.apply(border.tr);
@@ -428,7 +442,7 @@ export namespace Rev::Element {
 
             color.animate(old.color, transitions, time, transitionLength);
             radius.animate(old.radius, transitions, time, transitionLength);
-            width.animate(old.radius, transitions, time, transitionLength);
+            width.animate(old.width, transitions, time, transitionLength);
 
             tl.animate(old.tl, transitions, time, transitionLength);
             tr.animate(old.tr, transitions, time, transitionLength);

@@ -7,6 +7,8 @@ export module Rev.Primitive.Rectangle;
 import Rev.Primitive;
 import Rev.Core.Shared;
 import Rev.Core.Pos;
+import Rev.Core.Rect;
+import Rev.Core.Color;
 
 // Rev graphics modules
 import Rev.Graphics.Canvas;
@@ -21,8 +23,8 @@ import Resources.Shaders.Rectangle.Rectangle_vert;
 import Resources.Shaders.Rectangle.Rectangle_frag;
 
 // Shader resources (stencil)
-import Resources.Shaders.Rectangle.Stencil.RectangleStencil_metal;
 import Resources.Shaders.Rectangle.Stencil.RectangleStencil_vert;
+import Resources.Shaders.Rectangle.Stencil.RectangleStencil_metal;
 import Resources.Shaders.Rectangle.Stencil.RectangleStencil_frag;
 
 export namespace Rev::Primitive {
@@ -32,15 +34,12 @@ export namespace Rev::Primitive {
         // Instance-specific data
         struct Data {
 
-            struct Rect { float x, y, w, h; };
-            struct Color { float r, g, b, a; };
-            struct Corners { float tl, tr, bl, br; };
-            
+            struct Corners { float tl, tr, bl, br; };            
             struct BorderWidth { float l, r, t, b; };
-            struct BorderColor { Color l, r, t, b; };
+            struct BorderColor { Core::Color l, r, t, b; };
             
-            Rect rect;
-            Color color;
+            Core::Rect rect;
+            Core::Color color;
             Corners corners;
             BorderWidth borderWidth;
             BorderColor borderColor;
@@ -73,9 +72,11 @@ export namespace Rev::Primitive {
 
                     .attribs = { 2, 4 },
 
-                    .openGlVert = RectangleStencil_vert,
-                    .openGlFrag = RectangleStencil_frag,
-                    .metalUniversal = RectangleStencil_metal
+                    .definitions = "#define STENCIL",
+
+                    .openGlVert = Rectangle_vert,
+                    .openGlFrag = Rectangle_frag,
+                    .metalUniversal = Rectangle_metal
                 });
 
                 vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = { 2, 4 } });
@@ -86,9 +87,16 @@ export namespace Rev::Primitive {
             data = static_cast<Data*>(databuff->data);
 
             *data = {
-                .rect = { .x = 100, .y = 100, .w = 100, .h = 100 },
-                .color = { .r = 1, .g = 1, .b = 1, .a = 1 },
-                .corners = { 5, 10, 15, 25 }
+                .rect = { 100, 100, 100, 100 },
+                .color = { 1, 1, 1, 1 },
+                .corners = { 5, 10, 15, 25 },
+                .borderWidth = { 0, 0, 0, 0 },
+                .borderColor = {
+                    { 1, 1, 1, 1 },
+                    { 1, 1, 1, 1 },
+                    { 1, 1, 1, 1 },
+                    { 1, 1, 1, 1 }
+                }
             };
         }
 

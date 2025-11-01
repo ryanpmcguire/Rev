@@ -49,6 +49,7 @@ export namespace HelloWorld {
                 
                 chart->style = {
                     .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
+                    .border = { .radius = 10_px, .width = 1_px, .color = rgba(255, 255, 255, 0.5) }
                 };
 
                 size_t num = 1000;

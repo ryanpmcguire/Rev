@@ -7,6 +7,7 @@ module;
 export module Rev.Element.Box;
  
 import Rev.Core.Rect;
+import Rev.Core.Color;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -46,6 +47,13 @@ export namespace Rev::Element {
 
             Rectangle::Data& data = *rectangle->data;
 
+            // Assign rect, fill color
+            data.rect = this->rect;
+            data.color = styleRef.background.color;
+
+            // Compute corner radii
+            //--------------------------------------------------
+
             float tl, tr, bl, br;
 
             float mainRad = styleRef.border.radius.val;
@@ -56,25 +64,26 @@ export namespace Rev::Element {
             if (styleRef.border.bl.radius.val) { bl = styleRef.border.bl.radius.val; }
             if (styleRef.border.br.radius.val) { br = styleRef.border.br.radius.val; }
 
-            //roundedBox->boxDataBuffer->dirty = true;
-            data = {
+            data.corners = { tl, tr, bl, br };
 
-                .rect = {
-                    rect.x, rect.y,
-                    rect.w, rect.h
-                },
+            // Compute border widths
+            //--------------------------------------------------
 
-                .color = {
-                    styleRef.background.color.r, styleRef.background.color.g,
-                    styleRef.background.color.b, styleRef.background.color.a
-                },
-                
-                .corners = {
-                    tl, tr, bl, br
-                },
-            };
+            float wl, wr, wt, wb;
+            
+            wl = wr = styleRef.border.width.resolve(rect.w);
+            wt = wb = styleRef.border.width.resolve(rect.h);
+            
+            data.borderWidth = { wl, wr, wt, wb };
 
-            rectangle->compute();
+            // Compute border colors
+            //--------------------------------------------------
+
+            Core::Color cl, cr, ct, cb;
+            cl = cr = styleRef.border.color;
+            ct = cb = styleRef.border.color;
+
+            data.borderColor = { cl, cr, ct, cb };
 
             Element::computePrimitives(e);
         }
@@ -88,10 +97,12 @@ export namespace Rev::Element {
         // Draw own rect
         void draw(Event& e) override {
 
-            /*Graphics::Canvas& canvas = *(shared->canvas);
+            Graphics::Canvas& canvas = *(shared->canvas);
             std::vector<Element*>& stencilStack = shared->stencilStack;
 
-            // Do we have to push to the stencil stack? (increase depth)
+            rectangle->draw();
+
+            // Draw stencil only after drawing self
             if (computed.style.overflow == Overflow::Hide) {
 
                 // Push element, set pre-draw stencil depth
@@ -101,9 +112,8 @@ export namespace Rev::Element {
                 // Draw stencil, set post-draw stencil depth
                 stencilStack.back()->stencil(e);
                 canvas.stencilDepth(stencilStack.size());
-            }*/
+            }
 
-            rectangle->draw();
             Element::draw(e);
         }
     };

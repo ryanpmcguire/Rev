@@ -3,6 +3,7 @@ module;
 #include <string>
 #include <stdexcept>
 #include <glew/glew.h>
+#include <dbg.hpp>
 
 export module Rev.Graphics.Shader;
 
@@ -21,15 +22,22 @@ export namespace Rev::Graphics {
 
         GLuint shader = 0;
 
-        // Create
-        Shader(Resource shaderFile, Stage shaderType) {
+        Shader(Resource shaderFile, Stage shaderType, std::string definitions = "") {
 
+            // Copy source into a modifiable string
             const char* srcStr = reinterpret_cast<const char*>(shaderFile.data);
-            GLint srcLen = static_cast<GLint>(shaderFile.size);
+            std::string src(srcStr, shaderFile.size);
+
+            // Replace "DEFINITIONS" with definitions
+            size_t pos = src.find("DEFINITIONS");
+            if (pos != std::string::npos) { src.replace(pos, 11, definitions); }
+
+            // Prepare and compile
+            const char* finalSrc = src.c_str();
+            GLint finalLen = static_cast<GLint>(src.size());
 
             shader = glCreateShader(shaderType);
-
-            glShaderSource(shader, 1, &srcStr, &srcLen);
+            glShaderSource(shader, 1, &finalSrc, &finalLen);
             glCompileShader(shader);
 
             // Check for errors
@@ -37,18 +45,14 @@ export namespace Rev::Graphics {
             glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 
             if (!success) {
-
                 char infoLog[512];
                 glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-
+                dbg("Shader compilation failed:\n%s", infoLog);
                 throw std::runtime_error(std::string("Shader compilation failed: ") + infoLog);
             }
         }
 
-        // Destroy
         ~Shader() {
-
-            // Shader no longer needed after linking
             glDeleteShader(shader);
         }
     };
