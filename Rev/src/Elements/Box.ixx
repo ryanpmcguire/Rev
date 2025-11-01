@@ -25,7 +25,7 @@ export namespace Rev::Element {
         Primitive::Rectangle* rectangle = nullptr;
 
         // Create
-        Box(Element* parent, std::string name = "Box") : Element(parent, name) {
+        Box(Element* parent, StyleList styles = {}, std::string name = "Box") : Element(parent, styles, name) {
 
             rectangle = new Rectangle(shared->canvas);
             scissor = true;

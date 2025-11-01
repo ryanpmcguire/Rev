@@ -1,6 +1,7 @@
 module;
 
 #include <cmath>
+#include <string>
 #include <algorithm>
 
 export module Rev.Element.Slider;
@@ -96,28 +97,22 @@ export namespace Rev::Element {
         SliderData data;
 
         // Create
-        Slider(Element* parent, SliderData sliderData = SliderData()) : Box(parent, "Slider") {
+        Slider(Element* parent, SliderData sliderData = SliderData(), StyleList styles = {}, std::string name = "Slider") : Box(parent, styles, name) {
 
             // Self
             this->data = sliderData;
             this->styles = { &Styles::Self };
 
                 // Label Container
-                textContainer = new Element(this);
-                textContainer->styles = { &Styles::TextContainer };
+                textContainer = new Element(this, { &Styles::TextContainer });
                 
-                    // Label text
-                    labelText = new TextBox(textContainer, "Value: ");
-                    labelText->styles = { &Styles::LabelText };
-
-                    // Value textContainer
-                    valueText = new TextBox(textContainer);
-                    valueText->styles = { &Styles::ValueText };
+                    // Label and value text
+                    labelText = new TextBox(textContainer, "Value: ", { &Styles::LabelText });
+                    valueText = new TextBox(textContainer, "", { &Styles::ValueText });
                     valueText->setContent(data.val);
                     
                 // SliderContainer
-                sliderContainer = new Box(this, "SliderContainer");
-                sliderContainer->styles = { &Styles::Slider };
+                sliderContainer = new Box(this, { &Styles::Slider }, "SliderContainer");
                 sliderContainer->hoverStyle = { &Styles::SliderHover };
 
                     // Set new value on click
@@ -133,15 +128,12 @@ export namespace Rev::Element {
                     });
 
                     // Track
-                    track = new Box(sliderContainer, "Track");
-                    track->styles = { &Styles::Track };
+                    track = new Box(sliderContainer, { &Styles::Track }, "Track");
 
                         // Thumb container
-                        thumbContainer = new Element(track, "Container");
-                        thumbContainer->styles = { &Styles::ThumbContainer };
+                        thumbContainer = new Element(track, { &Styles::ThumbContainer}, "Container");
 
-                            thumb = new Box(thumbContainer, "Thumb");
-                            thumb->styles = { &Styles::Thumb };
+                            thumb = new Box(thumbContainer, { &Styles::Thumb }, "Thumb");
                             thumb->hoverStyle = Styles::ThumbHover;
                             thumb->dragStyle = Styles::ThumbHover;
         }

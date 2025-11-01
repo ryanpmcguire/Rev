@@ -31,7 +31,7 @@ export namespace HelloWorld {
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
-            Box* greyBox = new Box(this, "GreyBox");
+            Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
                 .size = { .width = Grow(), .height = Grow(), .maxWidth = 2000_px, .maxHeight = 2000_px },
                 .alignment = { Axis::Horizontal, Align::Center, Align::Center },
@@ -49,7 +49,11 @@ export namespace HelloWorld {
                 
                 chart->style = {
                     .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
-                    .border = { .radius = 10_px, .width = 1_px, .color = rgba(255, 255, 255, 0.5) }
+                    .border = { .radius = 10_px, .width = 1_px, .color = rgba(255, 255, 255, 0.5), .transition = 200 }
+                };
+
+                chart->hoverStyle = {
+                    .border = { .width = 4_px }
                 };
 
                 size_t num = 1000;

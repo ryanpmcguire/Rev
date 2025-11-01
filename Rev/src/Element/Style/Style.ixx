@@ -401,6 +401,7 @@ export namespace Rev::Element {
                 if (corner.color) { color = corner.color; }
                 if (corner.radius) { radius = corner.radius; }
                 if (corner.width) { width = corner.width; }
+                if (corner.transition > 0) { transition = corner.transition; }
             }
 
             inline void animate(Corner& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
@@ -430,6 +431,7 @@ export namespace Rev::Element {
             if (border.color) { color = border.color; }
             if (border.radius) { radius = border.radius; }
             if (border.width) { width = border.width; }
+            if (border.transition > 0) { transition = border.transition; }
 
             // Apply to corners
             tl.apply(border.tl); tr.apply(border.tr);
@@ -573,6 +575,16 @@ export namespace Rev::Element {
             }*/
 
             return false;
+        }
+
+        StyleList() {}
+
+        StyleList(std::initializer_list<Style*> init) : styles(init) {
+            dirty = true;
+        }
+
+        StyleList(std::vector<Style*> styles) {
+            this->styles = styles;
         }
         
         // Add style if not present

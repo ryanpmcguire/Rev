@@ -56,17 +56,11 @@ export namespace Rev::Element {
         size_t scissor = false;
 
         // Create
-        Element(Element* parent = nullptr, std::string name = "Element") {
+        Element(Element* parent = nullptr, StyleList styles = {}, std::string name = "") {
 
-            if (parent) {
-                
-                this->parent = parent;
-
-                parent->children.push_back(this);
-                shared = parent->shared;
-                this->refresh(*shared->event);
-            }
-
+            this->inherit(parent);
+  
+            this->styles = styles;
             this->name = name;
         }
         
@@ -83,6 +77,21 @@ export namespace Rev::Element {
         // Cast as pointer to canvas
         explicit operator Graphics::Canvas*() {
             return shared ? shared->canvas : nullptr;
+        }
+
+        // Inheritance
+        //--------------------------------------------------
+
+        void inherit(Element* parent) {
+            
+            if (parent) {
+                
+                this->parent = parent;
+
+                parent->children.push_back(this);
+                shared = parent->shared;
+                this->refresh(*shared->event);
+            }
         }
 
         // Computing

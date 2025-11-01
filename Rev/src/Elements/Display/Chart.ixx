@@ -1,6 +1,7 @@
 module;
 
 #include <cmath>
+#include <string>
 #include <vector>
 #include <algorithm>
 
@@ -57,7 +58,7 @@ export namespace Rev::Element {
         Lines* line = nullptr;
 
         // Create
-        Chart(Element* parent) : Box(parent, "Chart") {
+        Chart(Element* parent, StyleList styles = {}, std::string name = "Box") : Box(parent, styles, "Chart") {
 
             // Self
             this->styles = { &Styles::Chart };
