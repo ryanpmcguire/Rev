@@ -32,7 +32,7 @@ export namespace Rev::Graphics {
         struct Params {
 
             bool instanced = true;
-            std::vector<float> attribs;
+            std::vector<size_t> attribs;
             std::string definitions = "";
 
             Resource openGlVert;

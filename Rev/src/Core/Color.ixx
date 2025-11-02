@@ -1,15 +1,23 @@
 module;
 
 #include <cmath>
+#include <sentinel.hpp>
 
 export module Rev.Core.Color;
 
 export namespace Rev::Core {
 
+    using namespace sentinel;
+
     struct Color {
-        float r = 0;
-        float g = 0;
-        float b = 0;
-        float a = 0;
+
+        float r = (null);
+        float g = (null);
+        float b = (null);
+        float a = -0.0f;
+
+        explicit operator bool() {
+            return (set(r) || set(g) || set(b) || set(a));
+        }
     };
 };

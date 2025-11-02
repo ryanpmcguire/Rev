@@ -726,7 +726,7 @@ void metal_destroy_shader(void* shader) {
 
 void* metal_create_pipeline(MetalContext* ctx,
                             MetalShader* shader,
-                            std::vector<float> attribs,
+                            std::vector<size_t> attribs,
                             bool instanced)
 {
     if (!ctx || !ctx->device) {

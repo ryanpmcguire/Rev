@@ -6,9 +6,12 @@ layout(std140, binding = 1) uniform Data {
 };
 
 in vec4 vColor;
+in float vEdgeDist;
+
 out vec4 FragColor;
 
 void main() {
-    FragColor = vColor;
-    gl_FragDepth = depth;
+    float d = abs(vEdgeDist);
+    float alpha = 1.0 - smoothstep(1.0 - fwidth(vEdgeDist), 1.0, d);
+    FragColor = vec4(vColor.rgb, vColor.a * alpha);
 }

@@ -9,6 +9,7 @@ import Rev.Core.Shared;
 import Rev.Core.Pos;
 import Rev.Core.Rect;
 import Rev.Core.Color;
+import Rev.Core.Vertex;
 
 // Rev graphics modules
 import Rev.Graphics.Canvas;
@@ -65,7 +66,7 @@ export namespace Rev::Primitive {
                 // Color pipeline
                 pipeline = new Pipeline(canvas->context, {
 
-                    .attribs = { 2, 4 },
+                    .attribs = Vertex::attribs,
 
                     .openGlVert = Rectangle_vert,
                     .openGlFrag = Rectangle_frag,
@@ -74,7 +75,7 @@ export namespace Rev::Primitive {
 
                 stencilPipeline = new Pipeline(canvas->context, {
 
-                    .attribs = { 2, 4 },
+                    .attribs = Vertex::attribs,
 
                     .definitions = "#define STENCIL",
 
@@ -83,7 +84,7 @@ export namespace Rev::Primitive {
                     .metalUniversal = Rectangle_metal
                 });
 
-                vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = { 2, 4 } });
+                vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });
             });
 
             //vertices = new VertexBuffer(4);

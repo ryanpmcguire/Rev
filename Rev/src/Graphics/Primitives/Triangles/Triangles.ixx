@@ -92,7 +92,7 @@ export namespace Rev::Primitive {
                 pipeline = new Pipeline(canvas->context, {
 
                     .instanced = false,
-                    .attribs = { 2, 4 },
+                    .attribs = Vertex::attribs,
 
                     .openGlVert = Triangles_vert,
                     .openGlFrag = Triangles_frag,
@@ -100,7 +100,7 @@ export namespace Rev::Primitive {
                 });
             });
 
-            vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
+            vertices = new VertexBuffer(canvas->context, { .attribs = Vertex::attribs });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
             data = (Data*)databuff->data;
         }
