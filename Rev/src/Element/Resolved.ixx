@@ -26,10 +26,15 @@ namespace Rev::Element {
 
         void setAbs(Dist& newVal, Dist& newMin, Dist& newMax) {
 
-            // Set new val/min/max if type is absolute
-            if (newVal.type == Dist::Type::Abs) { val = newVal.val; growable = false; }
+            // Set new max/min if type matches
             if (newMin.type == Dist::Type::Abs) { min = newMin.val; }
             if (newMax.type == Dist::Type::Abs) { max = newMax.val; }
+
+            // Special case: setting abs primary value overrides min/max
+            if (newVal.type == Dist::Type::Abs) {
+                val = min = max = newVal.val;
+                growable = false;
+            }
 
             // Any set value means min/max are also set
             if (set(val) && !min) { min = val; }
@@ -43,18 +48,13 @@ namespace Rev::Element {
             if (newMin.type == Dist::Type::Rel && compareMin > 0.0f) { min = newMin.val * compareMin; }
             if (newMax.type == Dist::Type::Rel && compareMax > 0.0f) { max = newMax.val * compareMax; }
 
-            // Handle unset minimum
-            if (!set(min) && newVal.type == Dist::Type::Rel) {
-                min = newVal.val * compareMin;
-            }
-
-            if (!set(max) && newVal.type == Dist::Type::Rel) {
-                max = newVal.val * compareMax;
-            }
+            // Handle still-unset min/max
+            if (!set(min) && newVal.type == Dist::Type::Rel) { min = newVal.val * compareMin; }
+            if (!set(max) && newVal.type == Dist::Type::Rel) { max = newVal.val * compareMax; }
 
             // Any set value means min/max are also set
-            if (set(val) && !min) { min = val; }
-            if (set(val) && !max) { max = val; }
+            /*if (set(val) && !set(min)) { min = val; }
+            if (set(val) && !set(max)) { max = val; }*/
         }
 
         void setNonFlex(Dist& newVal, Dist& newMin, Dist& newMax, float& compareMin, float& compareMax) {

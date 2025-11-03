@@ -33,7 +33,7 @@ export namespace HelloWorld {
 
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
-                .size = { .width = Grow(), .height = Grow(), .maxWidth = 2000_px, .maxHeight = 2000_px },
+                .size = { .width = 500_px, .height = Grow(), .maxWidth = 2000_px, .maxHeight = 2000_px },
                 .alignment = { Axis::Horizontal, Align::Center, Align::Center },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
@@ -47,21 +47,24 @@ export namespace HelloWorld {
                 text->style->text.color = rgba(0, 0, 0, 1);
                 text->style->background.color = rgba(1, 0, 0, 0.2);
 
-                Chart* chart = new Chart(greyBox);
-                
-                chart->style = {
-                    .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
-                    .border = { .radius = 10_px, .width = 1_px, .color = rgba(0, 0, 0, 0.1), .transition = 200 }
-                };
+                for (size_t i = 0; i < 10; i++) {
 
-                chart->hoverStyle = {
-                    .border = { .width = 4_px }
-                };
+                    Chart* chart = new Chart(greyBox);
+                    
+                    chart->style = {
+                        .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px, .minWidth = 100_px },
+                        .border = { .radius = 10_px, .width = 1_px, .color = rgba(0, 0, 0, 0.1), .transition = 200 }
+                    };
 
-                size_t num = 1000;
-                for (size_t i = 0; i < num; i++) {
-                    float t = float(i) / float(num);
-                    chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
+                    chart->hoverStyle = {
+                        .border = { .width = 4_px }
+                    };
+
+                    size_t num = 1000;
+                    for (size_t i = 0; i < num; i++) {
+                        float t = float(i) / float(num);
+                        chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
+                    }
                 }
 
                 Slider* slider = new Slider(greyBox);
