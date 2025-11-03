@@ -8,7 +8,7 @@ module;
 
 #include "./Native/WinEvent.hpp"
 
-export module Rev.Element.Window;
+export module Rev.Window;
 
 import Rev.Core.Pos;
 
@@ -20,7 +20,9 @@ import Rev.Element.Event;
 import Rev.NativeWindow;
 import Rev.Graphics.Canvas;
 
-export namespace Rev::Element {
+export namespace Rev {
+
+    using namespace Rev::Element;
 
     struct Window : public Element {
 
@@ -120,7 +122,7 @@ export namespace Rev::Element {
                 Box* upper = new Box(this);
                 upper->style = {
                     .size = { .width = 100_pct, .height = 20_px },
-                    .background = { .color = Color(1, 1, 1, 1.0) }
+                    .background = { .color = rgba(255, 255, 255, 1.0) }
                 };
 
                 upper->onMouseDown([this](Event& e) {

@@ -6,7 +6,7 @@ module;
 
 export module Rev.Application;
 
-import Rev.Element.Window;
+import Rev.Window;
 
 export namespace Rev {
 

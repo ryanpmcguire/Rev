@@ -33,13 +33,13 @@ export namespace HelloWorld {
 
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
-                .size = { .width = 500_px, .height = Grow(), .maxWidth = 2000_px, .maxHeight = 2000_px },
                 .alignment = { Axis::Horizontal, Align::Center, Align::Center },
-                .padding = { 10_px, 10_px, 10_px, 10_px },
+                .size = { .width = Grow(), .height = Grow(), .maxWidth = 2000_px, .maxHeight = 2000_px },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
+                .padding = { 10_px, 10_px, 10_px, 10_px },
                 .background { .color = rgba(0, 0, 0, 0.05) },
                 .border = { .radius = 10_px },
-                .shadow = { .blur = 20_px, .size = Px(-10), .color = rgba(0, 0, 0, 0.5) }
+                .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
 
                 TextBox* text = new TextBox(greyBox, "Hello World");
@@ -47,24 +47,21 @@ export namespace HelloWorld {
                 text->style->text.color = rgba(0, 0, 0, 1);
                 text->style->background.color = rgba(1, 0, 0, 0.2);
 
-                for (size_t i = 0; i < 10; i++) {
+                Chart* chart = new Chart(greyBox);
+                
+                chart->style = {
+                    .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
+                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
+                };
 
-                    Chart* chart = new Chart(greyBox);
-                    
-                    chart->style = {
-                        .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px, .minWidth = 100_px },
-                        .border = { .radius = 10_px, .width = 1_px, .color = rgba(0, 0, 0, 0.1), .transition = 200 }
-                    };
+                chart->hoverStyle = {
+                    .border = { .width = 4_px }
+                };
 
-                    chart->hoverStyle = {
-                        .border = { .width = 4_px }
-                    };
-
-                    size_t num = 1000;
-                    for (size_t i = 0; i < num; i++) {
-                        float t = float(i) / float(num);
-                        chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
-                    }
+                size_t num = 1000;
+                for (size_t i = 0; i < num; i++) {
+                    float t = float(i) / float(num);
+                    chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
                 }
 
                 Slider* slider = new Slider(greyBox);
@@ -74,7 +71,7 @@ export namespace HelloWorld {
                 };
 
                 slider->sliderContainer->hoverStyle = {
-                    .shadow = { .size = Px(-5), .blur = 10_px, .color = rgba(0, 0, 0, 0.5), .x = 2_px, .y = 2_px }
+                    .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-5), .blur = 10_px, .x = 2_px, .y = 2_px }
                 };
         }
 

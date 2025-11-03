@@ -27,6 +27,50 @@ export namespace Rev::Primitive {
 
     struct Rectangle : public Primitive {
 
+        // Shared
+        //--------------------------------------------------
+
+        inline static Shared shared;
+        inline static Pipeline* pipeline = nullptr;
+        inline static Pipeline* stencilPipeline = nullptr;
+        inline static VertexBuffer* vertices = nullptr;
+
+        void createShared() {
+
+            // Color pipeline
+            pipeline = new Pipeline(canvas->context, {
+
+                .attribs = Vertex::attribs,
+
+                .openGlVert = Rectangle_vert,
+                .openGlFrag = Rectangle_frag,
+                .metalUniversal = Rectangle_metal
+            });
+
+            stencilPipeline = new Pipeline(canvas->context, {
+
+                .attribs = Vertex::attribs,
+
+                .definitions = "#define STENCIL",
+
+                .openGlVert = Rectangle_vert,
+                .openGlFrag = Rectangle_frag,
+                .metalUniversal = Rectangle_metal
+            });
+
+            vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });
+        }
+
+        void destroyShared() {
+
+            delete pipeline;
+            delete stencilPipeline;
+            delete vertices;
+        }
+
+        // Instance
+        //--------------------------------------------------
+
         // Instance-specific data
         struct Data {
 
@@ -45,42 +89,13 @@ export namespace Rev::Primitive {
             Shadow shadow;
         };
 
-        inline static Shared shared;
-        inline static Pipeline* pipeline = nullptr;
-        inline static Pipeline* stencilPipeline = nullptr;
-        inline static VertexBuffer* vertices = nullptr;
-
         UniformBuffer* databuff = nullptr;
         Data* data = nullptr;
 
         // Create
         Rectangle(Canvas* canvas) : Primitive(canvas) {
 
-            shared.create([canvas]() {
-
-                // Color pipeline
-                pipeline = new Pipeline(canvas->context, {
-
-                    .attribs = Vertex::attribs,
-
-                    .openGlVert = Rectangle_vert,
-                    .openGlFrag = Rectangle_frag,
-                    .metalUniversal = Rectangle_metal
-                });
-
-                stencilPipeline = new Pipeline(canvas->context, {
-
-                    .attribs = Vertex::attribs,
-
-                    .definitions = "#define STENCIL",
-
-                    .openGlVert = Rectangle_vert,
-                    .openGlFrag = Rectangle_frag,
-                    .metalUniversal = Rectangle_metal
-                });
-
-                vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });
-            });
+            shared.create([this]() { this->createShared(); });
 
             //vertices = new VertexBuffer(4);
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
@@ -112,11 +127,7 @@ export namespace Rev::Primitive {
         // Destroy
         ~Rectangle() {
 
-            shared.destroy([]() {
-                delete pipeline;
-                delete stencilPipeline;
-                delete vertices;
-            });
+            shared.destroy([this]() { this->destroyShared(); });
             
             delete databuff;
         }

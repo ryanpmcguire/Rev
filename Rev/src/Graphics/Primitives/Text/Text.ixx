@@ -27,6 +27,33 @@ export namespace Rev::Primitive {
 
     struct Text : public Primitive {
 
+        // Shared
+        //--------------------------------------------------
+        
+        inline static Shared shared;
+        inline static Pipeline* pipeline;
+
+        void createShared() {
+            
+            pipeline = new Pipeline(canvas->context, {
+
+                .attribs = { 4 },
+                
+                .openGlVert = Text_vert,
+                .openGlFrag = Text_frag,
+
+                .metalUniversal = Text_metal
+            });
+        }
+
+        void destroyShared() {
+
+            delete pipeline;
+        }
+
+        // Instance
+        //--------------------------------------------------
+
         // Position and texture coords
         struct CharVertex {
             float x, y;
@@ -42,9 +69,6 @@ export namespace Rev::Primitive {
             Color color;
             Pos pos;
         };
-
-        inline static Shared shared;
-        inline static Pipeline* pipeline;
 
         UniformBuffer* databuff = nullptr;
         VertexBuffer* vertices = nullptr;
@@ -76,18 +100,7 @@ export namespace Rev::Primitive {
         Text(Canvas* canvas) : Primitive(canvas) {
 
             // Create shared pipeline
-            shared.create([canvas]() {
-                
-                pipeline = new Pipeline(canvas->context, {
-
-                    .attribs = { 4 },
-                    
-                    .openGlVert = Text_vert,
-                    .openGlFrag = Text_frag,
-
-                    .metalUniversal = Text_metal
-                });
-            });
+            shared.create([this]() { this->createShared(); });
 
             this->content = content;
 
@@ -105,9 +118,7 @@ export namespace Rev::Primitive {
         ~Text() {
 
             // Destroy shared pipeline
-            shared.destroy([]() {
-                delete pipeline;
-            });
+            shared.destroy([this]() { this->destroyShared(); });
 
             delete vertices;
             delete databuff;

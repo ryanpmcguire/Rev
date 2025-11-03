@@ -15,10 +15,8 @@ export namespace Rev::Graphics {
     struct VertexBuffer {
 
         struct Params {
-
-            size_t divisor = 0;
             size_t num = 0;
-
+            size_t divisor = 0;
             std::vector<size_t> attribs;
         };
 

@@ -25,6 +25,30 @@ export namespace Rev::Primitive {
 
     struct Triangles : public Primitive {
 
+        // Shared
+        //--------------------------------------------------
+        
+        void createShared() {
+
+            pipeline = new Pipeline(canvas->context, {
+
+                .instanced = false,
+                .attribs = Vertex::attribs,
+
+                .openGlVert = Triangles_vert,
+                .openGlFrag = Triangles_frag,
+                .metalUniversal = Triangles_metal
+            });
+        }
+
+        void destroyShared() {
+
+            delete pipeline;
+        }
+
+        // Instance
+        //--------------------------------------------------
+
         enum Topology {
             List, Fan, Strip
         };
@@ -87,18 +111,7 @@ export namespace Rev::Primitive {
             //--------------------------------------------------
             
             // Create shared pipeline
-            shared.create([canvas]() {
-
-                pipeline = new Pipeline(canvas->context, {
-
-                    .instanced = false,
-                    .attribs = Vertex::attribs,
-
-                    .openGlVert = Triangles_vert,
-                    .openGlFrag = Triangles_frag,
-                    .metalUniversal = Triangles_metal
-                });
-            });
+            shared.create([this]() { this->createShared(); });
 
             vertices = new VertexBuffer(canvas->context, { .attribs = Vertex::attribs });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
@@ -109,9 +122,7 @@ export namespace Rev::Primitive {
         ~Triangles() {
 
             // Destroy shared pipeline
-            shared.destroy([]() {
-                delete pipeline;
-            });
+            shared.destroy([this]() { this->createShared(); });
 
             delete vertices;
             delete databuff;
