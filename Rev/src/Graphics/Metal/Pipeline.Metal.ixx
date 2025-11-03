@@ -28,7 +28,9 @@ export namespace Rev::Graphics {
         struct Params {
 
             bool instanced = true;
-            std::vector<float> attribs;
+            std::vector<size_t> attribs;
+
+            std::string definitions = "";
 
             Resource openGlVert;
             Resource openGlFrag;
@@ -44,7 +46,7 @@ export namespace Rev::Graphics {
 
             this->context = context;
 
-            shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal);
+            shader = new Shader(context, params.metalUniversal, Shader::Stage::Universal, params.definitions);
             pipeline = metal_create_pipeline((MetalContext*)context, (MetalShader*)shader->shader, params.attribs, params.instanced);
         }
 

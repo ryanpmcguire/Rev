@@ -8,6 +8,7 @@ module;
 export module Rev.Element.Style;
 
 import Rev.Core.Resource;
+import Rev.Core.Color;
 
 export namespace Rev::Element {
 
@@ -86,6 +87,15 @@ export namespace Rev::Element {
         float val = -0.0f;
 
         int transition = -1;
+
+        // Directly resolve by comparing to value
+        inline float resolve(float compare) {
+
+            if  (type == Type::Abs) { return val; }
+            else if (type == Type::Rel) { return compare * val; }
+
+            else return val;
+        }
 
         inline void animate(Dist& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
 
@@ -174,6 +184,10 @@ export namespace Rev::Element {
 
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
         int transition = -1;
+
+        [[nodiscard]] inline operator Core::Color() const noexcept {
+            return { r, g, b, a };
+        }
 
         // Apply other color to this one
         inline void apply(Color& other) {
@@ -336,7 +350,7 @@ export namespace Rev::Element {
         }
     };
 
-    // Background and shadow
+    // Background
     //--------------------------------------------------
 
     struct Background {
@@ -358,17 +372,6 @@ export namespace Rev::Element {
         }
     };
 
-    struct Shadow {
-
-        Color color;
-
-        Dist size;
-        Dist blur;
-        Dist x, y;
-
-        int transition = -1;
-    };
-
     // Border
     //--------------------------------------------------
 
@@ -386,7 +389,8 @@ export namespace Rev::Element {
             inline void apply(Corner& corner) {
                 if (corner.color) { color = corner.color; }
                 if (corner.radius) { radius = corner.radius; }
-                if (corner.width) { radius = corner.width; }
+                if (corner.width) { width = corner.width; }
+                if (corner.transition > 0) { transition = corner.transition; }
             }
 
             inline void animate(Corner& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
@@ -395,7 +399,7 @@ export namespace Rev::Element {
 
                 color.animate(old.color, transitions, time, transitionLength);
                 radius.animate(old.radius, transitions, time, transitionLength);
-                width.animate(old.radius, transitions, time, transitionLength);
+                width.animate(old.width, transitions, time, transitionLength);
             }
         };
 
@@ -415,7 +419,8 @@ export namespace Rev::Element {
             // Apply to self
             if (border.color) { color = border.color; }
             if (border.radius) { radius = border.radius; }
-            if (border.width) { radius = border.width; }
+            if (border.width) { width = border.width; }
+            if (border.transition > 0) { transition = border.transition; }
 
             // Apply to corners
             tl.apply(border.tl); tr.apply(border.tr);
@@ -428,12 +433,50 @@ export namespace Rev::Element {
 
             color.animate(old.color, transitions, time, transitionLength);
             radius.animate(old.radius, transitions, time, transitionLength);
-            width.animate(old.radius, transitions, time, transitionLength);
+            width.animate(old.width, transitions, time, transitionLength);
 
             tl.animate(old.tl, transitions, time, transitionLength);
             tr.animate(old.tr, transitions, time, transitionLength);
             bl.animate(old.bl, transitions, time, transitionLength);
             br.animate(old.br, transitions, time, transitionLength);
+        }
+    };
+
+    // Shadow
+    //--------------------------------------------------
+
+    struct Shadow {
+
+        Color color;
+
+        Dist size;
+        Dist blur;
+        Dist x, y;
+
+        int transition = -1;
+
+        // Apply new style
+        inline void apply(Shadow& shadow) {
+
+            // Apply to self
+            if (shadow.color) { color = shadow.color; }
+            if (shadow.size) { size = shadow.size; }
+            if (shadow.blur) { blur = shadow.blur; }
+            if (shadow.x) { x = shadow.x; }
+            if (shadow.y) { y = shadow.y; }
+
+            if (shadow.transition > 0) { transition = shadow.transition; }
+        }
+
+        inline void animate(Shadow& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+            
+            int transitionLength = transition > 0 ? transition : ms;
+
+            color.animate(old.color, transitions, time, transitionLength);
+            size.animate(old.size, transitions, time, transitionLength);
+            blur.animate(old.blur, transitions, time, transitionLength);
+            x.animate(old.x, transitions, time, transitionLength);
+            y.animate(old.y, transitions, time, transitionLength);
         }
     };
 
@@ -445,7 +488,7 @@ export namespace Rev::Element {
         Core::Resource font;
         Dist size;
         int weight = -1;
-        Color color = rgba(255, 255, 255, 1);
+        Color color;
         Dist lineHeight;
         Dist spacing;
 
@@ -498,12 +541,12 @@ export namespace Rev::Element {
     struct Style {
         Overflow overflow;
         LrtbStyle position; bool absolute = false;
+        Alignment alignment;
         Size size;
         LrtbStyle margin;
         LrtbStyle padding;
-        Alignment alignment;
-        Border border;
         Background background;
+        Border border;
         Shadow shadow;
         TextStyle text;
         Cursor cursor;
@@ -519,12 +562,14 @@ export namespace Rev::Element {
             if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
 
             size.apply(style.size);
-            background.apply(style.background);
-            border.apply(style.border);
             margin.apply(style.margin);
             padding.apply(style.padding);
             alignment.apply(style.alignment);
             text.apply(style.text);
+            
+            background.apply(style.background);
+            border.apply(style.border);
+            shadow.apply(style.shadow);
         }
 
         // Apply vector of styles
@@ -539,6 +584,7 @@ export namespace Rev::Element {
             size.animate(old.size, transitions, time, transition);
             background.animate(old.background, transitions, time, transition);
             border.animate(old.border, transitions, time, transition);
+            shadow.animate(old.shadow, transitions, time, transition);
             margin.animate(old.margin, transitions, time, transition);
             padding.animate(old.padding, transitions, time, transition);
             text.animate(old.text, transitions, time, transition);
@@ -559,6 +605,16 @@ export namespace Rev::Element {
             }*/
 
             return false;
+        }
+
+        StyleList() {}
+
+        StyleList(std::initializer_list<Style*> init) : styles(init) {
+            dirty = true;
+        }
+
+        StyleList(std::vector<Style*> styles) {
+            this->styles = styles;
         }
         
         // Add style if not present

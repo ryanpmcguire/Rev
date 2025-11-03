@@ -814,5 +814,21 @@ export namespace Rev {
                 SwapBuffers(hdc);
             }
         }
+
+        void getFramebufferSize(int& fbW, int& fbH) const {
+            if (!handle) {
+                fbW = fbH = 0;
+                return;
+            }
+        
+            RECT rect;
+            GetClientRect(handle, &rect);
+        
+            UINT dpi = GetDpiForWindow(handle);
+            float scale = dpi / 96.0f;
+        
+            fbW = static_cast<int>(std::round((rect.right - rect.left) * scale));
+            fbH = static_cast<int>(std::round((rect.bottom - rect.top) * scale));
+        }
     };
 };

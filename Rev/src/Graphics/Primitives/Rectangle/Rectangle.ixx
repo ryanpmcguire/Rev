@@ -7,6 +7,9 @@ export module Rev.Primitive.Rectangle;
 import Rev.Primitive;
 import Rev.Core.Shared;
 import Rev.Core.Pos;
+import Rev.Core.Rect;
+import Rev.Core.Color;
+import Rev.Core.Vertex;
 
 // Rev graphics modules
 import Rev.Graphics.Canvas;
@@ -15,11 +18,10 @@ import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
-// Shader resources
-import Resources.Shaders.Metal.Rectangle.Rectangle_metal;
-import Resources.Shaders.Metal.Rectangle.RectangleStencil_metal;
-import Resources.Shaders.OpenGL.Rectangle.Rectangle_vert;
-import Resources.Shaders.OpenGL.Rectangle.Rectangle_frag;
+// Shader resources (color)
+import Resources.Shaders.Rectangle.Rectangle_metal;
+import Resources.Shaders.Rectangle.Rectangle_vert;
+import Resources.Shaders.Rectangle.Rectangle_frag;
 
 export namespace Rev::Primitive {
 
@@ -28,13 +30,19 @@ export namespace Rev::Primitive {
         // Instance-specific data
         struct Data {
 
-            struct Rect { float x, y, w, h; };
-            struct Color { float r, g, b, a; };
-            struct Corners { float tl, tr, bl, br; };
+            struct Corners { float tl, tr, bl, br; };            
+            struct BorderWidth { float l, r, t, b; };
+            struct BorderColor { Core::Color l, r, t, b; };
+            struct Shadow { float x, y, size, blur; Core::Color color; };
 
-            Rect rect;
-            Color color;
+            Core::Rect rect;
+            Core::Color color;
             Corners corners;
+
+            BorderWidth borderWidth;
+            BorderColor borderColor;
+
+            Shadow shadow;
         };
 
         inline static Shared shared;
@@ -53,7 +61,7 @@ export namespace Rev::Primitive {
                 // Color pipeline
                 pipeline = new Pipeline(canvas->context, {
 
-                    .attribs = { 2, 4 },
+                    .attribs = Vertex::attribs,
 
                     .openGlVert = Rectangle_vert,
                     .openGlFrag = Rectangle_frag,
@@ -62,14 +70,16 @@ export namespace Rev::Primitive {
 
                 stencilPipeline = new Pipeline(canvas->context, {
 
-                    .attribs = { 2, 4 },
+                    .attribs = Vertex::attribs,
+
+                    .definitions = "#define STENCIL",
 
                     .openGlVert = Rectangle_vert,
                     .openGlFrag = Rectangle_frag,
-                    .metalUniversal = RectangleStencil_metal
+                    .metalUniversal = Rectangle_metal
                 });
 
-                vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = { 2, 4 } });
+                vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });
             });
 
             //vertices = new VertexBuffer(4);
@@ -77,9 +87,25 @@ export namespace Rev::Primitive {
             data = static_cast<Data*>(databuff->data);
 
             *data = {
-                .rect = { .x = 100, .y = 100, .w = 100, .h = 100 },
-                .color = { .r = 1, .g = 1, .b = 1, .a = 1 },
-                .corners = { 5, 10, 15, 25 }
+
+                .rect = { 100, 100, 100, 100 },
+                .color = { 1, 1, 1, 1 },
+
+                .corners = { 5, 10, 15, 25 },
+
+                .borderWidth = { 0, 0, 0, 0 },
+                .borderColor = {
+                    { 1, 1, 1, 1 },
+                    { 1, 1, 1, 1 },
+                    { 1, 1, 1, 1 },
+                    { 1, 1, 1, 1 }
+                },
+
+                .shadow = {
+                    .x = 0, .y = 0,
+                    .size = 10, .blur = 10,
+                    .color = { 1, 1, 1, 0 }
+                }
             };
         }
 
@@ -106,7 +132,9 @@ export namespace Rev::Primitive {
             vertices->bind();
             databuff->bind(1);
 
+            canvas->stencilWrite(true);
             canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
+            canvas->stencilWrite(false);
         }
 
         // Draw color

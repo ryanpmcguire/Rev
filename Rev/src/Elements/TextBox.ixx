@@ -18,7 +18,7 @@ export namespace Rev::Element {
         Text* text = nullptr;
 
         // Create
-        TextBox(Element* parent, std::string content = "Hello World") : Box(parent, "TextBox") {
+        TextBox(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "TextBox") {
 
             measure = true;
 

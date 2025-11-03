@@ -7,11 +7,13 @@ module;
 export module Rev.Element.Box;
  
 import Rev.Core.Rect;
+import Rev.Core.Color;
 
 import Rev.Element;
 import Rev.Element.Event;
 import Rev.Element.Style;
 
+import Rev.Graphics.Canvas;
 import Rev.Primitive.Rectangle;
 
 export namespace Rev::Element {
@@ -23,7 +25,7 @@ export namespace Rev::Element {
         Primitive::Rectangle* rectangle = nullptr;
 
         // Create
-        Box(Element* parent, std::string name = "Box") : Element(parent, name) {
+        Box(Element* parent, StyleList styles = {}, std::string name = "Box") : Element(parent, styles, name) {
 
             rectangle = new Rectangle(shared->canvas);
             scissor = true;
@@ -45,6 +47,13 @@ export namespace Rev::Element {
 
             Rectangle::Data& data = *rectangle->data;
 
+            // Assign rect, fill color
+            data.rect = this->rect;
+            data.color = styleRef.background.color;
+
+            // Compute corner radii
+            //--------------------------------------------------
+
             float tl, tr, bl, br;
 
             float mainRad = styleRef.border.radius.val;
@@ -55,25 +64,37 @@ export namespace Rev::Element {
             if (styleRef.border.bl.radius.val) { bl = styleRef.border.bl.radius.val; }
             if (styleRef.border.br.radius.val) { br = styleRef.border.br.radius.val; }
 
-            //roundedBox->boxDataBuffer->dirty = true;
-            data = {
+            data.corners = { tl, tr, bl, br };
 
-                .rect = {
-                    rect.x, rect.y,
-                    rect.w, rect.h
-                },
+            // Compute border widths
+            //--------------------------------------------------
 
-                .color = {
-                    styleRef.background.color.r, styleRef.background.color.g,
-                    styleRef.background.color.b, styleRef.background.color.a
-                },
-                
-                .corners = {
-                    tl, tr, bl, br
-                },
+            float wl, wr, wt, wb;
+            
+            wl = wr = styleRef.border.width.resolve(rect.w);
+            wt = wb = styleRef.border.width.resolve(rect.h);
+            
+            data.borderWidth = { wl, wr, wt, wb };
+
+            // Compute border colors
+            //--------------------------------------------------
+
+            Core::Color cl, cr, ct, cb;
+            cl = cr = styleRef.border.color;
+            ct = cb = styleRef.border.color;
+
+            data.borderColor = { cl, cr, ct, cb };
+
+            // Compute shadow
+            //--------------------------------------------------
+
+            data.shadow = {
+                .x = styleRef.shadow.x.resolve(rect.w),
+                .y = styleRef.shadow.y.resolve(rect.h),
+                .size = styleRef.shadow.size.resolve(0),
+                .blur = styleRef.shadow.blur.resolve(0),
+                .color = styleRef.shadow.color
             };
-
-            rectangle->compute();
 
             Element::computePrimitives(e);
         }
@@ -86,7 +107,24 @@ export namespace Rev::Element {
 
         // Draw own rect
         void draw(Event& e) override {
+
+            Graphics::Canvas& canvas = *(shared->canvas);
+            std::vector<Element*>& stencilStack = shared->stencilStack;
+
             rectangle->draw();
+
+            // Draw stencil only after drawing self
+            if (computed.style.overflow == Overflow::Hide) {
+
+                // Push element, set pre-draw stencil depth
+                stencilStack.push_back(this);
+                canvas.stencilPush(stencilStack.size() - 1);
+
+                // Draw stencil, set post-draw stencil depth
+                stencilStack.back()->stencil(e);
+                canvas.stencilDepth(stencilStack.size());
+            }
+
             Element::draw(e);
         }
     };

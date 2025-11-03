@@ -1,6 +1,7 @@
 module;
 
 #include <cmath>
+#include <string>
 #include <vector>
 #include <algorithm>
 
@@ -57,7 +58,7 @@ export namespace Rev::Element {
         Lines* line = nullptr;
 
         // Create
-        Chart(Element* parent) : Box(parent, "Chart") {
+        Chart(Element* parent, StyleList styles = {}, std::string name = "Box") : Box(parent, styles, "Chart") {
 
             // Self
             this->styles = { &Styles::Chart };
@@ -171,8 +172,8 @@ export namespace Rev::Element {
             // Setup
             //--------------------------------------------------
         
-            grid->color = { 1, 1, 1, 0.25f };
             grid->strokeWidth = 1.0f;
+            grid->smoothing = 0.0f;
             grid->lines.clear();
         
             float rangeX = view.r - view.l;
@@ -291,9 +292,10 @@ export namespace Rev::Element {
         
             for (float x = xStart; x <= xEnd + stepX * 0.5f; x += stepX) {
                 float baseAlpha = alphaForValue(x, true);
-                Core::Color color = { 1, 1, 1, baseAlpha };
+                Core::Color color = { 0, 0, 0, baseAlpha };
                 grid->lines.push_back({
-                    .points = { { x, view.t, color }, { x, view.b, color } }
+                    .points = { { x, view.t }, { x, view.b } },
+                    .color = color
                 });
             }
         
@@ -303,9 +305,10 @@ export namespace Rev::Element {
         
             for (float y = yStart; y <= yEnd + stepY * 0.5f; y += stepY) {
                 float baseAlpha = alphaForValue(y, false);
-                Core::Color color = { 1, 1, 1, baseAlpha};
+                Core::Color color = { 0, 0, 0, baseAlpha };
                 grid->lines.push_back({
-                    .points = { { view.l, y, color }, { view.r, y, color } }
+                    .points = { { view.l, y }, { view.r, y } },
+                    .color = color
                 });
             }
         
@@ -321,9 +324,6 @@ export namespace Rev::Element {
         
             grid->compute();
         }
-        
-
-
 
         void computeLines() {
 
@@ -342,6 +342,13 @@ export namespace Rev::Element {
 
             for (Vertex& point : screenPoints) { point = chartToScreen * point; }
             for (Vertex& point : screenBottom) { point = chartToScreen * point; }
+
+            line->lines = {{
+                .pPoints = &screenPoints,
+                .color = { 1, 0, 0, 1 },
+                .strokeWidth = 4.0f,
+                .smoothing = 1.0f
+            }};
 
             fill->compute();
             line->compute();

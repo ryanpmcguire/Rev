@@ -17,9 +17,9 @@ import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
 // Shader file resources
-import Resources.Shaders.OpenGL.Triangles.Triangles_vert;
-import Resources.Shaders.OpenGL.Triangles.Triangles_frag;
-import Resources.Shaders.Metal.Triangles.Triangles_metal;
+import Resources.Shaders.Triangles.Triangles_vert;
+import Resources.Shaders.Triangles.Triangles_frag;
+import Resources.Shaders.Triangles.Triangles_metal;
 
 export namespace Rev::Primitive {
 
@@ -92,7 +92,7 @@ export namespace Rev::Primitive {
                 pipeline = new Pipeline(canvas->context, {
 
                     .instanced = false,
-                    .attribs = { 2, 4 },
+                    .attribs = Vertex::attribs,
 
                     .openGlVert = Triangles_vert,
                     .openGlFrag = Triangles_frag,
@@ -100,7 +100,7 @@ export namespace Rev::Primitive {
                 });
             });
 
-            vertices = new VertexBuffer(canvas->context, { .attribs = { 2, 4 } });
+            vertices = new VertexBuffer(canvas->context, { .attribs = Vertex::attribs });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
             data = (Data*)databuff->data;
         }

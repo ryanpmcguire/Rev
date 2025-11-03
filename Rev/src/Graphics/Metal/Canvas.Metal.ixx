@@ -137,14 +137,21 @@ export namespace Rev::Graphics {
 
         }
 
-        // Set stencil depth
-        void stencilDepth(size_t depth) {
-            metal_stencil_depth(context, frameBuffer->buffer, depth);
+        void stencilReset(size_t value) {
+            stencilWrite(true);
+            stencilFill(value);
+            stencilDepth(value);
+            stencilWrite(false);
         }
 
         // Set to all zeroes
         void stencilFill(size_t value = 0) {
             metal_stencil_clear(context, frameBuffer->buffer, value);
+        }
+
+        // Set stencil depth
+        void stencilDepth(size_t depth) {
+            metal_stencil_depth(context, frameBuffer->buffer, depth);
         }
 
         // Pushing to stencil (increasing depth where test passes)

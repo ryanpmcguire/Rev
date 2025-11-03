@@ -32,7 +32,8 @@ export namespace Rev::Graphics {
         struct Params {
 
             bool instanced = true;
-            std::vector<float> attribs;
+            std::vector<size_t> attribs;
+            std::string definitions = "";
 
             Resource openGlVert;
             Resource openGlFrag;
@@ -46,8 +47,8 @@ export namespace Rev::Graphics {
         // Create
         Pipeline(void* context, Params params) {
             
-            vert = new Shader(params.openGlVert, Shader::Stage::Vertex);
-            frag = new Shader(params.openGlFrag, Shader::Stage::Fragment);
+            vert = new Shader(params.openGlVert, Shader::Stage::Vertex, params.definitions);
+            frag = new Shader(params.openGlFrag, Shader::Stage::Fragment, params.definitions);
 
             id = glCreateProgram();
             glAttachShader(id, vert->shader);
