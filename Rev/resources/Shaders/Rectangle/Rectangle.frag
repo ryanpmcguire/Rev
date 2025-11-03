@@ -64,7 +64,7 @@ void main() {
     vec2 edgeDist = abs(localPos) - (halfSize - vec2(cornerRadius));
 
     // Instead of a hard step, fade in as we approach the corner region
-    float fade = 20.0; // pixels before corner where we start smoothing
+    float fade = cornerRadius; // pixels before corner where we start smoothing
     float cornerFactor =
         smoothstep(-fade, 0.0, edgeDist.x) *
         smoothstep(-fade, 0.0, edgeDist.y);

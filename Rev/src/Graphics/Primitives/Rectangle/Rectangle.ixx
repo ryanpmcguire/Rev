@@ -23,11 +23,6 @@ import Resources.Shaders.Rectangle.Rectangle_metal;
 import Resources.Shaders.Rectangle.Rectangle_vert;
 import Resources.Shaders.Rectangle.Rectangle_frag;
 
-// Shader resources (stencil)
-import Resources.Shaders.Rectangle.Stencil.RectangleStencil_vert;
-import Resources.Shaders.Rectangle.Stencil.RectangleStencil_metal;
-import Resources.Shaders.Rectangle.Stencil.RectangleStencil_frag;
-
 export namespace Rev::Primitive {
 
     struct Rectangle : public Primitive {

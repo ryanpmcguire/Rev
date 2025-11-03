@@ -2,8 +2,9 @@ module;
 
 #include <string>
 #include <stdexcept>
-#include <glew/glew.h>
+
 #include <dbg.hpp>
+#include "./Helpers/MetalBackend.hpp"
 
 export module Rev.Graphics.Shader;
 
@@ -16,51 +17,39 @@ export namespace Rev::Graphics {
     struct Shader {
 
         enum Stage {
-            Vertex = GL_VERTEX_SHADER,
-            Fragment = GL_FRAGMENT_SHADER
+            Vertex,
+            Fragment,
+            Universal
         };
 
-        GLuint shader = 0;
+        //GLuint shader = 0;
 
-        Shader(Resource shaderFile, Stage shaderType, const std::string& defines = "") {
+        void* shader = nullptr;
 
+        // Create
+        Shader(void* context, Resource shaderFile, Stage shaderType, std::string definitions = "") {
+
+            // Copy source into a modifiable string
             const char* srcStr = reinterpret_cast<const char*>(shaderFile.data);
             std::string src(srcStr, shaderFile.size);
 
-            // Look for placeholder
-            const std::string marker = "DEFINITIONS";
-            size_t pos = src.find(marker);
+            // Replace "DEFINITIONS" with definitions
+            size_t pos = src.find("DEFINITIONS");
+            if (pos != std::string::npos) { src.replace(pos, 11, definitions); }
 
-            if (pos != std::string::npos) {
-                // Replace marker with defines (add newline if needed)
-                std::string injected = defines;
-                if (!injected.empty() && injected.back() != '\n') { injected += '\n'; }
-                src.replace(pos, marker.length(), injected);
-            }
+            dbg(src.c_str());
 
-            // Prepare for GL
-            const char* finalSrc = src.c_str();
-            GLint finalLen = static_cast<GLint>(src.size());
-
-            // Create and compile shader
-            shader = glCreateShader(shaderType);
-            glShaderSource(shader, 1, &finalSrc, &finalLen);
-            glCompileShader(shader);
-
-            // Error check
-            GLint success;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-
-            if (!success) {
-                char infoLog[512];
-                glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-                dbg("Shader compilation failed:\n%s", infoLog);
-                throw std::runtime_error(std::string("Shader compilation failed: ") + infoLog);
-            }
+            shader = metal_create_shader((MetalContext*)context, src.c_str(), src.size());
+            if (!shader) { throw std::runtime_error("Failed to create shader!"); }
         }
 
+        // Destroy
         ~Shader() {
-            glDeleteShader(shader);
+
+            if (shader) {
+                metal_destroy_shader(shader);
+                shader = nullptr;
+            }
         }
     };
 };
