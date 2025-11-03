@@ -144,6 +144,13 @@ target_include_directories(Rev PUBLIC
 
 target_compile_definitions(Rev PUBLIC GLEW_STATIC)
 
+# Configure debug macro visibility based on build type
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(Rev PUBLIC DEBUG)
+else()
+    target_compile_definitions(Rev PUBLIC NDEBUG)
+endif()
+
 # Link
 #--------------------------------------------------
 
