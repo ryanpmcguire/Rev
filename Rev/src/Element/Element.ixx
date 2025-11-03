@@ -370,7 +370,7 @@ export namespace Rev::Element {
             float maxInnerWidth = res.getMaxInner(Axis::Horizontal);
             float maxInnerHeight = res.getMaxInner(Axis::Vertical);
 
-            if (!measure) {
+            //if (!measure) {
 
                 float runningWidth = 0;
                 float runningHeight = 0;
@@ -382,7 +382,7 @@ export namespace Rev::Element {
                     float minOuterHeight = child->res.getMinOuter(Axis::Vertical);
 
                     // PAY ATTENTION TO THIS LINE
-                    if (res.size.w.growable) { minOuterWidth = child->res.getMaxOuter(Axis::Horizontal); }
+                    if (res.size.w.growable || computed.style.size.width.type == Dist::Type::Rel) { minOuterWidth = child->res.getMaxOuter(Axis::Horizontal); }
 
                     // Should we create a new row, or are we add more?
                     // (In other words, have we exceeded the maximum inner width)
@@ -405,12 +405,12 @@ export namespace Rev::Element {
 
                 // Add last row that didn't overflow
                 layout.rows.push_back(row);
-            }
+            //}
 
             // If the element will be responsible for its own layout
-            else {
+            /*else {
                 this->measureDims(maxInnerWidth, maxInnerHeight);
-            }
+            }*/
 
             // Mark children as members of layout/row
             //--------------------------------------------------

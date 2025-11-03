@@ -9,8 +9,9 @@ import Rev.Element;
 import Rev.Element.Style;
 
 import Rev.Element.Box;
-import Rev.Element.TextBox;
+import Rev.Element.Text;
 import Rev.Element.Slider;
+import Rev.Element.Dropdown;
 import Rev.Element.Chart;
 
 import Resources.Fonts.Arial.Arial_ttf;
@@ -42,7 +43,7 @@ export namespace HelloWorld {
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
 
-                TextBox* text = new TextBox(greyBox, "Hello World");
+            Text* text = new Text(greyBox, "Hello World");
                 text->style->text.size = 32_px;
                 text->style->text.color = rgba(0, 0, 0, 1);
                 text->style->background.color = rgba(1, 0, 0, 0.2);
@@ -58,7 +59,7 @@ export namespace HelloWorld {
                     .border = { .width = 4_px }
                 };
 
-                size_t num = 1000;
+                size_t num = 100;
                 for (size_t i = 0; i < num; i++) {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
@@ -66,13 +67,7 @@ export namespace HelloWorld {
 
                 Slider* slider = new Slider(greyBox);
 
-                slider->sliderContainer->style = {
-                    .shadow = { .transition = 200 }
-                };
-
-                slider->sliderContainer->hoverStyle = {
-                    .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-5), .blur = 10_px, .x = 2_px, .y = 2_px }
-                };
+                Dropdown* dropdown = new Dropdown(greyBox);
         }
 
         // Destroy

@@ -89,13 +89,12 @@ void main() {
     // --- Normal rendering path ---
 
     vec4 fillColor = vec4(r, g, b, a);
-
-    // Directional border blending
-    float sideX = smoothstep(-halfSize.x, halfSize.x, localPos.x);
-    float sideY = smoothstep(-halfSize.y, halfSize.y, localPos.y);
-    vec4 horizColor = mix(l_color, r_color, sideX);
-    vec4 vertColor  = mix(t_color, b_color, sideY);
-    vec4 borderColor = mix(horizColor, vertColor, 0.5);
+    
+    vec4 borderColor =
+      l_color * isLeft +
+      r_color * isRight +
+      t_color * isTop +
+      b_color * isBottom;
 
     // Fill + border
     vec4 shapeColor = mix(fillColor, borderColor, vec4(borderMask));

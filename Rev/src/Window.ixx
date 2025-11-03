@@ -24,7 +24,7 @@ export namespace Rev {
 
     using namespace Rev::Element;
 
-    struct Window : public Element {
+    struct Window : public Rev::Element::Element {
 
         struct Details {
 

@@ -74,6 +74,11 @@ export namespace Rev::Element {
             wl = wr = styleRef.border.width.resolve(rect.w);
             wt = wb = styleRef.border.width.resolve(rect.h);
             
+            if (styleRef.border.left.width) { wl = styleRef.border.left.width.resolve(rect.w); }
+            if (styleRef.border.right.width) { wr = styleRef.border.right.width.resolve(rect.w); }
+            if (styleRef.border.top.width) { wt = styleRef.border.top.width.resolve(rect.h); }
+            if (styleRef.border.bottom.width) { wb = styleRef.border.bottom.width.resolve(rect.h); }
+
             data.borderWidth = { wl, wr, wt, wb };
 
             // Compute border colors
@@ -82,6 +87,11 @@ export namespace Rev::Element {
             Core::Color cl, cr, ct, cb;
             cl = cr = styleRef.border.color;
             ct = cb = styleRef.border.color;
+
+            if (styleRef.border.left.color) { cl = styleRef.border.left.color; }
+            if (styleRef.border.right.color) { cr = styleRef.border.right.color; }
+            if (styleRef.border.top.color) { ct = styleRef.border.top.color; }
+            if (styleRef.border.bottom.color) { cb = styleRef.border.bottom.color; }
 
             data.borderColor = { cl, cr, ct, cb };
 

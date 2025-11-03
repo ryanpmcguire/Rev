@@ -13,7 +13,7 @@ import Rev.Element.Event;
 import Rev.Element.Style;
 
 import Rev.Element.Box;
-import Rev.Element.TextBox;
+import Rev.Element.Text;
 
 export namespace Rev::Element {
 
@@ -73,8 +73,8 @@ export namespace Rev::Element {
 
         // Text
         Element* textContainer = nullptr;
-            TextBox* labelText = nullptr;
-            TextBox* valueText = nullptr;
+            Text* labelText = nullptr;
+            Text* valueText = nullptr;
 
         // Slider per-se
         Box* sliderContainer = nullptr;
@@ -107,8 +107,8 @@ export namespace Rev::Element {
                 textContainer = new Element(this, { &Styles::TextContainer });
                 
                     // Label and value text
-                    labelText = new TextBox(textContainer, "Value: ", { &Styles::LabelText });
-                    valueText = new TextBox(textContainer, "", { &Styles::ValueText });
+                    labelText = new Text(textContainer, "Value: ", { &Styles::LabelText });
+                    valueText = new Text(textContainer, "", { &Styles::ValueText });
                     valueText->setContent(data.val);
                     
                 // SliderContainer

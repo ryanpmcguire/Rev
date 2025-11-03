@@ -18,6 +18,8 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.Texture;
 
 import Resources.Fonts.Arial.Arial_ttf;
+import Resources.Fonts.MomoSignature.MomoSignature_ttf;
+
 
 export namespace Rev::Core {
 
@@ -29,7 +31,7 @@ export namespace Rev::Core {
         //--------------------------------------------------
 
         // The font resource
-        Resource resource = Arial_ttf;
+        Resource resource = MomoSignature_ttf;
 
         // FreeType handles
         inline static FT_Library ft = nullptr;
@@ -95,7 +97,7 @@ export namespace Rev::Core {
 
         UniformBuffer* glyphData = nullptr;
 
-        Font(Canvas* canvas, Resource resource = Arial_ttf, float size = 12.0f, float scale = 1.0f) : resource(resource) {
+        Font(Canvas* canvas, Resource resource = MomoSignature_ttf, float size = 12.0f, float scale = 1.0f) : resource(resource) {
 
             this->size = size;
             this->scale = scale;

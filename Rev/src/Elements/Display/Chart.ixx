@@ -21,7 +21,7 @@ import Rev.Element.Event;
 import Rev.Element.Style;
 
 import Rev.Element.Box;
-import Rev.Element.TextBox;
+import Rev.Element.Text;
 
 import Rev.Primitive.Lines;
 import Rev.Primitive.Triangles;

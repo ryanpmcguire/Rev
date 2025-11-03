@@ -10,8 +10,6 @@ import Rev.Window;
 
 export namespace Rev {
 
-    using namespace Rev::Element;
-
     struct Application {
 
         std::vector<Window*> windows;

@@ -356,7 +356,6 @@ export namespace Rev::Element {
     struct Background {
 
         Color color;
-
         int transition = -1;
 
         inline void apply(Background& background) {
@@ -379,26 +378,42 @@ export namespace Rev::Element {
 
         struct Corner {
 
-            Color color;
             Dist radius;
-            Dist width;
 
             int transition = -1;
 
             // Apply new style
             inline void apply(Corner& corner) {
-                if (corner.color) { color = corner.color; }
                 if (corner.radius) { radius = corner.radius; }
-                if (corner.width) { width = corner.width; }
-                if (corner.transition > 0) { transition = corner.transition; }
             }
 
             inline void animate(Corner& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
 
                 int transitionLength = transition > 0 ? transition : ms;
 
-                color.animate(old.color, transitions, time, transitionLength);
                 radius.animate(old.radius, transitions, time, transitionLength);
+            }
+        };
+
+        struct Side {
+
+            Color color;
+            Dist width;
+
+            int transition = -1;
+
+            // Apply new style
+            inline void apply(Side& corner) {
+                if (corner.color) { color = corner.color; }
+                if (corner.width) { width = corner.width; }
+                if (corner.transition > 0) { transition = corner.transition; }
+            }
+
+            inline void animate(Side& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+
+                int transitionLength = transition > 0 ? transition : ms;
+
+                color.animate(old.color, transitions, time, transitionLength);
                 width.animate(old.width, transitions, time, transitionLength);
             }
         };
@@ -410,6 +425,7 @@ export namespace Rev::Element {
 
         // Corners
         Corner tl, tr, bl, br;
+        Side left, right, top, bottom;
 
         int transition = -1;
 
@@ -425,6 +441,10 @@ export namespace Rev::Element {
             // Apply to corners
             tl.apply(border.tl); tr.apply(border.tr);
             bl.apply(border.bl); br.apply(border.br);
+
+            // Apply to sides
+            left.apply(border.left); right.apply(border.right);
+            top.apply(border.top); bottom.apply(border.bottom);
         }
 
         inline void animate(Border& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
@@ -439,6 +459,11 @@ export namespace Rev::Element {
             tr.animate(old.tr, transitions, time, transitionLength);
             bl.animate(old.bl, transitions, time, transitionLength);
             br.animate(old.br, transitions, time, transitionLength);
+
+            left.animate(old.left, transitions, time, transitionLength);
+            right.animate(old.right, transitions, time, transitionLength);
+            top.animate(old.top, transitions, time, transitionLength);
+            bottom.animate(old.bottom, transitions, time, transitionLength);
         }
     };
 
@@ -486,9 +511,9 @@ export namespace Rev::Element {
     struct TextStyle {
 
         Core::Resource font;
+        Color color;
         Dist size;
         int weight = -1;
-        Color color;
         Dist lineHeight;
         Dist spacing;
 
@@ -539,6 +564,7 @@ export namespace Rev::Element {
     //--------------------------------------------------
 
     struct Style {
+
         Overflow overflow;
         LrtbStyle position; bool absolute = false;
         Alignment alignment;

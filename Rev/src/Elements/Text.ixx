@@ -3,7 +3,7 @@ module;
 #include <cstdio>
 #include <string>
 
-export module Rev.Element.TextBox;
+export module Rev.Element.Text;
 
 import Rev.Element.Style;
 import Rev.Element.Event;
@@ -13,21 +13,21 @@ import Rev.Primitive.Text;
 
 export namespace Rev::Element {
 
-    struct TextBox : public Box {
+    struct Text : public Box {
 
-        Text* text = nullptr;
+        Primitive::Text* text = nullptr;
 
         // Create
-        TextBox(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "TextBox") {
+        Text(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "Text") {
 
             measure = true;
 
-            text = new Text(shared->canvas);
+            text = new Primitive::Text(shared->canvas);
             text->content = content;
         }
 
         // Destroy
-        ~TextBox() {
+        ~Text() {
 
             delete text;
         }
@@ -73,14 +73,16 @@ export namespace Rev::Element {
             text->fontSize = computed.style.text.size.val;
             if (!text->fontSize) { text->fontSize = 12.0f; }
 
-            Text::MinMax minMax = text->measure();
+            Primitive::Text::MinMax minMax = text->measure();
             text->layout(99999999.0f);
 
-            style->size = {
-                .width = Px(text->dims.width), .height = Px(text->dims.height)
-            };
+            if (!computed.style.size.width) {
+                computed.style.size.width = Px(text->dims.width);
+            }
 
-            Box::computeStyle(e);
+            if (!computed.style.size.height) {
+                computed.style.size.height = Px(text->dims.height);
+            }
         }
 
         void computePrimitives(Event& e) override {

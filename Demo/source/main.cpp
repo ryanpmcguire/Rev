@@ -1,7 +1,7 @@
 #include <stdexcept>
 
 import Rev.Application;
-import Rev.Element.Window;
+import Rev.Window;
 
 import Interface;
 
