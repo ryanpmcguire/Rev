@@ -21,41 +21,65 @@ float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
 }
 
 void main() {
+
     vec2 rectCenter = vec2(x + w * 0.5, y + h * 0.5);
     vec2 localPos = fragLocalPos - rectCenter;
     vec2 halfSize = vec2(w, h) * 0.5;
 
-    // Branchless corner selector
-    float isLeft   = 1.0 - step(0.0, localPos.x);
-    float isTop    = 1.0 - step(0.0, localPos.y);
-    float isRight  = 1.0 - isLeft;
-    float isBottom = 1.0 - isTop;
+    // --- Exclusive region selection using minimum distance ---
 
-    // Corner weights
-    float w_tl = isLeft  * isTop;
-    float w_tr = isRight * isTop;
-    float w_bl = isLeft  * isBottom;
-    float w_br = isRight * isBottom;
+    // Distances to edges (in pixel space)
+    float dL = abs(fragLocalPos.x - x);
+    float dR = abs((x + w) - fragLocalPos.x);
+    float dT = abs(fragLocalPos.y - y);
+    float dB = abs((y + h) - fragLocalPos.y);
+
+    // Distances to corners
+    vec2 p_tl = vec2(x, y);
+    vec2 p_tr = vec2(x + w, y);
+    vec2 p_bl = vec2(x, y + h);
+    vec2 p_br = vec2(x + w, y + h);
+
+    float dc_tl = length(fragLocalPos - p_tl);
+    float dc_tr = length(fragLocalPos - p_tr);
+    float dc_bl = length(fragLocalPos - p_bl);
+    float dc_br = length(fragLocalPos - p_br);
+
+    float minCornerD = min(min(dc_tl, dc_tr), min(dc_bl, dc_br));
+    float minSideD   = min(min(dL, dR), min(dT, dB));
+
+    // --- One-hot region selection ---
+    // Corners
+    float is_tl = float(dc_tl == minCornerD);
+    float is_tr = float(dc_tr == minCornerD);
+    float is_bl = float(dc_bl == minCornerD);
+    float is_br = float(dc_br == minCornerD);
+
+    // Sides
+    float is_left   = float(dL == minSideD);
+    float is_right  = float(dR == minSideD);
+    float is_top    = float(dT == minSideD);
+    float is_bottom = float(dB == minSideD);
 
     float cornerRadius =
-          w_tl * tl +
-          w_tr * tr +
-          w_bl * bl +
-          w_br * br;
+          is_tl * tl +
+          is_tr * tr +
+          is_bl * bl +
+          is_br * br;
 
     cornerRadius = clamp(cornerRadius, 0.0, min(halfSize.x, halfSize.y));
 
     // Determine local border width based on which side we are on
     float localBorderW = 
-          isLeft   * b_l +
-          isRight  * b_r +
-          isTop    * b_t +
-          isBottom * b_b;
+          is_left   * b_l +
+          is_right  * b_r +
+          is_top    * b_t +
+          is_bottom * b_b;
 
     // Compute distances
     float distOuter = roundedBoxSDF(localPos, halfSize, cornerRadius);
-    vec2 innerHalfSize = max(halfSize - vec2(localBorderW * 0.5), vec2(0.0));
-    float distInner = roundedBoxSDF(localPos, innerHalfSize, max(cornerRadius - localBorderW * 0.5, 0.0));
+    vec2 innerHalfSize = max(halfSize - vec2(localBorderW), vec2(0.0));
+    float distInner = roundedBoxSDF(localPos, innerHalfSize, max(cornerRadius - localBorderW, 0.0));
 
     // Smoothing (only for corners)
     float smoothingBase = 0.5 * fwidth(distOuter);
@@ -91,10 +115,10 @@ void main() {
     vec4 fillColor = vec4(r, g, b, a);
     
     vec4 borderColor =
-      l_color * isLeft +
-      r_color * isRight +
-      t_color * isTop +
-      b_color * isBottom;
+      l_color * is_left +
+      r_color * is_right +
+      t_color * is_top +
+      b_color * is_bottom;
 
     // Fill + border
     vec4 shapeColor = mix(fillColor, borderColor, vec4(borderMask));
