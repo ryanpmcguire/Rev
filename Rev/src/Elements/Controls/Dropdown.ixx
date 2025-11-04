@@ -32,17 +32,21 @@ export namespace Rev::Element {
             Style OptionsContainer {
                 .alignment = { Axis::Vertical },
                 .size = { .width = 100_pct },
-                .background = rgba(0, 0, 0, 0.05)
+                .background = { .color = rgba(0, 0, 0, 0.05) }
             };
 
                 Style Option {
                     .size = { .width = 100_pct },
-                    .margin = { .bottom = 4_px },
-                    .padding = { .bottom = 4_px },
-                    //.background = { .color = rgba(1, 0, 0, 0.2) },
+                    .padding = { .top = 4_px, .bottom = 4_px },
                     .border = { .bottom = { .color = rgba(0, 0, 0, 0.2), .width = 1_px } },
-                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
+                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },
+                    .cursor = Cursor::Hand,
                 };
+
+                    Style OptionHover = {
+                        .applies = { .hover = true },
+                        .background = { .color = rgba(0, 0, 0, 0.2) }
+                    };
     };
 
     struct Dropdown : public Box {
@@ -80,7 +84,7 @@ export namespace Rev::Element {
             optionsContainer->name = "OptionsContainer";
 
                 for (Params::Option& option : params.options) {
-                    options.push_back(new Text(optionsContainer, option.name, { &Styles::Option }));
+                    options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
                 }
         }
 

@@ -937,8 +937,8 @@ export namespace Rev::Element {
         virtual void mouseMove(Event& e) {
 
             // If there is a cursor we need to set
-            if (this->style->cursor != Cursor::Unset) {
-                e.mouse.cursor = this->style->cursor;
+            if (computed.style.cursor != Cursor::Unset) {
+                e.mouse.cursor = computed.style.cursor;
             }
 
             // Stop if listener does not pass "continue" flag

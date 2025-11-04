@@ -1,5 +1,12 @@
 module;
 
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+
 // Cpp
 #include <stdexcept>
 #include <functional>
@@ -17,6 +24,8 @@ module;
 #include "../WinEvent.hpp"
 
 export module Rev.NativeWindow;
+
+import Rev.Element.Style;
 
 export namespace Rev {
 
@@ -189,6 +198,9 @@ export namespace Rev {
         
         Size size;
         float scale = 1.0f;
+
+        Element::Cursor cursor;
+
         bool dirty = false;
 
         NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
@@ -304,6 +316,76 @@ export namespace Rev {
             
             SetWindowPos(handle, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
         }
+
+        void setCursor(Element::Cursor newCursor) {
+
+            // Return if no handle or no cursor change
+            if (!handle || cursor == newCursor)
+                return;
+        
+            cursor = newCursor; // cache
+        
+            LPCWSTR cursorId = IDC_ARROW; // default fallback
+        
+            // Directly match enum to Win32 cursor
+            switch (newCursor) {
+        
+                case Element::Cursor::Unset:
+                case Element::Cursor::Arrow:
+                    cursorId = IDC_ARROW;
+                    break;
+        
+                case Element::Cursor::Caret:
+                    cursorId = IDC_IBEAM;
+                    break;
+        
+                case Element::Cursor::Crosshair:
+                    cursorId = IDC_CROSS;
+                    break;
+        
+                case Element::Cursor::Hand:
+                    cursorId = IDC_HAND;
+                    break;
+        
+                case Element::Cursor::NotAllowed:
+                    cursorId = IDC_NO;
+                    break;
+        
+                case Element::Cursor::ArrowsHorizontal:
+                    cursorId = IDC_SIZEWE;
+                    break;
+        
+                case Element::Cursor::ArrowsVertical:
+                    cursorId = IDC_SIZENS;
+                    break;
+        
+                case Element::Cursor::ArrowsDiagonalUp:
+                    cursorId = IDC_SIZENESW;
+                    break;
+        
+                case Element::Cursor::ArrowsDiagonalDown:
+                    cursorId = IDC_SIZENWSE;
+                    break;
+        
+                case Element::Cursor::ArrowsOmni:
+                    cursorId = IDC_SIZEALL;
+                    break;
+        
+                default:
+                    cursorId = IDC_ARROW;
+                    break;
+            }
+        
+            // Load and set the Win32 cursor
+            HCURSOR hCur = LoadCursorW(nullptr, cursorId);
+        
+            // Update class cursor (for when mouse re-enters)
+            SetClassLongPtrW(handle, GCLP_HCURSOR, reinterpret_cast<LONG_PTR>(hCur));
+        
+            // Immediately update the visible cursor
+            SetCursor(hCur);
+        }
+        
 
         void requestFrame() {
             

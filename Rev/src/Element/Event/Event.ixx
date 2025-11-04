@@ -106,6 +106,8 @@ export namespace Rev::Element {
             time = GlobalTime::CurrentMs();
             propagate = true;
             causedRefresh = false;
+
+            mouse.cursor = Cursor::Unset;
         }
     };
 };

@@ -538,7 +538,7 @@ export namespace Rev::Element {
     // Cursor
     //--------------------------------------------------
 
-    enum class Cursor {
+    enum class Cursor : int {
         Unset,
         Arrow,
         Caret,
@@ -593,31 +593,33 @@ export namespace Rev::Element {
         // Apply single style
         void apply(Style& style, Applies flags = {}) {
 
-            // Style will not apply unless it meets the criteria (if there are any!)
-            size_t matching =   (style.applies.hover && flags.hover) +
-                                (style.applies.press && flags.press) +
-                                (style.applies.drag && flags.drag) +
-                                (style.applies.focus && flags.focus);
+            // If there are application rules for the style (needs hover, drag, etc)
+            if (style.applies.hover || style.applies.press || style.applies.drag || style.applies.focus) {
 
-            // Reject style *IF* there are criteria and none are matching
-            if (!matching && (style.applies.hover || style.applies.press || style.applies.drag || style.applies.focus)) {
-                return;
+                // If there are no matching flags, return
+                if (!(
+                    (style.applies.hover && flags.hover) ||
+                    (style.applies.press && flags.press) ||
+                    (style.applies.drag && flags.drag) ||
+                    (style.applies.focus && flags.focus)
+                )) { return; }
             }
 
-            if (style.transition) { transition = style.transition; }
-
-            if (style.overflow != Overflow::Show) { overflow = style.overflow; }
-            if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
-
+            alignment.apply(style.alignment);
             size.apply(style.size);
             margin.apply(style.margin);
             padding.apply(style.padding);
-            alignment.apply(style.alignment);
-            text.apply(style.text);
             
             background.apply(style.background);
             border.apply(style.border);
             shadow.apply(style.shadow);
+
+            text.apply(style.text);
+
+            // Apply transition, overflow, cursor
+            if (style.transition) { transition = style.transition; }
+            if (style.overflow != Overflow::Show) { overflow = style.overflow; }
+            if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
         }
 
         // Apply vector of styles

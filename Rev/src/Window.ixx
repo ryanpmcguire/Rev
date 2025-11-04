@@ -316,6 +316,7 @@ export namespace Rev {
         }
 
         void maximize() {
+            
         }
 
         void setSize(int width, int height) {
@@ -495,6 +496,8 @@ export namespace Rev {
 
             // Dispatch mouse move
             this->mouseMove(event);
+
+            window->setCursor(event.mouse.cursor);
 
             if (targetFlags.drag) {
                 this->mouseDrag(event);
