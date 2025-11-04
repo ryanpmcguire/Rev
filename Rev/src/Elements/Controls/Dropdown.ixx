@@ -40,7 +40,7 @@ export namespace Rev::Element {
                     .margin = { .bottom = 4_px },
                     .padding = { .bottom = 4_px },
                     //.background = { .color = rgba(1, 0, 0, 0.2) },
-                    .border = { .bottom = { .color = rgba(255, 0, 0, 1.0), .width = 2_px } },
+                    .border = { .bottom = { .color = rgba(0, 0, 0, 0.2), .width = 1_px } },
                     .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
                 };
     };

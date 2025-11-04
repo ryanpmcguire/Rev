@@ -12,6 +12,11 @@ export namespace Rev::Element {
 
         bool dirty = true;
 
+        bool hasHoverStyle = false;
+        bool hasPressStyle = false;
+        bool hasDragStyle = false;
+        bool hasFocusStyle = false;
+
         Style style;
     };
 };

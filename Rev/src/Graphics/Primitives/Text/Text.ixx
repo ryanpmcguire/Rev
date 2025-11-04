@@ -19,7 +19,6 @@ import Rev.Graphics.Shader;
 
 // Resources
 import Resources.Fonts.Arial.Arial_ttf;
-import Resources.Fonts.MomoSignature.MomoSignature_ttf;
 import Resources.Shaders.Text.Text_vert;
 import Resources.Shaders.Text.Text_frag;
 import Resources.Shaders.Text.Text_metal;
@@ -149,7 +148,7 @@ export namespace Rev::Primitive {
             // Ensure font size matches
             if (font->size != fontSize || font->scale != canvas->details.scale) {
                 delete font;
-                font = new Font(canvas, MomoSignature_ttf, fontSize, canvas->details.scale);
+                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
             }
 
             float xl = 0, yl = 0;
@@ -231,7 +230,7 @@ export namespace Rev::Primitive {
             // Ensure font size matches
             if (font->size != fontSize || font->scale != canvas->details.scale) {
                 delete font;
-                font = new Font(canvas, MomoSignature_ttf, fontSize, canvas->details.scale);
+                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
             }
 
             // Layout text
@@ -294,7 +293,7 @@ export namespace Rev::Primitive {
             // Ensure font size matches
             if (font->size != fontSize || font->scale != canvas->details.scale) {
                 delete font;
-                font = new Font(canvas, MomoSignature_ttf, fontSize, canvas->details.scale);
+                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
             }
 
             // Prepare vertices

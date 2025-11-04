@@ -55,10 +55,6 @@ export namespace HelloWorld {
                     .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
                 };
 
-                chart->hoverStyle = {
-                    .border = { .width = 4_px }
-                };
-
                 size_t num = 100;
                 for (size_t i = 0; i < num; i++) {
                     float t = float(i) / float(num);

@@ -42,7 +42,7 @@ export namespace Rev::Element {
         std::string name = "Element";
 
         // Style
-        StylePtr style, hoverStyle, dragStyle;
+        StylePtr style;
         std::vector<Style*> styles;
         
         // Computing
@@ -102,6 +102,19 @@ export namespace Rev::Element {
         // Comptue style
         virtual void computeStyle(Event& e) {
 
+            computed.hasHoverStyle = false;
+            computed.hasPressStyle = false;
+            computed.hasDragStyle = false;
+            computed.hasFocusStyle = false;
+
+            // Calculate whether we have certain styles
+            for (Style* style : styles) {
+                if (style->applies.hover) { computed.hasHoverStyle = true; }
+                if (style->applies.press) { computed.hasPressStyle = true; }
+                if (style->applies.drag) { computed.hasDragStyle = true; }
+                if (style->applies.focus) { computed.hasFocusStyle = true; }
+            }
+
             // Compile / apply styles
             //--------------------------------------------------
 
@@ -109,12 +122,16 @@ export namespace Rev::Element {
 
             computed.style = Style();
 
-            // Apply other styles, then own style
-            computed.style.apply(styles);
-            computed.style.apply(style);
+            Applies flags = {
+                .hover = targetFlags.hover,
+                .press = targetFlags.press,
+                .drag = targetFlags.drag,
+                .focus = targetFlags.focus,
+            };
 
-            if (targetFlags.hover && hoverStyle.pStyle) { computed.style.apply(hoverStyle); }
-            if (targetFlags.drag && dragStyle.pStyle) { computed.style.apply(dragStyle); }
+            // Apply other styles, then own style
+            computed.style.apply(styles, flags);
+            computed.style.apply(style, flags);
 
             // If this is our first draw, we do not animate
             if (draws == 0) {
@@ -845,6 +862,7 @@ export namespace Rev::Element {
             bool hit = false;
             bool click = false;
             bool hover = false;
+            bool press = false;
             bool focus = false;
             bool drag = false;
         };
@@ -871,7 +889,7 @@ export namespace Rev::Element {
             // Mouse down event means we are a drag target
             if (!targetFlags.drag) {
                 targetFlags.drag = true;
-                if (dragStyle.pStyle) { refresh(e); }
+                if (computed.hasDragStyle) { refresh(e); }
             }
 
             // Tell event listeners
@@ -894,7 +912,7 @@ export namespace Rev::Element {
             // Mouseup means dragging must end
             if (targetFlags.drag) {
                 targetFlags.drag = false;
-                if (dragStyle.pStyle) { refresh(e); }
+                if (computed.hasDragStyle) { refresh(e); }
             }
 
             // Stop if listener does not pass "continue" flag
@@ -948,7 +966,7 @@ export namespace Rev::Element {
 
             if (!targetFlags.hover) {
                 targetFlags.hover = true;
-                if (hoverStyle.pStyle) { refresh(e); }
+                if (computed.hasHoverStyle) { refresh(e); }
             }
 
             // Tell event listeners
@@ -973,7 +991,7 @@ export namespace Rev::Element {
 
             if (targetFlags.hover) {
                 targetFlags.hover = false;
-                if (hoverStyle.pStyle) { refresh(e); }
+                if (computed.hasHoverStyle) { refresh(e); }
             }
 
             tell(&Element::mouseLeave, e);

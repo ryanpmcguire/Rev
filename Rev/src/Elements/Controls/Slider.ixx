@@ -45,6 +45,7 @@ export namespace Rev::Element {
             };
 
                 Style SliderHover = {
+                    .applies = { .hover = true },
                     .background = { .color = rgba(0, 0, 0, 0.15) }
                 };
 
@@ -65,6 +66,7 @@ export namespace Rev::Element {
                     };
 
                     Style ThumbHover = {
+                        .applies = { .hover = true, .drag = true },
                         .size = { .width = 8_px, .height = 16_px }
                     };
     };
@@ -112,8 +114,7 @@ export namespace Rev::Element {
                     valueText->setContent(data.val);
                     
                 // SliderContainer
-                sliderContainer = new Box(this, { &Styles::Slider }, "SliderContainer");
-                sliderContainer->hoverStyle = { &Styles::SliderHover };
+                sliderContainer = new Box(this, { &Styles::Slider, &Styles::SliderHover }, "SliderContainer");
 
                     // Set new value on click
                     sliderContainer->onMouseDown([this] (Event& e) {
@@ -129,13 +130,8 @@ export namespace Rev::Element {
 
                     // Track
                     track = new Box(sliderContainer, { &Styles::Track }, "Track");
-
-                        // Thumb container
                         thumbContainer = new Element(track, { &Styles::ThumbContainer}, "Container");
-
-                            thumb = new Box(thumbContainer, { &Styles::Thumb }, "Thumb");
-                            thumb->hoverStyle = Styles::ThumbHover;
-                            thumb->dragStyle = Styles::ThumbHover;
+                            thumb = new Box(thumbContainer, { &Styles::Thumb, &Styles::ThumbHover }, "Thumb");
         }
 
         bool setVal(float newVal) {

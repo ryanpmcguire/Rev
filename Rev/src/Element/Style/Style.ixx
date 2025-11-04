@@ -560,11 +560,22 @@ export namespace Rev::Element {
         Scroll, ScrollH, ScrollV
     };
 
+    // Applies
+    //--------------------------------------------------
+
+    struct Applies {
+        bool hover = false;
+        bool press = false;
+        bool drag = false;
+        bool focus = false;
+    };
+
     // Style per-se
     //--------------------------------------------------
 
     struct Style {
 
+        Applies applies;
         Overflow overflow;
         LrtbStyle position; bool absolute = false;
         Alignment alignment;
@@ -580,7 +591,18 @@ export namespace Rev::Element {
         int transition = -1; // Transition time
 
         // Apply single style
-        void apply(Style& style) {
+        void apply(Style& style, Applies flags = {}) {
+
+            // Style will not apply unless it meets the criteria (if there are any!)
+            size_t matching =   (style.applies.hover && flags.hover) +
+                                (style.applies.press && flags.press) +
+                                (style.applies.drag && flags.drag) +
+                                (style.applies.focus && flags.focus);
+
+            // Reject style *IF* there are criteria and none are matching
+            if (!matching && (style.applies.hover || style.applies.press || style.applies.drag || style.applies.focus)) {
+                return;
+            }
 
             if (style.transition) { transition = style.transition; }
 
@@ -599,10 +621,10 @@ export namespace Rev::Element {
         }
 
         // Apply vector of styles
-        void apply(std::vector<Style*>& styles) {
+        void apply(std::vector<Style*>& styles , Applies flags = {}) {
 
             for (Style* style : styles) {
-                apply(*style);
+                apply(*style, flags);
             }
         }
 
@@ -742,15 +764,15 @@ export namespace Rev::Element {
         }
 
         // Applying from a style
-        void apply(Style& other) {
+        void apply(Style& other, Applies flags = {}) {
             if (!pStyle) { pStyle = new Style(); }
-            pStyle->apply(other);
+            pStyle->apply(other, flags);
         }
 
         // Applying from a style pointer
-        void apply(StylePtr& other) {
+        void apply(StylePtr& other, Applies flags = {}) {
             if (!pStyle) { pStyle = new Style(); }
-            if (other.pStyle) { pStyle->apply(*(other.pStyle)); }
+            if (other.pStyle) { pStyle->apply(*(other.pStyle), flags); }
         }
     };
 }
