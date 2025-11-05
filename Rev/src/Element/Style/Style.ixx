@@ -129,11 +129,11 @@ export namespace Rev::Element {
     }
 
     Dist Grow() {
-        return { Dist::Type::Grow, 0 };
+        return { Dist::Type::Grow, -0.0f };
     }
 
     Dist Shrink() {
-        return { Dist::Type::Shrink, 0 };
+        return { Dist::Type::Shrink, -0.0f };
     }
 
     // For floating-point literals (e.g. 10.5_px)

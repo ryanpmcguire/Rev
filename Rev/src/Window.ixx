@@ -205,16 +205,27 @@ export namespace Rev {
 
             for (Element* element : topDown) { element->resetLayout(); }
 
+            // Resolve minima, then maxima, then layout
+            for (Element* element : bottomUp) { element->resolveMinimaNew(); }
+            for (Element* element : topDown) { element->resolveMaximaNew(); }
+            for (Element* element : bottomUp) { element->resolveLayoutNew(); }
+
+            // Resolve dims
+            for (Element* element : bottomUp) { element->promoteDimsNew(); }
+            for (Element* element : topDown) { element->resolveDimsNew(); }
+
             // Resolve dimensions necessary to layout
-            for (Element* element : topDown) { element->resolveAbs(); }
+            /*for (Element* element : topDown) { element->resolveAbs(); }
             for (Element* element : topDown) { element->resolveRel(); }
+
             for (Element* element : bottomUp) { element->resolveMinima(); }
+            for (Element* element : topDown) { element->resolveMaxima(); }
             for (Element* element : bottomUp) { element->resolveLayout(); }
 
             // Resolve flex dims and distribute space post-layout
             for (Element* element : bottomUp) { element->promoteFlexDims(); }
             for (Element* element : topDown) { element->resolveFlexDims(); }
-            for (Element* element : bottomUp) { element->remeasureLayout(); }
+            for (Element* element : bottomUp) { element->remeasureLayout(); }*/
 
             // Final step is to resolve rects (which includes alignment)
             for (Element* element: topDown) { element->resolveRects(); }

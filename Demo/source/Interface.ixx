@@ -28,14 +28,14 @@ export namespace HelloWorld {
 
             // Self
             this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
-            this->style->background.color = rgba(0, 0, 0, 0.0);
+            this->style->background.color = rgba(1, 0, 0, 0.1);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
                 .alignment = { Axis::Horizontal, Align::Center, Align::Center },
-                .size = { .width = Grow(), .height = Grow(), .maxWidth = 2000_px, .maxHeight = 2000_px },
+                .size = { .width = Grow(), .height = Grow() },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
                 .background { .color = rgba(0, 0, 0, 0.05) },
@@ -43,7 +43,7 @@ export namespace HelloWorld {
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
 
-            Text* text = new Text(greyBox, "Hello World");
+            Text* text = new Text(greyBox, "Hello");
                 text->style->text.size = 32_px;
                 text->style->text.color = rgba(0, 0, 0, 1);
                 text->style->background.color = rgba(1, 0, 0, 0.2);
@@ -51,7 +51,7 @@ export namespace HelloWorld {
                 Chart* chart = new Chart(greyBox);
                 
                 chart->style = {
-                    .size = { .width = Grow(), .height = Grow(),  .maxWidth = 100_pct, .minHeight = 100_px },
+                    .size = { .width = 100_pct, .height = Grow(), .minHeight = 100_px },
                     .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
                 };
 

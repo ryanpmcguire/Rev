@@ -264,10 +264,6 @@ export namespace Rev::Element {
         Row* parentRow = nullptr;
         Resolved res;
 
-        // An optional function to measure dimensions (useful for text)
-        bool measure = false;
-        virtual void measureDims(float maxWidth, float maxHeight) {}
-
         // Step zero is to reset all data which will be modified
         void resetLayout() {
 
@@ -276,6 +272,338 @@ export namespace Rev::Element {
             rect = Rect();
             layout = Layout();
         }
+
+        // New layout
+        //--------------------------------------------------
+
+        float minOuterWidth;
+        float minOuterHeight;
+
+        // Bottom up: resolve minimum feasibile dimensions
+        void resolveMinimaNew() {
+
+            minOuterWidth = -0.0f;
+            minOuterHeight = -0.0f;
+        
+            // Get from own size if we can
+            if (computed.style.size.width.type == Dist::Type::Abs) { minOuterWidth = computed.style.size.width.val; }
+            if (computed.style.size.height.type == Dist::Type::Abs) { minOuterHeight = computed.style.size.height.val; }
+
+            // Get from own minimum if we can
+            if (computed.style.size.minWidth.type == Dist::Type::Abs) { minOuterWidth = computed.style.size.minWidth.val; }
+            if (computed.style.size.minHeight.type == Dist::Type::Abs) { minOuterHeight = computed.style.size.minHeight.val; }
+
+            // Get minimum outer width from children
+            if (!set(minOuterWidth)) {
+                for (Element* child : children) {
+                    minOuterWidth = std::max(minOuterWidth, child->minOuterWidth);
+                }
+            }
+
+            // Get minimum outer height from children
+            if (!set(minOuterHeight)) {
+                for (Element* child : children) {
+                    minOuterHeight = std::max(minOuterHeight, child->minOuterHeight);
+                }
+            }
+        }
+
+        float maxInnerWidth;
+        float maxInnerHeight;
+
+        // Top down: resolve maximum feasible dimensions
+        void resolveMaximaNew() {
+
+            maxInnerWidth = -0.0f;
+            maxInnerHeight = -0.0f;
+        
+            // Get from own size if we can
+            if (computed.style.size.width.type == Dist::Type::Abs) { maxInnerWidth = computed.style.size.width.val; }
+            if (computed.style.size.height.type == Dist::Type::Abs) { maxInnerHeight = computed.style.size.height.val; }
+
+            // Get from own minimum if we can
+            if (computed.style.size.maxWidth.type == Dist::Type::Abs) { maxInnerWidth = computed.style.size.maxWidth.val; }
+            if (computed.style.size.maxHeight.type == Dist::Type::Abs) { maxInnerHeight = computed.style.size.maxHeight.val; }
+
+            // Get maximum outer width from parent if possible
+            if (!set(maxInnerWidth)) { maxInnerWidth = parent->maxInnerWidth; }
+            if (!set(maxInnerHeight)) { maxInnerHeight = parent->maxInnerHeight; }
+        }
+
+        void resolveLayoutNew() {
+
+            if (children.empty()) { return; }
+
+            // Wrap children
+            //--------------------------------------------------
+
+            Row row = Row();
+            float runningWidth = 0;
+
+            for (Element* child : children) {
+
+                float additionalWidth;
+
+                // If relative, directly add proportional
+                if (child->computed.style.size.width.type == Dist::Type::Rel) {
+                    additionalWidth = child->computed.style.size.width.val;
+                }
+
+                // If abs, adjust to be proportional to maximum width
+                else {
+                    additionalWidth = child->minOuterWidth / maxInnerWidth;
+                }
+
+                // Should we create a new row, or are we add more?
+                // (In other words, have we exceeded the maximum inner width)
+                if (!row.members.empty() && (runningWidth + additionalWidth > 1.0)) {
+                    
+                    // Push back, create new row
+                    layout.rows.push_back(row);
+                    row = Row();
+                    runningWidth = 0;
+                }
+
+                runningWidth += additionalWidth;
+
+                row.members.push_back(child);
+            }
+
+            // Add last row that didn't overflow
+            layout.rows.push_back(row);
+
+            // Set parent layout/row for each child
+            for (Row& row : layout.rows) {
+                for (Element* member : row.members) {
+                    member->parentLayout = &layout;
+                    member->parentRow = &row;
+                }
+            }
+
+            // Measure layout val/min
+            //--------------------------------------------------
+
+            for (Row& row : layout.rows) {
+
+                for (Element* member : row.members) {
+
+                    row.size.w.min += member->minOuterWidth;
+                    row.size.h.min = std::max(row.size.h.min, member->minOuterHeight);
+                }
+
+                layout.size.w.min = std::max(layout.size.w.min, row.size.w.min);
+                layout.size.h.min += row.size.h.min;
+            }
+
+            // Adjust own size value to accomodate layout
+            minOuterWidth = std::max(minOuterWidth, layout.size.w.min);
+            minOuterHeight = std::max(minOuterHeight, layout.size.h.min);
+        }
+
+        // Bottom up: promote growability based on layout
+        void promoteDimsNew() {
+
+            // Tell dimensions if they can grow
+            if (computed.style.size.width.type == Dist::Type::Grow) { res.size.w.growable = true; }
+            if (computed.style.size.height.type == Dist::Type::Grow) { res.size.h.growable = true; }
+
+            // Promote growable
+            //--------------------------------------------------
+
+            bool outerWidthGrowable = (res.size.w.growable || res.mar.l.growable || res.mar.r.growable);
+            bool outerHeightGrowable = (res.size.h.growable || res.mar.t.growable || res.mar.b.growable);
+
+            if (outerWidthGrowable) {
+                parent->res.size.w.growable = true;
+            }
+
+            if (outerHeightGrowable) {
+                parent->res.size.h.growable = true;
+                if (parentRow) { parentRow->size.h.growable = true; }
+                if (parentLayout) { parentLayout->size.h.growable = true; }
+            }
+
+            // Modify own size to accomodate layout
+            //--------------------------------------------------
+
+            if (res.size.w.val < minOuterWidth) { res.size.w.val = minOuterWidth; }
+            if (res.size.h.val < minOuterHeight) { res.size.h.val = minOuterHeight; }
+        }
+
+        float innerWidth;
+        float innerHeight;
+
+        // Top down: Resolve flex and grow dimensions
+        void resolveDimsNew() {
+
+            innerWidth = 0;
+            innerHeight = 0;
+
+            if (parent == this) {
+                res.size.w.val = computed.style.size.width.val;
+                res.size.h.val = computed.style.size.height.val;
+            }
+
+            innerWidth = res.size.w.val;
+            innerHeight = res.size.h.val;
+
+            // Resolve val/max of children prior to grow
+            //--------------------------------------------------
+
+            for (Element* pChild : children) {
+
+                Element& child = *pChild;
+                Size& cSize = child.computed.style.size;
+                Dist& cWidth = cSize.width;
+                Dist& cHeight = cSize.height;
+
+                // Resolve nominal
+                if (cSize.width) { child.res.size.w.val = child.res.size.w.min = child.res.size.w.max = cSize.width.resolve(innerWidth); }
+                if (cSize.height) { child.res.size.h.val = child.res.size.h.min = child.res.size.h.max = cSize.height.resolve(innerHeight); }
+
+                // Resolve max
+                if (cSize.maxWidth) { child.res.size.w.max = cSize.maxWidth.resolve(innerWidth); }
+                if (cSize.maxHeight) { child.res.size.h.max = cSize.maxHeight.resolve(innerHeight); }
+
+                // Override max if needed
+                if (cSize.width.type == Dist::Type::Grow && !set(child.res.size.w.max)) { child.res.size.w.max = innerWidth; }
+                if (cSize.height.type == Dist::Type::Grow && !set(child.res.size.h.max)) { child.res.size.h.max = innerHeight; }
+
+                bool test = true;
+            }
+
+            // Measure layout max prior to grow
+            //--------------------------------------------------
+
+            // Measure max
+            for (Row& row : layout.rows) {
+
+                for (Element* member : row.members) {
+                    row.size.w.max += member->res.getMaxOuter(Axis::Horizontal);
+                    row.size.h.max = std::max(row.size.h.max, member->res.getMaxOuter(Axis::Vertical));
+                }
+
+                layout.size.w.max = std::max(layout.size.w.max, row.size.w.max);
+                layout.size.h.max += row.size.h.max;
+            }
+
+            // Measure val
+            for (Row& row : layout.rows) {
+
+                for (Element* member : row.members) {
+                    row.size.w.val += member->res.getOuter(Axis::Horizontal);
+                    row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                }
+
+                layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
+                layout.size.h.val += row.size.h.val;
+            }
+
+            // Grow growable dimensions (horizontal)
+            //--------------------------------------------------
+
+            layout.size.w.max = std::min(layout.size.w.max, res.getInner(Axis::Horizontal));
+
+            for (Row& row : layout.rows) {
+
+                row.size.w.max = std::min(row.size.w.max, layout.size.w.max);
+                
+                float availableWidth = row.size.w.max - row.size.w.val;
+
+                // Loop until break conditions are met
+                while (true) {
+
+                    int numGrowable = row.canGrow(Axis::Horizontal);
+                    float share = availableWidth / float(numGrowable);
+
+                    // When there's no more space or no more growable elements
+                    if (!numGrowable || availableWidth < 0.01) {
+                        break;
+                    }
+
+                    for (Element* member : row.members) {
+                        float take = member->res.grow(share, Axis::Horizontal);
+                        row.size.w.val += take;
+                        availableWidth -= take;
+                    }
+                }
+            }
+
+            // Grow each row (vertical)
+            //--------------------------------------------------
+
+            // Consider moving back to "min" strategy to handle fitting
+            layout.size.h.max = std::min(layout.size.h.max, res.getInner(Axis::Vertical));
+            float availableHeight = layout.size.h.max - layout.size.h.val;
+
+            // Loop until break conditions are met
+            while (true) {
+
+                int numGrowableH = layout.growableRows(Axis::Vertical);
+                float shareH = availableHeight / float(numGrowableH);
+
+                // When there's no more space or no more growable elements
+                if (!numGrowableH || availableHeight < 0.01) {
+                    break;
+                }
+
+                for (Row& row : layout.rows) {
+                    float take = row.size.h.grow(shareH);
+                    layout.size.h.val += take;
+                    availableHeight -= take;
+                }
+            }
+
+            // Grow each row member (vertical)
+            //--------------------------------------------------
+
+            for (Row& row : layout.rows) {
+                for (Element* member : row.members) {
+                    
+                    Element& elem = *member;
+
+                    float availableElemHeight = row.size.h.val - elem.res.getOuter(Axis::Vertical);
+
+                    while (true) {
+                        
+                        int numGrowable = elem.res.canGrow(Axis::Vertical);
+                        float share = availableElemHeight / float(numGrowable);
+
+                        if (!numGrowable || availableElemHeight < 0.01) {
+                            break;
+                        }
+                        
+                        float take = elem.res.grow(share, Axis::Vertical);
+                        availableElemHeight -= take;
+                    }
+                }
+            }
+
+            // Measure layout val after grow
+            //--------------------------------------------------
+
+            layout.size.w.val = -0.0f;
+            layout.size.h.val = -0.0f;
+
+            for (Row& row : layout.rows) {
+
+                row.size.w.val = -0.0f;
+                row.size.h.val = -0.0f;
+
+                for (Element* member : row.members) {
+                    row.size.w.val += member->res.getOuter(Axis::Horizontal);
+                    row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                }
+
+                layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
+                layout.size.h.val += row.size.h.val;
+            }
+
+            bool test = true;
+        }
+
+        // Old layout
+        //--------------------------------------------------
 
         // The first step is to resolve all absolute values
         void resolveAbs() {
@@ -306,15 +634,12 @@ export namespace Rev::Element {
             res.pad.setRel(rStyle.padding, res.size.w.val, res.size.h.val, res.size.w.min, res.size.h.min, res.size.w.max, res.size.h.max);
 
             // Set grow min/max, ignoring pos as that cannot grow
-            res.size.setGrow(rStyle.size, maxInnerWidth);
-            res.mar.setGrow(rStyle.margin, maxInnerWidth);
-            res.pad.setGrow(rStyle.padding, maxInnerWidth);
-
-            // Inherit maxima from parent if none
-            if (!set(res.size.w.max)) { res.size.w.max = maxInnerWidth; }
-            if (!set(res.size.h.max)) { res.size.h.max = maxInnerHeight; }
+            res.size.setGrow(rStyle.size, maxInnerWidth, maxInnerHeight);
+            res.mar.setGrow(rStyle.margin, maxInnerWidth, maxInnerHeight);
+            res.pad.setGrow(rStyle.padding, maxInnerWidth, maxInnerHeight);
         }
 
+        // Bottom up
         // Expand our minimum size if neccesary to accomodate children
         void resolveMinima() {
 
@@ -327,108 +652,74 @@ export namespace Rev::Element {
 
             if(!set(res.size.w.min) && minLayoutWidth + res.pad.l.min + res.pad.r.min > res.size.w.min) {
                 res.size.w.min = minLayoutWidth + res.pad.l.min + res.pad.r.min;
+                //res.size.w.max = std::max(res.size.w.min, res.size.w.max);
             }
         }
 
-        // TOP DOWN
-        // Resolve dims that don't flex (px/pct)
-        void resolveNonFlexDims() {
+        // Top down
+        void resolveMaxima() {
 
-            // Get maximum inner width/height of parent
             float maxInnerWidth = parent->res.getMaxInner(Axis::Horizontal);
             float maxInnerHeight = parent->res.getMaxInner(Axis::Vertical);
-            
+
             float minInnerWidth = parent->res.getMinInner(Axis::Horizontal);
             float minInnerHeight = parent->res.getMinInner(Axis::Vertical);
 
-            Style& rStyle = computed.style;
-
-            // Hack for window size
-            if (this == parent) {
-                maxInnerWidth = rStyle.size.width.val;
-                maxInnerHeight = rStyle.size.height.val;
-                minInnerWidth = rStyle.size.width.val;
-                minInnerHeight = rStyle.size.height.val;
-            }
-
-            // Set dimensions abs or relative to maximum occupiable dims
-            res.size.setNonFlex(rStyle.size, minInnerWidth, minInnerHeight, maxInnerWidth, maxInnerHeight);
-            res.mar.setNonFlex(rStyle.margin, res.size);
-            res.pad.setNonFlex(rStyle.padding, res.size);
-            res.pos.setNonFlex(rStyle.position, res.size);
-
-            // Set grow min/max, ignoring pos as that cannot grow
-            res.size.setGrow(rStyle.size, maxInnerWidth);
-            res.mar.setGrow(rStyle.margin, maxInnerWidth);
-            res.pad.setGrow(rStyle.padding, maxInnerWidth);
-
             // Inherit maxima from parent if none
-            if (!set(res.size.w.max)) { res.size.w.max = maxInnerWidth; }
-            if (!set(res.size.h.max)) { res.size.h.max = maxInnerHeight; }
+            if (!set(res.size.w.max)) { res.size.w.max = std::max(maxInnerWidth, maxInnerWidth); }
+            if (!set(res.size.h.max)) { res.size.h.max = std::max(maxInnerHeight, maxInnerHeight); }
         }
 
         // Resolve layout (bottom up)
         // This is by far the slowest function
         void resolveLayout() {
 
+            if (children.empty()) { return; }
+
             // Wrap children
             //--------------------------------------------------
 
             Row row = Row();
-
-            /*
-
-            */
-            
-            float minInnerWidth = res.getMinInner(Axis::Horizontal);
-            float minInnerHeight = res.getMinInner(Axis::Vertical);
+            float runningWidth = 0;
 
             // The maximum size this element can possibly contain
             float maxInnerWidth = res.getMaxInner(Axis::Horizontal);
             float maxInnerHeight = res.getMaxInner(Axis::Vertical);
 
-            //if (!measure) {
+            for (Element* child : children) {
 
-                float runningWidth = 0;
-                float runningHeight = 0;
+                float minOuterWidth;
 
-                for (Element* child : children) {
-
-                    // The minimum size this element can possibly be
-                    float minOuterWidth = child->res.getMinOuter(Axis::Horizontal);
-                    float minOuterHeight = child->res.getMinOuter(Axis::Vertical);
-
-                    // PAY ATTENTION TO THIS LINE
-                    if (res.size.w.growable || computed.style.size.width.type == Dist::Type::Rel) { minOuterWidth = child->res.getMaxOuter(Axis::Horizontal); }
-
-                    // Should we create a new row, or are we add more?
-                    // (In other words, have we exceeded the maximum inner width)
-                    if (!row.members.empty() && (runningWidth + minOuterWidth > maxInnerWidth)) {
-                        
-                        // Push back, create new row
-                        layout.rows.push_back(row);
-                        row = Row();
-
-                        // Reset running values
-                        runningWidth = 0;
-                        runningHeight = 0;
-                    }
-
-                    runningWidth += minOuterWidth;
-                    runningHeight = std::max(runningHeight, minOuterHeight);
-
-                    row.members.push_back(child);
+                // If relative, directly add proportional
+                if (child->computed.style.size.width.type == Dist::Type::Rel) {
+                    minOuterWidth = child->computed.style.size.width.val;
                 }
 
-                // Add last row that didn't overflow
-                layout.rows.push_back(row);
-            //}
+                // If abs, adjust to be proportional to maximum width
+                else {
+                    minOuterWidth = child->res.getMinOuter(Axis::Horizontal) / maxInnerWidth;
+                }
 
-            // If the element will be responsible for its own layout
-            /*else {
-                this->measureDims(maxInnerWidth, maxInnerHeight);
-            }*/
+                // Should we create a new row, or are we add more?
+                // (In other words, have we exceeded the maximum inner width)
+                if (!row.members.empty() && (runningWidth + minOuterWidth > 1.0)) {
+                    
+                    // Push back, create new row
+                    layout.rows.push_back(row);
+                    row = Row();
 
+                    // Reset running values
+                    runningWidth = 0;
+                }
+
+                runningWidth += minOuterWidth;
+
+                row.members.push_back(child);
+            }
+
+            // Add last row that didn't overflow
+            layout.rows.push_back(row);
+            
             // Mark children as members of layout/row
             //--------------------------------------------------
 
@@ -553,11 +844,13 @@ export namespace Rev::Element {
                     // Resolve relative width
                     if (elemStyle.size.width.type == Dist::Type::Rel) {
                         elem.res.size.w.val = elemStyle.size.width.val * innerWidth;
+                        elem.res.size.w.max = elem.res.size.w.val;
                     }
 
                     // Resolve relative height
                     if (elemStyle.size.height.type == Dist::Type::Rel) {
                         elem.res.size.h.val = elemStyle.size.height.val * innerHeight;
+                        elem.res.size.h.max = elem.res.size.h.val;
                     }
 
                     // Margins are resolved by the element width
@@ -724,20 +1017,20 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             // Resolve layout dimensions
-            layout.size.clamp();
+            //layout.size.clamp();
             layout.rect.w = layout.size.w.val;
             layout.rect.h = layout.size.h.val;
 
             // Resolve row dimensions
             for (Row& row : layout.rows) {
                 
-                row.size.clamp();
+                //row.size.clamp();
                 row.rect.w = row.size.w.val;
                 row.rect.h = row.size.h.val;
 
                 // Resolve member dimensions
                 for (Element* member : row.members) {
-                    member->res.size.clamp();
+                    //member->res.size.clamp();
                     member->rect.w = member->res.size.w.val;
                     member->rect.h = member->res.size.h.val;
                 }

@@ -20,8 +20,6 @@ export namespace Rev::Element {
         // Create
         Text(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "Text") {
 
-            measure = true;
-
             text = new Primitive::Text(shared->canvas);
             text->content = content;
         }

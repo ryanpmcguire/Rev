@@ -20,11 +20,12 @@ export namespace Rev::Element {
     namespace Styles {
         
         Style Self = {
-            .size = { .width = Grow() },
+            .size = { .width = Grow(), .minWidth = 100_px },
             .margin = { 4_px, 4_px, 4_px, 4_px },
         };
 
             Style TextContainer = {
+                .size = { 100_pct },
                 .margin = { .bottom = 4_px }
             };
 

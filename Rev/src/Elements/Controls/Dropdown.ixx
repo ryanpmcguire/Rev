@@ -22,12 +22,18 @@ export namespace Rev::Element {
         
         Style Dropdown = {
             .alignment = { Axis::Vertical, Align::Start, Align::Center },
-            .size = { .width = Grow() },
+            .size = { .width = Grow(), .minWidth = 100_px },
             .margin = { 4_px, 4_px, 4_px, 4_px },
             .padding = { 6_px, 6_px, 6_px, 6_px },
             .background = { .color = rgba(0, 0, 0, 0.1), .transition = 0.1_sec },
             .border = { .radius = 4_px }
         };
+
+            Style Label = {
+                .size = { 100_pct },
+                .margin = { .bottom = 4_px },
+                .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
+            };
 
             Style OptionsContainer {
                 .alignment = { Axis::Vertical },
@@ -50,6 +56,9 @@ export namespace Rev::Element {
     };
 
     struct Dropdown : public Box {
+
+        // Label text
+        Text* label;
 
         // Option elements
         Box* optionsContainer;
@@ -76,6 +85,9 @@ export namespace Rev::Element {
             this->styles = { &Styles::Dropdown };
 
             this->params.options = { { "Option 1" }, { "Option 2"}, { "Option 3" } };
+
+            // Label
+            label = new Text(this, "Dropdown", { &Styles::Label });
 
             // Options container
             //--------------------------------------------------

@@ -49,8 +49,8 @@ namespace Rev::Element {
             if (newMax.type == Dist::Type::Rel && compareMax > 0.0f) { max = newMax.val * compareMax; }
 
             // Handle still-unset min/max
-            if (!set(min) && newVal.type == Dist::Type::Rel) { min = newVal.val * compareMin; }
-            if (!set(max) && newVal.type == Dist::Type::Rel) { max = newVal.val * compareMax; }
+            //if (!set(min) && newVal.type == Dist::Type::Rel) { min = newVal.val * compareMin; }
+            //if (!set(max) && newVal.type == Dist::Type::Rel) { max = newVal.val * compareMax; }
 
             // Any set value means min/max are also set
             /*if (set(val) && !set(min)) { min = val; }
@@ -151,9 +151,9 @@ namespace Rev::Element {
             h.setNonFlex(size.height, size.minHeight, size.maxHeight, minInnerHeight, maxInnerHeight);
         }
 
-        void setGrow(Size& size, float& max) {
-            w.setGrow(size.width, max);
-            h.setGrow(size.height, max);
+        void setGrow(Size& size, float& maxWidth, float& maxHeight) {
+            w.setGrow(size.width, maxWidth);
+            h.setGrow(size.height, maxHeight);
         }
 
         // Clamp all dims
@@ -210,11 +210,11 @@ namespace Rev::Element {
             b.setNonFlex(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom, size.h.val, size.h.max);
         }
 
-        void setGrow(LrtbStyle& lrtb, float& max) {
-            l.setGrow(lrtb.left, max);
-            r.setGrow(lrtb.right, max);
-            t.setGrow(lrtb.top, max);
-            b.setGrow(lrtb.bottom, max);
+        void setGrow(LrtbStyle& lrtb, float& maxWidth, float& maxHeight) {
+            l.setGrow(lrtb.left, maxWidth);
+            r.setGrow(lrtb.right, maxWidth);
+            t.setGrow(lrtb.top, maxHeight);
+            b.setGrow(lrtb.bottom, maxHeight);
         }
         
         // Clamp all dims
