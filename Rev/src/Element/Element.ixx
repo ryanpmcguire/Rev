@@ -284,23 +284,48 @@ export namespace Rev::Element {
 
             minOuterWidth = -0.0f;
             minOuterHeight = -0.0f;
+
+            Size& size = computed.style.size;
+            LrtbStyle& margin = computed.style.margin;
         
             // Get from own size if we can
-            if (computed.style.size.width.type == Dist::Type::Abs) { minOuterWidth = computed.style.size.width.val; }
-            if (computed.style.size.height.type == Dist::Type::Abs) { minOuterHeight = computed.style.size.height.val; }
+            if (size.width.type == Dist::Type::Abs) { res.size.w.min = size.width.val; }
+            if (size.height.type == Dist::Type::Abs) { res.size.h.min = size.height.val; }
 
             // Get from own minimum if we can
-            if (computed.style.size.minWidth.type == Dist::Type::Abs) { minOuterWidth = computed.style.size.minWidth.val; }
-            if (computed.style.size.minHeight.type == Dist::Type::Abs) { minOuterHeight = computed.style.size.minHeight.val; }
+            if (size.minWidth.type == Dist::Type::Abs) { res.size.w.min = size.minWidth.val; }
+            if (size.minHeight.type == Dist::Type::Abs) { res.size.h.min = size.minHeight.val; }
 
-            // Get minimum outer width from children
+            // Get from margin (value)
+            if (margin.left.type == Dist::Type::Abs) { res.mar.l.min = margin.left.val; }
+            if (margin.right.type == Dist::Type::Abs) { res.mar.r.min = margin.right.val; }
+            if (margin.top.type == Dist::Type::Abs) { res.mar.t.min = margin.top.val; }
+            if (margin.bottom.type == Dist::Type::Abs) { res.mar.b.min = margin.bottom.val; }
+
+            // Get from margin (minima)
+            if (margin.minLeft.type == Dist::Type::Abs) { res.mar.l.min = margin.minLeft.val; }
+            if (margin.minRight.type == Dist::Type::Abs) { res.mar.r.min = margin.minRight.val; }
+            if (margin.minTop.type == Dist::Type::Abs) { res.mar.t.min = margin.minTop.val; }
+            if (margin.minBottom.type == Dist::Type::Abs) { res.mar.b.min = margin.minBottom.val; }
+
+            // Use minima to construct minimum outer width
+            if (set(res.size.w.min)) { minOuterWidth += res.size.w.min; }
+            if (set(res.mar.l.min)) { minOuterWidth += res.mar.l.min; }
+            if (set(res.mar.r.min)) { minOuterWidth += res.mar.r.min; }
+
+            // Use minima to construct minimum outer height
+            if (set(res.size.h.min)) { minOuterHeight += res.size.h.min; }
+            if (set(res.mar.t.min)) { minOuterHeight += res.mar.t.min; }
+            if (set(res.mar.b.min)) { minOuterHeight += res.mar.b.min; }
+
+            // Get minimum outer width from children needed
             if (!set(minOuterWidth)) {
                 for (Element* child : children) {
                     minOuterWidth = std::max(minOuterWidth, child->minOuterWidth);
                 }
             }
 
-            // Get minimum outer height from children
+            // Get minimum outer height from children if needed
             if (!set(minOuterHeight)) {
                 for (Element* child : children) {
                     minOuterHeight = std::max(minOuterHeight, child->minOuterHeight);
@@ -318,14 +343,18 @@ export namespace Rev::Element {
             maxInnerHeight = -0.0f;
         
             // Get from own size if we can
-            if (computed.style.size.width.type == Dist::Type::Abs) { maxInnerWidth = computed.style.size.width.val; }
-            if (computed.style.size.height.type == Dist::Type::Abs) { maxInnerHeight = computed.style.size.height.val; }
+            if (computed.style.size.width.type == Dist::Type::Abs) { res.size.w.max = computed.style.size.width.val; }
+            if (computed.style.size.height.type == Dist::Type::Abs) { res.size.h.max = computed.style.size.height.val; }
 
-            // Get from own minimum if we can
-            if (computed.style.size.maxWidth.type == Dist::Type::Abs) { maxInnerWidth = computed.style.size.maxWidth.val; }
-            if (computed.style.size.maxHeight.type == Dist::Type::Abs) { maxInnerHeight = computed.style.size.maxHeight.val; }
+            // Get from own maximum if we can
+            if (computed.style.size.maxWidth.type == Dist::Type::Abs) { res.size.w.max = computed.style.size.maxWidth.val; }
+            if (computed.style.size.maxHeight.type == Dist::Type::Abs) { res.size.h.max = computed.style.size.maxHeight.val; }
 
-            // Get maximum outer width from parent if possible
+            // If we did set a maximum size, we have our new maximum outer dimensions
+            if (set(res.size.w.max)) { maxInnerWidth = res.size.w.max; }
+            if (set(res.size.h.max)) { maxInnerHeight = res.size.h.max; }
+
+            // Get maximum outer width from parent if possible if needed
             if (!set(maxInnerWidth)) { maxInnerWidth = parent->maxInnerWidth; }
             if (!set(maxInnerHeight)) { maxInnerHeight = parent->maxInnerHeight; }
         }
@@ -398,6 +427,10 @@ export namespace Rev::Element {
             // Adjust own size value to accomodate layout
             minOuterWidth = std::max(minOuterWidth, layout.size.w.min);
             minOuterHeight = std::max(minOuterHeight, layout.size.h.min);
+
+            // Restrict min outer dims to max size, if set
+            if (set(res.size.w.max) && minOuterWidth > res.size.w.max) { minOuterWidth = res.size.w.max; }
+            if (set(res.size.h.max) && minOuterHeight > res.size.h.max) { minOuterHeight = res.size.h.max;}
         }
 
         // Bottom up: promote growability based on layout
@@ -426,8 +459,8 @@ export namespace Rev::Element {
             // Modify own size to accomodate layout
             //--------------------------------------------------
 
-            if (res.size.w.val < minOuterWidth) { res.size.w.val = minOuterWidth; }
-            if (res.size.h.val < minOuterHeight) { res.size.h.val = minOuterHeight; }
+            if (!set(res.size.w.min) && res.size.w.min < minOuterWidth) { res.size.w.min = minOuterWidth; }
+            if (!set(res.size.h.min) && res.size.h.min < minOuterHeight) { res.size.h.min = minOuterHeight; }
         }
 
         float innerWidth;
@@ -447,6 +480,8 @@ export namespace Rev::Element {
             innerWidth = res.size.w.val;
             innerHeight = res.size.h.val;
 
+            bool testa = true;
+
             // Resolve val/max of children prior to grow
             //--------------------------------------------------
 
@@ -458,8 +493,8 @@ export namespace Rev::Element {
                 Dist& cHeight = cSize.height;
 
                 // Resolve nominal
-                if (cSize.width) { child.res.size.w.val = child.res.size.w.min = child.res.size.w.max = cSize.width.resolve(innerWidth); }
-                if (cSize.height) { child.res.size.h.val = child.res.size.h.min = child.res.size.h.max = cSize.height.resolve(innerHeight); }
+                if (cSize.width) { child.res.size.w.val = cSize.width.resolve(innerWidth); }
+                if (cSize.height) { child.res.size.h.val = cSize.height.resolve(innerHeight); }
 
                 // Resolve max
                 if (cSize.maxWidth) { child.res.size.w.max = cSize.maxWidth.resolve(innerWidth); }
@@ -468,6 +503,10 @@ export namespace Rev::Element {
                 // Override max if needed
                 if (cSize.width.type == Dist::Type::Grow && !set(child.res.size.w.max)) { child.res.size.w.max = innerWidth; }
                 if (cSize.height.type == Dist::Type::Grow && !set(child.res.size.h.max)) { child.res.size.h.max = innerHeight; }
+
+                // If no set val/max, get from min
+                if (!set(child.res.size.w.val) && child.res.size.w.val < child.res.size.w.min) { child.res.size.w.val = child.res.size.w.min; }
+                if (!set(child.res.size.h.val) && child.res.size.h.val < child.res.size.h.min) { child.res.size.h.val = child.res.size.h.min; }
 
                 bool test = true;
             }

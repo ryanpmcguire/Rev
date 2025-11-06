@@ -22,7 +22,7 @@ namespace Rev::Element {
         // -0.0f means "unset" or "unspecified"
         float val = -0.0f, min = -0.0f, max = -0.0f;
         bool growable = false;
-        bool fit = true;
+        bool fit = false;
 
         void setAbs(Dist& newVal, Dist& newMin, Dist& newMax) {
 
