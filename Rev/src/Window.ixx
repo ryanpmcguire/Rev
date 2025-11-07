@@ -206,8 +206,9 @@ export namespace Rev {
             for (Element* element : topDown) { element->resetLayout(); }
 
             // Resolve minima, then maxima, then layout
-            for (Element* element : bottomUp) { element->resolveMinimaNew(); }
             for (Element* element : topDown) { element->resolveMaximaNew(); }
+            
+            for (Element* element : bottomUp) { element->resolveMinimaNew(); }
             for (Element* element : bottomUp) { element->resolveLayoutNew(); }
 
             // Resolve dims

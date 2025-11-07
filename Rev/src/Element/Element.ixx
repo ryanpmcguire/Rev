@@ -407,36 +407,67 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             Row row = Row();
-            float runningWidth = 0;
+            float runningRelWidth = 0;
 
             for (Element* child : children) {
 
-                float additionalWidth;
-
                 Size& size = child->computed.style.size;
+                LrtbStyle& padding = child->computed.style.padding;
                 LrtbStyle& margin = child->computed.style.margin;
 
-                // If relative, directly add proportional
-                if (child->computed.style.size.width.type == Dist::Type::Rel) {
-                    additionalWidth = child->computed.style.size.width.val;
-                }
+                // Get from style
+                //--------------------------------------------------
 
-                // If abs, adjust to be proportional to maximum width
-                else {
-                    additionalWidth = child->minOuterWidth / maxInnerWidth;
-                }
+                float minRelWidth = -0.0f;
+                if (size.width.type == Dist::Type::Abs) { minRelWidth = size.width.val / maxInnerWidth; }
+                if (size.width.type == Dist::Type::Rel) { minRelWidth = size.width.val; }
+                if (size.minWidth.type == Dist::Type::Abs) { minRelWidth = size.minWidth.val / maxInnerWidth; }
+                if (size.minWidth.type == Dist::Type::Rel) { minRelWidth = size.minWidth.val; }
+    
+                // We do NOT support min/max padding FOR NOW
+                float minRelPadding = -0.0f;
+                if (padding.left.type == Dist::Type::Abs) { minRelPadding += padding.left.val / maxInnerWidth; }
+                if (padding.left.type == Dist::Type::Rel) { minRelPadding += padding.left.val * minRelWidth; }
+                if (padding.right.type == Dist::Type::Abs) { minRelPadding += padding.right.val / maxInnerWidth; }
+                if (padding.right.type == Dist::Type::Rel) { minRelPadding += padding.right.val * minRelWidth; }
+
+                float minRelMargin = -0.0f;
+                if (margin.left.type == Dist::Type::Abs) { minRelPadding += margin.left.val / maxInnerWidth; }
+                if (margin.left.type == Dist::Type::Rel) { minRelPadding += margin.left.val * minRelWidth; }
+                if (margin.right.type == Dist::Type::Abs) { minRelPadding += margin.right.val / maxInnerWidth; }
+                if (margin.right.type == Dist::Type::Rel) { minRelPadding += margin.right.val * minRelWidth; }
+
+                // Infer from set values
+                //--------------------------------------------------
+
+                float minRelOuterWidth = -0.0f;
+                float minRelLayoutWidth = child->layout.size.w.min / maxInnerWidth;
+
+                // Default is to accomodate children (and pad)
+                minRelOuterWidth = minRelLayoutWidth + minRelPadding;
+
+                // A set minimum width overrides layout
+                if (set(minRelWidth)) { minRelOuterWidth = minRelWidth; }
+
+                // Margin always contributes to outer width
+                minRelOuterWidth += minRelMargin;
+
+                // Add to row or wrap if needed
+                //--------------------------------------------------
+
+                float additionalRelWidth = minRelOuterWidth;
 
                 // Should we create a new row, or are we add more?
                 // (In other words, have we exceeded the maximum inner width)
-                if (!row.members.empty() && (runningWidth + additionalWidth > 1.0)) {
+                if (!row.members.empty() && (runningRelWidth + additionalRelWidth > 1.0)) {
                     
                     // Push back, create new row
                     layout.rows.push_back(row);
                     row = Row();
-                    runningWidth = 0;
+                    runningRelWidth = 0;
                 }
 
-                runningWidth += additionalWidth;
+                runningRelWidth += additionalRelWidth;
 
                 row.members.push_back(child);
             }
