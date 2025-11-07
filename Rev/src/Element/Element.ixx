@@ -357,6 +357,7 @@ export namespace Rev::Element {
         // Top down: resolve maximum feasible dimensions
         void resolveMaximaNew() {
 
+            // MAXIMUM inner size
             maxInnerWidth = -0.0f;
             maxInnerHeight = -0.0f;
 
@@ -366,23 +367,39 @@ export namespace Rev::Element {
             Size& size = computed.style.size;
             LrtbStyle& padding = computed.style.padding;
         
-            // Get from own size if we can
-            if (size.width.type == Dist::Type::Abs) { res.size.w.max = size.width.val; }
-            if (size.height.type == Dist::Type::Abs) { res.size.h.max = size.height.val; }
+            // Get maximum general dimensions
+            //--------------------------------------------------
+            
+            float maxWidth = -0.0f;
+            float maxHeight = -0.0f;
 
-            // Get from own maximum if we can
-            if (size.maxWidth.type == Dist::Type::Abs) { res.size.w.max = size.maxWidth.val; }
-            if (size.maxHeight.type == Dist::Type::Abs) { res.size.h.max = size.maxHeight.val; }
+            // Get max width from max (or fall back to value)
+            if (size.maxWidth.type == Dist::Type::Abs) { maxWidth = size.maxWidth.val; }
+            else if (size.width.type == Dist::Type::Abs) { maxWidth = size.width.val; }
 
-            // Get from padding (MINIMUM value, since we want maximum INNER width)
-            if (padding.left.type == Dist::Type::Abs) { res.pad.l.min = padding.left.val; }
-            if (padding.right.type == Dist::Type::Abs) { res.pad.r.min = padding.right.val; }
-            if (padding.top.type == Dist::Type::Abs) { res.pad.t.min = padding.top.val; }
-            if (padding.bottom.type == Dist::Type::Abs) { res.pad.b.min = padding.bottom.val; }
+            // Set max height from max (or fall back to value)
+            if (size.maxHeight.type == Dist::Type::Abs) { maxHeight = size.maxHeight.val; }
+            else if (size.height.type == Dist::Type::Abs) { maxHeight = size.height.val; }
 
-            float minPaddingWidth = res.pad.l.min + res.pad.r.min;
-            float minPaddingHeight = res.pad.t.min + res.pad.b.min;
+            // Get MINIMUM padding (padding *subtracts* from inner size)
+            //--------------------------------------------------
 
+            float minPaddingWidth = -0.0f;
+            float minPaddingHeight = -0.0f;
+
+            // Set min padding from minima (or fall back to value)
+            if (padding.maxLeft.type == Dist::Type::Abs) { minPaddingWidth += padding.maxLeft.val; }
+            else if (padding.left.type == Dist::Type::Abs) { minPaddingWidth += padding.left.val; }
+
+            if (padding.maxRight.type == Dist::Type::Abs) { minPaddingWidth += padding.maxRight.val; }
+            else if (padding.right.type == Dist::Type::Abs) { minPaddingWidth += padding.right.val; }
+
+            if (padding.maxTop.type == Dist::Type::Abs) { minPaddingHeight += padding.maxTop.val; }
+            else if (padding.top.type == Dist::Type::Abs) { minPaddingHeight += padding.top.val; }
+
+            if (padding.maxBottom.type == Dist::Type::Abs) { minPaddingHeight += padding.maxBottom.val; }
+            else if (padding.bottom.type == Dist::Type::Abs) { minPaddingHeight += padding.bottom.val; }
+            
             // Infer from set values
             //--------------------------------------------------
 
@@ -391,8 +408,8 @@ export namespace Rev::Element {
             maxInnerHeight = parent->maxInnerHeight;
 
             // If we have an actual size, we set that as the new maximum
-            if (set(res.size.w.max)) { maxInnerWidth = res.size.w.max; }
-            if (set(res.size.h.max)) { maxInnerHeight = res.size.h.max; }
+            if (set(maxWidth)) { maxInnerWidth = maxWidth; }
+            if (set(maxHeight)) { maxInnerHeight = maxHeight; }
 
             // Padding always subtracts from inner width
             maxInnerWidth -= minPaddingWidth;
@@ -418,43 +435,87 @@ export namespace Rev::Element {
                 // Get from style
                 //--------------------------------------------------
 
-                float minRelWidth = -0.0f;
-                if (size.width.type == Dist::Type::Abs) { minRelWidth = size.width.val / maxInnerWidth; }
-                if (size.width.type == Dist::Type::Rel) { minRelWidth = size.width.val; }
-                if (size.minWidth.type == Dist::Type::Abs) { minRelWidth = size.minWidth.val / maxInnerWidth; }
-                if (size.minWidth.type == Dist::Type::Rel) { minRelWidth = size.minWidth.val; }
-    
-                // We do NOT support min/max padding FOR NOW
-                float minRelPadding = -0.0f;
-                if (padding.left.type == Dist::Type::Abs) { minRelPadding += padding.left.val / maxInnerWidth; }
-                if (padding.left.type == Dist::Type::Rel) { minRelPadding += padding.left.val * minRelWidth; }
-                if (padding.right.type == Dist::Type::Abs) { minRelPadding += padding.right.val / maxInnerWidth; }
-                if (padding.right.type == Dist::Type::Rel) { minRelPadding += padding.right.val * minRelWidth; }
+                float minAbsWidth = -0.0f;
+                if (size.width.type == Dist::Type::Abs) { minAbsWidth = size.width.val; }
+                if (size.minWidth.type == Dist::Type::Abs) { minAbsWidth = size.minWidth.val; }
+                
+                float minAbsHeight = -0.0f;
+                if (size.height.type == Dist::Type::Abs) { minAbsHeight = size.height.val; }
+                if (size.minHeight.type == Dist::Type::Abs) { minAbsWidth = size.minHeight.val; }
 
-                float minRelMargin = -0.0f;
-                if (margin.left.type == Dist::Type::Abs) { minRelPadding += margin.left.val / maxInnerWidth; }
-                if (margin.left.type == Dist::Type::Rel) { minRelPadding += margin.left.val * minRelWidth; }
-                if (margin.right.type == Dist::Type::Abs) { minRelPadding += margin.right.val / maxInnerWidth; }
-                if (margin.right.type == Dist::Type::Rel) { minRelPadding += margin.right.val * minRelWidth; }
+                float minRelWidth = -0.0f;
+                if (size.width.type == Dist::Type::Rel) { minRelWidth = size.width.val; }
+                if (size.minWidth.type == Dist::Type::Rel) { minRelWidth = size.minWidth.val; }
+
+                float minRelHeight = -0.0f;
+                if (size.height.type == Dist::Type::Rel) { minRelHeight = size.height.val; }
+                if (size.minHeight.type == Dist::Type::Rel) { minRelHeight = size.minHeight.val; }
+
+                float minAbsPaddingWidth = -0.0f;
+                if (padding.left.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.left.val; }
+                if (padding.right.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.right.val; }
+
+                float minAbsPaddingHeight = -0.0f;
+                if (padding.top.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.top.val; }
+                if (padding.bottom.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.bottom.val; }
+
+                float minRelPaddingWidth = -0.0f;
+                if (padding.left.type == Dist::Type::Rel) { minRelPaddingWidth += padding.left.val; }
+                if (padding.right.type == Dist::Type::Rel) { minRelPaddingWidth += padding.right.val ; }
+
+                float minRelPaddingHeight = -0.0f;
+                if (padding.top.type == Dist::Type::Rel) { minRelPaddingHeight += padding.top.val; }
+                if (padding.bottom.type == Dist::Type::Rel) { minRelPaddingHeight += padding.bottom.val ; }
+
+                float minAbsMarginWidth = -0.0f;
+                if (margin.right.type == Dist::Type::Abs) { minAbsMarginWidth += margin.right.val; }
+                if (margin.left.type == Dist::Type::Abs) { minAbsMarginWidth += margin.left.val; }
+
+                float minAbsMarginHeight = -0.0f;
+                if (margin.top.type == Dist::Type::Abs) { minAbsMarginHeight += margin.top.val; }
+                if (margin.bottom.type == Dist::Type::Abs) { minAbsMarginHeight += margin.bottom.val; }
+
+                float minRelMarginWidth = -0.0f;
+                if (margin.right.type == Dist::Type::Rel) { minRelMarginWidth += margin.right.val; }
+                if (margin.left.type == Dist::Type::Rel) { minRelMarginWidth += margin.left.val; }
+
+                float minRelMarginHeight = -0.0f;
+                if (margin.top.type == Dist::Type::Rel) { minRelMarginHeight += margin.top.val; }
+                if (margin.bottom.type == Dist::Type::Rel) { minRelMarginHeight += margin.bottom.val; }
 
                 // Infer from set values
                 //--------------------------------------------------
+
+                // Set child's min outer width as sum of absolute widths
+                float minAbsOuterWidth = -0.0f;
+                float minAbsLayoutWidth = child->layout.size.w.min;
+                minAbsOuterWidth = minAbsLayoutWidth + minRelPaddingWidth;
+                if (set(minAbsWidth)) { minAbsOuterWidth = minAbsWidth; }
+                minAbsOuterWidth += minAbsMarginWidth;
+                child->minOuterWidth = minAbsOuterWidth;
+
+                // Set child's min outer height as sum of absolute heights
+                float minAbsOuterHeight = -0.0f;
+                float minAbsLayoutHeight = child->layout.size.h.min;
+                minAbsOuterHeight = minAbsLayoutHeight + minRelPaddingHeight;
+                if (set(minAbsHeight)) { minAbsOuterHeight = minAbsHeight; }
+                minAbsOuterHeight += minAbsMarginHeight;
+                child->minOuterHeight = minAbsOuterHeight;
+
+                // Calculate added relative width and and wrap
+                //--------------------------------------------------
+                
+                if (set(minAbsWidth)) { minRelWidth += minAbsWidth / maxInnerWidth; }
+                if (set(minAbsPaddingWidth)) { minRelPaddingWidth += minAbsPaddingWidth / maxInnerWidth; }
+                if (set(minAbsMarginWidth)) { minRelMarginWidth += minAbsMarginWidth / maxInnerWidth; }
 
                 float minRelOuterWidth = -0.0f;
                 float minRelLayoutWidth = child->layout.size.w.min / maxInnerWidth;
 
                 // Default is to accomodate children (and pad)
-                minRelOuterWidth = minRelLayoutWidth + minRelPadding;
-
-                // A set minimum width overrides layout
+                minRelOuterWidth = minRelLayoutWidth + minRelPaddingWidth;
                 if (set(minRelWidth)) { minRelOuterWidth = minRelWidth; }
-
-                // Margin always contributes to outer width
-                minRelOuterWidth += minRelMargin;
-
-                // Add to row or wrap if needed
-                //--------------------------------------------------
-
+                minRelOuterWidth += minRelMarginWidth;
                 float additionalRelWidth = minRelOuterWidth;
 
                 // Should we create a new row, or are we add more?
@@ -546,17 +607,11 @@ export namespace Rev::Element {
             innerWidth = 0;
             innerHeight = 0;
 
-            // Resolve own padding (temp)
-            res.pad.l.val = res.pad.l.min;
-            res.pad.r.val = res.pad.r.min;
-            res.pad.t.val = res.pad.t.min;
-            res.pad.b.val = res.pad.b.min;
-
-            // Resolve own margin (temp)
-            res.mar.l.val = res.mar.l.min;
-            res.mar.r.val = res.mar.r.min;
-            res.mar.t.val = res.mar.t.min;
-            res.mar.b.val = res.mar.b.min;
+            // Resolve own padding (needed for fit)
+            res.pad.l.val = res.pad.l.min = computed.style.padding.left.val;
+            res.pad.r.val = res.pad.r.min = computed.style.padding.right.val;
+            res.pad.t.val = res.pad.t.min = computed.style.padding.top.val;
+            res.pad.b.val = res.pad.b.min = computed.style.padding.bottom.val;
 
             if (parent == this) {
                 res.size.w.val = computed.style.size.width.val;
@@ -578,12 +633,17 @@ export namespace Rev::Element {
 
                 Element& child = *pChild;
                 Size& cSize = child.computed.style.size;
+                LrtbStyle& cMargin = child.computed.style.margin;
                 Dist& cWidth = cSize.width;
                 Dist& cHeight = cSize.height;
 
                 // Resolve nominal
                 if (cSize.width) { child.res.size.w.val = cSize.width.resolve(innerWidth); }
                 if (cSize.height) { child.res.size.h.val = cSize.height.resolve(innerHeight); }
+
+                // Resolve min
+                if (cSize.minWidth) { child.res.size.w.min = cSize.minWidth.resolve(innerWidth); }
+                if (cSize.minHeight) { child.res.size.h.min = cSize.minHeight.resolve(innerHeight); }
 
                 // Resolve max
                 if (cSize.maxWidth) { child.res.size.w.max = cSize.maxWidth.resolve(innerWidth); }
@@ -596,6 +656,12 @@ export namespace Rev::Element {
                 // If no set val/max, get from min
                 if (!set(child.res.size.w.val) && child.res.size.w.val < child.res.size.w.min) { child.res.size.w.val = child.res.size.w.min; }
                 if (!set(child.res.size.h.val) && child.res.size.h.val < child.res.size.h.min) { child.res.size.h.val = child.res.size.h.min; }
+
+                // Resolve child margin
+                child.res.mar.l.val = child.res.mar.l.min = cMargin.left.val;
+                child.res.mar.r.val = child.res.mar.r.min = cMargin.right.val;
+                child.res.mar.t.val = child.res.mar.t.min = cMargin.top.val;
+                child.res.mar.b.val = child.res.mar.b.min = cMargin.bottom.val;
 
                 bool test = true;
             }
@@ -730,390 +796,6 @@ export namespace Rev::Element {
             bool test = true;
         }
 
-        // Old layout
-        //--------------------------------------------------
-
-        // The first step is to resolve all absolute values
-        void resolveAbs() {
-
-            Style& rStyle = computed.style;
-
-            res.size.setAbs(rStyle.size);
-            res.mar.setAbs(rStyle.margin);
-            res.pad.setAbs(rStyle.padding);
-        }
-
-        void resolveRel() {
-
-            // Get maximum inner width/height of parent
-            float innerWidth = parent->res.getInner(Axis::Horizontal);
-            float innerHeight = parent->res.getInner(Axis::Vertical);
-
-            float maxInnerWidth = parent->res.getMaxInner(Axis::Horizontal);
-            float maxInnerHeight = parent->res.getMaxInner(Axis::Vertical);
-            
-            float minInnerWidth = parent->res.getMinInner(Axis::Horizontal);
-            float minInnerHeight = parent->res.getMinInner(Axis::Vertical);
-
-            Style& rStyle = computed.style;
-
-            res.size.setRel(rStyle.size, innerWidth, innerHeight, minInnerWidth, minInnerHeight, maxInnerWidth, maxInnerHeight);
-            res.mar.setRel(rStyle.margin, res.size.w.val, res.size.h.val, res.size.w.min, res.size.h.min, res.size.w.max, res.size.h.max);
-            res.pad.setRel(rStyle.padding, res.size.w.val, res.size.h.val, res.size.w.min, res.size.h.min, res.size.w.max, res.size.h.max);
-
-            // Set grow min/max, ignoring pos as that cannot grow
-            res.size.setGrow(rStyle.size, maxInnerWidth, maxInnerHeight);
-            res.mar.setGrow(rStyle.margin, maxInnerWidth, maxInnerHeight);
-            res.pad.setGrow(rStyle.padding, maxInnerWidth, maxInnerHeight);
-        }
-
-        // Bottom up
-        // Expand our minimum size if neccesary to accomodate children
-        void resolveMinima() {
-
-            float minLayoutWidth = 0.0f;
-
-            // Find maximum of all minimum child outer widths
-            for (Element* child : this->children) {
-                minLayoutWidth = std::max(minLayoutWidth, child->res.getMinOuter(Axis::Horizontal));
-            }
-
-            if(!set(res.size.w.min) && minLayoutWidth + res.pad.l.min + res.pad.r.min > res.size.w.min) {
-                res.size.w.min = minLayoutWidth + res.pad.l.min + res.pad.r.min;
-                //res.size.w.max = std::max(res.size.w.min, res.size.w.max);
-            }
-        }
-
-        // Top down
-        void resolveMaxima() {
-
-            float maxInnerWidth = parent->res.getMaxInner(Axis::Horizontal);
-            float maxInnerHeight = parent->res.getMaxInner(Axis::Vertical);
-
-            float minInnerWidth = parent->res.getMinInner(Axis::Horizontal);
-            float minInnerHeight = parent->res.getMinInner(Axis::Vertical);
-
-            // Inherit maxima from parent if none
-            if (!set(res.size.w.max)) { res.size.w.max = std::max(maxInnerWidth, maxInnerWidth); }
-            if (!set(res.size.h.max)) { res.size.h.max = std::max(maxInnerHeight, maxInnerHeight); }
-        }
-
-        // Resolve layout (bottom up)
-        // This is by far the slowest function
-        void resolveLayout() {
-
-            if (children.empty()) { return; }
-
-            // Wrap children
-            //--------------------------------------------------
-
-            Row row = Row();
-            float runningWidth = 0;
-
-            // The maximum size this element can possibly contain
-            float maxInnerWidth = res.getMaxInner(Axis::Horizontal);
-            float maxInnerHeight = res.getMaxInner(Axis::Vertical);
-
-            for (Element* child : children) {
-
-                float minOuterWidth;
-
-                // If relative, directly add proportional
-                if (child->computed.style.size.width.type == Dist::Type::Rel) {
-                    minOuterWidth = child->computed.style.size.width.val;
-                }
-
-                // If abs, adjust to be proportional to maximum width
-                else {
-                    minOuterWidth = child->res.getMinOuter(Axis::Horizontal) / maxInnerWidth;
-                }
-
-                // Should we create a new row, or are we add more?
-                // (In other words, have we exceeded the maximum inner width)
-                if (!row.members.empty() && (runningWidth + minOuterWidth > 1.0)) {
-                    
-                    // Push back, create new row
-                    layout.rows.push_back(row);
-                    row = Row();
-
-                    // Reset running values
-                    runningWidth = 0;
-                }
-
-                runningWidth += minOuterWidth;
-
-                row.members.push_back(child);
-            }
-
-            // Add last row that didn't overflow
-            layout.rows.push_back(row);
-            
-            // Mark children as members of layout/row
-            //--------------------------------------------------
-
-            for (Row& row : layout.rows) {
-                for (Element* member : row.members) {
-                    member->parentLayout = &layout;
-                    member->parentRow = &row;
-                }
-            }
-
-            // Measure layout min/max
-            //--------------------------------------------------
-
-            for (Row& row : layout.rows) {
-
-                for (Element* member : row.members) {
-
-                    row.size.w.min += member->res.getMinOuter(Axis::Horizontal);
-                    row.size.h.min = std::max(row.size.h.min, member->res.getMinOuter(Axis::Vertical));
-                
-                    row.size.w.max += member->res.getMaxOuter(Axis::Horizontal);
-                    row.size.h.max = std::max(row.size.h.max, member->res.getMaxOuter(Axis::Vertical));
-                }
-
-                layout.size.w.min = std::max(layout.size.w.min, row.size.w.min);
-                layout.size.h.min += row.size.h.min;
-
-                layout.size.w.max = std::max(layout.size.w.max, row.size.w.max);
-                layout.size.h.max += row.size.h.max;
-            }
-
-            // Inherit minima from children (if no set minimum size)
-            //--------------------------------------------------
-
-            if(!set(res.size.w.min) && layout.size.w.min + res.pad.l.min + res.pad.r.min > res.size.w.min) {
-                res.size.w.min = layout.size.w.min + res.pad.l.min + res.pad.r.min;
-                res.size.w.max = std::max(res.size.w.min, res.size.w.max);
-            }
-
-            if(!set(res.size.h.min) && layout.size.h.min + res.pad.t.min + res.pad.b.min > res.size.h.min) {
-                res.size.h.min = layout.size.h.min + res.pad.t.min + res.pad.b.min;
-                res.size.h.max = std::max(res.size.h.min, res.size.h.max);
-            }
-
-            // Inherit maxima from children (if no set maximum size)
-            //--------------------------------------------------
-
-            if (res.size.w.fit && !set(res.size.w.max)) { res.size.w.max = layout.size.w.max + res.pad.l.val + res.pad.r.val; }
-            if (res.size.h.fit && !set(res.size.h.max)) { res.size.h.max = layout.size.h.max + res.pad.t.val + res.pad.b.val; }
-        }
-
-        // BOTTOM UP
-        // Promote flex dimensions to allow parents to grow to accomodate children
-        void promoteFlexDims() {
-
-            // Promote growable
-            //--------------------------------------------------
-
-            bool outerWidthGrowable = (res.size.w.growable || res.mar.l.growable || res.mar.r.growable);
-            bool outerHeightGrowable = (res.size.h.growable || res.mar.t.growable || res.mar.b.growable);
-
-            if (outerWidthGrowable) {
-                parent->res.size.w.growable = true;
-            }
-
-            if (outerHeightGrowable) {
-                parent->res.size.h.growable = true;
-                if (parentRow) { parentRow->size.h.growable = true; }
-                if (parentLayout) { parentLayout->size.h.growable = true; }
-            }
-
-            // Reconsider maximum if layout has value
-            //--------------------------------------------------
-
-            bool test = true;
-        }
-
-        // Resolve grow/shrink
-        void resolveFlexDims() {
-
-            // Resolve own padding and position (relative)
-            //--------------------------------------------------
-
-            float width = res.size.w.val;
-            float height = res.size.h.val;
-
-            Style& rStyle = computed.style;
-
-            // Padding
-            if (rStyle.padding.left.type == Dist::Type::Rel) { res.pad.l.val = rStyle.padding.left.val * width; }
-            if (rStyle.padding.right.type == Dist::Type::Rel) { res.pad.r.val = rStyle.padding.right.val * width; }
-            if (rStyle.padding.top.type == Dist::Type::Rel) { res.pad.t.val = rStyle.padding.top.val * height; }
-            if (rStyle.padding.bottom.type == Dist::Type::Rel) { res.pad.b.val = rStyle.padding.bottom.val * height; }
-
-            // Position            
-            if (rStyle.position.left.type == Dist::Type::Rel) { res.pos.l.val = rStyle.position.left.val * width; }
-            if (rStyle.position.right.type == Dist::Type::Rel) { res.pos.r.val = rStyle.position.right.val * width; }
-            if (rStyle.position.top.type == Dist::Type::Rel) { res.pos.t.val = rStyle.position.top.val * height; }
-            if (rStyle.position.bottom.type == Dist::Type::Rel) { res.pos.b.val = rStyle.position.bottom.val * height; }
-
-            // Requires children
-            if (children.empty()) {
-                return;
-            }
-
-            // Resolve size and margin of children prior to flex grow
-            //--------------------------------------------------
-
-            float innerWidth = res.getInner(Axis::Horizontal);
-            float innerHeight = res.getInner(Axis::Vertical);
-
-            for (Row& row : layout.rows) {
-                
-                row.size.clamp();
-
-                for (Element* member : row.members) {
-                    
-                    Element& elem = *member;
-
-                    Style& elemStyle = elem.computed.style;
-
-                    // Resolve relative width
-                    if (elemStyle.size.width.type == Dist::Type::Rel) {
-                        elem.res.size.w.val = elemStyle.size.width.val * innerWidth;
-                        elem.res.size.w.max = elem.res.size.w.val;
-                    }
-
-                    // Resolve relative height
-                    if (elemStyle.size.height.type == Dist::Type::Rel) {
-                        elem.res.size.h.val = elemStyle.size.height.val * innerHeight;
-                        elem.res.size.h.max = elem.res.size.h.val;
-                    }
-
-                    // Margins are resolved by the element width
-                    float elemWidth = elem.res.size.w.val;
-                    float elemHeight = elem.res.size.h.val;
-
-                    // Resolve margin
-                    if (elemStyle.margin.left.type == Dist::Type::Rel) { elem.res.mar.l.val = elemStyle.margin.left.val * elemWidth; }
-                    if (elemStyle.margin.right.type == Dist::Type::Rel) { elem.res.mar.r.val = elemStyle.margin.right.val * elemWidth; }
-                    if (elemStyle.margin.top.type == Dist::Type::Rel) { elem.res.mar.t.val = elemStyle.margin.top.val * elemHeight; }
-                    if (elemStyle.margin.bottom.type == Dist::Type::Rel) { elem.res.mar.b.val = elemStyle.margin.bottom.val * elemHeight; }
-                }
-            }
-
-            // Clamp all in layout
-            //--------------------------------------------------
-
-            layout.size.clamp();
-
-            for (Row& row : layout.rows) {
-                
-                row.size.clamp();
-
-                for (Element* member : row.members) {
-                    member->res.size.clamp();
-                }
-            }
-
-            remeasureLayout();
-
-            // Grow growable dimensions (horizontal)
-            //--------------------------------------------------
-
-            layout.size.w.max = std::min(layout.size.w.max, res.getInner(Axis::Horizontal));
-
-            for (Row& row : layout.rows) {
-
-                row.size.w.max = std::min(row.size.w.max, layout.size.w.max);
-                float availableWidth = row.size.w.max - row.size.w.val;
-
-                // Loop until break conditions are met
-                while (true) {
-
-                    int numGrowable = row.canGrow(Axis::Horizontal);
-                    float share = availableWidth / float(numGrowable);
-
-                    // When there's no more space or no more growable elements
-                    if (!numGrowable || availableWidth < 0.01) {
-                        break;
-                    }
-
-                    for (Element* member : row.members) {
-                        float take = member->res.grow(share, Axis::Horizontal);
-                        row.size.w.val += take;
-                        availableWidth -= take;
-                    }
-                }
-            }
-
-            // Grow each row (vertical)
-            //--------------------------------------------------
-
-            // Consider moving back to "min" strategy to handle fitting
-            layout.size.h.max = std::min(layout.size.h.max, res.getInner(Axis::Vertical));
-            float availableHeight = layout.size.h.max - layout.size.h.val;
-
-            // Loop until break conditions are met
-            while (true) {
-
-                int numGrowable = layout.growableRows(Axis::Vertical);
-                float share = availableHeight / float(numGrowable);
-
-                // When there's no more space or no more growable elements
-                if (!numGrowable || availableHeight < 0.01) {
-                    break;
-                }
-
-                for (Row& row : layout.rows) {
-                    float take = row.size.h.grow(share);
-                    layout.size.h.val += take;
-                    availableHeight -= take;
-                }
-            }
-
-            // Grow each row member (vertical)
-            //--------------------------------------------------
-
-            for (Row& row : layout.rows) {
-                for (Element* member : row.members) {
-                    
-                    Element& elem = *member;
-
-                    float availableElemHeight = row.size.h.val - elem.res.getOuter(Axis::Vertical);
-
-                    while (true) {
-                        
-                        int numGrowable = elem.res.canGrow(Axis::Vertical);
-                        float share = availableElemHeight / float(numGrowable);
-
-                        if (!numGrowable || availableElemHeight < 0.01) {
-                            break;
-                        }
-                        
-                        float take = elem.res.grow(share, Axis::Vertical);
-                        availableElemHeight -= take;
-                    }
-                }
-            }
-        }
-
-        void remeasureLayout() {
-
-            // Requires children
-            if (children.empty()) {
-                return;
-            }
-
-            layout.size.w.val = 0;
-            layout.size.h.val = 0;
-
-            for (Row& row : layout.rows) {
-                
-                row.size.w.val = 0;
-                row.size.h.val = 0;
-
-                for (Element* member : row.members) {
-                    row.size.w.val += member->res.getOuter(Axis::Horizontal);
-                    row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
-                }
-
-                layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
-                layout.size.h.val += row.size.h.val;
-            }
-        }
-
         // Reusable center function
         float center(float parent, float child, Align align) {
 
@@ -1190,6 +872,9 @@ export namespace Rev::Element {
                 row.rect.y = layout.rect.y + runningY;
 
                 float runningX = 0;
+
+                Element* first = row.members.front();
+                Element* last = row.members.back();
 
                 for (Element* member : row.members) {
 
