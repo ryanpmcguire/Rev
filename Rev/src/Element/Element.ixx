@@ -424,7 +424,8 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             Row row = Row();
-            float runningRelWidth = 0;
+            float runningRelWidth = 0.0f;
+            float runningRelHeight = 0.0f;
 
             for (Element* child : children) {
 
@@ -489,7 +490,7 @@ export namespace Rev::Element {
                 // Set child's min outer width as sum of absolute widths
                 float minAbsOuterWidth = -0.0f;
                 float minAbsLayoutWidth = child->layout.size.w.min;
-                minAbsOuterWidth = minAbsLayoutWidth + minRelPaddingWidth;
+                minAbsOuterWidth = minAbsLayoutWidth + minAbsPaddingWidth;
                 if (set(minAbsWidth)) { minAbsOuterWidth = minAbsWidth; }
                 minAbsOuterWidth += minAbsMarginWidth;
                 child->minOuterWidth = minAbsOuterWidth;
@@ -497,7 +498,7 @@ export namespace Rev::Element {
                 // Set child's min outer height as sum of absolute heights
                 float minAbsOuterHeight = -0.0f;
                 float minAbsLayoutHeight = child->layout.size.h.min;
-                minAbsOuterHeight = minAbsLayoutHeight + minRelPaddingHeight;
+                minAbsOuterHeight = minAbsLayoutHeight + minAbsPaddingHeight;
                 if (set(minAbsHeight)) { minAbsOuterHeight = minAbsHeight; }
                 minAbsOuterHeight += minAbsMarginHeight;
                 child->minOuterHeight = minAbsOuterHeight;
@@ -505,9 +506,15 @@ export namespace Rev::Element {
                 // Calculate added relative width and and wrap
                 //--------------------------------------------------
                 
+                // Adjust absolute width to be relative to max inner width
                 if (set(minAbsWidth)) { minRelWidth += minAbsWidth / maxInnerWidth; }
                 if (set(minAbsPaddingWidth)) { minRelPaddingWidth += minAbsPaddingWidth / maxInnerWidth; }
                 if (set(minAbsMarginWidth)) { minRelMarginWidth += minAbsMarginWidth / maxInnerWidth; }
+
+                // Adjust absolute height to be relative to max inner width
+                if (set(minAbsHeight)) { minRelHeight += minAbsHeight / maxInnerHeight; }
+                if (set(minAbsPaddingHeight)) { minRelPaddingHeight += minAbsPaddingHeight / maxInnerHeight; }
+                if (set(minAbsMarginHeight)) { minRelMarginHeight += minAbsMarginHeight / maxInnerHeight; }
 
                 float minRelOuterWidth = -0.0f;
                 float minRelLayoutWidth = child->layout.size.w.min / maxInnerWidth;
@@ -517,6 +524,18 @@ export namespace Rev::Element {
                 if (set(minRelWidth)) { minRelOuterWidth = minRelWidth; }
                 minRelOuterWidth += minRelMarginWidth;
                 float additionalRelWidth = minRelOuterWidth;
+
+                
+                float minRelOuterHeight = -0.0f;
+                float minRelLayoutHeight = child->layout.size.w.min / maxInnerHeight;
+
+                // Default is to accomodate children (and pad)
+                minRelOuterHeight = minRelLayoutHeight + minRelPaddingHeight;
+                if (set(minRelHeight)) { minRelOuterHeight = minRelHeight; }
+                minRelOuterHeight += minRelMarginHeight;
+                float additionalRelHeight = minRelOuterHeight;
+
+
 
                 // Should we create a new row, or are we add more?
                 // (In other words, have we exceeded the maximum inner width)
@@ -606,13 +625,7 @@ export namespace Rev::Element {
 
             innerWidth = 0;
             innerHeight = 0;
-
-            // Resolve own padding (needed for fit)
-            res.pad.l.val = res.pad.l.min = computed.style.padding.left.val;
-            res.pad.r.val = res.pad.r.min = computed.style.padding.right.val;
-            res.pad.t.val = res.pad.t.min = computed.style.padding.top.val;
-            res.pad.b.val = res.pad.b.min = computed.style.padding.bottom.val;
-
+            
             if (parent == this) {
                 res.size.w.val = computed.style.size.width.val;
                 res.size.h.val = computed.style.size.height.val;
@@ -620,6 +633,29 @@ export namespace Rev::Element {
 
             innerWidth = res.size.w.val;
             innerHeight = res.size.h.val;
+
+            // Resolve own padding (needed for fit)
+            //--------------------------------------------------
+            
+            res.pad.l.val = res.pad.l.min = computed.style.padding.left.val;
+            res.pad.r.val = res.pad.r.min = computed.style.padding.right.val;
+            res.pad.t.val = res.pad.t.min = computed.style.padding.top.val;
+            res.pad.b.val = res.pad.b.min = computed.style.padding.bottom.val;
+
+            LrtbStyle& padding = computed.style.padding;
+
+            
+            if (padding.left.type == Dist::Type::Abs) { res.pad.l.min = res.pad.l.val = padding.left.val; }
+            else if (padding.left.type == Dist::Type::Rel) { res.pad.l.min = res.pad.l.val = padding.left.val * res.size.w.val; }
+
+            if (padding.right.type == Dist::Type::Abs) { res.pad.r.min = res.pad.r.val = padding.right.val; }
+            else if (padding.right.type == Dist::Type::Rel) { res.pad.r.min = res.pad.r.val = padding.right.val * res.size.w.val; }
+
+            if (padding.minLeft.type == Dist::Type::Abs) { res.pad.l.min = padding.minLeft.val; }
+            else if (padding.minLeft.type == Dist::Type::Rel) { res.pad.l.min = padding.minLeft.val * res.size.w.val; }
+
+            if (padding.minRight.type == Dist::Type::Abs) { res.pad.r.min = padding.minRight.val; }
+            else if (padding.minRight.type == Dist::Type::Rel) { res.pad.r.min = padding.minRight.val * res.size.w.val; }
 
             innerWidth -= res.pad.l.val + res.pad.r.val;
             innerHeight -= res.pad.t.val + res.pad.b.val;
@@ -634,12 +670,13 @@ export namespace Rev::Element {
                 Element& child = *pChild;
                 Size& cSize = child.computed.style.size;
                 LrtbStyle& cMargin = child.computed.style.margin;
+                LrtbStyle& cPadding = child.computed.style.padding;
                 Dist& cWidth = cSize.width;
                 Dist& cHeight = cSize.height;
 
                 // Resolve nominal
-                if (cSize.width) { child.res.size.w.val = cSize.width.resolve(innerWidth); }
-                if (cSize.height) { child.res.size.h.val = cSize.height.resolve(innerHeight); }
+                if (cSize.width) { child.res.size.w.val = child.res.size.w.min = cSize.width.resolve(innerWidth); }
+                if (cSize.height) { child.res.size.h.val = child.res.size.w.min = cSize.height.resolve(innerHeight); }
 
                 // Resolve min
                 if (cSize.minWidth) { child.res.size.w.min = cSize.minWidth.resolve(innerWidth); }
@@ -653,15 +690,27 @@ export namespace Rev::Element {
                 if (cSize.width.type == Dist::Type::Grow && !set(child.res.size.w.max)) { child.res.size.w.max = innerWidth; }
                 if (cSize.height.type == Dist::Type::Grow && !set(child.res.size.h.max)) { child.res.size.h.max = innerHeight; }
 
-                // If no set val/max, get from min
-                if (!set(child.res.size.w.val) && child.res.size.w.val < child.res.size.w.min) { child.res.size.w.val = child.res.size.w.min; }
-                if (!set(child.res.size.h.val) && child.res.size.h.val < child.res.size.h.min) { child.res.size.h.val = child.res.size.h.min; }
-
                 // Resolve child margin
                 child.res.mar.l.val = child.res.mar.l.min = cMargin.left.val;
                 child.res.mar.r.val = child.res.mar.r.min = cMargin.right.val;
                 child.res.mar.t.val = child.res.mar.t.min = cMargin.top.val;
                 child.res.mar.b.val = child.res.mar.b.min = cMargin.bottom.val;
+
+                // Resolve child padding
+                child.res.pad.l.val = child.res.pad.l.min = cPadding.left.val;
+                child.res.pad.r.val = child.res.pad.r.min = cPadding.right.val;
+                child.res.pad.t.val = child.res.pad.t.min = cPadding.top.val;
+                child.res.pad.b.val = child.res.pad.b.min = cPadding.bottom.val;
+
+                float minWidthFromPadding = child.res.pad.l.min + child.res.pad.r.min;
+                float minHeightFromPadding = child.res.pad.t.min + child.res.pad.b.min;
+
+                if (!set(child.res.size.w.min)) { child.res.size.w.min = minWidthFromPadding; }
+                if (!set(child.res.size.h.min)) { child.res.size.h.min = minHeightFromPadding; }
+
+                // If no set val, get from min
+                if (!set(child.res.size.w.val)) { child.res.size.w.val = child.res.size.w.min; }
+                if (!set(child.res.size.h.val)) { child.res.size.h.val = child.res.size.h.min; }
 
                 bool test = true;
             }

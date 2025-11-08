@@ -30,11 +30,11 @@ export namespace HelloWorld {
             this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
             this->style->background.color = rgba(1, 0, 0, 0.1);
             this->style->size = { .width = 100_pct, .height = 100_pct };
-            //this->style->padding = { 40_px, 40_px, 40_px, 40_px };
+            this->style->padding = { 40_px, 40_px, 40_px, 40_px };
 
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
-                .alignment = { Axis::Horizontal, Align::Center, Align::Center },
+                .alignment = { Axis::Vertical, Align::Center, Align::Center },
                 .size = { .width = Grow(), .height = Grow() },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },

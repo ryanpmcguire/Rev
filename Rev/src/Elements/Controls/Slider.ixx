@@ -92,15 +92,16 @@ export namespace Rev::Element {
             float def = 0.5;
             float val = 1.0;
 
-            SliderData() {
-
-            }
+            SliderData() {}
         };
 
         SliderData data;
 
         // Create
         Slider(Element* parent, SliderData sliderData = SliderData(), StyleList styles = {}, std::string name = "Slider") : Box(parent, styles, name) {
+
+
+            // Structure
 
             // Self
             this->data = sliderData;
@@ -117,22 +118,25 @@ export namespace Rev::Element {
                 // SliderContainer
                 sliderContainer = new Box(this, { &Styles::Slider, &Styles::SliderHover }, "SliderContainer");
 
-                    // Set new value on click
-                    sliderContainer->onMouseDown([this] (Event& e) {
-                        float newVal = posToVal(e.mouse.pos);
-                        if (setVal(newVal)) { refresh(e); }
-                    });
-
-                    // Set value on drag
-                    sliderContainer->onDrag([this] (Event& e) {
-                        float newVal = posToVal(e.mouse.pos);
-                        if (setVal(newVal)) { refresh(e); }
-                    });
-
                     // Track
                     track = new Box(sliderContainer, { &Styles::Track }, "Track");
                         thumbContainer = new Element(track, { &Styles::ThumbContainer}, "Container");
                             thumb = new Box(thumbContainer, { &Styles::Thumb, &Styles::ThumbHover }, "Thumb");
+
+            // Handle dragging
+            //--------------------------------------------------
+
+            // Set new value on click
+            sliderContainer->onMouseDown([this] (Event& e) {
+                float newVal = posToVal(e.mouse.pos);
+                if (setVal(newVal)) { refresh(e); }
+            });
+
+            // Set value on drag
+            sliderContainer->onDrag([this] (Event& e) {
+                float newVal = posToVal(e.mouse.pos);
+                if (setVal(newVal)) { refresh(e); }
+            });
         }
 
         bool setVal(float newVal) {
@@ -153,11 +157,6 @@ export namespace Rev::Element {
             track->style->padding.left = Pct(100.0f * pctVal);
         
             Box::computeStyle(e);
-        }
-
-        void computePrimitives(Event& e) override {
-
-            Box::computePrimitives(e);
         }
     };
 };
