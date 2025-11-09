@@ -37,7 +37,7 @@ export namespace HelloWorld {
                 .alignment = { Axis::Horizontal, Align::Center, Align::Center },
                 .size = { .width = Grow(), .height = Grow() },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
-                .padding = { 100_px, 100_px, 10_px, 10_px },
+                .padding = { 10_px, 10_px, 10_px, 10_px },
                 .background { .color = rgba(0, 0, 0, 0.05) },
                 .border = { .radius = 10_px },
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }

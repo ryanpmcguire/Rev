@@ -394,6 +394,12 @@ export namespace Rev::Element {
             maxInnerWidth = parent->maxInnerWidth - minMarginWidth;
             maxInnerHeight = parent->maxInnerHeight - minMarginHeight;
 
+            // Subtract all sibling minimum outer widths
+            for (Element* sibling : parent->children) {
+                if (sibling == this) { continue; }
+                maxInnerHeight -= sibling->minOuterHeight;
+            }
+
             // If we have an actual size, we set that as the new maximum
             if (set(maxWidth)) { maxInnerWidth = maxWidth; }
             if (set(maxHeight)) { maxInnerHeight = maxHeight; }
@@ -527,6 +533,8 @@ export namespace Rev::Element {
                 float additionalRelSpace = -0.0f;
                 if (computed.style.alignment.direction == Axis::Vertical) { additionalRelSpace = additionalRelHeight; }
                 else { additionalRelSpace = additionalRelWidth; }
+
+                bool test = true;
 
                 // Should we create a new row, or are we add more?
                 // (In other words, have we exceeded the maximum inner width)
@@ -911,18 +919,40 @@ export namespace Rev::Element {
             layout.size.w.val = -0.0f;
             layout.size.h.val = -0.0f;
 
-            for (Row& row : layout.rows) {
+            if (computed.style.alignment.direction == Axis::Vertical) {
 
-                row.size.w.val = -0.0f;
-                row.size.h.val = -0.0f;
+                // Measure val
+                for (Row& row : layout.rows) {
 
-                for (Element* member : row.members) {
-                    row.size.w.val += member->res.getOuter(Axis::Horizontal);
-                    row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                    row.size.w.val = -0.0f;
+                    row.size.h.val = -0.0f;
+
+                    for (Element* member : row.members) {
+                        row.size.w.val = std::max(row.size.w.val, member->res.getOuter(Axis::Horizontal));
+                        row.size.h.val += member->res.getOuter(Axis::Vertical);
+                    }
+
+                    layout.size.w.val += row.size.w.val;
+                    layout.size.h.val = std::max(layout.size.h.val, row.size.h.val);
                 }
+            }
 
-                layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
-                layout.size.h.val += row.size.h.val;
+            else {
+
+                // Measure val
+                for (Row& row : layout.rows) {
+
+                    row.size.w.val = -0.0f;
+                    row.size.h.val = -0.0f;
+
+                    for (Element* member : row.members) {
+                        row.size.w.val += member->res.getOuter(Axis::Horizontal);
+                        row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                    }
+
+                    layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
+                    layout.size.h.val += row.size.h.val;
+                }
             }
 
             bool test = true;
