@@ -23,7 +23,7 @@ export namespace Rev::Element {
         Style Dropdown = {
             .alignment = { Axis::Vertical, Align::Start, Align::Center },
             .size = { .width = Grow() },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
+            .margin = { 100_px, 100_px, 4_px, 4_px },
             .padding = { 6_px, 6_px, 6_px, 6_px },
             .background = { .color = rgba(0, 0, 0, 0.1), .transition = 0.1_sec },
             .border = { .radius = 4_px }
@@ -37,12 +37,12 @@ export namespace Rev::Element {
 
             Style OptionsContainer {
                 .alignment = { Axis::Vertical },
-                .size = { .width = 100_pct },
+                //.size = { .width = 100_pct },
                 .background = { .color = rgba(0, 0, 0, 0.05) }
             };
 
                 Style Option {
-                    .size = { .width = 100_pct },
+                    //.size = { .width = 100_pct },
                     .padding = { .top = 4_px, .bottom = 4_px },
                     .border = { .bottom = { .color = rgba(0, 0, 0, 0.2), .width = 1_px } },
                     .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },

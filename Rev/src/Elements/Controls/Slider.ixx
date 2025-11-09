@@ -21,7 +21,7 @@ export namespace Rev::Element {
         
         Style Self = {
             .size = { .width = Grow(), .minWidth = 100_px },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
+            .margin = { 40_px, 40_px, 4_px, 4_px },
         };
 
             Style TextContainer = {
@@ -52,7 +52,7 @@ export namespace Rev::Element {
 
             Style Track = {
                 .alignment = { Axis::Vertical, Align::Start, Align::Center, Break::True },
-                .size = { .width = 100_pct, .height = 2_px, .minWidth = 100_px },
+                .size = { .width = 100_pct, .height = 2_px },
                 .background = { .color = rgba(0, 0, 0, 0.25) },
             };
 
