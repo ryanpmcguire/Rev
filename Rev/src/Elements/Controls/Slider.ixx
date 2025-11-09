@@ -21,7 +21,7 @@ export namespace Rev::Element {
         
         Style Self = {
             .size = { .width = Grow(), .minWidth = 100_px },
-            .margin = { 40_px, 40_px, 4_px, 4_px },
+            .margin = { 4_px, 4_px, 4_px, 4_px },
         };
 
             Style TextContainer = {
@@ -38,7 +38,7 @@ export namespace Rev::Element {
                 };
 
             Style Slider = {
-                .alignment = { Axis::Vertical, Align::Start, Align::Center },
+                .alignment = { Axis::Horizontal, Align::Start, Align::Center },
                 .size = { .width = Grow() },
                 .padding = { 6_px, 6_px, 6_px, 6_px },
                 .background = { .color = rgba(0, 0, 0, 0.1), .transition = 0.1_sec },
@@ -51,13 +51,13 @@ export namespace Rev::Element {
                 };
 
             Style Track = {
-                .alignment = { Axis::Vertical, Align::Start, Align::Center, Break::True },
+                .alignment = { Axis::Horizontal, Align::Start, Align::Center, Break::True },
                 .size = { .width = 100_pct, .height = 2_px },
                 .background = { .color = rgba(0, 0, 0, 0.25) },
             };
 
                 Style ThumbContainer = {
-                    .alignment = { Axis::Vertical, Align::Center, Align::Center },
+                    .alignment = { Axis::Horizontal, Align::Center, Align::Center },
                     .size = { .width = 0_px, .height = 0_px }
                 };
 

@@ -21,9 +21,9 @@ export namespace Rev::Element {
     namespace DropdownStyle::Styles {
         
         Style Dropdown = {
-            .alignment = { Axis::Vertical, Align::Start, Align::Center },
+            .alignment = { Axis::Horizontal, Align::Start, Align::Center },
             .size = { .width = Grow() },
-            .margin = { 100_px, 100_px, 4_px, 4_px },
+            .margin = { 4_px, 4_px, 4_px, 4_px },
             .padding = { 6_px, 6_px, 6_px, 6_px },
             .background = { .color = rgba(0, 0, 0, 0.1), .transition = 0.1_sec },
             .border = { .radius = 4_px }
