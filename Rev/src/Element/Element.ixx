@@ -415,8 +415,7 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             Row row = Row();
-            float runningRelWidth = 0.0f;
-            float runningRelHeight = 0.0f;
+            float runningRelSpace = 0.0f;
 
             for (Element* child : children) {
 
@@ -525,17 +524,21 @@ export namespace Rev::Element {
                 minRelOuterHeight += minRelMarginHeight;
                 float additionalRelHeight = minRelOuterHeight;
 
+                float additionalRelSpace = -0.0f;
+                if (computed.style.alignment.direction == Axis::Vertical) { additionalRelSpace = additionalRelHeight; }
+                else { additionalRelSpace = additionalRelWidth; }
+
                 // Should we create a new row, or are we add more?
                 // (In other words, have we exceeded the maximum inner width)
-                if (!row.members.empty() && (runningRelWidth + additionalRelWidth > 1.0)) {
+                if (!row.members.empty() && (runningRelSpace + additionalRelSpace > 1.0)) {
                     
                     // Push back, create new row
                     layout.rows.push_back(row);
                     row = Row();
-                    runningRelWidth = 0;
+                    runningRelSpace = 0;
                 }
 
-                runningRelWidth += additionalRelWidth;
+                runningRelSpace += additionalRelSpace;
 
                 row.members.push_back(child);
             }
@@ -554,16 +557,34 @@ export namespace Rev::Element {
             // Measure layout val/min
             //--------------------------------------------------
 
-            for (Row& row : layout.rows) {
+            if (computed.style.alignment.direction == Axis::Vertical) {
+            
+                for (Row& row : layout.rows) {
 
-                for (Element* member : row.members) {
+                    for (Element* member : row.members) {
+    
+                        row.size.w.min = std::max(row.size.w.min, member->minOuterWidth);
+                        row.size.h.min += member->minOuterHeight;
+                    }
 
-                    row.size.w.min += member->minOuterWidth;
-                    row.size.h.min = std::max(row.size.h.min, member->minOuterHeight);
+                    layout.size.w.min += row.size.w.min;
+                    layout.size.h.min = std::max(layout.size.h.min, row.size.h.min);
                 }
+            }
 
-                layout.size.w.min = std::max(layout.size.w.min, row.size.w.min);
-                layout.size.h.min += row.size.h.min;
+            else {
+
+                for (Row& row : layout.rows) {
+
+                    for (Element* member : row.members) {
+    
+                        row.size.w.min += member->minOuterWidth;
+                        row.size.h.min = std::max(row.size.h.min, member->minOuterHeight);
+                    }
+    
+                    layout.size.w.min = std::max(layout.size.w.min, row.size.w.min);
+                    layout.size.h.min += row.size.h.min;
+                }
             }
 
             // Adjust own minimum outer size to accomodate layout
@@ -740,28 +761,58 @@ export namespace Rev::Element {
 
             bool testb = true;
 
-            // Measure val
-            for (Row& row : layout.rows) {
+            if (computed.style.alignment.direction == Axis::Vertical) {
 
-                for (Element* member : row.members) {
-                    row.size.w.val += member->res.getOuter(Axis::Horizontal);
-                    row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                // Measure val
+                for (Row& row : layout.rows) {
+
+                    for (Element* member : row.members) {
+                        row.size.w.val = std::max(row.size.w.val, member->res.getOuter(Axis::Horizontal));
+                        row.size.h.val += member->res.getOuter(Axis::Vertical);
+                    }
+
+                    layout.size.w.val += row.size.w.val;
+                    layout.size.h.val = std::max(layout.size.h.val, row.size.h.val);
                 }
 
-                layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
-                layout.size.h.val += row.size.h.val;
+                // Measure max
+                for (Row& row : layout.rows) {
+
+                    for (Element* member : row.members) {
+                        row.size.w.max = std::max(row.size.w.max, member->res.getMaxOuter(Axis::Horizontal));
+                        row.size.h.max += member->res.getMaxOuter(Axis::Vertical);
+                    }
+
+                    layout.size.w.max += row.size.w.max;
+                    layout.size.h.max = std::max(layout.size.h.max, row.size.h.max);
+                }
             }
 
-            // Measure max
-            for (Row& row : layout.rows) {
+            else {
 
-                for (Element* member : row.members) {
-                    row.size.w.max += member->res.getMaxOuter(Axis::Horizontal);
-                    row.size.h.max = std::max(row.size.h.max, member->res.getMaxOuter(Axis::Vertical));
+                // Measure val
+                for (Row& row : layout.rows) {
+
+                    for (Element* member : row.members) {
+                        row.size.w.val += member->res.getOuter(Axis::Horizontal);
+                        row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                    }
+
+                    layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
+                    layout.size.h.val += row.size.h.val;
                 }
 
-                layout.size.w.max = std::max(layout.size.w.max, row.size.w.max);
-                layout.size.h.max += row.size.h.max;
+                // Measure max
+                for (Row& row : layout.rows) {
+
+                    for (Element* member : row.members) {
+                        row.size.w.max += member->res.getMaxOuter(Axis::Horizontal);
+                        row.size.h.max = std::max(row.size.h.max, member->res.getMaxOuter(Axis::Vertical));
+                    }
+
+                    layout.size.w.max = std::max(layout.size.w.max, row.size.w.max);
+                    layout.size.h.max += row.size.h.max;
+                }
             }
 
             // Clamp layout
@@ -908,7 +959,6 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             // Resolve layout dimensions
-            //layout.size.clamp();
             layout.rect.w = layout.size.w.val;
             layout.rect.h = layout.size.h.val;
 
@@ -942,38 +992,78 @@ export namespace Rev::Element {
             layout.rect.x = rect.x + layoutOffsetX;
             layout.rect.y = rect.y + layoutOffsetY;
 
-            float runningY = 0;
-
-            // Position rows
-            for (Row& row : layout.rows) {
-
-                float rowOffsetX = center(layout.rect.w, row.rect.w, rStyle.alignment.horizontal);
-                
-                row.rect.x = layout.rect.x + rowOffsetX;
-                row.rect.y = layout.rect.y + runningY;
+            if (computed.style.alignment.direction == Axis::Vertical) {
 
                 float runningX = 0;
 
-                Element* first = row.members.front();
-                Element* last = row.members.back();
+                // Position rows
+                for (Row& row : layout.rows) {
 
-                for (Element* member : row.members) {
+                    float rowOffsetY = center(layout.rect.h, row.rect.h, rStyle.alignment.vertical);
+                    
+                    row.rect.x = layout.rect.x + runningX;
+                    row.rect.y = layout.rect.y + rowOffsetY;
 
-                    member->rect.x = member->res.mar.l.val + row.rect.x + runningX;
-                    member->rect.y = member->res.mar.t.val + row.rect.y;
+                    float runningY = 0;
 
-                    runningX += member->rect.w + member->res.mar.l.val + member->res.mar.r.val;
+                    Element* first = row.members.front();
+                    Element* last = row.members.back();
 
-                    // Apply relative positions
-                    //--------------------------------------------------
+                    for (Element* member : row.members) {
 
-                    if (member->res.pos.l.val != -0.0f) { member->rect.x += member->res.pos.l.val; }
-                    if (member->res.pos.r.val != -0.0f) { member->rect.x += member->res.pos.r.val; }
-                    if (member->res.pos.t.val != -0.0f) { member->rect.y += member->res.pos.t.val; }
-                    if (member->res.pos.b.val != -0.0f) { member->rect.y += member->res.pos.b.val; }
+                        member->rect.x = member->res.mar.l.val + row.rect.x;
+                        member->rect.y = member->res.mar.t.val + row.rect.y + runningY;
+
+                        runningY += member->rect.h + member->res.mar.t.val + member->res.mar.b.val;
+
+                        // Apply relative positions
+                        //--------------------------------------------------
+
+                        if (member->res.pos.l.val != -0.0f) { member->rect.x += member->res.pos.l.val; }
+                        if (member->res.pos.r.val != -0.0f) { member->rect.x += member->res.pos.r.val; }
+                        if (member->res.pos.t.val != -0.0f) { member->rect.y += member->res.pos.t.val; }
+                        if (member->res.pos.b.val != -0.0f) { member->rect.y += member->res.pos.b.val; }
+                    }
+
+                    runningX += row.rect.w;
                 }
+            }
 
-                runningY += row.rect.h;
+            else {
+
+                float runningY = 0;
+
+                // Position rows
+                for (Row& row : layout.rows) {
+
+                    float rowOffsetX = center(layout.rect.w, row.rect.w, rStyle.alignment.horizontal);
+                    
+                    row.rect.x = layout.rect.x + rowOffsetX;
+                    row.rect.y = layout.rect.y + runningY;
+
+                    float runningX = 0;
+
+                    Element* first = row.members.front();
+                    Element* last = row.members.back();
+
+                    for (Element* member : row.members) {
+
+                        member->rect.x = member->res.mar.l.val + row.rect.x + runningX;
+                        member->rect.y = member->res.mar.t.val + row.rect.y;
+
+                        runningX += member->rect.w + member->res.mar.l.val + member->res.mar.r.val;
+
+                        // Apply relative positions
+                        //--------------------------------------------------
+
+                        if (member->res.pos.l.val != -0.0f) { member->rect.x += member->res.pos.l.val; }
+                        if (member->res.pos.r.val != -0.0f) { member->rect.x += member->res.pos.r.val; }
+                        if (member->res.pos.t.val != -0.0f) { member->rect.y += member->res.pos.t.val; }
+                        if (member->res.pos.b.val != -0.0f) { member->rect.y += member->res.pos.b.val; }
+                    }
+
+                    runningY += row.rect.h;
+                }
             }
         }
 

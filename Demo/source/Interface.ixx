@@ -34,7 +34,7 @@ export namespace HelloWorld {
 
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
-                .alignment = { Axis::Vertical, Align::Center, Align::Center },
+                .alignment = { Axis::Horizontal, Align::Center, Align::Center },
                 .size = { .width = Grow(), .height = Grow() },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 100_px, 100_px, 10_px, 10_px },
