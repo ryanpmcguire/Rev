@@ -60,10 +60,11 @@ export namespace HelloWorld {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
                 }
+                
+                Dropdown* dropdown = new Dropdown(greyBox);
+                Dropdown* dropdown1 = new Dropdown(greyBox);
 
                 Slider* slider = new Slider(greyBox);
-
-                Dropdown* dropdown = new Dropdown(greyBox);
         }
 
         // Destroy

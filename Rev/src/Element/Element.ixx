@@ -265,77 +265,135 @@ export namespace Rev::Element {
         // New layout
         //--------------------------------------------------
 
-        float minOuterWidth;
-        float minOuterHeight;
+        float minWidth, minHeight;
 
-        float minInnerWidth;
-        float minInnerHeight;
+        float minMarginWidth, minMarginHeight;
+        float minPaddingWidth, minPaddingHeight;
+
+        float minOuterWidth, minOuterHeight;
+        float minInnerWidth, minInnerHeight;
+
+        float getMinSize(Axis axis, Dist::Type type) {
+
+            // Choose axis, prefer minimum if matching type
+            Dist& minDist = (axis == Axis::Horizontal) ? computed.style.size.minWidth : computed.style.size.minHeight;
+            Dist& nomDist = (axis == Axis::Horizontal) ? computed.style.size.width : computed.style.size.height;
+            Dist& dist = (minDist.type == type) ? minDist : nomDist;
+
+            // Return only if type matches
+            if (dist.type == type) { return dist.val; }
+            else { return -0.0f; }
+        }
+
+        float getMaxSize(Axis axis, Dist::Type type) {
+
+            // Choose axis, prefer minimum if matching type
+            Dist& maxDist = (axis == Axis::Horizontal) ? computed.style.size.maxWidth : computed.style.size.maxHeight;
+            Dist& nomDist = (axis == Axis::Horizontal) ? computed.style.size.width : computed.style.size.height;
+            Dist& dist = (maxDist.type == type) ? maxDist : nomDist;
+
+            // Return only if type matches
+            if (dist.type == type) { return dist.val; }
+            else { return -0.0f; }
+        }
+
+        float getMinPadding(Axis axis, Dist::Type type) {
+
+            float min = -0.0f;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minA = (axis == Axis::Horizontal) ? computed.style.padding.minLeft : computed.style.padding.minTop;
+            Dist& nomA = (axis == Axis::Horizontal) ? computed.style.padding.left : computed.style.padding.top;
+            Dist& a = (minA.type == type) ? minA : nomA;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minB = (axis == Axis::Horizontal) ? computed.style.padding.minRight : computed.style.padding.minBottom;
+            Dist& nomB = (axis == Axis::Horizontal) ? computed.style.padding.right : computed.style.padding.bottom;
+            Dist& b = (minB.type == type) ? minB : nomB;
+
+            // Dimensions contribute only if matching type
+            if (a.type == type) { min += a.val; }
+            if (b.type == type) { min += b.val; }
+
+            return min;
+        }
+
+        float getMinMargin(Axis axis, Dist::Type type) {
+
+            float min = -0.0f;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minA = (axis == Axis::Horizontal) ? computed.style.margin.minLeft : computed.style.margin.minTop;
+            Dist& nomA = (axis == Axis::Horizontal) ? computed.style.margin.left : computed.style.margin.top;
+            Dist& a = (minA.type == type) ? minA : nomA;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minB = (axis == Axis::Horizontal) ? computed.style.margin.minRight : computed.style.margin.minBottom;
+            Dist& nomB = (axis == Axis::Horizontal) ? computed.style.margin.right : computed.style.margin.bottom;
+            Dist& b = (minB.type == type) ? minB : nomB;
+
+            // Dimensions contribute only if matching type
+            if (a.type == type) { min += a.val; }
+            if (b.type == type) { min += b.val; }
+
+            return min;
+        }
 
         void resolveMinimaNew() {
 
-            minInnerWidth = -0.0f;
-            minInnerWidth = -0.0f;
+            // Reset all
+            minWidth = minHeight = -0.0f;
+            minMarginWidth = minMarginHeight = -0.0f;
+            minPaddingWidth = minPaddingHeight = -0.0f;
+            minOuterWidth = minOuterHeight = -0.0f;
+            minInnerWidth = minInnerHeight = -0.0f;
 
-            float maxOfMinChildOuterWidths = -0.0f;
-            float maxOfMinChildOuterHeights = -0.0f;
-
-            for (Element* child : children) {
-
-                maxOfMinChildOuterWidths = std::max(maxOfMinChildOuterWidths, child->minOuterWidth);
-                maxOfMinChildOuterHeights = std::max(maxOfMinChildOuterHeights, child->minOuterHeight);
-            }
-
-            // Calculate true theoretical minimum inner width
+            // Get from style
             //--------------------------------------------------
 
-            Size& size = computed.style.size;
-            LrtbStyle& padding = computed.style.padding;
-            LrtbStyle& margin = computed.style.margin;
+            minWidth = this->getMinSize(Axis::Horizontal, Dist::Type::Abs);
+            minHeight = this->getMinSize(Axis::Vertical, Dist::Type::Abs);
 
-            float minAbsWidth = -0.0f;
-            if (size.width.type == Dist::Type::Abs) { minAbsWidth = size.width.val; }
-            if (size.minWidth.type == Dist::Type::Abs) { minAbsWidth = size.minWidth.val; }
-            
-            float minAbsHeight = -0.0f;
-            if (size.height.type == Dist::Type::Abs) { minAbsHeight = size.height.val; }
-            if (size.minHeight.type == Dist::Type::Abs) { minAbsHeight = size.minHeight.val; }
+            minPaddingWidth = this->getMinPadding(Axis::Horizontal, Dist::Type::Abs);
+            minPaddingHeight = this->getMinPadding(Axis::Vertical, Dist::Type::Abs);
 
-            float minAbsPaddingWidth = -0.0f;
-            if (padding.left.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.left.val; }
-            if (padding.right.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.right.val; }
+            minMarginWidth = this->getMinMargin(Axis::Horizontal, Dist::Type::Abs);
+            minMarginHeight = this->getMinMargin(Axis::Vertical, Dist::Type::Abs);
 
-            float minAbsPaddingHeight = -0.0f;
-            if (padding.top.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.top.val; }
-            if (padding.bottom.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.bottom.val; }
+            // Infer from self (or children if necessary)
+            //--------------------------------------------------
 
-            float minAbsMarginWidth = -0.0f;
-            if (margin.left.type == Dist::Type::Abs) { minAbsMarginWidth += margin.left.val; }
-            if (margin.right.type == Dist::Type::Abs) { minAbsMarginWidth += margin.right.val; }
+            if (set(minWidth)) {
+                minInnerWidth = minWidth - minPaddingWidth;
+                minOuterWidth = minWidth + minMarginWidth;
+            }
 
-            float minAbsMarginHeight = -0.0f;
-            if (margin.top.type == Dist::Type::Abs) { minAbsMarginHeight += margin.top.val; }
-            if (margin.bottom.type == Dist::Type::Abs) { minAbsMarginHeight += margin.bottom.val; }
+            else {
 
-            // Calc min inner
-            minInnerWidth = maxOfMinChildOuterWidths;
-            minInnerHeight = maxOfMinChildOuterHeights;
+                float maxOfMin = -0.0f;
+                for (Element* c : children) { maxOfMin = std::max(maxOfMin, c->minOuterWidth); }
+                
+                minInnerWidth = maxOfMin;
+                minOuterWidth = maxOfMin + minPaddingWidth + minMarginWidth;
+            }
 
-            if (set(minAbsWidth)) { minInnerWidth = minAbsWidth - minAbsPaddingWidth; }
-            if (set(minAbsHeight)) { minInnerHeight = minAbsHeight - minAbsPaddingHeight; }
+            if (set(minHeight)) {
+                minInnerHeight = minHeight - minPaddingHeight;
+                minOuterHeight = minHeight + minMarginHeight;
+            }
 
-            // Calc min outer
-            minOuterWidth = maxOfMinChildOuterWidths + minAbsPaddingWidth;
-            minOuterHeight = maxOfMinChildOuterHeights + minAbsPaddingHeight;
+            else {
 
-            if (set(minAbsWidth)) { minOuterWidth = minAbsWidth; }
-            if (set(minAbsHeight)) { minOuterHeight = minAbsHeight; }
+                float maxOfMin = -0.0f;
+                for (Element* c : children) { maxOfMin = std::max(maxOfMin, c->minOuterHeight); }
 
-            minOuterWidth += minAbsMarginWidth;
-            minOuterHeight += minAbsMarginHeight;
+                minInnerHeight = maxOfMin;
+                minOuterHeight = maxOfMin + minPaddingHeight + minMarginHeight;
+            }
         }
 
-        float maxInnerWidth;
-        float maxInnerHeight;
+        float maxWidth, maxHeight;
+        float maxInnerWidth, maxInnerHeight;
 
         // Top down: resolve maximum feasible dimensions
         void resolveMaximaNew() {
@@ -343,70 +401,29 @@ export namespace Rev::Element {
             // MAXIMUM inner size
             maxInnerWidth = -0.0f;
             maxInnerHeight = -0.0f;
-
+        
             // Get from style
             //--------------------------------------------------
-
-            Size& size = computed.style.size;
-            LrtbStyle& padding = computed.style.padding;
-            LrtbStyle& margin = computed.style.margin;
-        
-            // Get maximum general dimensions
-            //--------------------------------------------------
             
-            float maxWidth = -0.0f;
-            float maxHeight = -0.0f;
-
-            // Get max width from max (or fall back to value)
-            if (size.maxWidth.type == Dist::Type::Abs) { maxWidth = size.maxWidth.val; }
-            else if (size.width.type == Dist::Type::Abs) { maxWidth = size.width.val; }
-
-            // Set max height from max (or fall back to value)
-            if (size.maxHeight.type == Dist::Type::Abs) { maxHeight = size.maxHeight.val; }
-            else if (size.height.type == Dist::Type::Abs) { maxHeight = size.height.val; }
-
-            // Get MINIMUM padding (padding *subtracts* from inner size)
-            //--------------------------------------------------
-
-            float minPaddingWidth = -0.0f;
-            float minPaddingHeight = -0.0f;
-
-            // Set min padding from minima (or fall back to value)
-            if (padding.maxLeft.type == Dist::Type::Abs) { minPaddingWidth += padding.maxLeft.val; }
-            else if (padding.left.type == Dist::Type::Abs) { minPaddingWidth += padding.left.val; }
-
-            if (padding.maxRight.type == Dist::Type::Abs) { minPaddingWidth += padding.maxRight.val; }
-            else if (padding.right.type == Dist::Type::Abs) { minPaddingWidth += padding.right.val; }
-
-            if (padding.maxTop.type == Dist::Type::Abs) { minPaddingHeight += padding.maxTop.val; }
-            else if (padding.top.type == Dist::Type::Abs) { minPaddingHeight += padding.top.val; }
-
-            if (padding.maxBottom.type == Dist::Type::Abs) { minPaddingHeight += padding.maxBottom.val; }
-            else if (padding.bottom.type == Dist::Type::Abs) { minPaddingHeight += padding.bottom.val; }
-            
-            float minMarginWidth = margin.left.val + margin.right.val;
-            float minMarginHeight = margin.top.val + margin.bottom.val;
+            float maxWidth = this->getMaxSize(Axis::Horizontal, Dist::Type::Abs);
+            float maxHeight = this->getMaxSize(Axis::Vertical, Dist::Type::Abs);
 
             // Infer from set values
             //--------------------------------------------------
 
-            // Default is draw from parent
-            maxInnerWidth = parent->maxInnerWidth - minMarginWidth;
-            maxInnerHeight = parent->maxInnerHeight - minMarginHeight;
+            if (set(maxWidth)) { maxInnerWidth = maxWidth - minPaddingWidth; }
+            else { maxInnerWidth = parent->maxInnerWidth - minMarginWidth - minPaddingWidth; }
 
-            // Subtract all sibling minimum outer widths
-            for (Element* sibling : parent->children) {
-                if (sibling == this) { continue; }
-                maxInnerHeight -= sibling->minOuterHeight;
+            if (set(maxHeight)) { maxInnerHeight = maxHeight - minPaddingHeight; }
+            else { maxInnerHeight = parent->maxInnerHeight - minMarginHeight - minPaddingHeight; }
+
+            // Subtract subling outer heights if no set height
+            if (!set(maxHeight)) {
+                for (Element* s : parent->children) {
+                    if (s == this) { continue; }
+                    //maxInnerHeight -= s->minOuterHeight;
+                }
             }
-
-            // If we have an actual size, we set that as the new maximum
-            if (set(maxWidth)) { maxInnerWidth = maxWidth; }
-            if (set(maxHeight)) { maxInnerHeight = maxHeight; }
-
-            // Padding always subtracts from inner width
-            maxInnerWidth -= minPaddingWidth;
-            maxInnerHeight -= minPaddingHeight;
 
             // Ensure minimum dominates (in certain circumstances)
             if (maxInnerWidth < minInnerWidth) { maxInnerWidth = minInnerWidth; }
@@ -425,60 +442,26 @@ export namespace Rev::Element {
 
             for (Element* child : children) {
 
-                Size& size = child->computed.style.size;
-                LrtbStyle& padding = child->computed.style.padding;
-                LrtbStyle& margin = child->computed.style.margin;
-
                 // Get from style
                 //--------------------------------------------------
 
-                float minAbsWidth = -0.0f;
-                if (size.width.type == Dist::Type::Abs) { minAbsWidth = size.width.val; }
-                if (size.minWidth.type == Dist::Type::Abs) { minAbsWidth = size.minWidth.val; }
+                float minRelWidth = child->getMinSize(Axis::Horizontal, Dist::Type::Rel);
+                float minRelHeight = child->getMinSize(Axis::Vertical, Dist::Type::Rel);
+
+                float minRelPaddingWidth = child->getMinPadding(Axis::Horizontal, Dist::Type::Rel);
+                float minRelPaddingHeight = child->getMinPadding(Axis::Vertical, Dist::Type::Rel);
+
+                float minRelMarginWidth = child->getMinMargin(Axis::Horizontal, Dist::Type::Rel);
+                float minRelMarginHeight = child->getMinMargin(Axis::Vertical, Dist::Type::Rel);
+
+                float minAbsWidth = child->minWidth;
+                float minAbsHeight = child->minHeight;
                 
-                float minAbsHeight = -0.0f;
-                if (size.height.type == Dist::Type::Abs) { minAbsHeight = size.height.val; }
-                if (size.minHeight.type == Dist::Type::Abs) { minAbsHeight = size.minHeight.val; }
+                float minAbsPaddingWidth = child->minPaddingWidth;
+                float minAbsPaddingHeight = child->minPaddingHeight;
 
-                float minRelWidth = -0.0f;
-                if (size.width.type == Dist::Type::Rel) { minRelWidth = size.width.val; }
-                if (size.minWidth.type == Dist::Type::Rel) { minRelWidth = size.minWidth.val; }
-
-                float minRelHeight = -0.0f;
-                if (size.height.type == Dist::Type::Rel) { minRelHeight = size.height.val; }
-                if (size.minHeight.type == Dist::Type::Rel) { minRelHeight = size.minHeight.val; }
-
-                float minAbsPaddingWidth = -0.0f;
-                if (padding.left.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.left.val; }
-                if (padding.right.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.right.val; }
-
-                float minAbsPaddingHeight = -0.0f;
-                if (padding.top.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.top.val; }
-                if (padding.bottom.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.bottom.val; }
-
-                float minRelPaddingWidth = -0.0f;
-                if (padding.left.type == Dist::Type::Rel) { minRelPaddingWidth += padding.left.val; }
-                if (padding.right.type == Dist::Type::Rel) { minRelPaddingWidth += padding.right.val ; }
-
-                float minRelPaddingHeight = -0.0f;
-                if (padding.top.type == Dist::Type::Rel) { minRelPaddingHeight += padding.top.val; }
-                if (padding.bottom.type == Dist::Type::Rel) { minRelPaddingHeight += padding.bottom.val ; }
-
-                float minAbsMarginWidth = -0.0f;
-                if (margin.right.type == Dist::Type::Abs) { minAbsMarginWidth += margin.right.val; }
-                if (margin.left.type == Dist::Type::Abs) { minAbsMarginWidth += margin.left.val; }
-
-                float minAbsMarginHeight = -0.0f;
-                if (margin.top.type == Dist::Type::Abs) { minAbsMarginHeight += margin.top.val; }
-                if (margin.bottom.type == Dist::Type::Abs) { minAbsMarginHeight += margin.bottom.val; }
-
-                float minRelMarginWidth = -0.0f;
-                if (margin.right.type == Dist::Type::Rel) { minRelMarginWidth += margin.right.val; }
-                if (margin.left.type == Dist::Type::Rel) { minRelMarginWidth += margin.left.val; }
-
-                float minRelMarginHeight = -0.0f;
-                if (margin.top.type == Dist::Type::Rel) { minRelMarginHeight += margin.top.val; }
-                if (margin.bottom.type == Dist::Type::Rel) { minRelMarginHeight += margin.bottom.val; }
+                float minAbsMarginWidth = child->minMarginWidth;
+                float minAbsMarginHeight= child->minMarginHeight;
 
                 // Infer from set values
                 //--------------------------------------------------
@@ -499,40 +482,35 @@ export namespace Rev::Element {
                 minAbsOuterHeight += minAbsMarginHeight;
                 child->minOuterHeight = minAbsOuterHeight;
 
-                // Calculate added relative width and and wrap
+                // Calculate but with size only
                 //--------------------------------------------------
+
+                bool horizontal = (computed.style.alignment.direction != Axis::Vertical);
+
+                float& maxAbsInnerSize = horizontal ? maxInnerWidth : maxInnerHeight;
+                float& minAbsLayoutSize = horizontal ? child->layout.size.w.min : child->layout.size.h.min;
+
+                float& minAbsSize = horizontal ? minAbsWidth : minAbsHeight;
+                float& minRelSize = horizontal ? minRelWidth : minRelHeight;
                 
-                // Adjust absolute width to be relative to max inner width
-                if (set(minAbsWidth)) { minRelWidth += minAbsWidth / maxInnerWidth; }
-                else { minRelWidth += (child->layout.size.w.min + minAbsPaddingWidth) / maxInnerWidth; }
-                if (set(minAbsMarginWidth)) { minRelMarginWidth += minAbsMarginWidth / maxInnerWidth; }
+                float& minAbsMargin = horizontal ? minAbsMarginWidth : minAbsMarginHeight;
+                float& minRelMargin = horizontal ? minRelMarginWidth : minRelMarginHeight;
 
-                // Adjust absolute height to be relative to max inner width
-                if (set(minAbsHeight)) { minRelHeight += minAbsHeight / maxInnerHeight; }
-                else { minRelHeight += (child->layout.size.h.min + minAbsPaddingHeight) / maxInnerHeight; }
-                if (set(minAbsMarginHeight)) { minRelMarginHeight += minAbsMarginHeight / maxInnerHeight; }
+                float& minAbsPadding = horizontal ? minAbsPaddingWidth : minAbsPaddingHeight;
+                float& minRelPadding = horizontal ? minRelPaddingWidth : minRelPaddingHeight;
 
-                float minRelOuterWidth = -0.0f;
-                float minRelLayoutWidth = child->layout.size.w.min / maxInnerWidth;
+                if (set(minAbsSize)) { minRelSize += minAbsSize / maxAbsInnerSize; }
+                else { minRelSize += (minAbsLayoutSize + minAbsPadding) / maxAbsInnerSize; }
+                if (set(minAbsMargin)) { minRelMargin += minAbsMargin / maxAbsInnerSize; }
 
-                // Default is to accomodate children (and pad)
-                minRelOuterWidth = minRelLayoutWidth + minRelPaddingWidth;
-                if (set(minRelWidth)) { minRelOuterWidth = minRelWidth; }
-                minRelOuterWidth += minRelMarginWidth;
-                float additionalRelWidth = minRelOuterWidth;
+                float minRelOuterSize = -0.0f;
+                float minRelLayoutSize = minAbsLayoutSize / maxAbsInnerSize;
+                
+                minRelOuterSize = minRelLayoutSize + minRelPadding;
+                if (set(minRelSize)) { minRelOuterSize = minRelSize; }
+                minRelOuterSize += minRelMargin;
 
-                float minRelOuterHeight = -0.0f;
-                float minRelLayoutHeight = child->layout.size.w.min / maxInnerHeight;
-
-                // Default is to accomodate children (and pad)
-                minRelOuterHeight = minRelLayoutHeight + minRelPaddingHeight;
-                if (set(minRelHeight)) { minRelOuterHeight = minRelHeight; }
-                minRelOuterHeight += minRelMarginHeight;
-                float additionalRelHeight = minRelOuterHeight;
-
-                float additionalRelSpace = -0.0f;
-                if (computed.style.alignment.direction == Axis::Vertical) { additionalRelSpace = additionalRelHeight; }
-                else { additionalRelSpace = additionalRelWidth; }
+                float additionalRelSpace = minRelOuterSize;
 
                 bool test = true;
 
