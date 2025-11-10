@@ -210,25 +210,9 @@ export namespace Rev {
             for (Element* element : topDown) { element->resolveMaximaNew(); }
 
             for (Element* element : bottomUp) { element->resolveLayoutNew(); }
-
-            // Resolve dims
             for (Element* element : bottomUp) { element->promoteDimsNew(); }
+
             for (Element* element : topDown) { element->resolveDimsNew(); }
-
-            // Resolve dimensions necessary to layout
-            /*for (Element* element : topDown) { element->resolveAbs(); }
-            for (Element* element : topDown) { element->resolveRel(); }
-
-            for (Element* element : bottomUp) { element->resolveMinima(); }
-            for (Element* element : topDown) { element->resolveMaxima(); }
-            for (Element* element : bottomUp) { element->resolveLayout(); }
-
-            // Resolve flex dims and distribute space post-layout
-            for (Element* element : bottomUp) { element->promoteFlexDims(); }
-            for (Element* element : topDown) { element->resolveFlexDims(); }
-            for (Element* element : bottomUp) { element->remeasureLayout(); }*/
-
-            // Final step is to resolve rects (which includes alignment)
             for (Element* element: topDown) { element->resolveRects(); }
         }
 
@@ -259,7 +243,8 @@ export namespace Rev {
             this->calculateQueues();
 
             for (Element* element : topDown) { element->computeStyle(e); }
-         
+            for (Element* child : children) { child->cascadeStyle(); }
+
             this->calcFlexLayouts();
 
             for (Element* element : topDown) { element->computePrimitives(e); }
@@ -274,7 +259,9 @@ export namespace Rev {
 
             for (Element* element : topDown) {
 
+                // Ignore self and hidden elements
                 if (element == this) { continue; }
+                if (element->computed.style.visibility == Visibility::Hidden) { continue; }
 
                 Graphics::Canvas& canvas = *(shared->canvas);
                 std::vector<Element*>& stencilStack = shared->stencilStack;

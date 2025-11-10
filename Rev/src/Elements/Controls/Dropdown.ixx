@@ -36,13 +36,12 @@ export namespace Rev::Element {
             };
 
             Style OptionsContainer {
+                .visibility = Visibility::Hidden,
                 .alignment = { Axis::Vertical },
-                //.size = { .width = 100_pct },
                 .background = { .color = rgba(0, 0, 0, 0.05) }
             };
 
                 Style Option {
-                    //.size = { .width = 100_pct },
                     .padding = { .top = 4_px, .bottom = 4_px },
                     .border = { .bottom = { .color = rgba(0, 0, 0, 0.2), .width = 1_px } },
                     .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },

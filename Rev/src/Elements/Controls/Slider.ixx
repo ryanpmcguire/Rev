@@ -51,7 +51,7 @@ export namespace Rev::Element {
                 };
 
             Style Track = {
-                .alignment = { Axis::Horizontal, Align::Start, Align::Center, Break::True },
+                .alignment = { Axis::Horizontal, Align::Start, Align::Center },
                 .size = { .width = 100_pct, .height = 2_px },
                 .background = { .color = rgba(0, 0, 0, 0.25) },
             };

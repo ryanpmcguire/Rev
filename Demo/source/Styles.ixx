@@ -9,5 +9,5 @@ export namespace HelloWorld {
     using namespace Rev;
     using namespace Rev::Element;
 
-    Color backgroundColor = Color(0.1, 0.1, 0.1, 1.0);
+    //Color backgroundColor = rgba(0.1, 0.1, 0.1, 1.0);
 };

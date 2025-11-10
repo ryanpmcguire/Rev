@@ -79,11 +79,12 @@ export namespace Rev::Element {
     struct Dist {
 
         enum Type {
-            None, Abs, Rel,
-            Grow, Shrink
+            Unset, Abs, Rel,
+            Grow, Shrink,
+            Inherit
         };
 
-        Type type = Type::None;
+        Type type = Type::Unset;
         float val = -0.0f;
 
         int transition = -1;
@@ -114,7 +115,7 @@ export namespace Rev::Element {
 
         // Dist is true if type is set
         explicit operator bool() {
-            return type != None;
+            return type != Unset;
         }
     };
 
@@ -182,6 +183,15 @@ export namespace Rev::Element {
 
     struct Color {
 
+        enum Type {
+            Unset,
+            Rgb,  fRgb,
+            Rgba, fRgba,
+            Hex,
+            Inherit
+        };
+
+        Type type = Unset;
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
         int transition = -1;
 
@@ -206,16 +216,16 @@ export namespace Rev::Element {
         }
 
         explicit operator bool() {
-            return (set(r) || set(g) || set(b) || set(a));
+            return (type != Unset);
         }
     };
 
     Color rgba(float r, float g, float b, float a) {
-        return { r / 255.0f, g / 255.0f, b / 255.0f, a };
+        return { Color::Type::Rgba, r / 255.0f, g / 255.0f, b / 255.0f, a };
     }
 
     Color rgb(float r, float g, float b) {
-        return { r / 255.0f, g / 255.0f, b / 255.0f, 1.0 };
+        return { Color::Type::Rgba, r / 255.0f, g / 255.0f, b / 255.0f, 1.0 };
     }
     
     // Size
@@ -329,10 +339,10 @@ export namespace Rev::Element {
         SpaceAorund, SpaceBetween
     };
 
-    enum class Break {
+    enum class Wrap {
         Unset,
-        False,
-        True
+        True,
+        False
     };
 
     struct Alignment {
@@ -340,13 +350,13 @@ export namespace Rev::Element {
         Axis direction = Axis::Unset;
         Align horizontal = Align::Unset;
         Align vertical = Align::Unset;
-        Break breakWrap = Break::Unset;
+        Wrap wrap = Wrap::Unset;
 
         inline void apply(Alignment& other) {
             if (other.direction != Axis::Unset) { direction = other.direction; }
             if (other.horizontal != Align::Unset) { horizontal = other.horizontal; }
             if (other.vertical != Align::Unset) { vertical = other.vertical; }
-            if (other.breakWrap != Break::Unset) { breakWrap = other.breakWrap; }
+            if (other.wrap != Wrap::Unset) { wrap = other.wrap; }
         }
     };
 
@@ -552,12 +562,23 @@ export namespace Rev::Element {
         ArrowsOmni
     };
 
+    // Display
+    //--------------------------------------------------
+
+    enum class Visibility {
+        Unset,
+        Visible, Hidden,
+        Inherit
+    };
+
     // Overflow
     //--------------------------------------------------
 
     enum class Overflow {
+        Unset,
         Show, Hide,
-        Scroll, ScrollH, ScrollV
+        Scroll, ScrollH, ScrollV,
+        Inherit,
     };
 
     // Applies
@@ -570,13 +591,42 @@ export namespace Rev::Element {
         bool focus = false;
     };
 
+    // Inheritance struct
+    //--------------------------------------------------
+
+    struct InheritCast {
+
+        // Cast to Color
+        [[nodiscard]] inline operator Color() const noexcept {
+            return Color{ Color::Type::Inherit, 0.0f, 0.0f, 0.0f, 0.0f, -1 };
+        }
+    
+        // Cast to Dist
+        [[nodiscard]] inline operator Dist() const noexcept {
+            return Dist{ Dist::Type::Inherit, -0.0f };
+        }
+    
+        // Cast to Visibility
+        [[nodiscard]] inline operator Visibility() const noexcept {
+            return Visibility::Inherit;
+        }
+    
+        // Cast to Overflow
+        [[nodiscard]] inline operator Overflow() const noexcept {
+            return Overflow::Inherit;
+        }
+    };
+
+    constexpr InheritCast Inherit{};
+
     // Style per-se
     //--------------------------------------------------
 
     struct Style {
 
         Applies applies;
-        Overflow overflow;
+        Visibility visibility = Visibility::Inherit;
+        Overflow overflow = Overflow::Unset;
         LrtbStyle position; bool absolute = false;
         Alignment alignment;
         Size size;
@@ -589,6 +639,11 @@ export namespace Rev::Element {
         Cursor cursor;
 
         int transition = -1; // Transition time
+
+        // Inherit from parent style if applicable
+        void inherit(Style& style) {
+            if (visibility == Visibility::Inherit) { visibility = style.visibility; }
+        }
 
         // Apply single style
         void apply(Style& style, Applies flags = {}) {
@@ -618,7 +673,8 @@ export namespace Rev::Element {
 
             // Apply transition, overflow, cursor
             if (style.transition) { transition = style.transition; }
-            if (style.overflow != Overflow::Show) { overflow = style.overflow; }
+            if (style.visibility != Visibility::Unset && style.visibility != Visibility::Inherit) { visibility = style.visibility; }
+            if (style.overflow != Overflow::Unset) { overflow = style.overflow; }
             if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
         }
 

@@ -94,6 +94,15 @@ export namespace Rev::Element {
             }
         }
 
+        void cascadeStyle() {
+
+            computed.style.inherit(parent->computed.style);
+
+            for (Element* child : children) {
+                child->cascadeStyle();
+            }
+        }
+
         // Computing
         //--------------------------------------------------
 
