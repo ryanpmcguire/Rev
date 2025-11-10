@@ -432,101 +432,61 @@ export namespace Rev::Element {
 
         void resolveLayoutNew() {
 
-            //if (children.empty()) { return; }
-
             // Wrap children
             //--------------------------------------------------
 
             Row row = Row();
-            float runningRelSpace = 0.0f;
+            float runningRelSize = 0.0f;
 
             for (Element* child : children) {
-
-                // Get from style
-                //--------------------------------------------------
-
-                float minRelWidth = child->getMinSize(Axis::Horizontal, Dist::Type::Rel);
-                float minRelHeight = child->getMinSize(Axis::Vertical, Dist::Type::Rel);
-
-                float minRelPaddingWidth = child->getMinPadding(Axis::Horizontal, Dist::Type::Rel);
-                float minRelPaddingHeight = child->getMinPadding(Axis::Vertical, Dist::Type::Rel);
-
-                float minRelMarginWidth = child->getMinMargin(Axis::Horizontal, Dist::Type::Rel);
-                float minRelMarginHeight = child->getMinMargin(Axis::Vertical, Dist::Type::Rel);
-
-                float minAbsWidth = child->minWidth;
-                float minAbsHeight = child->minHeight;
                 
-                float minAbsPaddingWidth = child->minPaddingWidth;
-                float minAbsPaddingHeight = child->minPaddingHeight;
-
-                float minAbsMarginWidth = child->minMarginWidth;
-                float minAbsMarginHeight= child->minMarginHeight;
-
-                // Infer from set values
-                //--------------------------------------------------
-
-                // Set child's min outer width as sum of absolute widths
-                float minAbsOuterWidth = -0.0f;
-                float minAbsLayoutWidth = child->layout.size.w.min;
-                minAbsOuterWidth = minAbsLayoutWidth + minAbsPaddingWidth;
-                if (set(minAbsWidth)) { minAbsOuterWidth = minAbsWidth; }
-                minAbsOuterWidth += minAbsMarginWidth;
-                child->minOuterWidth = minAbsOuterWidth;
-
-                // Set child's min outer height as sum of absolute heights
-                float minAbsOuterHeight = -0.0f;
-                float minAbsLayoutHeight = child->layout.size.h.min;
-                minAbsOuterHeight = minAbsLayoutHeight + minAbsPaddingHeight;
-                if (set(minAbsHeight)) { minAbsOuterHeight = minAbsHeight; }
-                minAbsOuterHeight += minAbsMarginHeight;
-                child->minOuterHeight = minAbsOuterHeight;
-
-                // Calculate but with size only
-                //--------------------------------------------------
-
                 bool horizontal = (computed.style.alignment.direction != Axis::Vertical);
+                Axis axis = horizontal ? Axis::Horizontal : Axis::Vertical;
+
+                // Get minimum abs/rel sizes
+                //--------------------------------------------------
 
                 float& maxAbsInnerSize = horizontal ? maxInnerWidth : maxInnerHeight;
                 float& minAbsLayoutSize = horizontal ? child->layout.size.w.min : child->layout.size.h.min;
 
-                float& minAbsSize = horizontal ? minAbsWidth : minAbsHeight;
-                float& minRelSize = horizontal ? minRelWidth : minRelHeight;
-                
-                float& minAbsMargin = horizontal ? minAbsMarginWidth : minAbsMarginHeight;
-                float& minRelMargin = horizontal ? minRelMarginWidth : minRelMarginHeight;
+                // These absolute minima were already calculated before
+                float& minAbsSize = horizontal ? child->minWidth : child->minHeight;
+                float& minAbsMargin = horizontal ? child->minMarginWidth : child->minMarginHeight;
+                float& minAbsPadding = horizontal ? child->minPaddingWidth : child->minPaddingHeight;
 
-                float& minAbsPadding = horizontal ? minAbsPaddingWidth : minAbsPaddingHeight;
-                float& minRelPadding = horizontal ? minRelPaddingWidth : minRelPaddingHeight;
+                // We directly get the proportional values
+                float minRelSize = child->getMinSize(axis, Dist::Type::Rel);
+                float minRelMargin = child->getMinMargin(axis, Dist::Type::Rel);
+                float minRelPadding = child->getMinPadding(axis, Dist::Type::Rel); 
 
-                if (set(minAbsSize)) { minRelSize += minAbsSize / maxAbsInnerSize; }
-                else { minRelSize += (minAbsLayoutSize + minAbsPadding) / maxAbsInnerSize; }
-                if (set(minAbsMargin)) { minRelMargin += minAbsMargin / maxAbsInnerSize; }
+                // Calculate additional relative sizes
+                //--------------------------------------------------
+
+                float inverseAbsMaxInner = 1.0f / maxAbsInnerSize;
+
+                if (set(minAbsSize)) { minRelSize += minAbsSize * inverseAbsMaxInner; }
+                else { minRelSize += (minAbsLayoutSize + minAbsPadding) * inverseAbsMaxInner; }
+                if (set(minAbsMargin)) { minRelMargin += minAbsMargin * inverseAbsMaxInner; }
 
                 float minRelOuterSize = -0.0f;
-                float minRelLayoutSize = minAbsLayoutSize / maxAbsInnerSize;
+                float minRelLayoutSize = minAbsLayoutSize * inverseAbsMaxInner;
                 
                 minRelOuterSize = minRelLayoutSize + minRelPadding;
-                if (set(minRelSize)) { minRelOuterSize = minRelSize; }
+                if (set(minRelSize)) { minRelOuterSize = minRelSize ; }
                 minRelOuterSize += minRelMargin;
 
-                float additionalRelSpace = minRelOuterSize;
-
-                bool test = true;
-
-                // Should we create a new row, or are we add more?
-                // (In other words, have we exceeded the maximum inner width)
-                if (!row.members.empty() && (runningRelSpace + additionalRelSpace > 1.0)) {
-                    
-                    // Push back, create new row
+                // Should we add another row (wrap) or should we keep adding more?
+                // We must wrap if we have exceeded the maximum allowed inner space,
+                // but not if this would be the first member of the row
+                if (runningRelSize + minRelOuterSize > 1.0 && !row.members.empty()) {
                     layout.rows.push_back(row);
                     row = Row();
-                    runningRelSpace = 0;
+                    runningRelSize = 0;
                 }
 
-                runningRelSpace += additionalRelSpace;
-
+                // Add element to row, add min outer size to running relative space
                 row.members.push_back(child);
+                runningRelSize += minRelOuterSize;
             }
 
             // Add last row that didn't overflow
@@ -576,55 +536,11 @@ export namespace Rev::Element {
             // Adjust own minimum outer size to accomodate layout
             //--------------------------------------------------
 
-            Size& size = computed.style.size;
-            LrtbStyle& padding = computed.style.padding;
-            LrtbStyle& margin = computed.style.margin;
+            if (set(minWidth)) { minOuterWidth = minWidth + minMarginWidth; }
+            else { minOuterWidth = layout.size.w.min + minPaddingWidth + minMarginWidth; }
 
-            // Get from style
-            //--------------------------------------------------
-
-            float minAbsWidth = -0.0f;
-            if (size.width.type == Dist::Type::Abs) { minAbsWidth = size.width.val; }
-            if (size.minWidth.type == Dist::Type::Abs) { minAbsWidth = size.minWidth.val; }
-            
-            float minAbsHeight = -0.0f;
-            if (size.height.type == Dist::Type::Abs) { minAbsHeight = size.height.val; }
-            if (size.minHeight.type == Dist::Type::Abs) { minAbsHeight = size.minHeight.val; }
-
-            float minAbsPaddingWidth = -0.0f;
-            if (padding.left.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.left.val; }
-            if (padding.right.type == Dist::Type::Abs) { minAbsPaddingWidth += padding.right.val; }
-
-            float minAbsPaddingHeight = -0.0f;
-            if (padding.top.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.top.val; }
-            if (padding.bottom.type == Dist::Type::Abs) { minAbsPaddingHeight += padding.bottom.val; }
-
-            float minAbsMarginWidth = -0.0f;
-            if (margin.right.type == Dist::Type::Abs) { minAbsMarginWidth += margin.right.val; }
-            if (margin.left.type == Dist::Type::Abs) { minAbsMarginWidth += margin.left.val; }
-
-            float minAbsMarginHeight = -0.0f;
-            if (margin.top.type == Dist::Type::Abs) { minAbsMarginHeight += margin.top.val; }
-            if (margin.bottom.type == Dist::Type::Abs) { minAbsMarginHeight += margin.bottom.val; }
-
-            float minAbsOuterWidth = -0.0f;
-            float minAbsOuterHeight = -0.0f;
-
-            minOuterWidth = layout.size.w.min + minAbsPaddingWidth;
-            minOuterHeight = layout.size.h.min + minAbsPaddingHeight;
-
-            if (set(minAbsWidth)) { minOuterWidth = minAbsWidth; }
-            if (set(minAbsHeight)) { minOuterHeight = minAbsHeight; }
-
-            minOuterWidth += minAbsMarginWidth;
-            minOuterHeight += minAbsMarginHeight;
-
-            // Restrict min outer dims to max size, if set
-            //if (set(res.size.w.max) && minOuterWidth > res.size.w.max) { minOuterWidth = res.size.w.max; }
-            //if (set(res.size.h.max) && minOuterHeight > res.size.h.max) { minOuterHeight = res.size.h.max;}
-
-            // Modify own size to accomodate layout
-            //--------------------------------------------------
+            if (set(minHeight)) { minOuterHeight = minHeight + minMarginHeight; }
+            else { minOuterHeight = layout.size.h.min + minPaddingHeight + minMarginHeight; }
 
             float layoutPlusPaddingWidth = layout.size.w.min + computed.style.padding.left.val + computed.style.padding.right.val;
             float layoutPlusPaddingHeight = layout.size.h.min + computed.style.padding.top.val + computed.style.padding.bottom.val;

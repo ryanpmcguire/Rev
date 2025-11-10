@@ -21,7 +21,7 @@ export namespace Rev::Element {
         
         Style Self = {
             .size = { .width = Grow(), .minWidth = 100_px },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
+            .margin = { 4_px, 40_px, 4_px, 4_px },
         };
 
             Style TextContainer = {
