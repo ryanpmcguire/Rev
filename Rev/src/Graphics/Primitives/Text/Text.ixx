@@ -220,6 +220,9 @@ export namespace Rev::Primitive {
                     break;
                 }
             }
+
+            // Add line height as min width
+            minMax.minHeight = fontRef.lineHeight;
         
             return minMax;
         }

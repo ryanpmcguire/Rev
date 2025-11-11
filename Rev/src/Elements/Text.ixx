@@ -9,19 +9,38 @@ import Rev.Element.Style;
 import Rev.Element.Event;
 import Rev.Element.Box;
 
+import Rev.Core.Observable;
 import Rev.Primitive.Text;
 
+import Resources.Fonts.Arial.Arial_ttf;
+
 export namespace Rev::Element {
+
+    namespace TextStyles {
+        
+        Style TextDefaults = {
+            .text = {
+                .font = Arial_ttf,
+                .size = 12_px,
+                .color = rgba(0, 0, 0, 1),
+            }
+        };
+    };
+
+    using namespace TextStyles;
 
     struct Text : public Box {
 
         Primitive::Text* text = nullptr;
 
+        Observable<std::string> content;
+
         // Create
         Text(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "Text") {
 
             text = new Primitive::Text(shared->canvas);
-            text->content = content;
+            this->styles.push_back(&TextStyles::TextDefaults);
+            this->content = content;
         }
 
         // Destroy
@@ -29,6 +48,9 @@ export namespace Rev::Element {
 
             delete text;
         }
+
+        // Managing content
+        //--------------------------------------------------
 
         // Set content as a value
         void addContent(float val, int digits = 4) {
@@ -47,40 +69,58 @@ export namespace Rev::Element {
                 if (count > digits) { c = '\0'; break; }
             }
 
-            text->content += buffer;
+            content += buffer;
         }
 
         // Set content as a string
         void addContent(std::string content) {
-            text->content += content;
+            content += content;
         }
 
         void setContent(std::string content) {
-            text->content = content;
+            content = content;
         }
 
         void setContent(float val, int digits = 4) {
-            text->content = "";
+            content = "";
             addContent(val, digits);
         }
 
+        // Compute style/primitive/etc
+        //--------------------------------------------------
+
         void computeStyle(Event& e) override {
 
-            Box::computeStyle(e);
-            
+            if (!content.changed() && !computed.style.dirty) {
+                return Box::computeStyle(e);
+            }
+
             text->fontSize = computed.style.text.size.val;
-            if (!text->fontSize) { text->fontSize = 12.0f; }
+            text->content = content;
 
             Primitive::Text::MinMax minMax = text->measure();
             text->layout(99999999.0f);
 
-            if (!computed.style.size.width) {
-                computed.style.size.width = Px(text->dims.width);
-            }
+            Size& size = this->style->size;
 
-            if (!computed.style.size.height) {
-                computed.style.size.height = Px(text->dims.height);
-            }
+            size.minWidth = Px(text->dims.width);
+            size.minHeight = Px(text->dims.height);
+
+            Box::computeStyle(e);
+        }
+
+        void resolveStyle(Event& e) override {
+
+            Box::resolveStyle(e);
+
+            text->fontSize = computed.style.text.size.val;
+            text->content = content;
+
+            Primitive::Text::MinMax minMax = text->measure();
+            text->layout(99999999.0f);
+
+            computed.style.size.minWidth = Px(text->dims.width);
+            computed.style.size.minHeight = Px(text->dims.height);
         }
 
         void computePrimitives(Event& e) override {

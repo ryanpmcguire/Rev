@@ -33,6 +33,11 @@ export namespace Rev::Element {
             Event* event = nullptr;
         };
 
+        struct Dirty {
+            bool style = true;
+            bool draw = true;
+        };
+
         // Shared betweeen elements
         Shared* shared = nullptr;
 
@@ -40,7 +45,7 @@ export namespace Rev::Element {
         Element* parent = nullptr;
         std::vector<Element*> children;
         std::string name = "Element";
-
+        
         // Style
         StylePtr style;
         std::vector<Style*> styles;
@@ -53,10 +58,10 @@ export namespace Rev::Element {
         size_t draws = 0;
         size_t depth = 0;
 
-        bool dirty = false;
         bool visible = true;
-
         bool scissor = false;
+
+        Dirty dirty;
 
         // Create
         Element(Element* parent = nullptr, StyleList styles = {}, std::string name = "") {
@@ -119,7 +124,7 @@ export namespace Rev::Element {
         std::vector<Transition> transitions;
 
         // Comptue style
-        virtual void computeStyle(Event& e) {
+        virtual void resolveStyle(Event& e) {
 
             computed.hasHoverStyle = false;
             computed.hasPressStyle = false;
@@ -140,6 +145,7 @@ export namespace Rev::Element {
             Style old = computed.style;
 
             computed.style = Style();
+            computed.style.dirty = false;
 
             Applies flags = {
                 .hover = targetFlags.hover,
@@ -150,7 +156,12 @@ export namespace Rev::Element {
 
             // Apply other styles, then own style
             computed.style.apply(styles, flags);
-            computed.style.apply(style, flags);
+            if (style.pStyle) { computed.style.apply(*(style.pStyle)); }
+
+            // Set all styles as not dirty (anymore)
+            if (style.pStyle) { style.pStyle->dirty = false; }
+            for (Style* style : styles) { style->dirty = false; }
+            this->dirty.style = false;
 
             // If this is our first draw, we do not animate
             if (draws == 0) {
@@ -195,6 +206,8 @@ export namespace Rev::Element {
 
         virtual void computeChildren(Event& e) {}
         
+        virtual void computeStyle(Event& e) {}
+
         // Compute attributes
         virtual void computePrimitives(Event& e) {}
 
@@ -207,7 +220,7 @@ export namespace Rev::Element {
         virtual void draw(Event& e) {
 
             // Draw = no longer dirty
-            this->dirty = false;
+            this->dirty.draw = false;
             draws += 1;
 
             // If there are any incomplte transitions, we must continue drawing
@@ -1102,15 +1115,15 @@ export namespace Rev::Element {
 
         virtual void refresh(Event& e) {
 
-            if (!this->dirty) {
+            if (!this->dirty.draw) {
 
-                this->dirty = true;
+                this->dirty.draw = true;
                 e.causedRefresh = true;
                 shared->dirtyElements.push_back(this);
             }
     
             // Propagate upwards
-            if (parent && !parent->dirty) {
+            if (parent && !parent->dirty.draw) {
                 parent->refresh(e);
             }
         }

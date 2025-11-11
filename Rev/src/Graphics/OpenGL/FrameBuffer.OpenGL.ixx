@@ -47,9 +47,8 @@ export namespace Rev::Graphics {
         void resize(size_t width, size_t height) {
 
             // Reject invalid size
-            if (!width || !height) {
-                throw std::runtime_error("[FrameBuffer] Invalid size");
-            }
+            if (!width) { width = 1; }
+            if (!height) { height = 1; }
 
             // Update params
             params.width = width;

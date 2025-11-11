@@ -88,6 +88,15 @@ export namespace Rev::Element {
         float val = -0.0f;
 
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline Dist Null() {
+            return { Type::Unset, -0.0f, -1, nullptr };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+            this->dirty = dirty;
+        }
 
         // Directly resolve by comparing to value
         inline float resolve(float compare) {
@@ -116,6 +125,21 @@ export namespace Rev::Element {
         // Dist is true if type is set
         explicit operator bool() {
             return type != Unset;
+        }
+
+        // Custom assignment operator
+        // Copy everything except the "dirty" flag pointer
+        Dist& operator=(const Dist& other) {
+
+            if (this == &other) { return *this; }
+
+            type = other.type;
+            val = other.val;
+            transition = other.transition;
+            
+            if (dirty) { *dirty = true; }
+
+            return *this;
         }
     };
 
@@ -192,11 +216,22 @@ export namespace Rev::Element {
         };
 
         Type type = Unset;
+
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
+        
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline Color Null() {
+            return { Type::Unset, -0.0f, -0.0f, -0.0f, -0.0f, -1, nullptr };
+        }
 
         [[nodiscard]] inline operator Core::Color() const noexcept {
             return { r, g, b, a };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+            this->dirty = dirty;
         }
 
         // Apply other color to this one
@@ -213,6 +248,21 @@ export namespace Rev::Element {
             if (g != old.g) { Transition::createNew(g, old.g, transitions, time, transitionLength); }
             if (b != old.b) { Transition::createNew(b, old.b, transitions, time, transitionLength); }
             if (a != old.a) { Transition::createNew(a, old.a, transitions, time, transitionLength); }
+        }
+
+        // Custom assignment operator
+        // Copy everything except the "dirty" flag pointer
+        Color& operator=(const Color& other) {
+
+            if (this == &other) { return *this; }
+
+            type = other.type;
+            r = other.r; g = other.g; b = other.b; a = other.a;
+            transition = other.transition;
+
+            if (dirty) { *dirty = true; }
+
+            return *this;
         }
 
         explicit operator bool() {
@@ -242,6 +292,26 @@ export namespace Rev::Element {
         Dist minHeight, maxHeight;
         
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline Size Null() {
+
+            return {
+                Dist::Null(), Dist::Null(),
+                Dist::Null(), Dist::Null(),
+                Dist::Null(), Dist::Null(),
+                -1, nullptr
+            };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+
+            width.linkDirtyFlag(dirty); height.linkDirtyFlag(dirty);
+            minWidth.linkDirtyFlag(dirty); minHeight.linkDirtyFlag(dirty);
+            maxWidth.linkDirtyFlag(dirty); maxHeight.linkDirtyFlag(dirty);
+
+            this->dirty = dirty;
+        }
 
         // Apply other size to this one
         inline void apply(Size& size) {
@@ -281,6 +351,31 @@ export namespace Rev::Element {
         Dist maxLeft, maxRight, maxTop, maxBottom;
 
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline LrtbStyle Null() {
+
+            return {
+                Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null(),
+                Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null(),
+                Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null(),
+                -1, nullptr
+            };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+            
+            left.linkDirtyFlag(dirty); right.linkDirtyFlag(dirty);
+            top.linkDirtyFlag(dirty); bottom.linkDirtyFlag(dirty);
+
+            minLeft.linkDirtyFlag(dirty); minRight.linkDirtyFlag(dirty);
+            minTop.linkDirtyFlag(dirty); minBottom.linkDirtyFlag(dirty);
+
+            maxLeft.linkDirtyFlag(dirty); maxRight.linkDirtyFlag(dirty);
+            maxTop.linkDirtyFlag(dirty); maxBottom.linkDirtyFlag(dirty);
+
+            this->dirty = dirty;
+        }
 
         // Apply other LRTB style (margin/padding) to this one
         inline void apply(LrtbStyle& lrtb) {
@@ -352,6 +447,22 @@ export namespace Rev::Element {
         Align vertical = Align::Unset;
         Wrap wrap = Wrap::Unset;
 
+        bool* dirty = nullptr;
+
+        static inline Alignment Null() {
+
+            return {
+                Axis::Unset,
+                Align::Unset, Align::Unset,
+                Wrap::Unset,
+                nullptr
+            };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+            this->dirty = dirty;
+        }
+
         inline void apply(Alignment& other) {
             if (other.direction != Axis::Unset) { direction = other.direction; }
             if (other.horizontal != Align::Unset) { horizontal = other.horizontal; }
@@ -367,6 +478,20 @@ export namespace Rev::Element {
 
         Color color;
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline Background Null() {
+
+            return {
+                Color::Null(),
+                -1, nullptr
+            };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+            color.linkDirtyFlag(dirty);
+            this->dirty = dirty;
+        }
 
         inline void apply(Background& background) {
             if (background.color) { color = background.color; }
@@ -391,6 +516,19 @@ export namespace Rev::Element {
             Dist radius;
 
             int transition = -1;
+            bool* dirty = nullptr;
+
+            static inline Corner Null() {
+                return {
+                    Dist::Null(),
+                    -1, nullptr
+                };
+            }
+
+            inline void linkDirtyFlag(bool* dirty) {
+                radius.linkDirtyFlag(dirty);
+                this->dirty = dirty;
+            }
 
             // Apply new style
             inline void apply(Corner& corner) {
@@ -411,6 +549,22 @@ export namespace Rev::Element {
             Dist width;
 
             int transition = -1;
+            bool* dirty = nullptr;
+
+            static inline Side Null() {
+                return {
+                    Color::Null(), Dist::Null(),
+                    -1, nullptr
+                };
+            }
+            
+            inline void linkDirtyFlag(bool* dirty) {
+
+                color.linkDirtyFlag(dirty);
+                width.linkDirtyFlag(dirty);
+
+                this->dirty = dirty;
+            }
 
             // Apply new style
             inline void apply(Side& corner) {
@@ -438,6 +592,31 @@ export namespace Rev::Element {
         Side left, right, top, bottom;
 
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline Border Null() {
+
+            return {
+                Color::Null(), Dist::Null(), Dist::Null(),
+                Corner::Null(), Corner::Null(), Corner::Null(), Corner::Null(),
+                Side::Null(), Side::Null(), Side::Null(), Side::Null(),
+                -1, nullptr
+            };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+
+            color.linkDirtyFlag(dirty);
+            radius.linkDirtyFlag(dirty);
+            width.linkDirtyFlag(dirty);
+            tl.linkDirtyFlag(dirty); tr.linkDirtyFlag(dirty);
+            bl.linkDirtyFlag(dirty); br.linkDirtyFlag(dirty);
+
+            left.linkDirtyFlag(dirty); right.linkDirtyFlag(dirty);
+            top.linkDirtyFlag(dirty); bottom.linkDirtyFlag(dirty);
+
+            this->dirty = dirty;
+        }
 
         // Apply new style
         inline void apply(Border& border) {
@@ -489,6 +668,28 @@ export namespace Rev::Element {
         Dist x, y;
 
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline Shadow Null() {
+
+            return {
+                Color::Null(),
+                Dist::Null(), Dist::Null(),
+                Dist::Null(), Dist::Null(),
+                -1, nullptr
+            };
+        };
+
+        inline void linkDirtyFlag(bool* dirty) {
+
+            color.linkDirtyFlag(dirty);
+            size.linkDirtyFlag(dirty);
+            blur.linkDirtyFlag(dirty);
+            x.linkDirtyFlag(dirty);
+            y.linkDirtyFlag(dirty);
+            
+            this->dirty = dirty;
+        }
 
         // Apply new style
         inline void apply(Shadow& shadow) {
@@ -528,6 +729,28 @@ export namespace Rev::Element {
         Dist spacing;
 
         int transition = -1;
+        bool* dirty = nullptr;
+
+        static inline TextStyle Null() {
+
+            return {
+                Core::Resource(),
+                Color::Null(), Dist::Null(),
+                -1,
+                Dist::Null(), Dist::Null(),
+                -1, nullptr
+            };
+        }
+
+        inline void linkDirtyFlag(bool* dirty) {
+
+            color.linkDirtyFlag(dirty);
+            size.linkDirtyFlag(dirty);
+            lineHeight.linkDirtyFlag(dirty);
+            spacing.linkDirtyFlag(dirty);
+
+            this->dirty = dirty;
+        }
 
         inline void apply(TextStyle& other) {
 
@@ -638,7 +861,41 @@ export namespace Rev::Element {
         TextStyle text;
         Cursor cursor;
 
-        int transition = -1; // Transition time
+        int transition = -1; // Transition 
+        bool dirty = true;
+
+        static inline Style* CreateNull() {
+            
+            Style* pStyle = new Style();
+            *pStyle = Style::Null();
+
+            return pStyle;
+        }
+
+        static inline Style Null() {
+
+            Style nullStyle = {
+                .applies = { false, false, false, false },
+                .visibility = Visibility::Unset,
+                .overflow = Overflow::Unset,
+                .position = LrtbStyle::Null(),
+                .alignment = Alignment::Null(),
+                .size = Size::Null(),
+                .margin = LrtbStyle::Null(),
+                .padding = LrtbStyle::Null(),
+                .background = Background::Null(),
+                .border = Border::Null(),
+                .shadow = Shadow::Null(),
+                .text = TextStyle::Null(),
+                .cursor = Cursor::Unset,
+                .transition = -1,
+                .dirty = true
+            };
+
+            nullStyle.linkDirtyFlag(&nullStyle.dirty);
+
+            return nullStyle;
+        }
 
         // Inherit from parent style if applicable
         void inherit(Style& style) {
@@ -697,6 +954,47 @@ export namespace Rev::Element {
             padding.animate(old.padding, transitions, time, transition);
             text.animate(old.text, transitions, time, transition);
         }
+
+        inline bool isDirty() {
+            return this->dirty;
+        }
+
+        void linkDirtyFlag(bool* dirty) {
+
+            alignment.linkDirtyFlag(dirty);
+            size.linkDirtyFlag(dirty);
+            margin.linkDirtyFlag(dirty);
+            padding.linkDirtyFlag(dirty);
+            background.linkDirtyFlag(dirty);
+            border.linkDirtyFlag(dirty);
+            shadow.linkDirtyFlag(dirty);
+            text.linkDirtyFlag(dirty);
+        }
+
+        // Custom assignment operator
+        // Copy everything except the "dirty" flag pointer
+        Style& operator=(const Style& other) {
+
+            if (this == &other) { return *this; }
+
+            applies = other.applies;
+            visibility = other.visibility;
+            overflow = other.overflow;
+            position = other.position; absolute = other.absolute;
+            alignment = other.alignment;
+            size = other.size;
+            margin = other.margin;
+            padding = other.padding;
+            background = other.background;
+            border = other.border;
+            shadow = other.shadow;
+            text = other.text;
+            cursor = other.cursor;
+
+            this->linkDirtyFlag(&dirty);
+
+            return *this;
+        }
     };
 
     struct StyleList {
@@ -704,13 +1002,25 @@ export namespace Rev::Element {
         std::vector<Style*> styles;
         bool dirty = true;
 
-        bool isDirty() {
-            
+        inline void setDirty(bool dirty) {
+
+            if (this->dirty == dirty) { return; }
+            else { this->dirty = dirty; }
+
+            if (!dirty) {
+                for (Style* style : styles) {
+                    style->dirty = false;
+                }
+            }
+        }
+
+        inline bool isDirty() {
+
             if (dirty) { return true; }
 
-            /*for (Style* style : styles) {
-                if (style.dirty) { return dirty = true; }
-            }*/
+            for (Style* style : styles) {
+                if (style->dirty) { return dirty = true; }
+            }
 
             return false;
         }
@@ -783,18 +1093,18 @@ export namespace Rev::Element {
         }
 
         Style& operator*() {
-            if (!pStyle) { pStyle = new Style(); }
+            if (!pStyle) { pStyle = Style::CreateNull();; pStyle->linkDirtyFlag(&pStyle->dirty); }
             return *pStyle;
         }
 
         Style* operator->() {
-            if (!pStyle) { pStyle = new Style(); }
+            if (!pStyle) { pStyle = Style::CreateNull();; pStyle->linkDirtyFlag(&pStyle->dirty); }
             return pStyle;
         }
 
         // Assigning from a style
         StylePtr& operator=(const Style& other) {
-            if (!pStyle) { pStyle = new Style(); }
+            if (!pStyle) { pStyle = Style::CreateNull();; pStyle->linkDirtyFlag(&pStyle->dirty); }
             *pStyle = other;
             return *this;
         }
@@ -813,25 +1123,25 @@ export namespace Rev::Element {
 
         // Casting to a style pointer
         operator Style*() {
-            if (!pStyle) { pStyle = new Style(); }
+            if (!pStyle) { pStyle = Style::CreateNull(); }
             return pStyle;
         }
 
         // Casting to a style reference
         operator Style&() {
-            if (!pStyle) { pStyle = new Style(); }
+            if (!pStyle) { pStyle = Style::CreateNull(); pStyle->linkDirtyFlag(&pStyle->dirty); }
             return *pStyle;
         }
 
         // Applying from a style
         void apply(Style& other, Applies flags = {}) {
-            if (!pStyle) { pStyle = new Style(); }
+            if (!pStyle) { pStyle = Style::CreateNull(); pStyle->linkDirtyFlag(&pStyle->dirty); }
             pStyle->apply(other, flags);
         }
 
         // Applying from a style pointer
         void apply(StylePtr& other, Applies flags = {}) {
-            if (!pStyle) { pStyle = new Style(); }
+            if (!pStyle) { pStyle = Style::CreateNull(); pStyle->linkDirtyFlag(&pStyle->dirty); }
             if (other.pStyle) { pStyle->apply(*(other.pStyle), flags); }
         }
     };

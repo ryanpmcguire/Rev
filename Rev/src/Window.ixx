@@ -120,6 +120,12 @@ export namespace Rev {
             if (!details.decorated) {
 
                 Box* upper = new Box(this);
+
+                Style testStyle = {
+                    .size = { .width = 100_pct, .height = 20_px },
+                    .background = { .color = rgba(255, 255, 255, 1.0) }
+                };
+
                 upper->style = {
                     .size = { .width = 100_pct, .height = 20_px },
                     .background = { .color = rgba(255, 255, 255, 1.0) }
@@ -225,7 +231,7 @@ export namespace Rev {
         }
 
         void refresh(Event& e) override {
-            this->dirty = true;
+            this->dirty.draw = true;
             window->requestFrame();
         }
 
@@ -250,12 +256,45 @@ export namespace Rev {
 
             this->computeChildrenTopDown(e, this);
 
-            this->dirty = false;
+            this->dirty.draw = false;
 
             this->calculateQueues();
+
+            // Styles
+            //--------------------------------------------------
+
+            for (Element* element : topDown) {
+                element->computeStyle(e);
+            }
+
+            // Check which elements we need to recompute style for
+            for (Element* element : topDown) {
+
+                if (element->dirty.style) {
+                    continue;
+                }
+
+                if (element->style.pStyle && element->style.pStyle->dirty) {
+                    element->dirty.style = true;
+                }
+
+                for (Style* style : element->styles) {
+                    if (style->dirty) {
+                        element->dirty.style = true;
+                    }
+                }
+            }
             
-            for (Element* element : topDown) { element->computeStyle(e); }
+            for (Element* element : topDown) {
+                if (element->dirty.style) {
+                    element->resolveStyle(e);
+                }
+            }
+
             for (Element* child : children) { child->cascadeStyle(); }
+
+            // Visibility and layout
+            //--------------------------------------------------
             
             // Set and cascade visibility
             for (Element* element : topDown) {
@@ -314,7 +353,7 @@ export namespace Rev {
 
             window->dirty = false;
 
-            if (this->dirty) {
+            if (this->dirty.draw) {
                 refresh(e);
             }
         }

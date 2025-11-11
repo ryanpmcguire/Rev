@@ -82,19 +82,12 @@ export namespace Rev::Element {
             // Self
             this->name = "Dropdown";
             this->params = p;
-            this->styles = { &Styles::Dropdown };
+            this->styles.push_back(&Styles::Dropdown);
 
             this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option 3", "3" } };
 
             // Label
             label = new Text(this, "Dropdown", { &Styles::Label });
-        }
-
-        std::string savedValue = "";
-
-        void computeChildren(Event& e) override {
-
-            //if (savedValue == params.value) { return; }
 
             // Delete options container
             if (optionsContainer) { delete optionsContainer; }
@@ -108,6 +101,15 @@ export namespace Rev::Element {
             for (Params::Option& option : params.options) {
                 options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
             }
+        }
+
+        std::string savedValue = "";
+
+        void computeChildren(Event& e) override {
+
+            //if (savedValue == params.value) { return; }
+
+            
         }
 
         void computeStyle(Event& e) override {
