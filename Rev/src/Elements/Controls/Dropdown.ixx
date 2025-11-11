@@ -96,20 +96,17 @@ export namespace Rev::Element {
 
             //if (savedValue == params.value) { return; }
 
-            for (size_t i = 0; i < 500; i++) {
+            // Delete options container
+            if (optionsContainer) { delete optionsContainer; }
+            
+            // Options container
+            //--------------------------------------------------
 
-                // Delete options container
-                if (optionsContainer) { delete optionsContainer; }
-                
-                // Options container
-                //--------------------------------------------------
+            optionsContainer = new Box(this, { &Styles::OptionsContainer });
+            optionsContainer->name = "OptionsContainer";
 
-                optionsContainer = new Box(this, { &Styles::OptionsContainer });
-                optionsContainer->name = "OptionsContainer";
-
-                for (Params::Option& option : params.options) {
-                    options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
-                }
+            for (Params::Option& option : params.options) {
+                options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
             }
         }
 
