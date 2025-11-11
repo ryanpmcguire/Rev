@@ -642,7 +642,9 @@ export namespace Rev::Element {
 
         // Inherit from parent style if applicable
         void inherit(Style& style) {
-            if (visibility == Visibility::Inherit) { visibility = style.visibility; }
+
+            // Parent with visibility set to hidden will force children to also be hidden
+            if (visibility == Visibility::Inherit || style.visibility == Visibility::Hidden) { visibility = style.visibility; }
         }
 
         // Apply single style

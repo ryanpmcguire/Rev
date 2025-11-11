@@ -21,7 +21,7 @@ export namespace Rev::Element {
     namespace DropdownStyle::Styles {
         
         Style Dropdown = {
-            .alignment = { Axis::Horizontal, Align::Start, Align::Center },
+            .alignment = { Axis::Vertical, Align::Start, Align::Center },
             .size = { .width = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
             .padding = { 6_px, 6_px, 6_px, 6_px },
@@ -30,13 +30,12 @@ export namespace Rev::Element {
         };
 
             Style Label = {
-                .size = { 100_pct },
                 .margin = { .bottom = 4_px },
                 .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
             };
 
             Style OptionsContainer {
-                .visibility = Visibility::Hidden,
+                .visibility = Visibility::Visible,
                 .alignment = { Axis::Vertical },
                 .background = { .color = rgba(0, 0, 0, 0.05) }
             };
@@ -54,20 +53,24 @@ export namespace Rev::Element {
                     };
     };
 
+    using namespace DropdownStyle;
+
     struct Dropdown : public Box {
 
         // Label text
-        Text* label;
+        Text* label = nullptr;
 
         // Option elements
-        Box* optionsContainer;
+        Box* optionsContainer = nullptr;
         std::vector<Text*> options;
 
         struct Params {
 
             // Options: a list of options to choose from
-            struct Option { std::string name; };
+            struct Option { std::string name = ""; std::string value = ""; };
+
             std::vector<Option> options;
+            std::string value;
 
         };
 
@@ -76,29 +79,39 @@ export namespace Rev::Element {
         // Create
         Dropdown(Element* parent, Params p = Params(), StyleList styles = {}) : Box(parent, styles) {
 
-            using namespace DropdownStyle;
-
             // Self
             this->name = "Dropdown";
             this->params = p;
             this->styles = { &Styles::Dropdown };
 
-            this->params.options = { { "Option 1" }, { "Option 2"}, { "Option 3" } };
+            this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option 3", "3" } };
 
             // Label
             label = new Text(this, "Dropdown", { &Styles::Label });
+        }
 
-            // Options container
-            //--------------------------------------------------
+        std::string savedValue = "";
 
-            optionsContainer = new Box(this, { &Styles::OptionsContainer });
-            optionsContainer->name = "OptionsContainer";
+        void computeChildren(Event& e) override {
+
+            //if (savedValue == params.value) { return; }
+
+            for (size_t i = 0; i < 500; i++) {
+
+                // Delete options container
+                if (optionsContainer) { delete optionsContainer; }
+                
+                // Options container
+                //--------------------------------------------------
+
+                optionsContainer = new Box(this, { &Styles::OptionsContainer });
+                optionsContainer->name = "OptionsContainer";
 
                 for (Params::Option& option : params.options) {
                     options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
                 }
+            }
         }
-
 
         void computeStyle(Event& e) override {
         

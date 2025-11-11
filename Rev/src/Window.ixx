@@ -229,27 +229,47 @@ export namespace Rev {
             window->requestFrame();
         }
 
+        void computeChildrenTopDown(Event& e, Element* parent) {
+
+            for (Element* child : parent->children) {
+                
+                child->computeChildren(e);
+
+                this->computeChildrenTopDown(e, child);
+            }
+        }
+
         void draw(Event& e) override {
 
             dbg("Drawing");
-
-            this->dirty = false;
 
             // Reset before 
             event.resetBeforeDispatch();
             shared->dirtyElements.clear();
             shared->stencilStack.clear();
 
-            this->calculateQueues();
+            this->computeChildrenTopDown(e, this);
 
+            this->dirty = false;
+
+            this->calculateQueues();
+            
             for (Element* element : topDown) { element->computeStyle(e); }
             for (Element* child : children) { child->cascadeStyle(); }
+            
+            // Set and cascade visibility
+            for (Element* element : topDown) {
+
+                if (!element->parent->visible) { element->visible = false; }
+                if (element->computed.style.visibility == Visibility::Hidden) { element->visible=false; }
+            }
 
             this->calcFlexLayouts();
 
             for (Element* element : topDown) { element->computePrimitives(e); }
 
             Graphics::Canvas& canvas = *shared->canvas;
+            std::vector<Element*>& stencilStack = shared->stencilStack;
 
             canvas.beginFrame();
             canvas.stencilReset(0);
@@ -261,10 +281,6 @@ export namespace Rev {
 
                 // Ignore self and hidden elements
                 if (element == this) { continue; }
-                if (element->computed.style.visibility == Visibility::Hidden) { continue; }
-
-                Graphics::Canvas& canvas = *(shared->canvas);
-                std::vector<Element*>& stencilStack = shared->stencilStack;
 
                 size_t size = stencilStack.size();
                 Element* back = size ? stencilStack.back() : nullptr;
@@ -285,6 +301,8 @@ export namespace Rev {
                         else { canvas.stencilReset(0); }
                     }
                 }
+
+                if (element->computed.style.visibility == Visibility::Hidden) { continue; }
 
                 element->draw(e);
             }

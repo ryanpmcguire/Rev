@@ -51,6 +51,10 @@ export namespace Rev::Graphics {
             if (bufferID) {
                 glDeleteBuffers(1, &bufferID);
             }
+
+            if (vaoID) {
+                glDeleteVertexArrays(1, &vaoID);
+            }
         }
 
         Vertex* verts() {

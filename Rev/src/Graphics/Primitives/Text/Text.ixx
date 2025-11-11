@@ -9,6 +9,7 @@ export module Rev.Primitive.Text;
 import Rev.Primitive;
 import Rev.Core.Shared;
 import Rev.Core.Font;
+import Rev.Core.FontAtlas;
 import Rev.Core.Pos;
 
 import Rev.Graphics.Canvas;
@@ -32,8 +33,11 @@ export namespace Rev::Primitive {
         
         inline static Shared shared;
         inline static Pipeline* pipeline;
+        inline static Core::FontAtlas* fontAtlas;
 
         void createShared() {
+
+            fontAtlas = new Core::FontAtlas(canvas);
             
             pipeline = new Pipeline(canvas->context, {
 
@@ -48,6 +52,7 @@ export namespace Rev::Primitive {
 
         void destroyShared() {
 
+            delete fontAtlas;
             delete pipeline;
         }
 
@@ -104,7 +109,6 @@ export namespace Rev::Primitive {
 
             this->content = content;
 
-            font = new Font(canvas);
             vertices = new VertexBuffer(canvas->context, { .divisor = 1, .attribs = { 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
 
@@ -122,7 +126,6 @@ export namespace Rev::Primitive {
 
             delete vertices;
             delete databuff;
-            delete font;
         }
 
         // Measure / layout
@@ -145,11 +148,7 @@ export namespace Rev::Primitive {
         
         MinMax measure() {
 
-            // Ensure font size matches
-            if (font->size != fontSize || font->scale != canvas->details.scale) {
-                delete font;
-                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
-            }
+            font = fontAtlas->get(Arial_ttf, fontSize, canvas->details.scale);
 
             float xl = 0, yl = 0;
             float xr = 0, yr = 0;
@@ -228,10 +227,7 @@ export namespace Rev::Primitive {
         Dims layout(float maxWidth) {
 
             // Ensure font size matches
-            if (font->size != fontSize || font->scale != canvas->details.scale) {
-                delete font;
-                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
-            }
+            font = fontAtlas->get(Arial_ttf, fontSize, canvas->details.scale);
 
             // Layout text
             //--------------------------------------------------
@@ -291,10 +287,7 @@ export namespace Rev::Primitive {
         void compute() override {
 
             // Ensure font size matches
-            if (font->size != fontSize || font->scale != canvas->details.scale) {
-                delete font;
-                font = new Font(canvas, Arial_ttf, fontSize, canvas->details.scale);
-            }
+            font = fontAtlas->get(Arial_ttf, fontSize, canvas->details.scale);
 
             // Prepare vertices
             //--------------------------------------------------

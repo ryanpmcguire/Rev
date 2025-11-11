@@ -46,19 +46,22 @@ export namespace Rev::Element {
         std::vector<Style*> styles;
         
         // Computing
-        bool dirty = false;
         Computed computed;
         Rect rect;
 
         // Tracking
         size_t draws = 0;
         size_t depth = 0;
-        size_t scissor = false;
+
+        bool dirty = false;
+        bool visible = true;
+
+        bool scissor = false;
 
         // Create
         Element(Element* parent = nullptr, StyleList styles = {}, std::string name = "") {
 
-            this->inherit(parent);
+            if (parent && parent != this) { parent->addChild(this); }
   
             this->styles = styles;
             this->name = name;
@@ -67,10 +70,14 @@ export namespace Rev::Element {
         // Destroy
         virtual ~Element() {
 
-            //dbg("[Element] destroying");
+            // Before doing anything, remove self from parent
+            parent->removeChild(this);
 
-            // Remove all children
-            for (Element* child : children) { if (child) { delete child; } }
+            if (style.pStyle) { delete style.pStyle; style.pStyle = nullptr; }
+
+            // Delete children (from copy)
+            std::vector<Element*> childrenCopy = children;
+            for (Element* child : childrenCopy) { if (child) { delete child; } }
             children.clear();
         }
 
@@ -81,17 +88,20 @@ export namespace Rev::Element {
 
         // Inheritance
         //--------------------------------------------------
+        
+        void addChild(Element* child) {
 
-        void inherit(Element* parent) {
-            
-            if (parent) {
-                
-                this->parent = parent;
+            child->parent = this;
+            child->shared = shared;
 
-                parent->children.push_back(this);
-                shared = parent->shared;
-                this->refresh(*shared->event);
-            }
+            children.push_back(child);
+
+            child->refresh(*shared->event);
+        }
+
+        void removeChild(Element* child) {
+            auto it = std::find(children.begin(), children.end(), child);
+            if (it != children.end()) { children.erase(it); }
         }
 
         void cascadeStyle() {
@@ -182,6 +192,8 @@ export namespace Rev::Element {
                 }
             }
         }
+
+        virtual void computeChildren(Event& e) {}
         
         // Compute attributes
         virtual void computePrimitives(Event& e) {}
@@ -271,17 +283,6 @@ export namespace Rev::Element {
             layout = Layout();
         }
 
-        // New layout
-        //--------------------------------------------------
-
-        float minWidth, minHeight;
-
-        float minMarginWidth, minMarginHeight;
-        float minPaddingWidth, minPaddingHeight;
-
-        float minOuterWidth, minOuterHeight;
-        float minInnerWidth, minInnerHeight;
-
         float getMinSize(Axis axis, Dist::Type type) {
 
             // Choose axis, prefer minimum if matching type
@@ -348,6 +349,14 @@ export namespace Rev::Element {
             return min;
         }
 
+        float minWidth, minHeight;
+
+        float minMarginWidth, minMarginHeight;
+        float minPaddingWidth, minPaddingHeight;
+
+        float minOuterWidth, minOuterHeight;
+        float minInnerWidth, minInnerHeight;
+
         void resolveMinimaNew() {
 
             // Reset all
@@ -356,6 +365,8 @@ export namespace Rev::Element {
             minPaddingWidth = minPaddingHeight = -0.0f;
             minOuterWidth = minOuterHeight = -0.0f;
             minInnerWidth = minInnerHeight = -0.0f;
+
+            if (!visible) { return; }
 
             // Get from style
             //--------------------------------------------------
@@ -410,6 +421,8 @@ export namespace Rev::Element {
             // MAXIMUM inner size
             maxInnerWidth = -0.0f;
             maxInnerHeight = -0.0f;
+
+            if (!visible) { return; }
         
             // Get from style
             //--------------------------------------------------
@@ -440,6 +453,8 @@ export namespace Rev::Element {
         }
 
         void resolveLayoutNew() {
+
+            if (!visible) { return; }
 
             // Wrap children
             //--------------------------------------------------
@@ -563,6 +578,8 @@ export namespace Rev::Element {
         // Bottom up: promote growability based on layout
         void promoteDimsNew() {
 
+            if (!visible) { return; }
+
             // Tell dimensions if they can grow
             if (computed.style.size.width.type == Dist::Type::Grow) { res.size.w.growable = true; }
             if (computed.style.size.height.type == Dist::Type::Grow) { res.size.h.growable = true; }
@@ -592,6 +609,8 @@ export namespace Rev::Element {
 
             innerWidth = 0;
             innerHeight = 0;
+
+            if (!visible) { return; }
             
             if (parent == this) {
                 res.size.w.val = res.size.w.min = res.size.w.max = computed.style.size.width.val;
@@ -874,6 +893,8 @@ export namespace Rev::Element {
 
         // Resolve final positions (top down)
         void resolveRects() {
+
+            if (!visible) { return; }
 
             // If top level
             if (parent == this) {
