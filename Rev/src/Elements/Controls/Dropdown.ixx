@@ -82,7 +82,7 @@ export namespace Rev::Element {
             // Self
             this->name = "Dropdown";
             this->params = p;
-            this->styles.push_back(&Styles::Dropdown);
+            this->styles.add(&Styles::Dropdown);
 
             this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option 3", "3" } };
 

@@ -275,6 +275,13 @@ namespace Rev::Element {
         ResolvedLrtb pad;
         ResolvedLrtb pos;
 
+        bool hasHoverStyle = false;
+        bool hasPressStyle = false;
+        bool hasDragStyle = false;
+        bool hasFocusStyle = false;
+
+        Style style;
+
         // Clamp all dims
         void clamp() {
             size.clamp();

@@ -39,7 +39,7 @@ export namespace Rev::Element {
         Text(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "Text") {
 
             text = new Primitive::Text(shared->canvas);
-            this->styles.push_back(&TextStyles::TextDefaults);
+            this->styles.add(&TextStyles::TextDefaults);
             this->content = content;
         }
 
@@ -91,11 +91,11 @@ export namespace Rev::Element {
 
         void computeStyle(Event& e) override {
 
-            if (!content.changed() && !computed.style.dirty) {
+            if (!content.changed()) {
                 return Box::computeStyle(e);
             }
 
-            text->fontSize = computed.style.text.size.val;
+            text->fontSize = resolved.style.text.size.val;
             text->content = content;
 
             Primitive::Text::MinMax minMax = text->measure();
@@ -113,26 +113,26 @@ export namespace Rev::Element {
 
             Box::resolveStyle(e);
 
-            text->fontSize = computed.style.text.size.val;
+            text->fontSize = resolved.style.text.size.val;
             text->content = content;
 
             Primitive::Text::MinMax minMax = text->measure();
             text->layout(99999999.0f);
 
-            computed.style.size.minWidth = Px(text->dims.width);
-            computed.style.size.minHeight = Px(text->dims.height);
+            resolved.style.size.minWidth = Px(text->dims.width);
+            resolved.style.size.minHeight = Px(text->dims.height);
         }
 
         void computePrimitives(Event& e) override {
 
             // Set font size
-            text->fontSize = computed.style.text.size.val;
+            text->fontSize = resolved.style.text.size.val;
             if (!text->fontSize) { text->fontSize = 12.0f; }
 
             // Set font color
             text->data->color = {
-                computed.style.text.color.r, computed.style.text.color.g,
-                computed.style.text.color.b, computed.style.text.color.a
+                resolved.style.text.color.r, resolved.style.text.color.g,
+                resolved.style.text.color.b, resolved.style.text.color.a
             };
 
             text->xPos = rect.x;

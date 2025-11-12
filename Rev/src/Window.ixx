@@ -256,39 +256,26 @@ export namespace Rev {
 
             this->computeChildrenTopDown(e, this);
 
-            this->dirty.draw = false;
-
             this->calculateQueues();
 
-            // Styles
+            // Compute styles before resolving
             //--------------------------------------------------
 
             for (Element* element : topDown) {
                 element->computeStyle(e);
             }
 
-            // Check which elements we need to recompute style for
-            for (Element* element : topDown) {
+            this->dirty.draw = false;
 
-                if (element->dirty.style) {
-                    continue;
-                }
-
-                if (element->style.pStyle && element->style.pStyle->dirty) {
-                    element->dirty.style = true;
-                }
-
-                for (Style* style : element->styles) {
-                    if (style->dirty) {
-                        element->dirty.style = true;
-                    }
-                }
+            this->resolveStyle(e);
+            for (Element* element : shared->dirtyElementsStyle) {
+                element->resolveStyle(e);
             }
-            
+
+            shared->dirtyElementsStyle.clear();
+
             for (Element* element : topDown) {
-                if (element->dirty.style) {
-                    element->resolveStyle(e);
-                }
+                element->animateStyle(e);
             }
 
             for (Element* child : children) { child->cascadeStyle(); }
@@ -300,7 +287,7 @@ export namespace Rev {
             for (Element* element : topDown) {
 
                 if (!element->parent->visible) { element->visible = false; }
-                if (element->computed.style.visibility == Visibility::Hidden) { element->visible=false; }
+                if (element->resolved.style.visibility == Visibility::Hidden) { element->visible=false; }
             }
 
             this->calcFlexLayouts();
@@ -341,7 +328,7 @@ export namespace Rev {
                     }
                 }
 
-                if (element->computed.style.visibility == Visibility::Hidden) { continue; }
+                if (element->resolved.style.visibility == Visibility::Hidden) { continue; }
 
                 element->draw(e);
             }

@@ -14,9 +14,9 @@ import Rev.Graphics.Canvas;
 
 import Rev.Core.Pos;
 import Rev.Core.Rect;
+import Rev.Core.DirtyFlag;
 
 import Rev.Element.Style;
-import Rev.Element.Computed;
 import Rev.Element.Event;
 import Rev.Element.Resolved;
 
@@ -27,6 +27,7 @@ export namespace Rev::Element {
         struct Shared {
 
             std::vector<Element*> dirtyElements;
+            std::vector<Element*> dirtyElementsStyle;
             std::vector<Element*> stencilStack;
             
             Graphics::Canvas* canvas = nullptr;
@@ -34,7 +35,7 @@ export namespace Rev::Element {
         };
 
         struct Dirty {
-            bool style = true;
+            Core::DirtyFlag style;
             bool draw = true;
         };
 
@@ -48,10 +49,10 @@ export namespace Rev::Element {
         
         // Style
         StylePtr style;
-        std::vector<Style*> styles;
+        StyleList styles;
         
         // Computing
-        Computed computed;
+        Resolved resolved;
         Rect rect;
 
         // Tracking
@@ -67,7 +68,21 @@ export namespace Rev::Element {
         Element(Element* parent = nullptr, StyleList styles = {}, std::string name = "") {
 
             if (parent && parent != this) { parent->addChild(this); }
-  
+
+            dirty.style.drawsFrom(&(this->styles.dirty));
+            dirty.style.drawsFrom(&(this->style.dirty));
+
+            dirty.style.onDirty([this]() {
+
+                if (!this->shared) { return; }
+                //if (this->parent == this) { return; }
+
+                this->shared->dirtyElementsStyle.push_back(this);
+                this->refresh(*shared->event);
+            });
+
+            dirty.style = true;
+
             this->styles = styles;
             this->name = name;
         }
@@ -111,7 +126,7 @@ export namespace Rev::Element {
 
         void cascadeStyle() {
 
-            computed.style.inherit(parent->computed.style);
+            resolved.style.inherit(parent->resolved.style);
 
             for (Element* child : children) {
                 child->cascadeStyle();
@@ -123,57 +138,7 @@ export namespace Rev::Element {
 
         std::vector<Transition> transitions;
 
-        // Comptue style
-        virtual void resolveStyle(Event& e) {
-
-            computed.hasHoverStyle = false;
-            computed.hasPressStyle = false;
-            computed.hasDragStyle = false;
-            computed.hasFocusStyle = false;
-
-            // Calculate whether we have certain styles
-            for (Style* style : styles) {
-                if (style->applies.hover) { computed.hasHoverStyle = true; }
-                if (style->applies.press) { computed.hasPressStyle = true; }
-                if (style->applies.drag) { computed.hasDragStyle = true; }
-                if (style->applies.focus) { computed.hasFocusStyle = true; }
-            }
-
-            // Compile / apply styles
-            //--------------------------------------------------
-
-            Style old = computed.style;
-
-            computed.style = Style();
-            computed.style.dirty = false;
-
-            Applies flags = {
-                .hover = targetFlags.hover,
-                .press = targetFlags.press,
-                .drag = targetFlags.drag,
-                .focus = targetFlags.focus,
-            };
-
-            // Apply other styles, then own style
-            computed.style.apply(styles, flags);
-            if (style.pStyle) { computed.style.apply(*(style.pStyle)); }
-
-            // Set all styles as not dirty (anymore)
-            if (style.pStyle) { style.pStyle->dirty = false; }
-            for (Style* style : styles) { style->dirty = false; }
-            this->dirty.style = false;
-
-            // If this is our first draw, we do not animate
-            if (draws == 0) {
-                return;
-            }
-
-            //return;
-
-            // Create transitions if needed
-            //--------------------------------------------------
-            
-            computed.style.animate(old, transitions, e.time);
+        virtual void animateStyle(Event& e) {
 
             // Transition styles
             //--------------------------------------------------
@@ -202,6 +167,61 @@ export namespace Rev::Element {
                     val = transition.endVal;
                 }
             }
+        }
+
+        // Comptue style
+        virtual void resolveStyle(Event& e) {
+
+            resolved.hasHoverStyle = false;
+            resolved.hasPressStyle = false;
+            resolved.hasDragStyle = false;
+            resolved.hasFocusStyle = false;
+
+            // Calculate whether we have certain styles
+            for (Style* style : styles.styles) {
+                if (style->applies.hover) { resolved.hasHoverStyle = true; }
+                if (style->applies.press) { resolved.hasPressStyle = true; }
+                if (style->applies.drag) { resolved.hasDragStyle = true; }
+                if (style->applies.focus) { resolved.hasFocusStyle = true; }
+            }
+
+            // Compile / apply styles
+            //--------------------------------------------------
+
+            Style old = resolved.style;
+
+            resolved.style = Style();
+            resolved.style.dirty = false;
+
+            Applies flags = {
+                .hover = targetFlags.hover,
+                .press = targetFlags.press,
+                .drag = targetFlags.drag,
+                .focus = targetFlags.focus,
+            };
+
+            // Apply other styles, then own style
+            resolved.style.apply(styles, flags);
+            if (style.pStyle) { resolved.style.apply(*(style.pStyle)); }
+
+            // Set all styles as not dirty (anymore)
+            if (style.pStyle) { style.pStyle->dirty = false; }
+            for (Style* style : styles.styles) { style->dirty = false; }
+            styles.dirty = false;
+
+            this->dirty.style = false;
+
+            // If this is our first draw, we do not animate
+            if (draws == 0) {
+                return;
+            }
+
+            //return;
+
+            // Create transitions if needed
+            //--------------------------------------------------
+            
+            resolved.style.animate(old, transitions, e.time);
         }
 
         virtual void computeChildren(Event& e) {}
@@ -255,7 +275,7 @@ export namespace Rev::Element {
                 int numCanGrow = 0;
 
                 for (Element* member : members) {
-                    numCanGrow += member->res.canGrow(axis);
+                    numCanGrow += member->resolved.canGrow(axis);
                 }
 
                 return numCanGrow;
@@ -285,13 +305,16 @@ export namespace Rev::Element {
 
         Layout* parentLayout = nullptr;
         Row* parentRow = nullptr;
-        Resolved res;
 
         // Step zero is to reset all data which will be modified
         void resetLayout() {
 
             // Reset res, rect, layout
-            res = Resolved();
+            resolved.size = ResolvedSize();
+            resolved.mar = ResolvedLrtb();
+            resolved.pad = ResolvedLrtb();
+            resolved.pos = ResolvedLrtb();
+
             rect = Rect();
             layout = Layout();
         }
@@ -299,8 +322,8 @@ export namespace Rev::Element {
         float getMinSize(Axis axis, Dist::Type type) {
 
             // Choose axis, prefer minimum if matching type
-            Dist& minDist = (axis == Axis::Horizontal) ? computed.style.size.minWidth : computed.style.size.minHeight;
-            Dist& nomDist = (axis == Axis::Horizontal) ? computed.style.size.width : computed.style.size.height;
+            Dist& minDist = (axis == Axis::Horizontal) ? resolved.style.size.minWidth : resolved.style.size.minHeight;
+            Dist& nomDist = (axis == Axis::Horizontal) ? resolved.style.size.width : resolved.style.size.height;
             Dist& dist = (minDist.type == type) ? minDist : nomDist;
 
             // Return only if type matches
@@ -311,8 +334,8 @@ export namespace Rev::Element {
         float getMaxSize(Axis axis, Dist::Type type) {
 
             // Choose axis, prefer minimum if matching type
-            Dist& maxDist = (axis == Axis::Horizontal) ? computed.style.size.maxWidth : computed.style.size.maxHeight;
-            Dist& nomDist = (axis == Axis::Horizontal) ? computed.style.size.width : computed.style.size.height;
+            Dist& maxDist = (axis == Axis::Horizontal) ? resolved.style.size.maxWidth : resolved.style.size.maxHeight;
+            Dist& nomDist = (axis == Axis::Horizontal) ? resolved.style.size.width : resolved.style.size.height;
             Dist& dist = (maxDist.type == type) ? maxDist : nomDist;
 
             // Return only if type matches
@@ -325,13 +348,13 @@ export namespace Rev::Element {
             float min = -0.0f;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minA = (axis == Axis::Horizontal) ? computed.style.padding.minLeft : computed.style.padding.minTop;
-            Dist& nomA = (axis == Axis::Horizontal) ? computed.style.padding.left : computed.style.padding.top;
+            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.padding.minLeft : resolved.style.padding.minTop;
+            Dist& nomA = (axis == Axis::Horizontal) ? resolved.style.padding.left : resolved.style.padding.top;
             Dist& a = (minA.type == type) ? minA : nomA;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minB = (axis == Axis::Horizontal) ? computed.style.padding.minRight : computed.style.padding.minBottom;
-            Dist& nomB = (axis == Axis::Horizontal) ? computed.style.padding.right : computed.style.padding.bottom;
+            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.padding.minRight : resolved.style.padding.minBottom;
+            Dist& nomB = (axis == Axis::Horizontal) ? resolved.style.padding.right : resolved.style.padding.bottom;
             Dist& b = (minB.type == type) ? minB : nomB;
 
             // Dimensions contribute only if matching type
@@ -346,13 +369,13 @@ export namespace Rev::Element {
             float min = -0.0f;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minA = (axis == Axis::Horizontal) ? computed.style.margin.minLeft : computed.style.margin.minTop;
-            Dist& nomA = (axis == Axis::Horizontal) ? computed.style.margin.left : computed.style.margin.top;
+            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.margin.minLeft : resolved.style.margin.minTop;
+            Dist& nomA = (axis == Axis::Horizontal) ? resolved.style.margin.left : resolved.style.margin.top;
             Dist& a = (minA.type == type) ? minA : nomA;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minB = (axis == Axis::Horizontal) ? computed.style.margin.minRight : computed.style.margin.minBottom;
-            Dist& nomB = (axis == Axis::Horizontal) ? computed.style.margin.right : computed.style.margin.bottom;
+            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.margin.minRight : resolved.style.margin.minBottom;
+            Dist& nomB = (axis == Axis::Horizontal) ? resolved.style.margin.right : resolved.style.margin.bottom;
             Dist& b = (minB.type == type) ? minB : nomB;
 
             // Dimensions contribute only if matching type
@@ -477,7 +500,7 @@ export namespace Rev::Element {
 
             for (Element* child : children) {
                 
-                bool horizontal = (computed.style.alignment.direction != Axis::Vertical);
+                bool horizontal = (resolved.style.alignment.direction != Axis::Vertical);
                 Axis axis = horizontal ? Axis::Horizontal : Axis::Vertical;
 
                 // Get minimum abs/rel sizes
@@ -540,7 +563,7 @@ export namespace Rev::Element {
             // Measure layout val/min
             //--------------------------------------------------
 
-            if (computed.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.alignment.direction == Axis::Vertical) {
             
                 for (Row& row : layout.rows) {
 
@@ -579,8 +602,10 @@ export namespace Rev::Element {
             if (set(minHeight)) { minOuterHeight = minHeight + minMarginHeight; }
             else { minOuterHeight = layout.size.h.min + minPaddingHeight + minMarginHeight; }
 
-            float layoutPlusPaddingWidth = layout.size.w.min + computed.style.padding.left.val + computed.style.padding.right.val;
-            float layoutPlusPaddingHeight = layout.size.h.min + computed.style.padding.top.val + computed.style.padding.bottom.val;
+            float layoutPlusPaddingWidth = layout.size.w.min + resolved.style.padding.left.val + resolved.style.padding.right.val;
+            float layoutPlusPaddingHeight = layout.size.h.min + resolved.style.padding.top.val + resolved.style.padding.bottom.val;
+
+            Resolved& res = resolved;
 
             if (!set(res.size.w.min) && res.size.w.min < layoutPlusPaddingWidth) { res.size.w.min = layoutPlusPaddingWidth; }
             if (!set(res.size.h.min) && res.size.h.min < layoutPlusPaddingHeight) { res.size.h.min = layoutPlusPaddingHeight; }
@@ -593,9 +618,11 @@ export namespace Rev::Element {
 
             if (!visible) { return; }
 
+            Resolved& res = resolved;
+
             // Tell dimensions if they can grow
-            if (computed.style.size.width.type == Dist::Type::Grow) { res.size.w.growable = true; }
-            if (computed.style.size.height.type == Dist::Type::Grow) { res.size.h.growable = true; }
+            if (resolved.style.size.width.type == Dist::Type::Grow) { res.size.w.growable = true; }
+            if (resolved.style.size.height.type == Dist::Type::Grow) { res.size.h.growable = true; }
 
             // Promote growable
             //--------------------------------------------------
@@ -604,11 +631,11 @@ export namespace Rev::Element {
             bool outerHeightGrowable = (res.size.h.growable || res.mar.t.growable || res.mar.b.growable);
 
             if (outerWidthGrowable) {
-                parent->res.size.w.growable = true;
+                parent->resolved.size.w.growable = true;
             }
 
             if (outerHeightGrowable) {
-                parent->res.size.h.growable = true;
+                parent->resolved.size.h.growable = true;
                 if (parentRow) { parentRow->size.h.growable = true; }
                 if (parentLayout) { parentLayout->size.h.growable = true; }
             }
@@ -624,10 +651,12 @@ export namespace Rev::Element {
             innerHeight = 0;
 
             if (!visible) { return; }
+
+            Resolved& res = resolved;
             
             if (parent == this) {
-                res.size.w.val = res.size.w.min = res.size.w.max = computed.style.size.width.val;
-                res.size.h.val = res.size.h.min = res.size.h.max = computed.style.size.height.val;
+                res.size.w.val = res.size.w.min = res.size.w.max = resolved.style.size.width.val;
+                res.size.h.val = res.size.h.min = res.size.h.max = resolved.style.size.height.val;
             }
 
             innerWidth = res.size.w.val;
@@ -636,10 +665,10 @@ export namespace Rev::Element {
             // Resolve own padding (needed for fit)
             //--------------------------------------------------
             
-            res.pad.l.val = res.pad.l.min = res.pad.l.max = computed.style.padding.left.val;
-            res.pad.r.val = res.pad.r.min = res.pad.r.max = computed.style.padding.right.val;
-            res.pad.t.val = res.pad.t.min = res.pad.t.max = computed.style.padding.top.val;
-            res.pad.b.val = res.pad.b.min = res.pad.b.max = computed.style.padding.bottom.val;
+            res.pad.l.val = res.pad.l.min = res.pad.l.max = resolved.style.padding.left.val;
+            res.pad.r.val = res.pad.r.min = res.pad.r.max = resolved.style.padding.right.val;
+            res.pad.t.val = res.pad.t.min = res.pad.t.max = resolved.style.padding.top.val;
+            res.pad.b.val = res.pad.b.min = res.pad.b.max = resolved.style.padding.bottom.val;
 
             innerWidth -= res.pad.l.val + res.pad.r.val;
             innerHeight -= res.pad.t.val + res.pad.b.val;
@@ -652,49 +681,49 @@ export namespace Rev::Element {
             for (Element* pChild : children) {
 
                 Element& child = *pChild;
-                Size& cSize = child.computed.style.size;
-                LrtbStyle& cMargin = child.computed.style.margin;
-                LrtbStyle& cPadding = child.computed.style.padding;
+                Size& cSize = child.resolved.style.size;
+                LrtbStyle& cMargin = child.resolved.style.margin;
+                LrtbStyle& cPadding = child.resolved.style.padding;
                 Dist& cWidth = cSize.width;
                 Dist& cHeight = cSize.height;
 
                 // Resolve nominal
-                if (cSize.width) { child.res.size.w.val = child.res.size.w.min = child.res.size.w.max = cSize.width.resolve(innerWidth); }
-                if (cSize.height) { child.res.size.h.val = child.res.size.h.min = child.res.size.h.max = cSize.height.resolve(innerHeight); }
+                if (cSize.width) { child.resolved.size.w.val = child.resolved.size.w.min = child.resolved.size.w.max = cSize.width.resolve(innerWidth); }
+                if (cSize.height) { child.resolved.size.h.val = child.resolved.size.h.min = child.resolved.size.h.max = cSize.height.resolve(innerHeight); }
 
                 // Resolve min
-                if (cSize.minWidth) { child.res.size.w.min = cSize.minWidth.resolve(innerWidth); }
-                if (cSize.minHeight) { child.res.size.h.min = cSize.minHeight.resolve(innerHeight); }
+                if (cSize.minWidth) { child.resolved.size.w.min = cSize.minWidth.resolve(innerWidth); }
+                if (cSize.minHeight) { child.resolved.size.h.min = cSize.minHeight.resolve(innerHeight); }
 
                 // Resolve max
-                if (cSize.maxWidth) { child.res.size.w.max = cSize.maxWidth.resolve(innerWidth); }
-                if (cSize.maxHeight) { child.res.size.h.max = cSize.maxHeight.resolve(innerHeight); }
+                if (cSize.maxWidth) { child.resolved.size.w.max = cSize.maxWidth.resolve(innerWidth); }
+                if (cSize.maxHeight) { child.resolved.size.h.max = cSize.maxHeight.resolve(innerHeight); }
 
                 // Override max if needed
-                if (cSize.width.type == Dist::Type::Grow && !set(child.res.size.w.max)) { child.res.size.w.max = 9999999.0f; }
-                if (cSize.height.type == Dist::Type::Grow && !set(child.res.size.h.max)) { child.res.size.h.max = 9999999.0f; }
+                if (cSize.width.type == Dist::Type::Grow && !set(child.resolved.size.w.max)) { child.resolved.size.w.max = 9999999.0f; }
+                if (cSize.height.type == Dist::Type::Grow && !set(child.resolved.size.h.max)) { child.resolved.size.h.max = 9999999.0f; }
 
                 // Resolve child margin
-                child.res.mar.l.val = child.res.mar.l.min = child.res.mar.l.max = cMargin.left.val;
-                child.res.mar.r.val = child.res.mar.r.min = child.res.mar.r.max = cMargin.right.val;
-                child.res.mar.t.val = child.res.mar.t.min = child.res.mar.t.max = cMargin.top.val;
-                child.res.mar.b.val = child.res.mar.b.min = child.res.mar.b.max = cMargin.bottom.val;
+                child.resolved.mar.l.val = child.resolved.mar.l.min = child.resolved.mar.l.max = cMargin.left.val;
+                child.resolved.mar.r.val = child.resolved.mar.r.min = child.resolved.mar.r.max = cMargin.right.val;
+                child.resolved.mar.t.val = child.resolved.mar.t.min = child.resolved.mar.t.max = cMargin.top.val;
+                child.resolved.mar.b.val = child.resolved.mar.b.min = child.resolved.mar.b.max = cMargin.bottom.val;
 
                 // Resolve child padding
-                child.res.pad.l.val = child.res.pad.l.min = child.res.pad.l.max = cPadding.left.val;
-                child.res.pad.r.val = child.res.pad.r.min = child.res.pad.r.max = cPadding.right.val;
-                child.res.pad.t.val = child.res.pad.t.min = child.res.pad.t.max = cPadding.top.val;
-                child.res.pad.b.val = child.res.pad.b.min = child.res.pad.b.max = cPadding.bottom.val;
+                child.resolved.pad.l.val = child.resolved.pad.l.min = child.resolved.pad.l.max = cPadding.left.val;
+                child.resolved.pad.r.val = child.resolved.pad.r.min = child.resolved.pad.r.max = cPadding.right.val;
+                child.resolved.pad.t.val = child.resolved.pad.t.min = child.resolved.pad.t.max = cPadding.top.val;
+                child.resolved.pad.b.val = child.resolved.pad.b.min = child.resolved.pad.b.max = cPadding.bottom.val;
 
-                float minWidthFromPadding = child.res.pad.l.min + child.res.pad.r.min;
-                float minHeightFromPadding = child.res.pad.t.min + child.res.pad.b.min;
+                float minWidthFromPadding = child.resolved.pad.l.min + child.resolved.pad.r.min;
+                float minHeightFromPadding = child.resolved.pad.t.min + child.resolved.pad.b.min;
 
-                if (!set(child.res.size.w.min)) { child.res.size.w.min = child.layout.size.w.min + minWidthFromPadding; }
-                if (!set(child.res.size.h.min)) { child.res.size.h.min = child.layout.size.h.min + minHeightFromPadding; }
+                if (!set(child.resolved.size.w.min)) { child.resolved.size.w.min = child.layout.size.w.min + minWidthFromPadding; }
+                if (!set(child.resolved.size.h.min)) { child.resolved.size.h.min = child.layout.size.h.min + minHeightFromPadding; }
 
                 // If no set val, get from min
-                if (!set(child.res.size.w.val)) { child.res.size.w.val = child.res.size.w.min; }
-                if (!set(child.res.size.h.val)) { child.res.size.h.val = child.res.size.h.min; }
+                if (!set(child.resolved.size.w.val)) { child.resolved.size.w.val = child.resolved.size.w.min; }
+                if (!set(child.resolved.size.h.val)) { child.resolved.size.h.val = child.resolved.size.h.min; }
 
                 bool test = true;
             }
@@ -704,14 +733,14 @@ export namespace Rev::Element {
 
             bool testb = true;
 
-            if (computed.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.alignment.direction == Axis::Vertical) {
 
                 // Measure val
                 for (Row& row : layout.rows) {
 
                     for (Element* member : row.members) {
-                        row.size.w.val = std::max(row.size.w.val, member->res.getOuter(Axis::Horizontal));
-                        row.size.h.val += member->res.getOuter(Axis::Vertical);
+                        row.size.w.val = std::max(row.size.w.val, member->resolved.getOuter(Axis::Horizontal));
+                        row.size.h.val += member->resolved.getOuter(Axis::Vertical);
                     }
 
                     layout.size.w.val += row.size.w.val;
@@ -722,8 +751,8 @@ export namespace Rev::Element {
                 for (Row& row : layout.rows) {
 
                     for (Element* member : row.members) {
-                        row.size.w.max = std::max(row.size.w.max, member->res.getMaxOuter(Axis::Horizontal));
-                        row.size.h.max += member->res.getMaxOuter(Axis::Vertical);
+                        row.size.w.max = std::max(row.size.w.max, member->resolved.getMaxOuter(Axis::Horizontal));
+                        row.size.h.max += member->resolved.getMaxOuter(Axis::Vertical);
                     }
 
                     layout.size.w.max += row.size.w.max;
@@ -737,8 +766,8 @@ export namespace Rev::Element {
                 for (Row& row : layout.rows) {
 
                     for (Element* member : row.members) {
-                        row.size.w.val += member->res.getOuter(Axis::Horizontal);
-                        row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                        row.size.w.val += member->resolved.getOuter(Axis::Horizontal);
+                        row.size.h.val = std::max(row.size.h.val, member->resolved.getOuter(Axis::Vertical));
                     }
 
                     layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
@@ -749,8 +778,8 @@ export namespace Rev::Element {
                 for (Row& row : layout.rows) {
 
                     for (Element* member : row.members) {
-                        row.size.w.max += member->res.getMaxOuter(Axis::Horizontal);
-                        row.size.h.max = std::max(row.size.h.max, member->res.getMaxOuter(Axis::Vertical));
+                        row.size.w.max += member->resolved.getMaxOuter(Axis::Horizontal);
+                        row.size.h.max = std::max(row.size.h.max, member->resolved.getMaxOuter(Axis::Vertical));
                     }
 
                     layout.size.w.max = std::max(layout.size.w.max, row.size.w.max);
@@ -771,7 +800,7 @@ export namespace Rev::Element {
             // Grow growable dimensions (horizontal)
             //--------------------------------------------------
 
-            layout.size.w.max = std::min(layout.size.w.max, res.getInner(Axis::Horizontal));
+            layout.size.w.max = std::min(layout.size.w.max, resolved.getInner(Axis::Horizontal));
 
             for (Row& row : layout.rows) {
 
@@ -791,7 +820,7 @@ export namespace Rev::Element {
                     }
 
                     for (Element* member : row.members) {
-                        float take = member->res.grow(share, Axis::Horizontal);
+                        float take = member->resolved.grow(share, Axis::Horizontal);
                         row.size.w.val += take;
                         availableWidth -= take;
                     }
@@ -802,7 +831,7 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             // Consider moving back to "min" strategy to handle fitting
-            layout.size.h.max = std::min(layout.size.h.max, res.getInner(Axis::Vertical));
+            layout.size.h.max = std::min(layout.size.h.max, resolved.getInner(Axis::Vertical));
             float availableHeight = layout.size.h.max - layout.size.h.val;
 
             // Loop until break conditions are met
@@ -831,18 +860,18 @@ export namespace Rev::Element {
                     
                     Element& elem = *member;
 
-                    float availableElemHeight = row.size.h.val - elem.res.getOuter(Axis::Vertical);
+                    float availableElemHeight = row.size.h.val - elem.resolved.getOuter(Axis::Vertical);
 
                     while (true) {
                         
-                        int numGrowable = elem.res.canGrow(Axis::Vertical);
+                        int numGrowable = elem.resolved.canGrow(Axis::Vertical);
                         float share = availableElemHeight / float(numGrowable);
 
                         if (!numGrowable || availableElemHeight < 0.01) {
                             break;
                         }
                         
-                        float take = elem.res.grow(share, Axis::Vertical);
+                        float take = elem.resolved.grow(share, Axis::Vertical);
                         availableElemHeight -= take;
                     }
                 }
@@ -854,7 +883,7 @@ export namespace Rev::Element {
             layout.size.w.val = -0.0f;
             layout.size.h.val = -0.0f;
 
-            if (computed.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.alignment.direction == Axis::Vertical) {
 
                 // Measure val
                 for (Row& row : layout.rows) {
@@ -863,8 +892,8 @@ export namespace Rev::Element {
                     row.size.h.val = -0.0f;
 
                     for (Element* member : row.members) {
-                        row.size.w.val = std::max(row.size.w.val, member->res.getOuter(Axis::Horizontal));
-                        row.size.h.val += member->res.getOuter(Axis::Vertical);
+                        row.size.w.val = std::max(row.size.w.val, member->resolved.getOuter(Axis::Horizontal));
+                        row.size.h.val += member->resolved.getOuter(Axis::Vertical);
                     }
 
                     layout.size.w.val += row.size.w.val;
@@ -881,8 +910,8 @@ export namespace Rev::Element {
                     row.size.h.val = -0.0f;
 
                     for (Element* member : row.members) {
-                        row.size.w.val += member->res.getOuter(Axis::Horizontal);
-                        row.size.h.val = std::max(row.size.h.val, member->res.getOuter(Axis::Vertical));
+                        row.size.w.val += member->resolved.getOuter(Axis::Horizontal);
+                        row.size.h.val = std::max(row.size.h.val, member->resolved.getOuter(Axis::Vertical));
                     }
 
                     layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
@@ -913,7 +942,7 @@ export namespace Rev::Element {
             if (parent == this) {
                 rect = {
                     0, 0,
-                    res.size.w.val, res.size.h.val
+                    resolved.size.w.val, resolved.size.h.val
                 };
             }
 
@@ -938,28 +967,28 @@ export namespace Rev::Element {
 
                 // Resolve member dimensions
                 for (Element* member : row.members) {
-                    //member->res.size.clamp();
-                    member->rect.w = member->res.size.w.val;
-                    member->rect.h = member->res.size.h.val;
+                    //member->resolved.size.clamp();
+                    member->rect.w = member->resolved.size.w.val;
+                    member->rect.h = member->resolved.size.h.val;
                 }
             }
 
             // Resolve positions
             //--------------------------------------------------
 
-            float layoutOffsetX = res.pad.l.val;
-            float layoutOffsetY = res.pad.t.val;
+            float layoutOffsetX = resolved.pad.l.val;
+            float layoutOffsetY = resolved.pad.t.val;
 
-            Style& rStyle = computed.style;
+            Style& rStyle = resolved.style;
 
-            layoutOffsetX += center(res.getInner(Axis::Horizontal), layout.rect.w, rStyle.alignment.horizontal);
-            layoutOffsetY += center(res.getInner(Axis::Vertical), layout.rect.h, rStyle.alignment.vertical);
+            layoutOffsetX += center(resolved.getInner(Axis::Horizontal), layout.rect.w, rStyle.alignment.horizontal);
+            layoutOffsetY += center(resolved.getInner(Axis::Vertical), layout.rect.h, rStyle.alignment.vertical);
 
             // Resolve layout position
             layout.rect.x = rect.x + layoutOffsetX;
             layout.rect.y = rect.y + layoutOffsetY;
 
-            if (computed.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.alignment.direction == Axis::Vertical) {
 
                 float runningX = 0;
 
@@ -978,18 +1007,18 @@ export namespace Rev::Element {
 
                     for (Element* member : row.members) {
 
-                        member->rect.x = member->res.mar.l.val + row.rect.x;
-                        member->rect.y = member->res.mar.t.val + row.rect.y + runningY;
+                        member->rect.x = member->resolved.mar.l.val + row.rect.x;
+                        member->rect.y = member->resolved.mar.t.val + row.rect.y + runningY;
 
-                        runningY += member->rect.h + member->res.mar.t.val + member->res.mar.b.val;
+                        runningY += member->rect.h + member->resolved.mar.t.val + member->resolved.mar.b.val;
 
                         // Apply relative positions
                         //--------------------------------------------------
 
-                        if (member->res.pos.l.val != -0.0f) { member->rect.x += member->res.pos.l.val; }
-                        if (member->res.pos.r.val != -0.0f) { member->rect.x += member->res.pos.r.val; }
-                        if (member->res.pos.t.val != -0.0f) { member->rect.y += member->res.pos.t.val; }
-                        if (member->res.pos.b.val != -0.0f) { member->rect.y += member->res.pos.b.val; }
+                        if (member->resolved.pos.l.val != -0.0f) { member->rect.x += member->resolved.pos.l.val; }
+                        if (member->resolved.pos.r.val != -0.0f) { member->rect.x += member->resolved.pos.r.val; }
+                        if (member->resolved.pos.t.val != -0.0f) { member->rect.y += member->resolved.pos.t.val; }
+                        if (member->resolved.pos.b.val != -0.0f) { member->rect.y += member->resolved.pos.b.val; }
                     }
 
                     runningX += row.rect.w;
@@ -1015,18 +1044,18 @@ export namespace Rev::Element {
 
                     for (Element* member : row.members) {
 
-                        member->rect.x = member->res.mar.l.val + row.rect.x + runningX;
-                        member->rect.y = member->res.mar.t.val + row.rect.y;
+                        member->rect.x = member->resolved.mar.l.val + row.rect.x + runningX;
+                        member->rect.y = member->resolved.mar.t.val + row.rect.y;
 
-                        runningX += member->rect.w + member->res.mar.l.val + member->res.mar.r.val;
+                        runningX += member->rect.w + member->resolved.mar.l.val + member->resolved.mar.r.val;
 
                         // Apply relative positions
                         //--------------------------------------------------
 
-                        if (member->res.pos.l.val != -0.0f) { member->rect.x += member->res.pos.l.val; }
-                        if (member->res.pos.r.val != -0.0f) { member->rect.x += member->res.pos.r.val; }
-                        if (member->res.pos.t.val != -0.0f) { member->rect.y += member->res.pos.t.val; }
-                        if (member->res.pos.b.val != -0.0f) { member->rect.y += member->res.pos.b.val; }
+                        if (member->resolved.pos.l.val != -0.0f) { member->rect.x += member->resolved.pos.l.val; }
+                        if (member->resolved.pos.r.val != -0.0f) { member->rect.x += member->resolved.pos.r.val; }
+                        if (member->resolved.pos.t.val != -0.0f) { member->rect.y += member->resolved.pos.t.val; }
+                        if (member->resolved.pos.b.val != -0.0f) { member->rect.y += member->resolved.pos.b.val; }
                     }
 
                     runningY += row.rect.h;
@@ -1133,7 +1162,7 @@ export namespace Rev::Element {
             // Mouse down event means we are a drag target
             if (!targetFlags.drag) {
                 targetFlags.drag = true;
-                if (computed.hasDragStyle) { refresh(e); }
+                if (resolved.hasDragStyle) { styles.dirty = true; }
             }
 
             // Tell event listeners
@@ -1156,7 +1185,7 @@ export namespace Rev::Element {
             // Mouseup means dragging must end
             if (targetFlags.drag) {
                 targetFlags.drag = false;
-                if (computed.hasDragStyle) { refresh(e); }
+                if (resolved.hasDragStyle) { styles.dirty = true; }
             }
 
             // Stop if listener does not pass "continue" flag
@@ -1181,8 +1210,8 @@ export namespace Rev::Element {
         virtual void mouseMove(Event& e) {
 
             // If there is a cursor we need to set
-            if (computed.style.cursor != Cursor::Unset) {
-                e.mouse.cursor = computed.style.cursor;
+            if (resolved.style.cursor != Cursor::Unset) {
+                e.mouse.cursor = resolved.style.cursor;
             }
 
             // Stop if listener does not pass "continue" flag
@@ -1210,7 +1239,9 @@ export namespace Rev::Element {
 
             if (!targetFlags.hover) {
                 targetFlags.hover = true;
-                if (computed.hasHoverStyle) { refresh(e); }
+                if (resolved.hasHoverStyle) {
+                    styles.dirty = true;
+                }
             }
 
             // Tell event listeners
@@ -1235,7 +1266,7 @@ export namespace Rev::Element {
 
             if (targetFlags.hover) {
                 targetFlags.hover = false;
-                if (computed.hasHoverStyle) { refresh(e); }
+                if (resolved.hasHoverStyle) { styles.dirty = true; }
             }
 
             tell(&Element::mouseLeave, e);

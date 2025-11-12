@@ -40,7 +40,7 @@ export namespace Rev::Element {
 
         void computePrimitives(Event& e) override {
 
-            Style& styleRef = computed.style;
+            Style& styleRef = resolved.style;
             
             // Box data
             //--------------------------------------------------
@@ -124,7 +124,7 @@ export namespace Rev::Element {
             rectangle->draw();
 
             // Draw stencil only after drawing self
-            if (computed.style.overflow == Overflow::Hide) {
+            if (resolved.style.overflow == Overflow::Hide) {
 
                 // Push element, set pre-draw stencil depth
                 stencilStack.push_back(this);

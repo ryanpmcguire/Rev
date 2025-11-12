@@ -7,6 +7,7 @@ module;
 
 export module Rev.Element.Style;
 
+import Rev.Core.DirtyFlag;
 import Rev.Core.Resource;
 import Rev.Core.Color;
 
@@ -88,13 +89,13 @@ export namespace Rev::Element {
         float val = -0.0f;
 
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline Dist Null() {
             return { Type::Unset, -0.0f, -1, nullptr };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
             this->dirty = dirty;
         }
 
@@ -127,17 +128,24 @@ export namespace Rev::Element {
             return type != Unset;
         }
 
+        bool operator==(const Dist& other) {
+            return (
+                type == other.type &&
+                val == other.val
+            );
+        }
+
         // Custom assignment operator
         // Copy everything except the "dirty" flag pointer
         Dist& operator=(const Dist& other) {
 
             if (this == &other) { return *this; }
+            if (*this == other) { return *this; }
+            if (dirty) { *dirty = true; }
 
             type = other.type;
             val = other.val;
             transition = other.transition;
-            
-            if (dirty) { *dirty = true; }
 
             return *this;
         }
@@ -220,7 +228,7 @@ export namespace Rev::Element {
         float r = -0.0f, g = -0.0f, b = -0.0f, a = -0.0f;
         
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline Color Null() {
             return { Type::Unset, -0.0f, -0.0f, -0.0f, -0.0f, -1, nullptr };
@@ -230,7 +238,7 @@ export namespace Rev::Element {
             return { r, g, b, a };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
             this->dirty = dirty;
         }
 
@@ -250,17 +258,25 @@ export namespace Rev::Element {
             if (a != old.a) { Transition::createNew(a, old.a, transitions, time, transitionLength); }
         }
 
+        bool operator==(const Color& other) {
+            return (
+                type == other.type &&
+                r == other.r && g == other.g && b == other.b && a == other.a
+            );
+        }
+
         // Custom assignment operator
         // Copy everything except the "dirty" flag pointer
         Color& operator=(const Color& other) {
 
+            // Check if assignment *should* occur, set dirty if so
             if (this == &other) { return *this; }
+            if (*this == other) { return *this; }
+            if (dirty) { *dirty = true; }
 
             type = other.type;
             r = other.r; g = other.g; b = other.b; a = other.a;
             transition = other.transition;
-
-            if (dirty) { *dirty = true; }
 
             return *this;
         }
@@ -292,7 +308,7 @@ export namespace Rev::Element {
         Dist minHeight, maxHeight;
         
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline Size Null() {
 
@@ -304,7 +320,7 @@ export namespace Rev::Element {
             };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             width.linkDirtyFlag(dirty); height.linkDirtyFlag(dirty);
             minWidth.linkDirtyFlag(dirty); minHeight.linkDirtyFlag(dirty);
@@ -351,7 +367,7 @@ export namespace Rev::Element {
         Dist maxLeft, maxRight, maxTop, maxBottom;
 
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline LrtbStyle Null() {
 
@@ -363,7 +379,7 @@ export namespace Rev::Element {
             };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
             
             left.linkDirtyFlag(dirty); right.linkDirtyFlag(dirty);
             top.linkDirtyFlag(dirty); bottom.linkDirtyFlag(dirty);
@@ -447,7 +463,7 @@ export namespace Rev::Element {
         Align vertical = Align::Unset;
         Wrap wrap = Wrap::Unset;
 
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline Alignment Null() {
 
@@ -459,7 +475,7 @@ export namespace Rev::Element {
             };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
             this->dirty = dirty;
         }
 
@@ -478,7 +494,7 @@ export namespace Rev::Element {
 
         Color color;
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline Background Null() {
 
@@ -488,7 +504,7 @@ export namespace Rev::Element {
             };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
             color.linkDirtyFlag(dirty);
             this->dirty = dirty;
         }
@@ -516,7 +532,7 @@ export namespace Rev::Element {
             Dist radius;
 
             int transition = -1;
-            bool* dirty = nullptr;
+            Core::DirtyFlag* dirty = nullptr;
 
             static inline Corner Null() {
                 return {
@@ -525,7 +541,7 @@ export namespace Rev::Element {
                 };
             }
 
-            inline void linkDirtyFlag(bool* dirty) {
+            inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
                 radius.linkDirtyFlag(dirty);
                 this->dirty = dirty;
             }
@@ -549,7 +565,7 @@ export namespace Rev::Element {
             Dist width;
 
             int transition = -1;
-            bool* dirty = nullptr;
+            Core::DirtyFlag* dirty = nullptr;
 
             static inline Side Null() {
                 return {
@@ -558,7 +574,7 @@ export namespace Rev::Element {
                 };
             }
             
-            inline void linkDirtyFlag(bool* dirty) {
+            inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
                 color.linkDirtyFlag(dirty);
                 width.linkDirtyFlag(dirty);
@@ -592,7 +608,7 @@ export namespace Rev::Element {
         Side left, right, top, bottom;
 
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline Border Null() {
 
@@ -604,7 +620,7 @@ export namespace Rev::Element {
             };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             color.linkDirtyFlag(dirty);
             radius.linkDirtyFlag(dirty);
@@ -668,7 +684,7 @@ export namespace Rev::Element {
         Dist x, y;
 
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline Shadow Null() {
 
@@ -680,7 +696,7 @@ export namespace Rev::Element {
             };
         };
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             color.linkDirtyFlag(dirty);
             size.linkDirtyFlag(dirty);
@@ -729,7 +745,7 @@ export namespace Rev::Element {
         Dist spacing;
 
         int transition = -1;
-        bool* dirty = nullptr;
+        Core::DirtyFlag* dirty = nullptr;
 
         static inline TextStyle Null() {
 
@@ -742,7 +758,7 @@ export namespace Rev::Element {
             };
         }
 
-        inline void linkDirtyFlag(bool* dirty) {
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             color.linkDirtyFlag(dirty);
             size.linkDirtyFlag(dirty);
@@ -852,17 +868,20 @@ export namespace Rev::Element {
         Overflow overflow = Overflow::Unset;
         LrtbStyle position; bool absolute = false;
         Alignment alignment;
+
         Size size;
         LrtbStyle margin;
         LrtbStyle padding;
+
         Background background;
         Border border;
         Shadow shadow;
+
         TextStyle text;
         Cursor cursor;
 
         int transition = -1; // Transition 
-        bool dirty = true;
+        Core::DirtyFlag dirty;
 
         static inline Style* CreateNull() {
             
@@ -959,7 +978,7 @@ export namespace Rev::Element {
             return this->dirty;
         }
 
-        void linkDirtyFlag(bool* dirty) {
+        void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             alignment.linkDirtyFlag(dirty);
             size.linkDirtyFlag(dirty);
@@ -1000,35 +1019,17 @@ export namespace Rev::Element {
     struct StyleList {
 
         std::vector<Style*> styles;
-        bool dirty = true;
+        Core::DirtyFlag dirty;
 
-        inline void setDirty(bool dirty) {
-
-            if (this->dirty == dirty) { return; }
-            else { this->dirty = dirty; }
-
-            if (!dirty) {
-                for (Style* style : styles) {
-                    style->dirty = false;
-                }
-            }
-        }
-
-        inline bool isDirty() {
-
-            if (dirty) { return true; }
-
-            for (Style* style : styles) {
-                if (style->dirty) { return dirty = true; }
-            }
-
-            return false;
-        }
+        bool hasHoverStyle = false;
+        bool hasPressStyle = false;
+        bool hasDragStyle = false;
+        bool hasFocusStyle = false;
 
         StyleList() {}
 
         StyleList(std::initializer_list<Style*> init) : styles(init) {
-            dirty = true;
+
         }
 
         StyleList(std::vector<Style*> styles) {
@@ -1060,17 +1061,17 @@ export namespace Rev::Element {
             return styles;
         }
 
-        // Assign from vector
-        StyleList& operator=(std::vector<Style*> other) {
+        // Assign from StyleList (copy all except dirty flag)
+        StyleList& operator=(StyleList& other) {
 
-            styles = other;
+            styles = other.styles;
             dirty = true;
 
             return *this;
         }
 
-        // Assign from vector reference
-        StyleList& operator=(std::vector<Style*>& other) {
+        // Assign from vector
+        StyleList& operator=(std::vector<Style*> other) {
 
             styles = other;
             dirty = true;
@@ -1082,66 +1083,82 @@ export namespace Rev::Element {
     struct StylePtr {
 
         Style* pStyle = nullptr;
+        Core::DirtyFlag dirty;
 
         ~StylePtr() {
             if (pStyle) { delete pStyle; }
             pStyle = nullptr;
         }
 
+        Style* get() {
+
+            // Create style if not yet initialized
+            if (!pStyle) {
+                pStyle = Style::CreateNull();
+                dirty.drawsFrom(&(pStyle->dirty));
+            }
+
+            return pStyle;
+        }
+
         explicit operator bool() const {
             return pStyle != nullptr;
         }
 
+        // Ensure exists before deref
         Style& operator*() {
-            if (!pStyle) { pStyle = Style::CreateNull();; pStyle->linkDirtyFlag(&pStyle->dirty); }
+            if (!pStyle) { pStyle = get(); }
             return *pStyle;
         }
 
+        // Ensure exists before access
         Style* operator->() {
-            if (!pStyle) { pStyle = Style::CreateNull();; pStyle->linkDirtyFlag(&pStyle->dirty); }
+            if (!pStyle) { pStyle = get(); }
             return pStyle;
         }
 
-        // Assigning from a style
+        // Assigning from Style
         StylePtr& operator=(const Style& other) {
-            if (!pStyle) { pStyle = Style::CreateNull();; pStyle->linkDirtyFlag(&pStyle->dirty); }
+            if (!pStyle) { pStyle = get(); }
             *pStyle = other;
             return *this;
         }
 
-        // Assigning from a pointer to a style
+        // Assigning from Style*
         StylePtr& operator=(Style* pOther) {
-            pStyle = pOther;
+            if (!pStyle) { pStyle = get(); }
+            *pStyle = *pOther;
             return *this;
         }
 
-        // Assigning from a style pointer
+        // Assigning from StylePtr
         StylePtr& operator=(StylePtr& other) {
-            pStyle = other.pStyle;
+            if (!pStyle) { pStyle = get(); }
+            *pStyle = *(other.pStyle);
             return *this;
         }
 
         // Casting to a style pointer
         operator Style*() {
-            if (!pStyle) { pStyle = Style::CreateNull(); }
+            if (!pStyle) { pStyle = get(); }
             return pStyle;
         }
 
         // Casting to a style reference
         operator Style&() {
-            if (!pStyle) { pStyle = Style::CreateNull(); pStyle->linkDirtyFlag(&pStyle->dirty); }
+            if (!pStyle) { pStyle = get(); }
             return *pStyle;
         }
 
         // Applying from a style
         void apply(Style& other, Applies flags = {}) {
-            if (!pStyle) { pStyle = Style::CreateNull(); pStyle->linkDirtyFlag(&pStyle->dirty); }
+            if (!pStyle) { pStyle = get(); }
             pStyle->apply(other, flags);
         }
 
         // Applying from a style pointer
         void apply(StylePtr& other, Applies flags = {}) {
-            if (!pStyle) { pStyle = Style::CreateNull(); pStyle->linkDirtyFlag(&pStyle->dirty); }
+            if (!pStyle) { pStyle = get(); }
             if (other.pStyle) { pStyle->apply(*(other.pStyle), flags); }
         }
     };
