@@ -26,11 +26,17 @@ export namespace Rev::Element {
 
         struct Shared {
 
-            std::vector<Element*> dirtyElements;
-            std::vector<Element*> dirtyElementsStyle;
-            std::vector<Element*> stencilStack;
+            struct DirtyElements {
+                std::vector<Element*> refresh;
+                std::vector<Element*> restyle;
+                std::vector<Element*> animate;
+            };
+
+            DirtyElements dirty;
             
             Graphics::Canvas* canvas = nullptr;
+            std::vector<Element*> stencilStack;
+
             Event* event = nullptr;
         };
 
@@ -77,7 +83,7 @@ export namespace Rev::Element {
                 if (!this->shared) { return; }
                 //if (this->parent == this) { return; }
 
-                this->shared->dirtyElementsStyle.push_back(this);
+                this->shared->dirty.restyle.push_back(this);
                 this->refresh(*shared->event);
             });
 
@@ -211,17 +217,19 @@ export namespace Rev::Element {
 
             this->dirty.style = false;
 
-            // If this is our first draw, we do not animate
-            if (draws == 0) {
-                return;
-            }
-
-            //return;
-
             // Create transitions if needed
             //--------------------------------------------------
             
+            // If this is our first draw, we do not animate
+            if (draws == 0) { return; }
+
+            bool hadTransitions = !transitions.empty();
             resolved.style.animate(old, transitions, e.time);
+
+            // Add to "please animate" list if we now have transitions
+            if (!hadTransitions && !transitions.empty()) {
+                shared->dirty.animate.push_back(this);
+            }
         }
 
         virtual void computeChildren(Event& e) {}
@@ -1148,7 +1156,7 @@ export namespace Rev::Element {
 
                 this->dirty.draw = true;
                 e.causedRefresh = true;
-                shared->dirtyElements.push_back(this);
+                shared->dirty.refresh.push_back(this);
             }
     
             // Propagate upwards

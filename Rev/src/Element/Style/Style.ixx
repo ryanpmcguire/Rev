@@ -1035,6 +1035,15 @@ export namespace Rev::Element {
         StyleList(std::vector<Style*> styles) {
             this->styles = styles;
         }
+
+        void prepend(Style* style) {
+
+            auto it = std::find(styles.begin(), styles.end(), style);
+            if (it != styles.end()) { return; }
+
+            styles.insert(styles.begin(), style);
+            dirty = true;
+        }
         
         // Add style if not present
         void add(Style* style) {

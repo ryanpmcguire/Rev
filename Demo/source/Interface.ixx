@@ -44,27 +44,31 @@ export namespace HelloWorld {
             };
 
             Text* text = new Text(greyBox, "Hello");
-                text->style->text.size = 32_px;
-                text->style->text.color = rgba(0, 0, 0, 1);
-                text->style->background.color = rgba(1, 0, 0, 0.2);
+            text->style->text.size = 32_px;
+            text->style->text.color = rgba(0, 0, 0, 1);
+            text->style->background.color = rgba(1, 0, 0, 0.2);
 
-                Chart* chart = new Chart(greyBox);
-                
-                chart->style = {
-                    .size = { .width = 100_pct, .height = Grow(), .minHeight = 100_px },
-                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
-                };
+            Chart* chart = new Chart(greyBox);
+            
+            chart->style = {
+                .size = { .width = 100_pct, .height = Grow(), .minHeight = 100_px },
+                .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
+            };
 
-                size_t num = 100;
-                for (size_t i = 0; i < num; i++) {
-                    float t = float(i) / float(num);
-                    chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
-                }
-                
-                Dropdown* dropdown = new Dropdown(greyBox);
-                Dropdown* dropdown1 = new Dropdown(greyBox);
+            size_t num = 100;
+            for (size_t i = 0; i < num; i++) {
+                float t = float(i) / float(num);
+                chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
+            }
+            
+            Dropdown* dropdown = new Dropdown(greyBox);
+            Dropdown* dropdown1 = new Dropdown(greyBox);
 
-                Slider* slider = new Slider(greyBox);
+            Slider* slider = new Slider(greyBox);
+
+            /*for (size_t i = 0; i < 1000; i++) {
+                new Box(greyBox);
+            }*/
         }
 
         // Destroy

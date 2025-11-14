@@ -20,13 +20,10 @@ export namespace Rev::Element {
 
     namespace DropdownStyle::Styles {
         
-        Style Dropdown = {
+        Style Self = {
             .alignment = { Axis::Vertical, Align::Start, Align::Center },
             .size = { .width = Grow() },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
-            .padding = { 6_px, 6_px, 6_px, 6_px },
-            .background = { .color = rgba(0, 0, 0, 0.1), .transition = 0.1_sec },
-            .border = { .radius = 4_px }
+            .margin = { 4_px, 4_px, 4_px, 4_px }
         };
 
             Style Label = {
@@ -34,8 +31,18 @@ export namespace Rev::Element {
                 .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
             };
 
+            Style Dropdown {
+                .size = { .width = Grow() },
+                .padding = { 4_px, 4_px, 4_px, 4_px },
+                .border = { .color = rgba(0, 0, 0, 0.2), .radius = 4_px, .width = 1_px }
+            };
+
+                Style DropdownText {
+                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
+                };
+
             Style OptionsContainer {
-                .visibility = Visibility::Visible,
+                .visibility = Visibility::Hidden,
                 .alignment = { Axis::Vertical },
                 .background = { .color = rgba(0, 0, 0, 0.05) }
             };
@@ -60,6 +67,9 @@ export namespace Rev::Element {
         // Label text
         Text* label = nullptr;
 
+        Box* dropdown = nullptr;
+            Box* dropdownText = nullptr;
+
         // Option elements
         Box* optionsContainer = nullptr;
         std::vector<Text*> options;
@@ -82,16 +92,19 @@ export namespace Rev::Element {
             // Self
             this->name = "Dropdown";
             this->params = p;
-            this->styles.add(&Styles::Dropdown);
+            this->styles.add(&Styles::Self);
 
             this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option 3", "3" } };
 
             // Label
             label = new Text(this, "Dropdown", { &Styles::Label });
 
-            // Delete options container
-            if (optionsContainer) { delete optionsContainer; }
-            
+            // Dropdown per-se
+            //--------------------------------------------------
+
+            dropdown = new Box(this, { &Styles::Dropdown });
+                dropdownText = new Text(dropdown, "Option", { &Styles::DropdownText });
+
             // Options container
             //--------------------------------------------------
 

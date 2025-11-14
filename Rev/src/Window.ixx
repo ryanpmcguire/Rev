@@ -249,9 +249,9 @@ export namespace Rev {
 
             dbg("Drawing");
 
-            // Reset before 
+            // Reset before
             event.resetBeforeDispatch();
-            shared->dirtyElements.clear();
+            shared->dirty.refresh.clear();
             shared->stencilStack.clear();
 
             this->computeChildrenTopDown(e, this);
@@ -267,18 +267,27 @@ export namespace Rev {
 
             this->dirty.draw = false;
 
+            // Resolve own style, then any that are explicitly marked
             this->resolveStyle(e);
-            for (Element* element : shared->dirtyElementsStyle) {
-                element->resolveStyle(e);
-            }
-
-            shared->dirtyElementsStyle.clear();
-
-            for (Element* element : topDown) {
-                element->animateStyle(e);
-            }
+            for (Element* element : shared->dirty.restyle) { element->resolveStyle(e); }
+            shared->dirty.restyle.clear();
 
             for (Element* child : children) { child->cascadeStyle(); }
+
+            // Animate style transitions
+            //--------------------------------------------------
+
+            std::vector<Element*>& animate = shared->dirty.animate;
+
+            for (Element* element : animate) { element->animateStyle(e); }
+
+            // Remove elements that no longer have any transitions
+            animate.erase(
+                std::remove_if(animate.begin(), animate.end(),
+                    [](Element* element) { return element->transitions.empty(); }
+                ),
+                animate.end()
+            );
 
             // Visibility and layout
             //--------------------------------------------------
@@ -337,8 +346,6 @@ export namespace Rev {
             //--------------------------------------------------
 
             shared->canvas->endFrame();
-
-            window->dirty = false;
 
             if (this->dirty.draw) {
                 refresh(e);

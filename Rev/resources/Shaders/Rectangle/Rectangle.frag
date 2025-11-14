@@ -61,12 +61,13 @@ void main() {
     float is_top    = float(dT == minSideD);
     float is_bottom = float(dB == minSideD);
 
+    vec2 q = sign(localPos);
     float cornerRadius =
-          is_tl * tl +
-          is_tr * tr +
-          is_bl * bl +
-          is_br * br;
-
+        (q.x < 0.0 && q.y < 0.0) ? tl :
+        (q.x > 0.0 && q.y < 0.0) ? tr :
+        (q.x < 0.0 && q.y > 0.0) ? bl :
+                                br;
+                                
     cornerRadius = clamp(cornerRadius, 0.0, min(halfSize.x, halfSize.y));
 
     // Determine local border width based on which side we are on
@@ -88,7 +89,7 @@ void main() {
     vec2 edgeDist = abs(localPos) - (halfSize - vec2(cornerRadius));
 
     // Instead of a hard step, fade in as we approach the corner region
-    float fade = cornerRadius; // pixels before corner where we start smoothing
+    float fade = 0.5 * cornerRadius; // pixels before corner where we start smoothing
     float cornerFactor =
         smoothstep(-fade, 0.0, edgeDist.x) *
         smoothstep(-fade, 0.0, edgeDist.y);

@@ -39,7 +39,7 @@ export namespace Rev::Element {
         Text(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "Text") {
 
             text = new Primitive::Text(shared->canvas);
-            this->styles.add(&TextStyles::TextDefaults);
+            this->styles.prepend(&TextStyles::TextDefaults);
             this->content = content;
         }
 

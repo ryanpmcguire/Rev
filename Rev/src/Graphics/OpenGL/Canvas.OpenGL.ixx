@@ -72,7 +72,7 @@ export namespace Rev::Graphics {
             // Ensure cache coherency (wait for flush) before proceeding
             // (this is because any changes to buffers need to make it to
             // ram before we can tell the GPU everything is good)
-            glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT);
+            //glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT);
 
             // If canvas needs to adjust size to window
             if (flags.resize) {

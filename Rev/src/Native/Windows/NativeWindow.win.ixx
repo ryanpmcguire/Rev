@@ -887,12 +887,13 @@ export namespace Rev {
 
             // Optional: enable vsync if extension is present
             if (wglSwapIntervalEXT) {
-                wglSwapIntervalEXT(1); // 1 = vsync on, 0 = off
+                wglSwapIntervalEXT(0); // 1 = vsync on, 0 = off
             }
         }
 
         void swapBuffers() {
             if (hdc) {
+                this->dirty = false;
                 SwapBuffers(hdc);
             }
         }
