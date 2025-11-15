@@ -212,12 +212,12 @@ export namespace Rev {
             for (Element* element : topDown) { element->resetLayout(); }
 
             // Resolve minima, then maxima, then layout
-            for (Element* element : bottomUp) { element->resolveMinimaNew(); }
-            for (Element* element : topDown) { element->resolveMaximaNew(); }
+            for (Element* element : bottomUp) { element->resolveMinima(); }
+            for (Element* element : topDown) { element->resolveMaxima(); }
 
-            for (Element* element : bottomUp) { element->resolveLayoutNew(); }
-            for (Element* element : topDown) { element->resolveDimsNew(); }
-            
+            for (Element* element : bottomUp) { element->resolveLayout(); }
+            for (Element* element : topDown) { element->resolveDims(); }
+
             for (Element* element: topDown) { element->resolveRects(); }
         }
 

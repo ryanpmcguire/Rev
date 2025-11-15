@@ -6,6 +6,7 @@ module;
 #include <ranges>
 #include <functional>
 
+#include <sentinel.hpp>
 #include <dbg.hpp>
 
 export module Rev.Element;
@@ -21,6 +22,8 @@ import Rev.Element.Event;
 import Rev.Element.Resolved;
 
 export namespace Rev::Element {
+
+    using namespace sentinel;
 
     struct Element {
 
@@ -311,9 +314,6 @@ export namespace Rev::Element {
 
         Layout layout;
 
-        Layout* parentLayout = nullptr;
-        Row* parentRow = nullptr;
-
         // Step zero is to reset all data which will be modified
         void resetLayout() {
 
@@ -330,7 +330,7 @@ export namespace Rev::Element {
         float getMinSize(Axis axis, Dist::Type type) {
 
             // Choose axis, prefer minimum if matching type
-            Dist& minDist = (axis == Axis::Horizontal) ? resolved.style.size.minWidth : resolved.style.size.minHeight;
+            Dist& minDist = (axis == Axis::Horizontal) ? resolved.style.size.min.width : resolved.style.size.min.height;
             Dist& nomDist = (axis == Axis::Horizontal) ? resolved.style.size.width : resolved.style.size.height;
             Dist& dist = (minDist.type == type) ? minDist : nomDist;
 
@@ -342,7 +342,7 @@ export namespace Rev::Element {
         float getMaxSize(Axis axis, Dist::Type type) {
 
             // Choose axis, prefer minimum if matching type
-            Dist& maxDist = (axis == Axis::Horizontal) ? resolved.style.size.maxWidth : resolved.style.size.maxHeight;
+            Dist& maxDist = (axis == Axis::Horizontal) ? resolved.style.size.max.width : resolved.style.size.max.height;
             Dist& nomDist = (axis == Axis::Horizontal) ? resolved.style.size.width : resolved.style.size.height;
             Dist& dist = (maxDist.type == type) ? maxDist : nomDist;
 
@@ -356,12 +356,12 @@ export namespace Rev::Element {
             float min = -0.0f;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.padding.minLeft : resolved.style.padding.minTop;
+            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.padding.min.left : resolved.style.padding.min.top;
             Dist& nomA = (axis == Axis::Horizontal) ? resolved.style.padding.left : resolved.style.padding.top;
             Dist& a = (minA.type == type) ? minA : nomA;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.padding.minRight : resolved.style.padding.minBottom;
+            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.padding.min.right : resolved.style.padding.min.bottom;
             Dist& nomB = (axis == Axis::Horizontal) ? resolved.style.padding.right : resolved.style.padding.bottom;
             Dist& b = (minB.type == type) ? minB : nomB;
 
@@ -377,12 +377,12 @@ export namespace Rev::Element {
             float min = -0.0f;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.margin.minLeft : resolved.style.margin.minTop;
+            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.margin.min.left : resolved.style.margin.min.top;
             Dist& nomA = (axis == Axis::Horizontal) ? resolved.style.margin.left : resolved.style.margin.top;
             Dist& a = (minA.type == type) ? minA : nomA;
 
             // Chose axis, prefer minimum if matching type
-            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.margin.minRight : resolved.style.margin.minBottom;
+            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.margin.min.right : resolved.style.margin.min.bottom;
             Dist& nomB = (axis == Axis::Horizontal) ? resolved.style.margin.right : resolved.style.margin.bottom;
             Dist& b = (minB.type == type) ? minB : nomB;
 
@@ -401,7 +401,7 @@ export namespace Rev::Element {
         float minOuterWidth, minOuterHeight;
         float minInnerWidth, minInnerHeight;
 
-        void resolveMinimaNew() {
+        void resolveMinima() {
 
             // Reset all
             minWidth = minHeight = -0.0f;
@@ -460,7 +460,7 @@ export namespace Rev::Element {
         float maxInnerWidth, maxInnerHeight;
 
         // Top down: resolve maximum feasible dimensions
-        void resolveMaximaNew() {
+        void resolveMaxima() {
 
             // MAXIMUM inner size
             maxInnerWidth = -0.0f;
@@ -496,7 +496,7 @@ export namespace Rev::Element {
             if (maxInnerHeight < minInnerHeight) { maxInnerHeight = minInnerHeight; }
         }
 
-        void resolveLayoutNew() {
+        void resolveLayout() {
 
             if (!visible) { return; }
 
@@ -559,14 +559,6 @@ export namespace Rev::Element {
 
             // Add last row that didn't overflow
             layout.rows.push_back(row);
-
-            // Set parent layout/row for each child
-            for (Row& row : layout.rows) {
-                for (Element* member : row.members) {
-                    member->parentLayout = &layout;
-                    member->parentRow = &row;
-                }
-            }
 
             // Measure layout val/min
             //--------------------------------------------------
@@ -651,7 +643,7 @@ export namespace Rev::Element {
         float innerHeight;
 
         // Top down: Resolve flex and grow dimensions
-        void resolveDimsNew() {
+        void resolveDims() {
 
             innerWidth = 0;
             innerHeight = 0;
@@ -698,12 +690,12 @@ export namespace Rev::Element {
                 if (cSize.height) { child.resolved.size.h.val = child.resolved.size.h.min = child.resolved.size.h.max = cSize.height.resolve(innerHeight); }
 
                 // Resolve min
-                if (cSize.minWidth) { child.resolved.size.w.min = cSize.minWidth.resolve(innerWidth); }
-                if (cSize.minHeight) { child.resolved.size.h.min = cSize.minHeight.resolve(innerHeight); }
+                if (cSize.min.width) { child.resolved.size.w.min = cSize.min.width.resolve(innerWidth); }
+                if (cSize.min.height) { child.resolved.size.h.min = cSize.min.height.resolve(innerHeight); }
 
                 // Resolve max
-                if (cSize.maxWidth) { child.resolved.size.w.max = cSize.maxWidth.resolve(innerWidth); }
-                if (cSize.maxHeight) { child.resolved.size.h.max = cSize.maxHeight.resolve(innerHeight); }
+                if (cSize.max.width) { child.resolved.size.w.max = cSize.max.width.resolve(innerWidth); }
+                if (cSize.max.height) { child.resolved.size.h.max = cSize.max.height.resolve(innerHeight); }
 
                 // Override max if needed
                 if (cSize.width.type == Dist::Type::Grow && !set(child.resolved.size.w.max)) { child.resolved.size.w.max = 9999999.0f; }

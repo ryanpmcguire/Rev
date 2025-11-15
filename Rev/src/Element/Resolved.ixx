@@ -137,18 +137,18 @@ namespace Rev::Element {
         ResolvedDim w, h;
 
         void setAbs(Size& size) {
-            w.setAbs(size.width, size.minWidth, size.maxWidth);
-            h.setAbs(size.height, size.minHeight, size.maxHeight);
+            w.setAbs(size.width, size.min.width, size.max.width);
+            h.setAbs(size.height, size.min.height, size.max.height);
         }
 
         void setRel(Size& size, float& innerWidth, float& innerHeight, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
-            w.setRel(size.width, size.minWidth, size.maxWidth, innerWidth, minInnerWidth, maxInnerWidth);
-            h.setRel(size.height, size.minHeight, size.maxHeight, innerHeight, minInnerHeight, maxInnerHeight);
+            w.setRel(size.width, size.min.width, size.max.width, innerWidth, minInnerWidth, maxInnerWidth);
+            h.setRel(size.height, size.min.height, size.max.height, innerHeight, minInnerHeight, maxInnerHeight);
         }
 
         void setNonFlex(Size& size, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
-            w.setNonFlex(size.width, size.minWidth, size.maxWidth, minInnerWidth, maxInnerWidth);
-            h.setNonFlex(size.height, size.minHeight, size.maxHeight, minInnerHeight, maxInnerHeight);
+            w.setNonFlex(size.width, size.min.width, size.max.width, minInnerWidth, maxInnerWidth);
+            h.setNonFlex(size.height, size.min.height, size.max.height, minInnerHeight, maxInnerHeight);
         }
 
         void setGrow(Size& size, float& maxWidth, float& maxHeight) {
@@ -189,25 +189,25 @@ namespace Rev::Element {
 
         void setAbs(LrtbStyle& lrtb) {
 
-            l.setAbs(lrtb.left, lrtb.minLeft, lrtb.maxLeft);
-            r.setAbs(lrtb.right, lrtb.minRight, lrtb.maxRight);
-            t.setAbs(lrtb.top, lrtb.minTop, lrtb.maxTop);
-            b.setAbs(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom);
+            l.setAbs(lrtb.left, lrtb.min.left, lrtb.max.left);
+            r.setAbs(lrtb.right, lrtb.min.right, lrtb.max.right);
+            t.setAbs(lrtb.top, lrtb.min.top, lrtb.max.top);
+            b.setAbs(lrtb.bottom, lrtb.min.bottom, lrtb.max.bottom);
         }
 
         void setRel(LrtbStyle& lrtb, float& width, float& height, float& minWidth, float& minHeight, float& maxWidth, float& maxHeight) {
 
-            l.setRel(lrtb.left, lrtb.minLeft, lrtb.maxLeft, width, minWidth, maxWidth);
-            r.setRel(lrtb.right, lrtb.minRight, lrtb.maxRight, width, minWidth, maxWidth);
-            t.setRel(lrtb.top, lrtb.minTop, lrtb.maxTop, height, minHeight, maxHeight);
-            b.setRel(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom, height, minHeight, maxHeight);
+            l.setRel(lrtb.left, lrtb.min.left, lrtb.max.left, width, minWidth, maxWidth);
+            r.setRel(lrtb.right, lrtb.min.right, lrtb.max.right, width, minWidth, maxWidth);
+            t.setRel(lrtb.top, lrtb.min.top, lrtb.max.top, height, minHeight, maxHeight);
+            b.setRel(lrtb.bottom, lrtb.min.bottom, lrtb.max.bottom, height, minHeight, maxHeight);
         }
 
         void setNonFlex(LrtbStyle& lrtb, ResolvedSize& size) {
-            l.setNonFlex(lrtb.left, lrtb.minLeft, lrtb.maxLeft, size.w.val, size.h.max);
-            r.setNonFlex(lrtb.right, lrtb.minRight, lrtb.maxRight, size.w.val, size.h.max);
-            t.setNonFlex(lrtb.top, lrtb.minTop, lrtb.maxTop, size.h.val, size.h.max);
-            b.setNonFlex(lrtb.bottom, lrtb.minBottom, lrtb.maxBottom, size.h.val, size.h.max);
+            l.setNonFlex(lrtb.left, lrtb.min.left, lrtb.max.left, size.w.val, size.h.max);
+            r.setNonFlex(lrtb.right, lrtb.min.right, lrtb.max.right, size.w.val, size.h.max);
+            t.setNonFlex(lrtb.top, lrtb.min.top, lrtb.max.top, size.h.val, size.h.max);
+            b.setNonFlex(lrtb.bottom, lrtb.min.bottom, lrtb.max.bottom, size.h.val, size.h.max);
         }
 
         void setGrow(LrtbStyle& lrtb, float& maxWidth, float& maxHeight) {

@@ -51,7 +51,7 @@ export namespace HelloWorld {
             Chart* chart = new Chart(greyBox);
             
             chart->style = {
-                .size = { .width = 100_pct, .height = Grow(), .minHeight = 100_px },
+                .size = { .width = 100_pct, .height = Grow(), .min = { .height = 100_px } },
                 .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
             };
 

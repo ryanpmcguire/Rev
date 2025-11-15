@@ -108,8 +108,8 @@ export namespace Rev::Element {
             Primitive::Text::MinMax minMax = text->measure();
             text->layout(99999999.0f);
 
-            resolved.style.size.minWidth = Px(text->dims.width);
-            resolved.style.size.minHeight = Px(text->dims.height);
+            resolved.style.size.min.width = Px(text->dims.width);
+            resolved.style.size.min.height = Px(text->dims.height);
         }
 
         void computePrimitives(Event& e) override {

@@ -20,7 +20,7 @@ export namespace Rev::Element {
     namespace Styles {
         
         Style Self = {
-            .size = { .width = Grow(), .minWidth = 100_px },
+            .size = { .width = Grow(), .min = { .width = 100_px } },
             .margin = { 4_px, 40_px, 4_px, 4_px },
         };
 

@@ -13,19 +13,6 @@ import Rev.Core.Color;
 
 export namespace Rev::Element {
 
-    // Returns if value is set
-    inline bool set(float& f) {
-        return std::bit_cast<uint32_t>(f) != 0x80000000;
-    };
-
-    inline bool equ(float& a, float& b) {
-        return std::bit_cast<std::uint32_t>(a) == std::bit_cast<std::uint32_t>(b);
-    }
-
-    inline bool dif(float& a, float& b) {
-        return std::bit_cast<std::uint32_t>(a) != std::bit_cast<std::uint32_t>(b);
-    }
-
     // Transitions
     //--------------------------------------------------
     
@@ -72,6 +59,9 @@ export namespace Rev::Element {
             });
         }
     };
+
+    constexpr int operator"" _sec(long double value) { return static_cast<int>(value * 1000.0); }
+    constexpr int operator"" _ms(long double value) { return static_cast<int>(value); }
 
     // Distance
     //--------------------------------------------------
@@ -151,64 +141,15 @@ export namespace Rev::Element {
         }
     };
 
-    // Pixel distance
-    Dist Px(float value) {
-        return { Dist::Type::Abs, value };
-    }
+    Dist Px(float value) { return { Dist::Type::Abs, value }; }
+    Dist Pct(float value) { return { Dist::Type::Rel, value / 100.0f }; }
+    Dist Grow() { return { Dist::Type::Grow, -0.0f }; }
+    Dist Shrink() { return { Dist::Type::Shrink, -0.0f }; }
 
-    // Percent distance
-    Dist Pct(float value) {
-        return { Dist::Type::Rel, value / 100.0f };
-    }
-
-    Dist Grow() {
-        return { Dist::Type::Grow, -0.0f };
-    }
-
-    Dist Shrink() {
-        return { Dist::Type::Shrink, -0.0f };
-    }
-
-    // For floating-point literals (e.g. 10.5_px)
-    constexpr Dist operator"" _px(long double value) {
-        return { Dist::Type::Abs, static_cast<float>(value) };
-    }
-
-    constexpr Dist operator"" _px(unsigned long long value) {
-        return { Dist::Type::Abs, static_cast<float>(value) };
-    }
-
-    constexpr Dist operator"" _pct(long double value) {
-        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
-    }
-
-    constexpr Dist operator"" _pct(unsigned long long value) {
-        return { Dist::Type::Rel, static_cast<float>(value) / 100.0f };
-    }
-
-    constexpr Dist operator"" _grow(unsigned long long value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
-
-    constexpr Dist operator"" _grow(long double value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
-
-    constexpr Dist operator"" _shrink(unsigned long long value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
-
-    constexpr Dist operator"" _shrink(long double value) {
-        return { Dist::Type::Grow, static_cast<float>(value) / 100.0f };
-    }
-
-    constexpr int operator"" _sec(long double value) {
-        return static_cast<int>(value * 1000.0);
-    }
-
-    constexpr int operator"" _ms(long double value) {
-        return static_cast<int>(value);
-    }
+    constexpr Dist operator"" _px(unsigned long long value) { return { Dist::Type::Abs, static_cast<float>(value) }; }
+    constexpr Dist operator"" _pct(unsigned long long value) { return { Dist::Type::Rel, static_cast<float>(value) / 100.0f }; }
+    constexpr Dist operator"" _grow(unsigned long long value) { return { Dist::Type::Grow, static_cast<float>(value) / 100.0f }; }
+    constexpr Dist operator"" _shrink(unsigned long long value) { return { Dist::Type::Grow, static_cast<float>(value) / 100.0f }; }
 
     // Color
     //--------------------------------------------------
@@ -299,13 +240,12 @@ export namespace Rev::Element {
 
     struct Size {
 
-        // Nominal
-        Dist width;
-        Dist height;
-        
-        // Min / max
-        Dist minWidth, maxWidth;
-        Dist minHeight, maxHeight;
+        struct MinMax {
+            Dist width, height;
+        };
+
+        Dist width, height;        
+        MinMax min, max;
         
         int transition = -1;
         Core::DirtyFlag* dirty = nullptr;
@@ -314,8 +254,8 @@ export namespace Rev::Element {
 
             return {
                 Dist::Null(), Dist::Null(),
-                Dist::Null(), Dist::Null(),
-                Dist::Null(), Dist::Null(),
+                { Dist::Null(), Dist::Null() },
+                { Dist::Null(), Dist::Null() },
                 -1, nullptr
             };
         }
@@ -323,8 +263,8 @@ export namespace Rev::Element {
         inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             width.linkDirtyFlag(dirty); height.linkDirtyFlag(dirty);
-            minWidth.linkDirtyFlag(dirty); minHeight.linkDirtyFlag(dirty);
-            maxWidth.linkDirtyFlag(dirty); maxHeight.linkDirtyFlag(dirty);
+            min.width.linkDirtyFlag(dirty); min.height.linkDirtyFlag(dirty);
+            max.width.linkDirtyFlag(dirty); max.height.linkDirtyFlag(dirty);
 
             this->dirty = dirty;
         }
@@ -333,8 +273,8 @@ export namespace Rev::Element {
         inline void apply(Size& size) {
 
             width.apply(size.width); height.apply(size.height);
-            minWidth.apply(size.minWidth); maxWidth.apply(size.maxWidth);
-            minHeight.apply(size.minHeight); maxHeight.apply(size.maxHeight);
+            min.width.apply(size.min.width); max.width.apply(size.max.width);
+            min.height.apply(size.min.height); max.height.apply(size.max.height);
 
             if (size.transition > 0) { transition = size.transition; }
         }
@@ -348,12 +288,12 @@ export namespace Rev::Element {
             height.animate(old.height, transitions, time, transitionLength);
 
             // Animate min/max width
-            minWidth.animate(old.minWidth, transitions, time, transitionLength);
-            maxWidth.animate(old.maxWidth, transitions, time, transitionLength);
+            min.width.animate(old.min.width, transitions, time, transitionLength);
+            max.width.animate(old.max.width, transitions, time, transitionLength);
 
             // Animate min/max height
-            minHeight.animate(old.minHeight, transitions, time, transitionLength);
-            maxHeight.animate(old.maxHeight, transitions, time, transitionLength);
+            min.height.animate(old.min.height, transitions, time, transitionLength);
+            max.height.animate(old.max.height, transitions, time, transitionLength);
         }
     };
 
@@ -362,9 +302,12 @@ export namespace Rev::Element {
 
     struct LrtbStyle {
 
+        struct MinMax {
+            Dist left, right, top, bottom;
+        };
+
         Dist left, right, top, bottom;
-        Dist minLeft, minRight, minTop, minBottom;
-        Dist maxLeft, maxRight, maxTop, maxBottom;
+        MinMax min, max;
 
         int transition = -1;
         Core::DirtyFlag* dirty = nullptr;
@@ -373,8 +316,8 @@ export namespace Rev::Element {
 
             return {
                 Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null(),
-                Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null(),
-                Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null(),
+                { Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null() },
+                { Dist::Null(), Dist::Null(), Dist::Null(), Dist::Null() },
                 -1, nullptr
             };
         }
@@ -384,11 +327,11 @@ export namespace Rev::Element {
             left.linkDirtyFlag(dirty); right.linkDirtyFlag(dirty);
             top.linkDirtyFlag(dirty); bottom.linkDirtyFlag(dirty);
 
-            minLeft.linkDirtyFlag(dirty); minRight.linkDirtyFlag(dirty);
-            minTop.linkDirtyFlag(dirty); minBottom.linkDirtyFlag(dirty);
+            min.left.linkDirtyFlag(dirty); min.right.linkDirtyFlag(dirty);
+            min.top.linkDirtyFlag(dirty); min.bottom.linkDirtyFlag(dirty);
 
-            maxLeft.linkDirtyFlag(dirty); maxRight.linkDirtyFlag(dirty);
-            maxTop.linkDirtyFlag(dirty); maxBottom.linkDirtyFlag(dirty);
+            max.left.linkDirtyFlag(dirty); max.right.linkDirtyFlag(dirty);
+            max.top.linkDirtyFlag(dirty); max.bottom.linkDirtyFlag(dirty);
 
             this->dirty = dirty;
         }
@@ -401,12 +344,12 @@ export namespace Rev::Element {
             top.apply(lrtb.top); bottom.apply(lrtb.bottom);
 
             // Apply minima
-            minLeft.apply(lrtb.minLeft); minRight.apply(lrtb.minRight);
-            minTop.apply(lrtb.minTop); minBottom.apply(lrtb.minBottom);
+            min.left.apply(lrtb.min.left); min.right.apply(lrtb.min.right);
+            min.top.apply(lrtb.min.top); min.bottom.apply(lrtb.min.bottom);
 
             // Apply maxima
-            maxLeft.apply(lrtb.maxLeft); maxRight.apply(lrtb.maxRight);
-            maxTop.apply(lrtb.maxTop); maxBottom.apply(lrtb.maxBottom);
+            max.left.apply(lrtb.max.left); max.right.apply(lrtb.max.right);
+            max.top.apply(lrtb.max.top); max.bottom.apply(lrtb.max.bottom);
 
             if (lrtb.transition > 0) { transition = lrtb.transition; }
         }
@@ -422,16 +365,16 @@ export namespace Rev::Element {
             bottom.animate(old.bottom, transitions, time, transitionLength);
         
             // Animating the minimum values
-            minLeft.animate(old.minLeft, transitions, time, transitionLength);
-            minRight.animate(old.minRight, transitions, time, transitionLength);
-            minTop.animate(old.minTop, transitions, time, transitionLength);
-            minBottom.animate(old.minBottom, transitions, time, transitionLength);
+            min.left.animate(old.min.left, transitions, time, transitionLength);
+            min.right.animate(old.min.right, transitions, time, transitionLength);
+            min.top.animate(old.min.top, transitions, time, transitionLength);
+            min.bottom.animate(old.min.bottom, transitions, time, transitionLength);
         
             // Animating the maximum values
-            maxLeft.animate(old.maxLeft, transitions, time, transitionLength);
-            maxRight.animate(old.maxRight, transitions, time, transitionLength);
-            maxTop.animate(old.maxTop, transitions, time, transitionLength);
-            maxBottom.animate(old.maxBottom, transitions, time, transitionLength);
+            max.left.animate(old.max.left, transitions, time, transitionLength);
+            max.right.animate(old.max.right, transitions, time, transitionLength);
+            max.top.animate(old.max.top, transitions, time, transitionLength);
+            max.bottom.animate(old.max.bottom, transitions, time, transitionLength);
         }
     };
 
