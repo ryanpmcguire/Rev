@@ -216,9 +216,8 @@ export namespace Rev {
             for (Element* element : topDown) { element->resolveMaximaNew(); }
 
             for (Element* element : bottomUp) { element->resolveLayoutNew(); }
-            for (Element* element : bottomUp) { element->promoteDimsNew(); }
-
             for (Element* element : topDown) { element->resolveDimsNew(); }
+            
             for (Element* element: topDown) { element->resolveRects(); }
         }
 

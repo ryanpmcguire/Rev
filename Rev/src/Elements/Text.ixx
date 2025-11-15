@@ -91,21 +91,10 @@ export namespace Rev::Element {
 
         void computeStyle(Event& e) override {
 
-            if (!content.changed()) {
-                return Box::computeStyle(e);
+            if (content.changed()) {
+                this->dirty.style = true;
             }
-
-            text->fontSize = resolved.style.text.size.val;
-            text->content = content;
-
-            Primitive::Text::MinMax minMax = text->measure();
-            text->layout(99999999.0f);
-
-            Size& size = this->style->size;
-
-            size.minWidth = Px(text->dims.width);
-            size.minHeight = Px(text->dims.height);
-
+            
             Box::computeStyle(e);
         }
 

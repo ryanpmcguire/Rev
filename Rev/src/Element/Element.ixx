@@ -619,33 +619,31 @@ export namespace Rev::Element {
             if (!set(res.size.h.min) && res.size.h.min < layoutPlusPaddingHeight) { res.size.h.min = layoutPlusPaddingHeight; }
 
             bool test = true;
-        }
 
-        // Bottom up: promote growability based on layout
-        void promoteDimsNew() {
-
-            if (!visible) { return; }
-
-            Resolved& res = resolved;
-
-            // Tell dimensions if they can grow
-            if (resolved.style.size.width.type == Dist::Type::Grow) { res.size.w.growable = true; }
-            if (resolved.style.size.height.type == Dist::Type::Grow) { res.size.h.growable = true; }
-
-            // Promote growable
+            // Promote growable dims
             //--------------------------------------------------
 
-            bool outerWidthGrowable = (res.size.w.growable || res.mar.l.growable || res.mar.r.growable);
-            bool outerHeightGrowable = (res.size.h.growable || res.mar.t.growable || res.mar.b.growable);
+            for (Row& row : layout.rows) {
 
-            if (outerWidthGrowable) {
-                parent->resolved.size.w.growable = true;
-            }
+                for (Element* member : row.members) {
 
-            if (outerHeightGrowable) {
-                parent->resolved.size.h.growable = true;
-                if (parentRow) { parentRow->size.h.growable = true; }
-                if (parentLayout) { parentLayout->size.h.growable = true; }
+                    Element& elem = *member;
+                    Size& size = elem.resolved.style.size;
+
+                    // Set dimensions as growable if style size is of type grow
+                    if (size.width.type == Dist::Type::Grow) { elem.resolved.size.w.growable = true; }
+                    if (size.height.type == Dist::Type::Grow) { elem.resolved.size.h.growable = true; }
+
+                    if (elem.resolved.canGrow(Axis::Horizontal)) {
+                        resolved.size.w.growable = true;
+                    }
+
+                    if (elem.resolved.canGrow(Axis::Vertical)) {
+                        resolved.size.w.growable = true;
+                        row.size.h.growable = true;
+                        layout.size.h.growable = true;
+                    }
+                }
             }
         }
 
@@ -805,6 +803,59 @@ export namespace Rev::Element {
             if (layout.size.w.max < layout.size.w.min) { layout.size.w.max = layout.size.w.min; }
             if (layout.size.h.max < layout.size.h.min) { layout.size.h.max = layout.size.h.min; }
 
+            // Grow layout and members
+            //--------------------------------------------------
+
+            if (resolved.style.alignment.direction == Axis::Vertical) { this->growVerticalMode(); }
+            else { this->growHorizontalMode(); }
+
+            // Measure layout val after grow
+            //--------------------------------------------------
+
+            layout.size.w.val = -0.0f;
+            layout.size.h.val = -0.0f;
+
+            if (resolved.style.alignment.direction == Axis::Vertical) {
+
+                // Measure val
+                for (Row& row : layout.rows) {
+
+                    row.size.w.val = -0.0f;
+                    row.size.h.val = -0.0f;
+
+                    for (Element* member : row.members) {
+                        row.size.w.val = std::max(row.size.w.val, member->resolved.getOuter(Axis::Horizontal));
+                        row.size.h.val += member->resolved.getOuter(Axis::Vertical);
+                    }
+
+                    layout.size.w.val += row.size.w.val;
+                    layout.size.h.val = std::max(layout.size.h.val, row.size.h.val);
+                }
+            }
+
+            else {
+
+                // Measure val
+                for (Row& row : layout.rows) {
+
+                    row.size.w.val = -0.0f;
+                    row.size.h.val = -0.0f;
+
+                    for (Element* member : row.members) {
+                        row.size.w.val += member->resolved.getOuter(Axis::Horizontal);
+                        row.size.h.val = std::max(row.size.h.val, member->resolved.getOuter(Axis::Vertical));
+                    }
+
+                    layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
+                    layout.size.h.val += row.size.h.val;
+                }
+            }
+
+            bool test = true;
+        }
+        
+        void growHorizontalMode() {
+
             // Grow growable dimensions (horizontal)
             //--------------------------------------------------
 
@@ -884,50 +935,89 @@ export namespace Rev::Element {
                     }
                 }
             }
+        }
 
-            // Measure layout val after grow
+        void growVerticalMode() {
+
+            // Grow each row (vertical)
             //--------------------------------------------------
 
-            layout.size.w.val = -0.0f;
-            layout.size.h.val = -0.0f;
+            // Consider moving back to "min" strategy to handle fitting
+            layout.size.w.max = std::min(layout.size.w.max, resolved.getInner(Axis::Horizontal));
+            float availableWidth = layout.size.w.max - layout.size.w.val;
 
-            if (resolved.style.alignment.direction == Axis::Vertical) {
+            // Loop until break conditions are met
+            while (true) {
 
-                // Measure val
+                int numGrowableW = layout.growableRows(Axis::Horizontal);
+                float shareW = availableWidth / float(numGrowableW);
+
+                // When there's no more space or no more growable elements
+                if (!numGrowableW || availableWidth < 0.01) {
+                    break;
+                }
+
                 for (Row& row : layout.rows) {
-
-                    row.size.w.val = -0.0f;
-                    row.size.h.val = -0.0f;
-
-                    for (Element* member : row.members) {
-                        row.size.w.val = std::max(row.size.w.val, member->resolved.getOuter(Axis::Horizontal));
-                        row.size.h.val += member->resolved.getOuter(Axis::Vertical);
-                    }
-
-                    layout.size.w.val += row.size.w.val;
-                    layout.size.h.val = std::max(layout.size.h.val, row.size.h.val);
+                    float take = row.size.w.grow(shareW);
+                    layout.size.w.val += take;
+                    availableWidth -= take;
                 }
             }
 
-            else {
+            // Grow each row member (vertical)
+            //--------------------------------------------------
 
-                // Measure val
-                for (Row& row : layout.rows) {
+            for (Row& row : layout.rows) {
+                for (Element* member : row.members) {
+                    
+                    Element& elem = *member;
 
-                    row.size.w.val = -0.0f;
-                    row.size.h.val = -0.0f;
+                    float availableElemWidth = row.size.w.val - elem.resolved.getOuter(Axis::Horizontal);
 
-                    for (Element* member : row.members) {
-                        row.size.w.val += member->resolved.getOuter(Axis::Horizontal);
-                        row.size.h.val = std::max(row.size.h.val, member->resolved.getOuter(Axis::Vertical));
+                    while (true) {
+                        
+                        int numGrowable = elem.resolved.canGrow(Axis::Horizontal);
+                        float share = availableElemWidth / float(numGrowable);
+
+                        if (!numGrowable || availableElemWidth < 0.01) {
+                            break;
+                        }
+                        
+                        float take = elem.resolved.grow(share, Axis::Horizontal);
+                        availableElemWidth -= take;
                     }
-
-                    layout.size.w.val = std::max(layout.size.w.val, row.size.w.val);
-                    layout.size.h.val += row.size.h.val;
                 }
             }
 
-            bool test = true;
+            // Grow growable dimensions (horizontal)
+            //--------------------------------------------------
+
+            layout.size.h.max = std::min(layout.size.h.max, resolved.getInner(Axis::Vertical));
+
+            for (Row& row : layout.rows) {
+
+                row.size.h.max = std::min(row.size.h.max, layout.size.h.max);
+                
+                float availableHeight = row.size.h.max - row.size.h.val;
+
+                // Loop until break conditions are met
+                while (true) {
+
+                    int numGrowable = row.canGrow(Axis::Vertical);
+                    float share = availableHeight / float(numGrowable);
+
+                    // When there's no more space or no more growable elements
+                    if (!numGrowable || availableHeight < 0.01) {
+                        break;
+                    }
+
+                    for (Element* member : row.members) {
+                        float take = member->resolved.grow(share, Axis::Vertical);
+                        row.size.h.val += take;
+                        availableHeight -= take;
+                    }
+                }
+            }
         }
 
         // Reusable center function

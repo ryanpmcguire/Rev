@@ -11,11 +11,13 @@ export namespace Rev::Graphics {
     struct UniformBuffer {
 
         GLuint bufferID = 0;
+        void* context = nullptr;
         void* data = nullptr;
         size_t size = 0;
 
         UniformBuffer(void* context, size_t size) {
 
+            this->context = context;
             this->size = size;
 
             glGenBuffers(1, &bufferID);

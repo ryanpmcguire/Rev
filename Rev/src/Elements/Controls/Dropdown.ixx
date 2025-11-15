@@ -38,12 +38,15 @@ export namespace Rev::Element {
             };
 
                 Style DropdownText {
+                    .size = { .width = Grow() },
                     .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
                 };
 
             Style OptionsContainer {
-                .visibility = Visibility::Hidden,
-                .alignment = { Axis::Vertical },
+                .visibility = Visibility::Visible,
+                .alignment = { .direction = Axis::Vertical, .position = Position::Absolute },
+                .position = { .top = 100_pct },
+                .size = { .width = 100_pct },
                 .background = { .color = rgba(0, 0, 0, 0.05) }
             };
 

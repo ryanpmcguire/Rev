@@ -10,6 +10,7 @@ module;
 export module Rev.Graphics.Canvas;
 
 import Rev.NativeWindow;
+import Rev.Graphics.CommandBuffer;
 import Rev.Graphics.FrameBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.UniformBuffer;
@@ -33,6 +34,8 @@ export namespace Rev::Graphics {
         // Context management
         void* context = nullptr;  // (context is unused)
         NativeWindow* window = nullptr;
+
+        CommandBuffer* commandBuffer = nullptr;
         UniformBuffer* transform = nullptr;
         FrameBuffer* frameBuffer = nullptr;
 

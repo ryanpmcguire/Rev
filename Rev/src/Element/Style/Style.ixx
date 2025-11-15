@@ -438,6 +438,12 @@ export namespace Rev::Element {
     // Alignment
     //--------------------------------------------------
 
+    enum class Position {
+        Unset,
+        Absolute,
+        Relative
+    };
+
     enum class Axis {
         Unset,
         Horizontal,
@@ -462,6 +468,7 @@ export namespace Rev::Element {
         Align horizontal = Align::Unset;
         Align vertical = Align::Unset;
         Wrap wrap = Wrap::Unset;
+        Position position = Position::Unset;
 
         Core::DirtyFlag* dirty = nullptr;
 
@@ -471,6 +478,7 @@ export namespace Rev::Element {
                 Axis::Unset,
                 Align::Unset, Align::Unset,
                 Wrap::Unset,
+                Position::Unset,
                 nullptr
             };
         }
@@ -484,6 +492,7 @@ export namespace Rev::Element {
             if (other.horizontal != Align::Unset) { horizontal = other.horizontal; }
             if (other.vertical != Align::Unset) { vertical = other.vertical; }
             if (other.wrap != Wrap::Unset) { wrap = other.wrap; }
+            if (other.position != Position::Unset) { position = other.position; }
         }
     };
 
@@ -864,10 +873,12 @@ export namespace Rev::Element {
     struct Style {
 
         Applies applies;
+
         Visibility visibility = Visibility::Inherit;
         Overflow overflow = Overflow::Unset;
-        LrtbStyle position; bool absolute = false;
+
         Alignment alignment;
+        LrtbStyle position;
 
         Size size;
         LrtbStyle margin;
@@ -939,6 +950,8 @@ export namespace Rev::Element {
             }
 
             alignment.apply(style.alignment);
+            position.apply(style.position);
+
             size.apply(style.size);
             margin.apply(style.margin);
             padding.apply(style.padding);
@@ -965,12 +978,17 @@ export namespace Rev::Element {
         }
 
         void animate(Style& old, std::vector<Transition>& transitions, uint64_t& time) {
+
+            position.animate(old.position, transitions, time, transition);
+
             size.animate(old.size, transitions, time, transition);
+            margin.animate(old.margin, transitions, time, transition);
+            padding.animate(old.padding, transitions, time, transition);
+
             background.animate(old.background, transitions, time, transition);
             border.animate(old.border, transitions, time, transition);
             shadow.animate(old.shadow, transitions, time, transition);
-            margin.animate(old.margin, transitions, time, transition);
-            padding.animate(old.padding, transitions, time, transition);
+
             text.animate(old.text, transitions, time, transition);
         }
 
@@ -999,7 +1017,7 @@ export namespace Rev::Element {
             applies = other.applies;
             visibility = other.visibility;
             overflow = other.overflow;
-            position = other.position; absolute = other.absolute;
+            position = other.position;
             alignment = other.alignment;
             size = other.size;
             margin = other.margin;

@@ -64,11 +64,11 @@ export namespace HelloWorld {
             Dropdown* dropdown = new Dropdown(greyBox);
             Dropdown* dropdown1 = new Dropdown(greyBox);
 
-            Slider* slider = new Slider(greyBox);
-
-            /*for (size_t i = 0; i < 1000; i++) {
-                new Box(greyBox);
+            /*for (size_t i = 0; i < 100; i++) {
+                new Dropdown(greyBox);
             }*/
+
+            Slider* slider = new Slider(greyBox);
         }
 
         // Destroy
