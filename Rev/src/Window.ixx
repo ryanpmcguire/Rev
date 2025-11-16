@@ -322,7 +322,7 @@ export namespace Rev {
                 // Ensure we don't run twice for the same element
                 if (back && back != this) {
 
-                    if (depth <= back->depth) {
+                    if (element->depth <= back->depth) {
 
                         // Pop back, get new size
                         stencilStack.pop_back();

@@ -298,6 +298,7 @@ export namespace Rev::Element {
             Rect rect;
             ResolvedSize size;
             std::vector<Row> rows;
+            bool done = true;
 
             // Return number of rows that can grow along the axis
             int growableRows(Axis axis) {
@@ -318,6 +319,12 @@ export namespace Rev::Element {
         static constexpr ResolvedLrtb defResolvedLrtb = ResolvedLrtb();
         static constexpr SizeDetails defSizeDetails = SizeDetails();
 
+        // Default is to simply reset the layout
+        virtual void computeLayout() {
+            layout = Layout();
+            layout.done = false;
+        }
+
         // Step zero is to reset all data which will be modified
         void resetResolved() {
 
@@ -334,7 +341,6 @@ export namespace Rev::Element {
             resolved.affectsParentSize = resolved.style.alignment.position != Position::Absolute;
 
             rect = Rect();
-            layout = Layout();
         }
 
         float getMinSize(Axis axis, Dist::Type type) {
@@ -531,70 +537,80 @@ export namespace Rev::Element {
             // Wrap children
             //--------------------------------------------------
 
-            Row row = Row();
-            float runningRelSize = 0.0f;
-
-            for (Element* child : children) {
-
-                Element& elem = *child;
-
-                // Ignore wrap entirely if element does not wrap
-                if (!elem.resolved.wrap) {
-                    row.members.push_back(child);
-                    continue;
-                }
-                
-                bool horizontal = (resolved.style.alignment.direction != Axis::Vertical);
-                Axis axis = horizontal ? Axis::Horizontal : Axis::Vertical;
-
-                // Get minimum abs/rel sizes
-                //--------------------------------------------------
-
-                float& maxAbsInnerSize = horizontal ? resolved.max.innerWidth : resolved.max.innerHeight;
-                float& minAbsLayoutSize = horizontal ? elem.layout.size.w.min : elem.layout.size.h.min;
-
-                // These absolute minima were already calculated before
-                float& minAbsSize = horizontal ? elem.resolved.min.width : elem.resolved.min.height;
-                float& minAbsMargin = horizontal ? elem.resolved.min.marginWidth : elem.resolved.min.marginHeight;
-                float& minAbsPadding = horizontal ? elem.resolved.min.paddingWidth : elem.resolved.min.paddingHeight;
-
-                // We directly get the proportional values
-                float minRelSize = elem.getMinSize(axis, Dist::Type::Rel);
-                float minRelMargin = elem.getMinMargin(axis, Dist::Type::Rel);
-                float minRelPadding = elem.getMinPadding(axis, Dist::Type::Rel); 
-
-                // Calculate additional relative sizes
-                //--------------------------------------------------
-
-                float inverseAbsMaxInner = 1.0f / maxAbsInnerSize;
-
-                if (set(minAbsSize)) { minRelSize += minAbsSize * inverseAbsMaxInner; }
-                else { minRelSize += (minAbsLayoutSize + minAbsPadding) * inverseAbsMaxInner; }
-                if (set(minAbsMargin)) { minRelMargin += minAbsMargin * inverseAbsMaxInner; }
-
-                float minRelOuterSize = -0.0f;
-                float minRelLayoutSize = minAbsLayoutSize * inverseAbsMaxInner;
-                
-                minRelOuterSize = minRelLayoutSize + minRelPadding;
-                if (set(minRelSize)) { minRelOuterSize = minRelSize ; }
-                minRelOuterSize += minRelMargin;
-
-                // Should we add another row (wrap) or should we keep adding more?
-                // We must wrap if we have exceeded the maximum allowed inner space,
-                // but not if this would be the first member of the row
-                if (runningRelSize + minRelOuterSize > 1.0 && !row.members.empty()) {
-                    layout.rows.push_back(row);
-                    row = Row();
-                    runningRelSize = 0;
-                }
-
-                // Add element to row, add min outer size to running relative space
-                row.members.push_back(child);
-                runningRelSize += minRelOuterSize;
+            // If there are no children, we defer to our compute layout function
+            if (children.empty()) {
+                this->computeLayout();
             }
 
-            // Add last row that didn't overflow
-            layout.rows.push_back(row);
+            // Otherwise, we compute the layout ourselves
+            else {
+
+                layout = Layout();
+                Row row = Row();
+                float runningRelSize = 0.0f;
+
+                for (Element* child : children) {
+
+                    Element& elem = *child;
+
+                    // Ignore wrap entirely if element does not wrap
+                    if (!elem.resolved.wrap) {
+                        row.members.push_back(child);
+                        continue;
+                    }
+                    
+                    bool horizontal = (resolved.style.alignment.direction != Axis::Vertical);
+                    Axis axis = horizontal ? Axis::Horizontal : Axis::Vertical;
+
+                    // Get minimum abs/rel sizes
+                    //--------------------------------------------------
+
+                    float& maxAbsInnerSize = horizontal ? resolved.max.innerWidth : resolved.max.innerHeight;
+                    float& minAbsLayoutSize = horizontal ? elem.layout.size.w.min : elem.layout.size.h.min;
+
+                    // These absolute minima were already calculated before
+                    float& minAbsSize = horizontal ? elem.resolved.min.width : elem.resolved.min.height;
+                    float& minAbsMargin = horizontal ? elem.resolved.min.marginWidth : elem.resolved.min.marginHeight;
+                    float& minAbsPadding = horizontal ? elem.resolved.min.paddingWidth : elem.resolved.min.paddingHeight;
+
+                    // We directly get the proportional values
+                    float minRelSize = elem.getMinSize(axis, Dist::Type::Rel);
+                    float minRelMargin = elem.getMinMargin(axis, Dist::Type::Rel);
+                    float minRelPadding = elem.getMinPadding(axis, Dist::Type::Rel); 
+
+                    // Calculate additional relative sizes
+                    //--------------------------------------------------
+
+                    float inverseAbsMaxInner = 1.0f / maxAbsInnerSize;
+
+                    if (set(minAbsSize)) { minRelSize += minAbsSize * inverseAbsMaxInner; }
+                    else { minRelSize += (minAbsLayoutSize + minAbsPadding) * inverseAbsMaxInner; }
+                    if (set(minAbsMargin)) { minRelMargin += minAbsMargin * inverseAbsMaxInner; }
+
+                    float minRelOuterSize = -0.0f;
+                    float minRelLayoutSize = minAbsLayoutSize * inverseAbsMaxInner;
+                    
+                    minRelOuterSize = minRelLayoutSize + minRelPadding;
+                    if (set(minRelSize)) { minRelOuterSize = minRelSize ; }
+                    minRelOuterSize += minRelMargin;
+
+                    // Should we add another row (wrap) or should we keep adding more?
+                    // We must wrap if we have exceeded the maximum allowed inner space,
+                    // but not if this would be the first member of the row
+                    if (runningRelSize + minRelOuterSize > 1.0 && !row.members.empty()) {
+                        layout.rows.push_back(row);
+                        row = Row();
+                        runningRelSize = 0;
+                    }
+
+                    // Add element to row, add min outer size to running relative space
+                    row.members.push_back(child);
+                    runningRelSize += minRelOuterSize;
+                }
+
+                // Add last row that didn't overflow
+                layout.rows.push_back(row);
+            }
 
             // Measure layout val/min
             //--------------------------------------------------
@@ -731,6 +747,10 @@ export namespace Rev::Element {
             innerHeight -= res.pad.t.val + res.pad.b.val;
 
             bool testa = true;
+
+            if (children.empty()) {
+                return;
+            }
 
             // Resolve val/max of children prior to grow
             //--------------------------------------------------
@@ -875,8 +895,11 @@ export namespace Rev::Element {
             // Measure layout val after grow
             //--------------------------------------------------
 
-            layout.size.w.val = -0.0f;
-            layout.size.h.val = -0.0f;
+            if (!layout.rows.empty()) {
+   
+                layout.size.w.val = -0.0f;
+                layout.size.h.val = -0.0f;
+            }
 
             if (resolved.style.alignment.direction == Axis::Vertical) {
 

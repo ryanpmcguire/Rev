@@ -108,8 +108,19 @@ export namespace Rev::Element {
             Primitive::Text::MinMax minMax = text->measure();
             text->layout(99999999.0f);
 
-            resolved.style.size.min.width = Px(text->dims.width);
-            resolved.style.size.min.height = Px(text->dims.height);
+            float minPaddingWidth = this->getMinPadding(Axis::Horizontal, Dist::Type::Abs);
+            float minPaddingHeight = this->getMinPadding(Axis::Vertical, Dist::Type::Abs);
+
+            resolved.style.size.min.width = Px(text->dims.width + minPaddingWidth);
+            resolved.style.size.min.height = Px(text->dims.height + minPaddingHeight);
+        }
+
+        // Here we compute the layout ourselves
+        void computeLayout() override {
+
+            layout = Layout();
+            layout.size.w = { .val = text->dims.width, .min = text->dims.width };
+            layout.size.h = { .val = text->dims.height, .min = text->dims.height };
         }
 
         void computePrimitives(Event& e) override {
@@ -124,8 +135,8 @@ export namespace Rev::Element {
                 resolved.style.text.color.b, resolved.style.text.color.a
             };
 
-            text->xPos = rect.x;
-            text->yPos = rect.y;
+            text->xPos = rect.x + resolved.pad.l.val;
+            text->yPos = rect.y + resolved.pad.t.val;
 
             text->compute();
 

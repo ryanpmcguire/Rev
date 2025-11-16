@@ -28,7 +28,7 @@ export namespace HelloWorld {
 
             // Self
             this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
-            this->style->background.color = rgba(1, 0, 0, 0.1);
+            //this->style->background.color = rgba(0, 0, 0, 0.1);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 100_px, 100_px, 100_px, 100_px };
 
@@ -62,7 +62,7 @@ export namespace HelloWorld {
                 }
                 
                 Dropdown* dropdown = new Dropdown(greyBox);
-                Dropdown* dropdown1 = new Dropdown(greyBox);
+                //Dropdown* dropdown1 = new Dropdown(greyBox);
 
                 /*for (size_t i = 0; i < 100; i++) {
                     new Dropdown(greyBox);

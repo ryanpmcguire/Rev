@@ -328,6 +328,15 @@ export namespace Rev::Element {
             };
         }
 
+        // Assigning from dist (all are set to dist)
+        LrtbStyle& operator=(const Dist& other) {
+
+            left = other; right = other;
+            top = other; bottom = other;
+
+            return *this;
+        }
+
         inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
             
             left.linkDirtyFlag(dirty); right.linkDirtyFlag(dirty);

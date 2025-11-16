@@ -48,7 +48,6 @@ void main() {
     float minCornerD = min(min(dc_tl, dc_tr), min(dc_bl, dc_br));
     float minSideD   = min(min(dL, dR), min(dT, dB));
 
-    // --- One-hot region selection ---
     // Corners
     float is_tl = float(dc_tl == minCornerD);
     float is_tr = float(dc_tr == minCornerD);

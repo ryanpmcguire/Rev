@@ -22,44 +22,48 @@ export namespace Rev::Element {
         
         Style Self = {
             .alignment = { Axis::Vertical, Align::Start, Align::Center },
-            .size = { .width = Grow() },
+            .size = { Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px }
         };
 
             Style Label = {
                 .margin = { .bottom = 4_px },
-                .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
+                .text = { .size = 12_px, .color = rgba(0, 0, 0, 0.6) }
             };
 
             Style Dropdown {
-                .size = { .width = Grow() },
-                .padding = { 4_px, 4_px, 4_px, 4_px },
-                .border = { .color = rgba(0, 0, 0, 0.2), .radius = 4_px, .width = 1_px }
+                .size = { Grow() },
+                .padding = { 8_px, 6_px, 6_px, 8_px },
+                .background = { rgb(225, 228, 238 )},
+                .border = { .radius = 4_px }
             };
 
                 Style DropdownText {
-                    .size = { .width = Grow() },
-                    .text = { .color = Tint(rgba(0, 0, 0, 0.1)), .size = 14_px }
+                    .size = { Grow() },
+                    .text = { .color = rgba(0, 0, 0, 0.8), .size = 14_px }
                 };
 
             Style OptionsContainer {
                 .visibility = Visibility::Visible,
+                .overflow = Overflow::Hide,
                 .alignment = { .direction = Axis::Vertical, .position = Position::Absolute },
                 .position = { .top = 100_pct },
-                .size = { .width = 100_pct },
-                .background = { .color = rgba(255, 255, 255, 0.05) }
+                .size = { Grow(), .max = { 100_pct } },
+                .margin = { .top = 8_px },
+                .background = { .color = rgb(225, 228, 238) },
+                .border = { .radius = 12_px }
             };
 
                 Style Option {
-                    .padding = { .top = 4_px, .bottom = 4_px },
-                    .border = { .bottom = { .color = rgba(0, 0, 0, 0.2), .width = 1_px } },
+                    .size = { 100_pct },
+                    .padding = { 8_px, 8_px, 6_px, 6_px },
                     .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },
                     .cursor = Cursor::Hand,
                 };
 
                     Style OptionHover = {
                         .applies = { .hover = true },
-                        .background = { .color = rgba(0, 0, 0, 0.2) }
+                        .background = { .color = rgb(203, 213, 223) }
                     };
     };
 
@@ -97,7 +101,7 @@ export namespace Rev::Element {
             this->params = p;
             this->styles.add(&Styles::Self);
 
-            this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option 3", "3" } };
+            this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option Option Option", "3" } };
 
             // Label
             label = new Text(this, "Dropdown", { &Styles::Label });
