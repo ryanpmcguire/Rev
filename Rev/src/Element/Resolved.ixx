@@ -3,110 +3,27 @@ module;
 #include <bit>
 #include <algorithm>
 
+#include <sentinel.hpp>
+
 export module Rev.Element.Resolved;
 
 import Rev.Element.Style;
 
-namespace Rev::Element {
+export namespace Rev::Element {
 
-    export struct ResolvedDim {
+    using namespace sentinel;
 
-        // Returns if value is set
-        inline bool set(float& f) {
-
-            bool isSet = std::bit_cast<uint32_t>(f) != 0x80000000;
-
-            return isSet;
-        };
+    struct ResolvedDim {
 
         // -0.0f means "unset" or "unspecified"
         float val = -0.0f, min = -0.0f, max = -0.0f;
         bool growable = false;
         bool fit = false;
 
-        void setAbs(Dist& newVal, Dist& newMin, Dist& newMax) {
-
-            // Set new max/min if type matches
-            if (newMin.type == Dist::Type::Abs) { min = newMin.val; }
-            if (newMax.type == Dist::Type::Abs) { max = newMax.val; }
-
-            // Special case: setting abs primary value overrides min/max
-            if (newVal.type == Dist::Type::Abs) {
-                val = min = max = newVal.val;
-                growable = false;
-            }
-
-            // Any set value means min/max are also set
-            if (set(val) && !min) { min = val; }
-            if (set(val) && !max) { max = val; }
-        }
-
-        void setRel(Dist& newVal, Dist& newMin, Dist& newMax, float& compare, float& compareMin, float& compareMax) {
-
-            // Set new val/min/max if type is absolute
-            if (newVal.type == Dist::Type::Rel && compare > 0.0f) { val = newVal.val * compare; growable = false; }
-            if (newMin.type == Dist::Type::Rel && compareMin > 0.0f) { min = newMin.val * compareMin; }
-            if (newMax.type == Dist::Type::Rel && compareMax > 0.0f) { max = newMax.val * compareMax; }
-
-            // Handle still-unset min/max
-            //if (!set(min) && newVal.type == Dist::Type::Rel) { min = newVal.val * compareMin; }
-            //if (!set(max) && newVal.type == Dist::Type::Rel) { max = newVal.val * compareMax; }
-
-            // Any set value means min/max are also set
-            /*if (set(val) && !set(min)) { min = val; }
-            if (set(val) && !set(max)) { max = val; }*/
-        }
-
-        void setNonFlex(Dist& newVal, Dist& newMin, Dist& newMax, float& compareMin, float& compareMax) {
-
-            // Set new val
-            switch (newVal.type) {
-                case (Dist::Type::Abs): { val = newVal.val; fit = false; break; }
-                case (Dist::Type::Rel): { min = newVal.val * compareMin; max = newVal.val * compareMax; fit = false; break; }
-            }
-
-            // Set new min (a set minimum means do not fit)
-            switch (newMin.type) {
-                case (Dist::Type::Abs): { min = newMin.val; break; }
-                case (Dist::Type::Rel): { min = newMin.val * compareMin; fit = false; break; }
-            }
-
-            // Set new val
-            switch (newMax.type) {
-                case (Dist::Type::Abs): { max = std::min(newMax.val, compareMax); break; }
-                case (Dist::Type::Rel): { max = newMax.val * compareMax; break; }
-            }
-
-            // Any set value means min/max are also set
-            if (set(val) && !min) { min = val; }
-            if (set(val) && !max) { max = val; }
-        }
-
-        // This is a special case, since min/max can't grow - they can only be set as abs/rel
-        void setGrow(Dist& newVal, float& maxGrow) {
-
-            if (newVal.type == Dist::Type::Grow) {
-
-                // We set this dimension as growable
-                growable = true;
-                fit = false;
-
-                if (maxGrow && !max) { max = maxGrow; }
-
-                // If there is no existing max, we set it to a large value
-                if (!max) { max = 999999.0f; }
-            }
-        }
-
         // Limit dimension based on resolved min/max values
         void clamp() {
-            
-            // Restrict val to min/max values
             if (max && val > max) { val = max; }
             if (min && val < min) { val = min; }
-
-            // After clamping, we can simply set min/max
-            //if (val) { max = val; min = val; }
         }
 
         // Determine whether this dimension is capable of growing
@@ -132,29 +49,9 @@ namespace Rev::Element {
         }
     };
 
-    export struct ResolvedSize {
+    struct ResolvedSize {
 
         ResolvedDim w, h;
-
-        void setAbs(Size& size) {
-            w.setAbs(size.width, size.min.width, size.max.width);
-            h.setAbs(size.height, size.min.height, size.max.height);
-        }
-
-        void setRel(Size& size, float& innerWidth, float& innerHeight, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
-            w.setRel(size.width, size.min.width, size.max.width, innerWidth, minInnerWidth, maxInnerWidth);
-            h.setRel(size.height, size.min.height, size.max.height, innerHeight, minInnerHeight, maxInnerHeight);
-        }
-
-        void setNonFlex(Size& size, float& minInnerWidth, float& minInnerHeight, float& maxInnerWidth, float& maxInnerHeight) {
-            w.setNonFlex(size.width, size.min.width, size.max.width, minInnerWidth, maxInnerWidth);
-            h.setNonFlex(size.height, size.min.height, size.max.height, minInnerHeight, maxInnerHeight);
-        }
-
-        void setGrow(Size& size, float& maxWidth, float& maxHeight) {
-            w.setGrow(size.width, maxWidth);
-            h.setGrow(size.height, maxHeight);
-        }
 
         // Clamp all dims
         void clamp() {
@@ -183,39 +80,9 @@ namespace Rev::Element {
         }
     };
 
-    export struct ResolvedLrtb {
+    struct ResolvedLrtb {
 
         ResolvedDim l, r, t, b;
-
-        void setAbs(LrtbStyle& lrtb) {
-
-            l.setAbs(lrtb.left, lrtb.min.left, lrtb.max.left);
-            r.setAbs(lrtb.right, lrtb.min.right, lrtb.max.right);
-            t.setAbs(lrtb.top, lrtb.min.top, lrtb.max.top);
-            b.setAbs(lrtb.bottom, lrtb.min.bottom, lrtb.max.bottom);
-        }
-
-        void setRel(LrtbStyle& lrtb, float& width, float& height, float& minWidth, float& minHeight, float& maxWidth, float& maxHeight) {
-
-            l.setRel(lrtb.left, lrtb.min.left, lrtb.max.left, width, minWidth, maxWidth);
-            r.setRel(lrtb.right, lrtb.min.right, lrtb.max.right, width, minWidth, maxWidth);
-            t.setRel(lrtb.top, lrtb.min.top, lrtb.max.top, height, minHeight, maxHeight);
-            b.setRel(lrtb.bottom, lrtb.min.bottom, lrtb.max.bottom, height, minHeight, maxHeight);
-        }
-
-        void setNonFlex(LrtbStyle& lrtb, ResolvedSize& size) {
-            l.setNonFlex(lrtb.left, lrtb.min.left, lrtb.max.left, size.w.val, size.h.max);
-            r.setNonFlex(lrtb.right, lrtb.min.right, lrtb.max.right, size.w.val, size.h.max);
-            t.setNonFlex(lrtb.top, lrtb.min.top, lrtb.max.top, size.h.val, size.h.max);
-            b.setNonFlex(lrtb.bottom, lrtb.min.bottom, lrtb.max.bottom, size.h.val, size.h.max);
-        }
-
-        void setGrow(LrtbStyle& lrtb, float& maxWidth, float& maxHeight) {
-            l.setGrow(lrtb.left, maxWidth);
-            r.setGrow(lrtb.right, maxWidth);
-            t.setGrow(lrtb.top, maxHeight);
-            b.setGrow(lrtb.bottom, maxHeight);
-        }
         
         // Clamp all dims
         void clamp() {
@@ -268,12 +135,26 @@ namespace Rev::Element {
         }
     };
 
-    export struct Resolved {
+    struct SizeDetails {
+
+        float width = -0.0f, height = -0.0f;
+
+        float marginWidth = -0.0f, marginHeight = -0.0f;
+        float paddingWidth = -0.0f, paddingHeight = -0.0f;
+
+        float innerWidth = -0.0f, innerHeight = -0.0f;
+        float outerWidth = -0.0f, outerHeight = -0.0f;
+    };
+
+    struct Resolved {
 
         ResolvedSize size;
-        ResolvedLrtb mar;
-        ResolvedLrtb pad;
-        ResolvedLrtb pos;
+        ResolvedLrtb mar, pad, pos;
+
+        SizeDetails min, max;
+
+        bool wrap = false;
+        bool affectsParentSize = false;
 
         bool hasHoverStyle = false;
         bool hasPressStyle = false;

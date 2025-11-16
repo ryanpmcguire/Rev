@@ -209,7 +209,7 @@ export namespace Rev {
         // Top-level only
         void calcFlexLayouts() {
 
-            for (Element* element : topDown) { element->resetLayout(); }
+            for (Element* element : topDown) { element->resetResolved(); }
 
             // Resolve minima, then maxima, then layout
             for (Element* element : bottomUp) { element->resolveMinima(); }

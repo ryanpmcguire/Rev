@@ -161,6 +161,7 @@ export namespace Rev::Element {
             Rgb,  fRgb,
             Rgba, fRgba,
             Hex,
+            Tint,
             Inherit
         };
 
@@ -233,6 +234,11 @@ export namespace Rev::Element {
 
     Color rgb(float r, float g, float b) {
         return { Color::Type::Rgba, r / 255.0f, g / 255.0f, b / 255.0f, 1.0 };
+    }
+
+    Color Tint(Color color) {
+        color.type = Color::Type::Tint;
+        return color;
     }
     
     // Size

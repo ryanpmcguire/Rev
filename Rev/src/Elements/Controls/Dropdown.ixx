@@ -39,7 +39,7 @@ export namespace Rev::Element {
 
                 Style DropdownText {
                     .size = { .width = Grow() },
-                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
+                    .text = { .color = Tint(rgba(0, 0, 0, 0.1)), .size = 14_px }
                 };
 
             Style OptionsContainer {
@@ -47,7 +47,7 @@ export namespace Rev::Element {
                 .alignment = { .direction = Axis::Vertical, .position = Position::Absolute },
                 .position = { .top = 100_pct },
                 .size = { .width = 100_pct },
-                .background = { .color = rgba(0, 0, 0, 0.05) }
+                .background = { .color = rgba(255, 255, 255, 0.05) }
             };
 
                 Style Option {
