@@ -7,45 +7,59 @@ layout(std140, binding = 0) uniform Transform {
 };
 
 layout(std140, binding = 1) uniform Data {
-    float x, y, w, h;                           // Rect
-    float r, g, b, a;                           // Fill color
-    float tl, tr, bl, br;                       // Corner radii
-    float b_l, b_r, b_t, b_b;                   // Border widths
-    vec4 l_color, r_color, t_color, b_color;    // Border colors
+    float x, y, w, h;                                   // Rect
+    float r, g, b, a;                                   // Fill color
+    float tl, tr, bl, br;                               // Corner radii
+    float l_width, r_width, t_width, b_width;           // Border widths
+    vec4 l_color, r_color, t_color, b_color;            // Border colors
     float shadowX, shadowY, shadowSize, shadowBlur;
     vec4 shadowColor;
 };
 
 out vec2 fragLocalPos;
 out vec4 fragColor;
+out vec4 cornerMask;
+out vec4 sideMask;
 
 void main() {
+
+    // Vertex lookup tables
+    //--------------------------------------------------
+
+    // Tl, tr, bl, br
     const vec2 offsets[4] = vec2[](
-        vec2(0.0, 0.0),
-        vec2(1.0, 0.0),
-        vec2(1.0, 1.0),
-        vec2(0.0, 1.0)
+        vec2(0, 0), vec2(1, 0),
+        vec2(1, 1), vec2(0, 1)
     );
 
-    vec2 cornerOffset = offsets[gl_VertexID];
+    // L, r, t, b
+    const vec4 sideMasks[4] = vec4[](
+        vec4(1,0,1,0), vec4(0,1,1,0),
+        vec4(0,1,0,1), vec4(1,0,0,1)
+    );
 
-    // --- Original rect (for fragLocalPos) ---
-    vec2 rectPos = vec2(x, y) + cornerOffset * vec2(w, h);
-    fragLocalPos = rectPos;
+    // Tl, tr, bl, br
+    const vec4 cornerMasks[4] = vec4[](
+        vec4(1,1,1,1), vec4(1,1,1,1),
+        vec4(1,1,1,1), vec4(1,1,1,1) 
+    );
 
-    // --- Expanded rect (for actual rasterization) ---
+    // Compute geometry
+    //--------------------------------------------------
+
+    int vid = gl_VertexID % 4;
+
+    cornerMask = cornerMasks[vid];
+    sideMask = sideMasks[vid];
+    vec2 cornerOffset = offsets[vid];
+
+    // Expand rect and attributes
     float shadowExtent = shadowSize + shadowBlur;
     vec2 expandedOrigin = vec2(x, y) - vec2(shadowExtent);
     vec2 expandedSize   = vec2(w, h) + vec2(shadowExtent * 2.0);
-    vec2 expandedPos    = expandedOrigin + cornerOffset * expandedSize;
-
-    // Apply shadow offset globally — moves shadow outward, not the shape
-    expandedPos += vec2(shadowX, shadowY);
-    fragLocalPos = expandedPos;
-
-    // Send color to fragment shader
-    fragColor = vec4(r, g, b, a);
+    vec2 expandedPos    = vec2(shadowX, shadowY) + expandedOrigin + cornerOffset * expandedSize;
 
     // Final projection: expanded position, not original
+    fragLocalPos = expandedPos;
     gl_Position = uProjection * vec4(expandedPos, 0.0, 1.0);
 }

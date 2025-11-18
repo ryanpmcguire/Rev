@@ -41,8 +41,8 @@ export namespace Rev::Element {
                 .alignment = { Axis::Horizontal, Align::Start, Align::Center },
                 .size = { .width = Grow() },
                 .padding = { 6_px, 6_px, 6_px, 6_px },
-                .background = { .color = rgba(0, 0, 0, 0.1), .transition = 0.1_sec },
-                .border = { .radius = 4_px }
+                .background = { .color = rgba(0, 0, 0, 1.0), .transition = 0.1_sec },
+                .border = { .radius = 2_px }
             };
 
                 Style SliderHover = {

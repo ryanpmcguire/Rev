@@ -3,17 +3,35 @@
 DEFINITIONS
 
 in vec2 fragLocalPos;
+in vec4 cornerMask;
+in vec4 sideMask;
+
 out vec4 FragColor;
 
 layout(std140, binding = 1) uniform Data {
-    float x, y, w, h;                           // Rect
-    float r, g, b, a;                           // Fill color
-    float tl, tr, bl, br;                       // Corner radii
-    float b_l, b_r, b_t, b_b;                   // Border widths
-    vec4 l_color, r_color, t_color, b_color;    // Border colors
+    float x, y, w, h;                                   // Rect
+    float r, g, b, a;                                   // Fill color
+    float tl, tr, bl, br;                               // Corner radii
+    float l_width, r_width, t_width, b_width;           // Border widths
+    vec4 l_color, r_color, t_color, b_color;            // Border colors
     float shadowX, shadowY, shadowSize, shadowBlur;
     vec4 shadowColor;
 };
+
+vec4 softMax(vec4 v, float sharpness) {
+
+    // Stabilize by subtracting the maximum value
+    float M = max(max(v.x, v.y), max(v.z, v.w));
+
+    // Apply exponent with sharpness
+    vec4 e = exp((v - vec4(M)) * sharpness);
+
+    // Sum of all exponentiated values
+    float s = e.x + e.y + e.z + e.w;
+
+    // Normalize
+    return e / max(s, 1e-6);
+}
 
 float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
     vec2 q = abs(p) - halfSize + vec2(radius);
@@ -22,107 +40,63 @@ float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
 
 void main() {
 
+    // Compute basic dimensions
     vec2 rectCenter = vec2(x + w * 0.5, y + h * 0.5);
     vec2 localPos = fragLocalPos - rectCenter;
-    vec2 halfSize = vec2(w, h) * 0.5;
 
-    // --- Exclusive region selection using minimum distance ---
+    // Choose side and corner
+    //--------------------------------------------------
 
-    // Distances to edges (in pixel space)
-    float dL = abs(fragLocalPos.x - x);
-    float dR = abs((x + w) - fragLocalPos.x);
-    float dT = abs(fragLocalPos.y - y);
-    float dB = abs((y + h) - fragLocalPos.y);
+    
+    vec4 mCorner = softMax(cornerMask, 1.0f);
+    vec4 mSide   = step(max(sideMask.x, max(sideMask.y, max(sideMask.z, sideMask.w))) - 0.0001, sideMask);
 
-    // Distances to corners
-    vec2 p_tl = vec2(x, y);
-    vec2 p_tr = vec2(x + w, y);
-    vec2 p_bl = vec2(x, y + h);
-    vec2 p_br = vec2(x + w, y + h);
+    // Choose corner radius, border width, and color
+    float cornerRadius = mCorner.x * tl + mCorner.y * tr + mCorner.z * bl + mCorner.w * br;
+    float borderWidth = mSide.x * l_width + mSide.y * r_width + mSide.z * t_width + mSide.w * b_width;
+    vec4 borderColor = mSide.x * l_color + mSide.y * r_color + mSide.z * t_color + mSide.w * b_color;
 
-    float dc_tl = length(fragLocalPos - p_tl);
-    float dc_tr = length(fragLocalPos - p_tr);
-    float dc_bl = length(fragLocalPos - p_bl);
-    float dc_br = length(fragLocalPos - p_br);
+    // Calculate outer and inner half-size (accounting for border width)
+    vec2 outerHalfSize = vec2(w, h) * 0.5;
+    vec2 innerHalfSize = max(outerHalfSize - vec2(borderWidth), vec2(0.0));
 
-    float minCornerD = min(min(dc_tl, dc_tr), min(dc_bl, dc_br));
-    float minSideD   = min(min(dL, dR), min(dT, dB));
+    // Choose corner radius, calc inner and outer based on size and border width
+    float outerRadius = clamp(cornerRadius, 0.0, min(outerHalfSize.x, outerHalfSize.y));
+    float innerRadius = max(outerRadius - borderWidth, 0.0);
 
-    // Corners
-    float is_tl = float(dc_tl == minCornerD);
-    float is_tr = float(dc_tr == minCornerD);
-    float is_bl = float(dc_bl == minCornerD);
-    float is_br = float(dc_br == minCornerD);
+    // Compute box SDF with borders
+    //--------------------------------------------------
 
-    // Sides
-    float is_left   = float(dL == minSideD);
-    float is_right  = float(dR == minSideD);
-    float is_top    = float(dT == minSideD);
-    float is_bottom = float(dB == minSideD);
+    // Signed distance to inner (inside border) and outer (on border) boxes
+    float distInner = roundedBoxSDF(localPos, innerHalfSize, innerRadius);
+    float distOuter = roundedBoxSDF(localPos, outerHalfSize, outerRadius);
 
-    vec2 q = sign(localPos);
-    float cornerRadius =
-        (q.x < 0.0 && q.y < 0.0) ? tl :
-        (q.x > 0.0 && q.y < 0.0) ? tr :
-        (q.x < 0.0 && q.y > 0.0) ? bl :
-                                br;
-                                
-    cornerRadius = clamp(cornerRadius, 0.0, min(halfSize.x, halfSize.y));
+    // Hard-edge masks
+    float outerMask  = float(distOuter <= 0.0);  // inside outer rounded box
+    float innerMask  = float(distInner <= 0.0);  // inside inner (fill) box
 
-    // Determine local border width based on which side we are on
-    float localBorderW = 
-          is_left   * b_l +
-          is_right  * b_r +
-          is_top    * b_t +
-          is_bottom * b_b;
+    // Border = outer region minus inner region
+    float borderMask = outerMask * (1.0 - innerMask);
+    float fillMask   = innerMask;
 
-    // Compute distances
-    float distOuter = roundedBoxSDF(localPos, halfSize, cornerRadius);
-    vec2 innerHalfSize = max(halfSize - vec2(localBorderW), vec2(0.0));
-    float distInner = roundedBoxSDF(localPos, innerHalfSize, max(cornerRadius - localBorderW, 0.0));
+    // If stencil mode is activated, we immediately discard if we're inside the inner mask
+    #ifdef STENCIL
 
-    // Smoothing (only for corners)
-    float smoothingBase = 0.5 * fwidth(distOuter);
+        if (innerMask == 0.0) { discard; }
+        FragColor = vec4(0,0,0,0);
 
-    // Corner detection: both x and y near edge
-    vec2 edgeDist = abs(localPos) - (halfSize - vec2(cornerRadius));
+        return;
+    #else
 
-    // Instead of a hard step, fade in as we approach the corner region
-    float fade = 0.5 * cornerRadius; // pixels before corner where we start smoothing
-    float cornerFactor =
-        smoothstep(-fade, 0.0, edgeDist.x) *
-        smoothstep(-fade, 0.0, edgeDist.y);
-
-    // Blend smoothing — only apply at corners
-    float smoothing = mix(0.0, smoothingBase, cornerFactor);
-
-    // Alpha for outer shape (to clip)
-    float outerAlpha = 1.0 - smoothstep(-smoothing, smoothing, distOuter);
-
-    // Border mask: inside outer shape but outside inner
-    float innerMask = 1.0 - smoothstep(-smoothing, smoothing, distInner);
-    float borderMask = clamp(outerAlpha - innerMask, 0.0, 1.0);
-
-#ifdef STENCIL
-    // Stencil mode: only keep interior pixels
-    if (distInner > -smoothing) {
-        discard;
-    }
-    FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-#else
-    // --- Normal rendering path ---
+    // Chose color and compare SDF
+    //--------------------------------------------------
 
     vec4 fillColor = vec4(r, g, b, a);
-    
-    vec4 borderColor =
-      l_color * is_left +
-      r_color * is_right +
-      t_color * is_top +
-      b_color * is_bottom;
+    vec4 color = fillColor * fillMask + borderColor * borderMask;
 
     // Fill + border
     vec4 shapeColor = mix(fillColor, borderColor, vec4(borderMask));
-    float shapeAlpha = max(outerAlpha, borderMask);
+    float shapeAlpha = clamp(fillMask + borderMask, 0.0, 1.0);
 
     // --- Shadow ---
 
@@ -131,7 +105,7 @@ void main() {
     // Signed distance field for the shadow's shape (expanded)
     float shadowDist = roundedBoxSDF(
         shadowPos,
-        halfSize + vec2(shadowSize),
+        outerHalfSize + vec2(shadowSize),
         cornerRadius + shadowSize
     );
 
@@ -164,5 +138,5 @@ void main() {
     // Output: color independent of alpha intensity
     FragColor = vec4(finalRGBA.rgb, finalRGBA.a * finalAlpha);
 
-#endif
+    #endif
 }

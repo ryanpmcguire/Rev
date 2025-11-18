@@ -63,6 +63,7 @@ export namespace Rev::Graphics {
                 char infoLog[512];
                 glGetProgramInfoLog(id, 512, nullptr, infoLog);
                 
+                dbg("Pipeline link error:\n%s", infoLog);
                 throw std::runtime_error(std::string("Pipeline link error: ") + infoLog);
             }
         }

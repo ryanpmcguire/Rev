@@ -28,7 +28,7 @@ export namespace HelloWorld {
 
             // Self
             this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
-            //this->style->background.color = rgba(0, 0, 0, 0.1);
+            this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 100_px, 100_px, 100_px, 100_px };
 
@@ -52,7 +52,7 @@ export namespace HelloWorld {
                 
                 chart->style = {
                     .size = { .width = 100_pct, .height = Grow(), .min = { .height = 100_px } },
-                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
+                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 100_px, .width = 1_px, .bottom = { .color = rgba(255, 0, 0, 1), .width = 50_px }, .transition = 200 }
                 };
 
                 size_t num = 100;

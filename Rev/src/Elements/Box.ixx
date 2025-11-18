@@ -48,7 +48,7 @@ export namespace Rev::Element {
             Rectangle::Data& data = *rectangle->data;
 
             // Assign rect, fill color
-            data.rect = this->rect;
+            data.rect = this->rect.rounded().translate({ 0.0, 0.0 });
             data.color = styleRef.background.color;
 
             // Compute corner radii

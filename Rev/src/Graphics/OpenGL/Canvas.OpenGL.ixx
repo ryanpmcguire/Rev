@@ -88,10 +88,10 @@ export namespace Rev::Graphics {
                 glViewport(0, 0, details.width, details.height);
 
                 glm::mat4 projection = glm::ortho(
-                    0.5f,                                      // left
-                    (static_cast<float>(details.width) / details.scale) - 0.5f,  // right
-                    (static_cast<float>(details.height) / details.scale) - 0.5f,  // bottom
-                    0.5f,                                      // top
+                    0.0f,                                      // left
+                    (static_cast<float>(details.width) / details.scale),  // right
+                    (static_cast<float>(details.height) / details.scale),  // bottom
+                    0.0f,                                      // top
                     -1.0f, 1.0f
                 );
 

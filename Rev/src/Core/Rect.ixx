@@ -36,6 +36,24 @@ export namespace Rev::Core {
             return Rect(x, y, w, h);
         }
 
+        Rect rounded() {
+            
+            float left = std::round(x); float right = std::round(x + w);
+            float top = std::round(y); float bottom = std::round(y + h);
+
+            return {
+                left, top,
+                right - left, bottom - top
+            };
+        }
+
+        Rect& translate(Pos pos) {
+
+            x += pos.x; y += pos.y;
+
+            return *this;
+        }
+
         // Return proportional coordinates (0->1) of position within this rect
         Pos posWithin(Pos& pos) {
             
