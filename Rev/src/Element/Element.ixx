@@ -758,23 +758,30 @@ export namespace Rev::Element {
             for (Element* pChild : children) {
 
                 Element& child = *pChild;
+
                 Size& cSize = child.resolved.style.size;
-                LrtbStyle& cMargin = child.resolved.style.margin;
-                LrtbStyle& cPadding = child.resolved.style.padding;
+
                 Dist& cWidth = cSize.width;
                 Dist& cHeight = cSize.height;
 
+                LrtbStyle& cMargin = child.resolved.style.margin;
+                LrtbStyle& cPadding = child.resolved.style.padding;
+                LrtbStyle& cPosition = child.resolved.style.position;
+
+                float& compareValW = child.resolved.style.alignment.position == Position::Absolute ? resolved.size.w.val : innerWidth;
+                float& compareValH = child.resolved.style.alignment.position == Position::Absolute ? resolved.size.h.val : innerHeight;
+
                 // Resolve nominal
-                if (cSize.width) { child.resolved.size.w.val = child.resolved.size.w.min = child.resolved.size.w.max = cSize.width.resolve(innerWidth); }
-                if (cSize.height) { child.resolved.size.h.val = child.resolved.size.h.min = child.resolved.size.h.max = cSize.height.resolve(innerHeight); }
+                if (cSize.width) { child.resolved.size.w.val = child.resolved.size.w.min = child.resolved.size.w.max = cSize.width.resolve(compareValW); }
+                if (cSize.height) { child.resolved.size.h.val = child.resolved.size.h.min = child.resolved.size.h.max = cSize.height.resolve(compareValH); }
 
                 // Resolve min
-                if (cSize.min.width) { child.resolved.size.w.min = cSize.min.width.resolve(innerWidth); }
-                if (cSize.min.height) { child.resolved.size.h.min = cSize.min.height.resolve(innerHeight); }
+                if (cSize.min.width) { child.resolved.size.w.min = cSize.min.width.resolve(compareValW); }
+                if (cSize.min.height) { child.resolved.size.h.min = cSize.min.height.resolve(compareValH); }
 
                 // Resolve max
-                if (cSize.max.width) { child.resolved.size.w.max = cSize.max.width.resolve(innerWidth); }
-                if (cSize.max.height) { child.resolved.size.h.max = cSize.max.height.resolve(innerHeight); }
+                if (cSize.max.width) { child.resolved.size.w.max = cSize.max.width.resolve(compareValW); }
+                if (cSize.max.height) { child.resolved.size.h.max = cSize.max.height.resolve(compareValH); }
 
                 // Override max if needed
                 if (cSize.width.type == Dist::Type::Grow && !set(child.resolved.size.w.max)) { child.resolved.size.w.max = 9999999.0f; }
@@ -791,6 +798,12 @@ export namespace Rev::Element {
                 child.resolved.pad.r.val = child.resolved.pad.r.min = child.resolved.pad.r.max = cPadding.right.val;
                 child.resolved.pad.t.val = child.resolved.pad.t.min = child.resolved.pad.t.max = cPadding.top.val;
                 child.resolved.pad.b.val = child.resolved.pad.b.min = child.resolved.pad.b.max = cPadding.bottom.val;
+
+                // Resolve child position
+                if (cPosition.left) {
+                    child.resolved.pos.l.val = cPosition.left.resolve(compareValW);
+                }
+                if (cPosition.top) { child.resolved.pos.t.val = cPosition.top.resolve(compareValH); }
 
                 float minWidthFromPadding = child.resolved.pad.l.min + child.resolved.pad.r.min;
                 float minHeightFromPadding = child.resolved.pad.t.min + child.resolved.pad.b.min;
@@ -1193,18 +1206,24 @@ export namespace Rev::Element {
 
                     for (Element* member : row.members) {
 
-                        member->rect.x = member->resolved.mar.l.val + row.rect.x;
-                        member->rect.y = member->resolved.mar.t.val + row.rect.y + runningY;
+                        if (member->resolved.style.alignment.position == Position::Absolute) {
 
+                            member->rect.x = rect.x + member->resolved.mar.l.val;
+                            member->rect.y = rect.y + member->resolved.mar.t.val;
+                            
+                            member->rect.x += member->resolved.pos.l.val;
+                            member->rect.y += member->resolved.pos.t.val;
+
+                            continue;
+                        }
+
+                        member->rect.x = row.rect.x + member->resolved.mar.l.val;
+                        member->rect.y = row.rect.y + runningY + member->resolved.mar.t.val;
+
+                        member->rect.x += member->resolved.pos.l.val;
+                        member->rect.y += member->resolved.pos.t.val;
+   
                         runningY += member->rect.h + member->resolved.mar.t.val + member->resolved.mar.b.val;
-
-                        // Apply relative positions
-                        //--------------------------------------------------
-
-                        if (member->resolved.pos.l.val != -0.0f) { member->rect.x += member->resolved.pos.l.val; }
-                        if (member->resolved.pos.r.val != -0.0f) { member->rect.x += member->resolved.pos.r.val; }
-                        if (member->resolved.pos.t.val != -0.0f) { member->rect.y += member->resolved.pos.t.val; }
-                        if (member->resolved.pos.b.val != -0.0f) { member->rect.y += member->resolved.pos.b.val; }
                     }
 
                     runningX += row.rect.w;
@@ -1230,18 +1249,24 @@ export namespace Rev::Element {
 
                     for (Element* member : row.members) {
 
-                        member->rect.x = member->resolved.mar.l.val + row.rect.x + runningX;
-                        member->rect.y = member->resolved.mar.t.val + row.rect.y;
+                        if (member->resolved.style.alignment.position == Position::Absolute) {
 
+                            member->rect.x = rect.x + member->resolved.mar.l.val;
+                            member->rect.y = rect.y + member->resolved.mar.t.val;
+
+                            member->rect.x += member->resolved.pos.l.val;
+                            member->rect.y += member->resolved.pos.t.val;
+
+                            continue;
+                        }
+
+                        member->rect.x = row.rect.x + runningX + member->resolved.mar.l.val;
+                        member->rect.y = row.rect.y + member->resolved.mar.t.val;
+
+                        member->rect.x += member->resolved.pos.l.val;
+                        member->rect.y += member->resolved.pos.t.val;
+                        
                         runningX += member->rect.w + member->resolved.mar.l.val + member->resolved.mar.r.val;
-
-                        // Apply relative positions
-                        //--------------------------------------------------
-
-                        if (member->resolved.pos.l.val != -0.0f) { member->rect.x += member->resolved.pos.l.val; }
-                        if (member->resolved.pos.r.val != -0.0f) { member->rect.x += member->resolved.pos.r.val; }
-                        if (member->resolved.pos.t.val != -0.0f) { member->rect.y += member->resolved.pos.t.val; }
-                        if (member->resolved.pos.b.val != -0.0f) { member->rect.y += member->resolved.pos.b.val; }
                     }
 
                     runningY += row.rect.h;

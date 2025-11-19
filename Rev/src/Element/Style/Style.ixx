@@ -958,6 +958,7 @@ export namespace Rev::Element {
         void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             alignment.linkDirtyFlag(dirty);
+            position.linkDirtyFlag(dirty);
             size.linkDirtyFlag(dirty);
             margin.linkDirtyFlag(dirty);
             padding.linkDirtyFlag(dirty);

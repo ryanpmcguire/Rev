@@ -18,6 +18,11 @@ import Rev.Element.Text;
 export namespace Rev::Element {
 
     namespace Styles {
+
+        Shadow subtleShadow = {
+            .color = rgba(0, 0, 0, 0.5),
+            .size = Px(-10), .blur = 20_px
+        };
         
         Style Self = {
             .size = { .width = Grow(), .min = { .width = 100_px } },
@@ -30,46 +35,47 @@ export namespace Rev::Element {
             };
 
                 Style LabelText = {
-                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
+                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 0.6) }
                 };
 
                 Style ValueText = {
-                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 1) }
+                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 0.6) }
                 };
 
             Style Slider = {
                 .alignment = { Axis::Horizontal, Align::Start, Align::Center },
                 .size = { .width = Grow() },
                 .padding = { 6_px, 6_px, 6_px, 6_px },
-                .background = { .color = rgba(0, 0, 0, 1.0), .transition = 0.1_sec },
-                .border = { .radius = 1_px }
+                .background = { .color = rgb(225, 228, 238), .transition = 0.1_sec },
+                .border = { .radius = 4_px },
+                .shadow = subtleShadow
             };
 
                 Style SliderHover = {
-                    .applies = { .hover = true },
-                    .background = { .color = rgba(0, 0, 0, 0.15) }
+                    .applies = { .hover = true, .drag = true },
+                    .background = { .color = rgba(203, 213, 223, 1.0) }
                 };
 
-            Style Track = {
-                .alignment = { Axis::Horizontal, Align::Start, Align::Center },
-                .size = { .width = 100_pct, .height = 2_px },
-                .background = { .color = rgba(0, 0, 0, 0.25) },
-            };
-
-                Style ThumbContainer = {
-                    .alignment = { Axis::Horizontal, Align::Center, Align::Center },
-                    .size = { .width = 0_px, .height = 0_px }
+                Style Track = {
+                    .alignment = { Axis::Horizontal, Align::Start, Align::Center },
+                    .size = { .width = 100_pct, .height = 2_px },
+                    .background = { .color = rgba(0, 0, 0, 0.25) },
                 };
 
-                    Style Thumb = {
-                        .size = { .width = 4_px, .height = 8_px, .transition = 100 },
-                        .background = { .color = rgba(0, 0, 0, 0.5) },
+                    Style ThumbContainer = {
+                        .alignment = { Axis::Horizontal, Align::Center, Align::Center },
+                        .size = { .width = 0_px, .height = 0_px }
                     };
 
-                    Style ThumbHover = {
-                        .applies = { .hover = true, .drag = true },
-                        .size = { .width = 8_px, .height = 16_px }
-                    };
+                        Style Thumb = {
+                            .size = { .width = 4_px, .height = 8_px, .transition = 100 },
+                            .background = { .color = rgba(0, 0, 0, 0.5) },
+                        };
+
+                        Style ThumbHover = {
+                            .applies = { .hover = true, .drag = true },
+                            .size = { .width = 8_px, .height = 16_px }
+                        };
     };
 
     struct Slider : public Box {
@@ -154,7 +160,7 @@ export namespace Rev::Element {
         void computeStyle(Event& e) override {
 
             float pctVal = (data.val - data.min) / (data.max - data.min);
-            track->style->padding.left = Pct(100.0f * pctVal);
+            thumbContainer->style->position.left = Pct(100.0f * pctVal);
         
             Box::computeStyle(e);
         }

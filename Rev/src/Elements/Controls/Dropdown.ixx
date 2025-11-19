@@ -44,6 +44,11 @@ export namespace Rev::Element {
                 .shadow = subtleShadow
             };
 
+                Style DropdownFocus {
+                    .applies = { .focus = true },
+                    .border = { .color = rgb(64, 77, 255), .width = 2_px }
+                };
+
                 Style DropdownText {
                     .size = { Grow() },
                     .text = { .color = rgba(0, 0, 0, 0.8), .size = 14_px }
@@ -117,7 +122,7 @@ export namespace Rev::Element {
             // Dropdown per-se
             //--------------------------------------------------
 
-            dropdown = new Box(this, { &Styles::Dropdown });
+            dropdown = new Box(this, { &Styles::Dropdown, &Styles::DropdownFocus });
                 dropdownText = new Text(dropdown, "Option", { &Styles::DropdownText });
 
             // Options container
