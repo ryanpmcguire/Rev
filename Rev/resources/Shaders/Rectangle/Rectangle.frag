@@ -10,7 +10,7 @@ out vec4 FragColor;
 
 layout(std140, binding = 1) uniform Data {
     float x, y, w, h;                                   // Rect
-    float r, g, b, a;                                   // Fill color
+    vec4 fillColor;                                     // Fill color
     float tl, tr, bl, br;                               // Corner radii
     float l_width, r_width, t_width, b_width;           // Border widths
     vec4 l_color, r_color, t_color, b_color;            // Border colors
@@ -47,14 +47,12 @@ void main() {
     // Choose side and corner
     //--------------------------------------------------
 
-    
     vec4 mCorner = softMax(cornerMask, 1.0f);
     vec4 mSide   = step(max(sideMask.x, max(sideMask.y, max(sideMask.z, sideMask.w))) - 0.0001, sideMask);
 
     // Choose corner radius, border width, and color
     float cornerRadius = mCorner.x * tl + mCorner.y * tr + mCorner.z * bl + mCorner.w * br;
     float borderWidth = mSide.x * l_width + mSide.y * r_width + mSide.z * t_width + mSide.w * b_width;
-    vec4 borderColor = mSide.x * l_color + mSide.y * r_color + mSide.z * t_color + mSide.w * b_color;
 
     // Calculate outer and inner half-size (accounting for border width)
     vec2 outerHalfSize = vec2(w, h) * 0.5;
@@ -71,9 +69,25 @@ void main() {
     float distInner = roundedBoxSDF(localPos, innerHalfSize, innerRadius);
     float distOuter = roundedBoxSDF(localPos, outerHalfSize, outerRadius);
 
+    //--------------------------------------------------
+    // Unified smoothing
+    //--------------------------------------------------
+
+    // Base smoothing from SDF derivatives
+    float baseSmooth = fwidth(distOuter) * 0.5;
+
+    // Distance to nearest corner region
+    vec2 cornerProbe = abs(localPos) - (outerHalfSize - vec2(outerRadius));
+
+    // We only fade when actually inside the rounded corner region
+    float cornerFade = smoothstep(-outerRadius, 0.0, max(cornerProbe.x, cornerProbe.y));
+
+    // Final smoothing: 0 on straight sides, full on corners
+    float smoothing = mix(0.0, baseSmooth, cornerFade);
+
     // Hard-edge masks
-    float outerMask  = float(distOuter <= 0.0);  // inside outer rounded box
-    float innerMask  = float(distInner <= 0.0);  // inside inner (fill) box
+    float outerMask = 1.0 - smoothstep(-smoothing, smoothing, distOuter);
+    float innerMask = 1.0 - smoothstep(-smoothing, smoothing, distInner);
 
     // Border = outer region minus inner region
     float borderMask = outerMask * (1.0 - innerMask);
@@ -88,26 +102,17 @@ void main() {
         return;
     #else
 
-    // Chose color and compare SDF
+    // Shadow
     //--------------------------------------------------
 
-    vec4 fillColor = vec4(r, g, b, a);
-    vec4 color = fillColor * fillMask + borderColor * borderMask;
-
-    // Fill + border
-    vec4 shapeColor = mix(fillColor, borderColor, vec4(borderMask));
-    float shapeAlpha = clamp(fillMask + borderMask, 0.0, 1.0);
-
-    // --- Shadow ---
+    float shadowEnabled = step(0.001, shadowColor.a);
 
     vec2 shadowPos = localPos - vec2(shadowX, shadowY);
+    vec2 shadowHalfSize = outerHalfSize + vec2(shadowSize);
+    float shadowRadius = cornerRadius + shadowSize;
 
     // Signed distance field for the shadow's shape (expanded)
-    float shadowDist = roundedBoxSDF(
-        shadowPos,
-        outerHalfSize + vec2(shadowSize),
-        cornerRadius + shadowSize
-    );
+    float shadowDist = roundedBoxSDF(shadowPos, shadowHalfSize, shadowRadius);
 
     // Raw blur falloff
     float rawShadowAlpha = 1.0 - smoothstep(0.0, shadowBlur, shadowDist);
@@ -119,24 +124,33 @@ void main() {
     // Optionally, make attenuation weaker for small shadows (more perceptual)
     blurAttenuation = mix(1.0, blurAttenuation, clamp(shadowBlur / 50.0, 0.0, 1.0));
 
-    // Final shadow alpha (never overlaps shape)
-    float shadowAlpha = rawShadowAlpha * blurAttenuation * (1.0 - shapeAlpha);
-    
-    // --- Combine ---
+    // Combine
+    //--------------------------------------------------
 
-    // Total alpha = union of shape + shadow
-    float finalAlpha = clamp(shapeAlpha + shadowAlpha, 0.0, 1.0);
+    vec4 borderColor = mSide.x * l_color + mSide.y * r_color + mSide.z * t_color + mSide.w * b_color;
 
-    // Decide which region contributes color
-    // Use shadow when it's dominant, shape otherwise
-    float shadowWeight = shadowAlpha / max(finalAlpha, 1e-5);
-    float shapeWeight  = 1.0 - shadowWeight;
+    // Premultiplied fill color
+    float fillAlpha = fillMask * fillColor.a;
+    vec3  fillRGB      = fillColor.rgb * fillAlpha;
 
-    // Mix the two explicitly (now including alpha)
-    vec4 finalRGBA = shadowColor * shadowWeight + shapeColor * shapeWeight;
+    // Premultiplied border color
+    float borderAlpha = borderMask * borderColor.a;
+    vec3  borderRGB      = borderColor.rgb * borderAlpha;
 
-    // Output: color independent of alpha intensity
-    FragColor = vec4(finalRGBA.rgb, finalRGBA.a * finalAlpha);
+    // Premultiplied shape color
+    float shapeAlpha = fillAlpha + borderAlpha;
+    vec3  shapeRGB   = fillRGB + borderRGB;
+
+    // Shadow
+    float shadowAlpha    = rawShadowAlpha * blurAttenuation * (1.0 - outerMask) * shadowColor.a;
+    vec3  shadowRGB      = shadowColor.rgb * shadowAlpha;
+
+    // Final color
+    float finalAlpha = shapeAlpha + shadowAlpha;
+    vec3  finalRGB   = shapeRGB + shadowRGB;
+
+    // Convert premultiplied → straight alpha for output
+    FragColor = vec4(finalRGB / max(finalAlpha, 1e-5), finalAlpha);
 
     #endif
 }

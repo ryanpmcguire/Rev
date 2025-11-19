@@ -8,7 +8,7 @@ layout(std140, binding = 0) uniform Transform {
 
 layout(std140, binding = 1) uniform Data {
     float x, y, w, h;                                   // Rect
-    float r, g, b, a;                                   // Fill color
+    vec4 fillColor;                                    // Fill color
     float tl, tr, bl, br;                               // Corner radii
     float l_width, r_width, t_width, b_width;           // Border widths
     vec4 l_color, r_color, t_color, b_color;            // Border colors
@@ -40,8 +40,8 @@ void main() {
 
     // Tl, tr, bl, br
     const vec4 cornerMasks[4] = vec4[](
-        vec4(1,1,1,1), vec4(1,1,1,1),
-        vec4(1,1,1,1), vec4(1,1,1,1) 
+        vec4(1,0,0,0), vec4(0,1,0,0),
+        vec4(0,0,1,0), vec4(0,0,0,1) 
     );
 
     // Compute geometry
@@ -54,7 +54,7 @@ void main() {
     vec2 cornerOffset = offsets[vid];
 
     // Expand rect and attributes
-    float shadowExtent = shadowSize + shadowBlur;
+    float shadowExtent = max(shadowSize + shadowBlur, 0);
     vec2 expandedOrigin = vec2(x, y) - vec2(shadowExtent);
     vec2 expandedSize   = vec2(w, h) + vec2(shadowExtent * 2.0);
     vec2 expandedPos    = vec2(shadowX, shadowY) + expandedOrigin + cornerOffset * expandedSize;

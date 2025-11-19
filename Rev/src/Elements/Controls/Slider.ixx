@@ -42,7 +42,7 @@ export namespace Rev::Element {
                 .size = { .width = Grow() },
                 .padding = { 6_px, 6_px, 6_px, 6_px },
                 .background = { .color = rgba(0, 0, 0, 1.0), .transition = 0.1_sec },
-                .border = { .radius = 2_px }
+                .border = { .radius = 1_px }
             };
 
                 Style SliderHover = {

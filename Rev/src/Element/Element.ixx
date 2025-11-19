@@ -1308,6 +1308,8 @@ export namespace Rev::Element {
         void onMouseUp(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseUp, listener); }
         void onMouseMove(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseMove, listener); }
         void onDrag(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDrag, listener); }
+        //void onFocus(const std::function<void(Event&)>& listener) { this->listen(&Element::focus, listener); }
+        //void onDefocus(const std::function<void(Event&)>& listener) { this->listen(&Element::defocus, listener); }
         void onMouseEnter(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseEnter, listener); }
         void onMouseLeave(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseLeave, listener); }
         void onMouseWheel(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseWheel, listener); }
@@ -1341,6 +1343,17 @@ export namespace Rev::Element {
             if (parent && !parent->dirty.draw) {
                 parent->refresh(e);
             }
+        }
+
+        virtual void focus(Event& e) {
+
+            if (!targetFlags.focus) {
+                targetFlags.focus = true;
+                if (resolved.hasFocusStyle) { styles.dirty = true; }
+            }
+
+            tell(&Element::focus, e);
+            if (!e.propagate) { return; }
         }
 
         virtual void mouseDown(Event& e) {

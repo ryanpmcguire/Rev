@@ -19,6 +19,11 @@ import Rev.Element.Text;
 export namespace Rev::Element {
 
     namespace DropdownStyle::Styles {
+
+        Shadow subtleShadow = {
+            .color = rgba(0, 0, 0, 0.5),
+            .size = Px(-10), .blur = 20_px
+        };
         
         Style Self = {
             .alignment = { Axis::Vertical, Align::Start, Align::Center },
@@ -35,7 +40,8 @@ export namespace Rev::Element {
                 .size = { Grow() },
                 .padding = { 8_px, 6_px, 6_px, 8_px },
                 .background = { rgb(225, 228, 238 )},
-                .border = { .radius = 4_px }
+                .border = { .radius = 6_px },
+                .shadow = subtleShadow
             };
 
                 Style DropdownText {
@@ -51,19 +57,21 @@ export namespace Rev::Element {
                 .size = { Grow(), .max = { 100_pct } },
                 .margin = { .top = 8_px },
                 .background = { .color = rgb(225, 228, 238) },
-                .border = { .radius = 12_px }
+                .border = { .color = rgb(226, 228, 238), .radius = 6_px },
+                .shadow = subtleShadow,
             };
 
                 Style Option {
                     .size = { 100_pct },
                     .padding = { 8_px, 8_px, 6_px, 6_px },
                     .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },
-                    .cursor = Cursor::Hand,
+                    .background = { .color = rgba(203, 213, 223, 0.0), .transition = 100_ms },
+                    .cursor = Cursor::Hand
                 };
 
                     Style OptionHover = {
                         .applies = { .hover = true },
-                        .background = { .color = rgb(203, 213, 223) }
+                        .background = { .color = rgba(203, 213, 223, 1.0) }
                     };
     };
 

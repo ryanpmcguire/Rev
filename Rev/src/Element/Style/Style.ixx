@@ -61,7 +61,8 @@ export namespace Rev::Element {
     };
 
     constexpr int operator"" _sec(long double value) { return static_cast<int>(value * 1000.0); }
-    constexpr int operator"" _ms(long double value) { return static_cast<int>(value); }
+    constexpr int operator"" _sec(unsigned long long value) { return static_cast<int>(value * 1000.0); }
+    constexpr int operator"" _ms(unsigned long long value) { return static_cast<int>(value); }
 
     // Distance
     //--------------------------------------------------
