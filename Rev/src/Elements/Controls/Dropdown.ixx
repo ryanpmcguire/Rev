@@ -70,7 +70,7 @@ export namespace Rev::Element {
                 };
 
                     Style OptionHover = {
-                        .applies = { .hover = true },
+                        .applies = { .hover = true, .focus = true },
                         .background = { .color = rgba(203, 213, 223, 1.0) }
                     };
     };

@@ -1308,8 +1308,8 @@ export namespace Rev::Element {
         void onMouseUp(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseUp, listener); }
         void onMouseMove(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseMove, listener); }
         void onDrag(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDrag, listener); }
-        //void onFocus(const std::function<void(Event&)>& listener) { this->listen(&Element::focus, listener); }
-        //void onDefocus(const std::function<void(Event&)>& listener) { this->listen(&Element::defocus, listener); }
+        void onFocus(const std::function<void(Event&)>& listener) { this->listen(&Element::focus, listener); }
+        void onDefocus(const std::function<void(Event&)>& listener) { this->listen(&Element::defocus, listener); }
         void onMouseEnter(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseEnter, listener); }
         void onMouseLeave(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseLeave, listener); }
         void onMouseWheel(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseWheel, listener); }
@@ -1349,11 +1349,48 @@ export namespace Rev::Element {
 
             if (!targetFlags.focus) {
                 targetFlags.focus = true;
+                if (resolved.hasFocusStyle) {
+                    styles.dirty = true;
+                }
+            }
+
+            // Tell event listeners
+            tell(&Element::focus, e);
+            if (!e.propagate) { return; }
+
+            // Propagate to children
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                bool containsEvent = child.targetFlags.hit;
+                bool isFocusTarget = child.targetFlags.focus;
+
+                if (containsEvent && !isFocusTarget) { child.focus(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        virtual void defocus(Event& e) {
+
+            if (targetFlags.focus) {
+                targetFlags.focus = false;
                 if (resolved.hasFocusStyle) { styles.dirty = true; }
             }
 
-            tell(&Element::focus, e);
+            tell(&Element::mouseLeave, e);
             if (!e.propagate) { return; }
+
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                bool containsEvent = child.targetFlags.hit;
+                bool isFocusTarget = child.targetFlags.focus;
+
+                if (!containsEvent && isFocusTarget) { child.defocus(e); }
+                if (!e.propagate) { return; }
+            }
         }
 
         virtual void mouseDown(Event& e) {
@@ -1373,8 +1410,13 @@ export namespace Rev::Element {
 
                 Element& child = *pChild;
 
-                // If child contains event, we propagate
-                if (child.targetFlags.hit) { child.mouseDown(e); }
+                bool isFocusTarget = child.targetFlags.focus;
+                bool containsEvent = child.targetFlags.hit;
+
+                if (containsEvent && !isFocusTarget) { child.focus(e); }
+                if (!containsEvent && isFocusTarget) { child.defocus(e); }
+                if (containsEvent) { child.mouseDown(e); }
+            
                 if (!e.propagate) { return; }
             }
         }
@@ -1476,9 +1518,9 @@ export namespace Rev::Element {
                 Element& child = *pChild;
 
                 bool containsEvent = child.targetFlags.hit;
-                bool isMouseOverTarget = child.targetFlags.hover;
+                bool isHoverTarget = child.targetFlags.hover;
 
-                if (!containsEvent && isMouseOverTarget) { child.mouseLeave(e); }
+                if (!containsEvent && isHoverTarget) { child.mouseLeave(e); }
                 if (!e.propagate) { return; }
             }
         }
