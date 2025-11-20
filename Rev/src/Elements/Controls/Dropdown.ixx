@@ -125,15 +125,26 @@ export namespace Rev::Element {
             dropdown = new Box(this, { &Styles::Dropdown, &Styles::DropdownFocus });
                 dropdownText = new Text(dropdown, "Option", { &Styles::DropdownText });
 
-            // Options container
+                // Options container
+                //--------------------------------------------------
+
+                optionsContainer = new Box(dropdown, { &Styles::OptionsContainer });
+                optionsContainer->name = "OptionsContainer";
+
+                for (Params::Option& option : params.options) {
+                    options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
+                }
+
+            // Events
             //--------------------------------------------------
 
-            optionsContainer = new Box(dropdown, { &Styles::OptionsContainer });
-            optionsContainer->name = "OptionsContainer";
+            dropdown->onLoseFocus([this](Event& e) {
+                optionsContainer->style->visibility = Visibility::Hidden;
+            });
 
-            for (Params::Option& option : params.options) {
-                options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
-            }
+            dropdown->onGainFocus([this](Event& e) {
+                optionsContainer->style->visibility = Visibility::Visible;
+            });
         }
 
         std::string savedValue = "";

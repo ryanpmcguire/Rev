@@ -14,9 +14,12 @@ file(GLOB_RECURSE RESOURCE_FILES
     ${RCS_DIR}/*.*       # whatever extensions you use
 )
 
+# Path to Python interpreter (portable across OSes)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 add_custom_target(EmbedResources ALL
     COMMAND ${CMAKE_COMMAND} -E echo "Running resource embed script..."
-    COMMAND ${CMAKE_COMMAND} -E env bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/Create_Resource_Modules.sh
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/Create_Resource_Modules.py
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Embedding resources (forced run every build)"
 )
