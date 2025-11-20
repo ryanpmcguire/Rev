@@ -5,9 +5,12 @@ module;
 #include <vector>
 #include <algorithm>
 
+#include <managed.hpp>
+
 export module Rev.Element.Dropdown;
 
 import Rev.Core.Pos;
+import Rev.Core.Resource;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -83,6 +86,8 @@ export namespace Rev::Element {
     using namespace DropdownStyle;
 
     struct Dropdown : public Box {
+
+        Resource testResource = File("./Test.txt");
 
         // Label text
         Text* label = nullptr;

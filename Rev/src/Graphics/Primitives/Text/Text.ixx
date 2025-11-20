@@ -4,10 +4,13 @@ module;
 #include <vector>
 #include <string>
 
+#include <managed.hpp>
+
 export module Rev.Primitive.Text;
 
 import Rev.Primitive;
 import Rev.Core.Shared;
+import Rev.Core.Resource;
 import Rev.Core.Font;
 import Rev.Core.FontAtlas;
 import Rev.Core.Pos;
@@ -18,13 +21,9 @@ import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
-// Resources
-import Resources.Fonts.Arial.Arial_ttf;
-import Resources.Shaders.Text.Text_vert;
-import Resources.Shaders.Text.Text_frag;
-import Resources.Shaders.Text.Text_metal;
-
 export namespace Rev::Primitive {
+
+    Core::Resource Arial_ttf = File("Rev/resources/Fonts/Arial/Arial.ttf");
 
     struct Text : public Primitive {
 
@@ -43,10 +42,10 @@ export namespace Rev::Primitive {
 
                 .attribs = { 4 },
                 
-                .openGlVert = Text_vert,
-                .openGlFrag = Text_frag,
+                .openGlVert = File("./Shaders/Text.vert"),
+                .openGlFrag = File("./Shaders/Text.frag"),
 
-                .metalUniversal = Text_metal
+                .metalUniversal = File("./Shaders/Text.metal")
             });
         }
 

@@ -3,16 +3,17 @@ module;
 #include <cstdio>
 #include <string>
 
+#include <managed.hpp>
+
 export module Rev.Element.Text;
 
 import Rev.Element.Style;
 import Rev.Element.Event;
 import Rev.Element.Box;
 
+import Rev.Core.Resource;
 import Rev.Core.Observable;
 import Rev.Primitive.Text;
-
-import Resources.Fonts.Arial.Arial_ttf;
 
 export namespace Rev::Element {
 
@@ -20,7 +21,7 @@ export namespace Rev::Element {
         
         Style TextDefaults = {
             .text = {
-                .font = Arial_ttf,
+                .font = File("Rev/resources/Fonts/Arial/Arial.ttf"),
                 .size = 12_px,
                 .color = rgba(0, 0, 0, 1),
             }

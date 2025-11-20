@@ -1,10 +1,12 @@
 module;
 
 #include <cstddef>
+#include <managed.hpp>
 
 export module Rev.Primitive.Rectangle;
 
 import Rev.Primitive;
+import Rev.Core.Resource;
 import Rev.Core.Shared;
 import Rev.Core.Pos;
 import Rev.Core.Rect;
@@ -17,11 +19,6 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
-
-// Shader resources (color)
-import Resources.Shaders.Rectangle.Rectangle_metal;
-import Resources.Shaders.Rectangle.Rectangle_vert;
-import Resources.Shaders.Rectangle.Rectangle_frag;
 
 export namespace Rev::Primitive {
 
@@ -42,9 +39,9 @@ export namespace Rev::Primitive {
 
                 .attribs = Vertex::attribs,
 
-                .openGlVert = Rectangle_vert,
-                .openGlFrag = Rectangle_frag,
-                .metalUniversal = Rectangle_metal
+                .openGlVert = File("./Shaders/Rectangle.vert"),
+                .openGlFrag = File("./Shaders/Rectangle.frag"),
+                .metalUniversal = File("./Shaders/Rectangle.metal")
             });
 
             stencilPipeline = new Pipeline(canvas->context, {
@@ -53,9 +50,9 @@ export namespace Rev::Primitive {
 
                 .definitions = "#define STENCIL",
 
-                .openGlVert = Rectangle_vert,
-                .openGlFrag = Rectangle_frag,
-                .metalUniversal = Rectangle_metal
+                .openGlVert = File("./Shaders/Rectangle.vert"),
+                .openGlFrag = File("./Shaders/Rectangle.frag"),
+                .metalUniversal = File("./Shaders/Rectangle.metal")
             });
 
             vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });

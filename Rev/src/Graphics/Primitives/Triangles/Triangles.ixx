@@ -3,9 +3,12 @@ module;
 #include <cmath>
 #include <vector>
 
+#include <managed.hpp>
+
 export module Rev.Primitive.Triangles;
 
 import Rev.Primitive;
+import Rev.Core.Resource;
 import Rev.Core.Shared;
 import Rev.Core.Color;
 import Rev.Core.Vertex;
@@ -15,11 +18,6 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
-
-// Shader file resources
-import Resources.Shaders.Triangles.Triangles_vert;
-import Resources.Shaders.Triangles.Triangles_frag;
-import Resources.Shaders.Triangles.Triangles_metal;
 
 export namespace Rev::Primitive {
 
@@ -35,9 +33,9 @@ export namespace Rev::Primitive {
                 .instanced = false,
                 .attribs = Vertex::attribs,
 
-                .openGlVert = Triangles_vert,
-                .openGlFrag = Triangles_frag,
-                .metalUniversal = Triangles_metal
+                .openGlVert = File("./Shaders/Triangles.vert"),
+                .openGlFrag = File("./Shaders/Triangles.frag"),
+                .metalUniversal = File("./Shaders/Triangles.metal")
             });
         }
 

@@ -1,43 +1,53 @@
 #!/usr/bin/env python3
-import os, re, sys, pathlib, hashlib
+import argparse, os, re, sys, pathlib
 
 # -------------------------------------------------------------------
 #   CONFIGURATION
 # -------------------------------------------------------------------
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser()
+parser.add_argument("--project-root", required=True)
+args = parser.parse_args()
+
+PROJECT_ROOT = pathlib.Path(args.project_root).resolve()
+
 SRC_EXTS = {".cpp", ".h", ".hpp", ".ixx", ".mxx", ".cppm"}
 
-# Where the final module goes:
-OUTPUT_DIR = PROJECT_ROOT / "Resources"
-OUTPUT_DIR.mkdir(exist_ok=True)
+# Output target: Rev/Resources/.modules/Files.ixx
+OUTPUT_DIR = PROJECT_ROOT / "Rev/Resources/.modules"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 ATLAS_FILE = OUTPUT_DIR / "Files.ixx"
 
-# Regex for matching Resource("path") or File("path")
+# Match: File("path")
 RESOURCE_REGEX = re.compile(
-    r'\b(?:Resource|File)\s*\(\s*"([^"]+)"\s*\)', re.MULTILINE
+    r'\bFile\s*\(\s*"([^"]+)"\s*\)',
+    re.MULTILINE
 )
 
 # -------------------------------------------------------------------
 #   UTILITIES
 # -------------------------------------------------------------------
 
-def to_virtual_path(src_file: pathlib.Path, ref: str) -> str:
+def resolve_resource_path(src_file: pathlib.Path, ref: str) -> pathlib.Path:
     """
-    Resolve a referenced path (e.g. "./Arial.ttf") relative to the source file.
-    Produce a normalized project-relative virtual path.
+    Implements the SAME rule as C++:
+      - If ref starts with "./"  -> anchor-relative
+      - Else                     -> project-root absolute
+
+    Returns a fully resolved absolute path on disk.
     """
-    abs_src_dir = src_file.parent
-    abs_target = (abs_src_dir / ref).resolve()
 
-    try:
-        rel = abs_target.relative_to(PROJECT_ROOT)
-    except ValueError:
-        print(f"[WARN] Referenced file is outside project: {abs_target}")
-        return None
+    ref = ref.replace("\\", "/")  # normalize
 
-    return rel.as_posix()
+    # CASE 1: Anchor-relative ("./")
+    if ref.startswith("./"):
+        stripped = ref[2:]  # remove "./"
+        src_dir = src_file.parent
+        return (src_dir / stripped).resolve()
+
+    # CASE 2: Project-root absolute
+    return (PROJECT_ROOT / ref).resolve()
 
 
 def load_bytes(path: pathlib.Path) -> bytes:
@@ -47,7 +57,9 @@ def load_bytes(path: pathlib.Path) -> bytes:
 
 def mangle_symbol(path: str) -> str:
     """
-    Convert "Graphics/Text/Arial.ttf" → Graphics_Text_Arial_ttf_data
+    Convert a virtual path into a legal C++ symbol.
+       Example: "src/Scene/UI/Test.png" ->
+       src_Scene_UI_Test_png_data
     """
     return re.sub(r'[^a-zA-Z0-9]', '_', path) + "_data"
 
@@ -56,7 +68,7 @@ def mangle_symbol(path: str) -> str:
 #   MAIN SCAN
 # -------------------------------------------------------------------
 
-print("Scanning project for Resource(...) and File(...) references...")
+print(f"Scanning project for File(\"...\") references inside: {PROJECT_ROOT}\n")
 
 found_files = {}  # virtualPath -> absolutePath
 
@@ -66,61 +78,70 @@ for root, dirs, files in os.walk(PROJECT_ROOT):
         if p.suffix not in SRC_EXTS:
             continue
 
-        text = p.read_text(errors="ignore")
+        try:
+            text = p.read_text(errors="ignore")
+        except Exception:
+            continue
 
-        # Look for Resource("path") or File("path")
         for match in RESOURCE_REGEX.finditer(text):
-            rel_path = match.group(1).strip()
-            virt_path = to_virtual_path(p, rel_path)
-            if not virt_path:
+            ref = match.group(1).strip()
+
+            # 1. Resolve absolute file path on disk
+            abs_target = resolve_resource_path(p, ref)
+
+            # 2. Compute project-relative "virtual path"
+            try:
+                virt = abs_target.relative_to(PROJECT_ROOT).as_posix()
+            except ValueError:
+                print(f"  [WARN] File outside project root: {abs_target}")
                 continue
 
-            abs_target = (PROJECT_ROOT / virt_path).resolve()
-
+            # 3. Store if exists
             if abs_target.exists():
-                print(f"  [+] {virt_path}")
-                found_files[virt_path] = abs_target
+                if virt not in found_files:
+                    print(f"  [+] {virt}")
+                    found_files[virt] = abs_target
             else:
-                print(f"  [!] Missing file: {virt_path} (referenced from {p})")
+                print(f"  [!] Missing file: {virt}  (from {p})")
 
-print("")
+print("\n------------------------------------------------------------")
 print(f"Total resource files found: {len(found_files)}")
-print("Generating atlas module...")
+print("Generating Files.ixx...\n")
 
 # -------------------------------------------------------------------
-#   GENERATE Files.ixx
+#   GENERATE Files.ixx ATLAS
 # -------------------------------------------------------------------
 
-with open(ATLAS_FILE, "w") as out:
+with open(ATLAS_FILE, "w", encoding="utf-8") as out:
 
-    out.write("export module Files;\n\n")
+    out.write("module;\n")
+    out.write("#include <string>\n\n")
+    out.write("export module Rev.Managed.Files;\n\n")
     out.write("export namespace FilesDB {\n\n")
 
-    out.write("    export struct FileEntry {\n")
+    out.write("    struct FileEntry {\n")
     out.write("        std::string_view virtualPath;\n")
     out.write("        const unsigned char* data;\n")
     out.write("        size_t size;\n")
     out.write("    };\n\n")
 
-    # Write byte arrays
+    # Emit byte arrays
     for virt, absfile in found_files.items():
         data = load_bytes(absfile)
         sym = mangle_symbol(virt)
 
         out.write(f"    inline constexpr unsigned char {sym}[] = {{\n        ")
-        hexbytes = ", ".join(f"0x{b:02X}" for b in data)
-        out.write(hexbytes)
+        out.write(", ".join(f"0x{b:02X}" for b in data))
         out.write("\n    };\n\n")
 
-    # Write atlas table
-    out.write("    export constinit FileEntry Atlas[] = {\n")
+    # Emit atlas table
+    out.write("    constinit FileEntry Atlas[] = {\n")
     for virt, absfile in found_files.items():
         sym = mangle_symbol(virt)
         out.write(f'        {{ "{virt}", {sym}, sizeof({sym}) }},\n')
     out.write("    };\n\n")
 
-    out.write(f"    export constinit size_t Count = {len(found_files)};\n")
+    out.write(f"    constinit size_t Count = {len(found_files)};\n")
+    out.write("};\n")
 
-    out.write("}\n")
-
-print(f"Done. Wrote atlas to: {ATLAS_FILE}")
+print(f"Done. Atlas written to: {ATLAS_FILE}\n")

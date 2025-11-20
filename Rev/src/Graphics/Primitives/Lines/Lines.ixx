@@ -4,10 +4,12 @@ module;
 #include <cmath>
 #include <vector>
 #include <sentinel.hpp>
+#include <managed.hpp>
 
 export module Rev.Primitive.Lines;
 
 import Rev.Primitive;
+import Rev.Core.Resource;
 import Rev.Core.Shared;
 import Rev.Core.Color;
 import Rev.Core.Vertex;
@@ -18,11 +20,6 @@ import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
-
-// Shader file resources
-import Resources.Shaders.Lines.Lines_vert;
-import Resources.Shaders.Lines.Lines_frag;
-import Resources.Shaders.Lines.Lines_metal;
 
 export namespace Rev::Primitive {
 
@@ -43,9 +40,9 @@ export namespace Rev::Primitive {
                 .instanced = false,
                 .attribs = Vertex::attribs,
 
-                .openGlVert = Lines_vert,
-                .openGlFrag = Lines_frag,
-                .metalUniversal = Lines_metal
+                .openGlVert = File("./Shaders/Lines.vert"),
+                .openGlFrag = File("./Shaders/Lines.frag"),
+                .metalUniversal = File("./Shaders/Lines.metal")
             });
         }
 

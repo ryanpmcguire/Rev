@@ -9,6 +9,8 @@ module;
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
+#include <managed.hpp>
+
 export module Rev.Core.Font;
 
 import Rev.Core.Resource;
@@ -17,11 +19,11 @@ import Rev.Graphics.Canvas;
 import Rev.Graphics.UniformBuffer;
 import Rev.Graphics.Texture;
 
-import Resources.Fonts.Arial.Arial_ttf;
-
 export namespace Rev::Core {
 
     using namespace Rev::Graphics;
+
+    Resource Arial_ttf = File("Rev/resources/Fonts/Arial/Arial.ttf");
 
     struct Font {
 

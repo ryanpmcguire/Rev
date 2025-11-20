@@ -14,8 +14,6 @@ import Rev.Element.Slider;
 import Rev.Element.Dropdown;
 import Rev.Element.Chart;
 
-import Resources.Fonts.Arial.Arial_ttf;
-
 export namespace HelloWorld {
 
     using namespace Rev;
