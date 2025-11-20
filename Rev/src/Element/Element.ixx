@@ -286,6 +286,7 @@ export namespace Rev::Element {
                 int numCanGrow = 0;
 
                 for (Element* member : members) {
+                    if (!member->resolved.affectsParentSize) { continue; }
                     numCanGrow += member->resolved.canGrow(axis);
                 }
 
@@ -337,8 +338,9 @@ export namespace Rev::Element {
             resolved.max = defSizeDetails;
 
             // Element does not wrap if its position is not absolute
-            resolved.wrap = resolved.style.alignment.position != Position::Absolute;
-            resolved.affectsParentSize = resolved.style.alignment.position != Position::Absolute;
+            resolved.absolute = resolved.style.alignment.position == Position::Absolute;
+            resolved.wrap = !resolved.absolute;
+            resolved.affectsParentSize = !resolved.absolute;
 
             rect = Rect();
         }

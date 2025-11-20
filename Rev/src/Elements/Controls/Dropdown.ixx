@@ -128,7 +128,7 @@ export namespace Rev::Element {
             // Options container
             //--------------------------------------------------
 
-            optionsContainer = new Box(this, { &Styles::OptionsContainer });
+            optionsContainer = new Box(dropdown, { &Styles::OptionsContainer });
             optionsContainer->name = "OptionsContainer";
 
             for (Params::Option& option : params.options) {

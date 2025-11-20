@@ -154,6 +154,7 @@ export namespace Rev::Element {
         SizeDetails min, max;
 
         bool wrap = false;
+        bool absolute = false;
         bool affectsParentSize = false;
 
         bool hasHoverStyle = false;
