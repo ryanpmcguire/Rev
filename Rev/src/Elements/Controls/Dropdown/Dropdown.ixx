@@ -18,6 +18,7 @@ import Rev.Element.Style;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
+import Rev.Element.Svg;
 
 export namespace Rev::Element {
 
@@ -40,6 +41,7 @@ export namespace Rev::Element {
             };
 
             Style Dropdown {
+                .alignment = { Axis::Horizontal, Align::Center, Align::Center },
                 .size = { Grow() },
                 .padding = { 8_px, 6_px, 6_px, 8_px },
                 .background = { rgb(225, 228, 238 )},
@@ -55,6 +57,11 @@ export namespace Rev::Element {
                 Style DropdownText {
                     .size = { Grow() },
                     .text = { .color = rgba(0, 0, 0, 0.8), .size = 14_px }
+                };
+
+                Style DropdownArrow = {
+                    .size = { 14_px, 14_px },
+                    .background = { .color = rgba(0, 0, 0, 1.0 ) }
                 };
 
             Style OptionsContainer {
@@ -87,13 +94,12 @@ export namespace Rev::Element {
 
     struct Dropdown : public Box {
 
-        Resource testResource = File("./Test.txt");
-
         // Label text
         Text* label = nullptr;
 
         Box* dropdown = nullptr;
-            Box* dropdownText = nullptr;
+            Text* dropdownText = nullptr;
+            Svg* dropdownArrow = nullptr; 
 
         // Option elements
         Box* optionsContainer = nullptr;
@@ -129,6 +135,7 @@ export namespace Rev::Element {
 
             dropdown = new Box(this, { &Styles::Dropdown, &Styles::DropdownFocus });
                 dropdownText = new Text(dropdown, "Option", { &Styles::DropdownText });
+                dropdownArrow = new Svg(dropdown, File("./chevron-right.svg"), { &Styles::DropdownArrow });
 
                 // Options container
                 //--------------------------------------------------
