@@ -27,6 +27,14 @@ export namespace Rev::Element {
 
     struct Element {
 
+        enum class Type {
+            Single,
+            Group
+        };
+
+        Type type;
+        std::vector<Element*> children;
+
         struct Shared {
 
             struct DirtyElements {
@@ -56,7 +64,6 @@ export namespace Rev::Element {
         Element* next = nullptr;
         Element* last = nullptr;
 
-        std::vector<Element*> children;
         std::string name = "Element";
         
         // Style
@@ -138,7 +145,9 @@ export namespace Rev::Element {
 
         void cascadeStyle() {
 
-            resolved.style.inherit(parent->resolved.style);
+            this->resolved.hidden = false;
+            if (parent->resolved.hidden) { this->resolved.hidden = true; }
+            if (resolved.style.visibility == Visibility::Hidden) { this->resolved.hidden = true; }
 
             for (Element* child : children) {
                 child->cascadeStyle();

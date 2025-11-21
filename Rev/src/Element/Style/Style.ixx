@@ -833,7 +833,7 @@ export namespace Rev::Element {
 
         Applies applies;
 
-        Visibility visibility = Visibility::Inherit;
+        Visibility visibility = Visibility::Unset;
         Overflow overflow = Overflow::Unset;
 
         Alignment alignment;

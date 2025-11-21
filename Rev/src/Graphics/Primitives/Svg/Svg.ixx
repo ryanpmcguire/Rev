@@ -122,10 +122,17 @@ export namespace Rev::Primitive {
         }
 
         void compute() override {
+
+            // If no change, do nothing
+            if (svg->resource == resource &&
+                svg->width == data->rect.w &&
+                svg->height == data->rect.h) {
+                return;
+            }
             
             svg->resource = resource;
-            svg->bitmap.width = data->rect.w;
-            svg->bitmap.height = data->rect.h;
+            svg->width = data->rect.w;
+            svg->height = data->rect.h;
             
             svg->bake();
         }

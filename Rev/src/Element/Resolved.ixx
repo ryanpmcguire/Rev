@@ -153,6 +153,8 @@ export namespace Rev::Element {
 
         SizeDetails min, max;
 
+        bool hidden = false;
+
         bool wrap = false;
         bool absolute = false;
         bool affectsParentSize = false;

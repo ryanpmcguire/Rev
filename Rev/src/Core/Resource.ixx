@@ -16,6 +16,13 @@ export namespace Rev::Core {
         const unsigned char* data;
         size_t size;
 
+        bool operator==(const Resource& other) {
+            return (
+                data == other.data &&
+                size == other.size
+            );
+        }
+
         static Resource FromFile(const std::string& anchor, const std::string& relativePath) 
         {
             Resource resource{};

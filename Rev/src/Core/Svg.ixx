@@ -7,6 +7,8 @@ module;
 #include <nanosvg/nanosvg.h>
 #include <nanosvg/nanosvgrast.h>
 
+#include <dbg.hpp>
+
 export module Rev.Core.Svg;
 
 import Rev.Core.Resource;
@@ -27,8 +29,8 @@ export namespace Rev::Core {
         NSVGrasterizer* rast = nullptr;
 
         unsigned char* pixels = nullptr;
-        int width = 0;
-        int height = 0;
+        float width = 0;
+        float height = 0;
         float scale = 1.0f;
 
         Rev::Graphics::Canvas* canvas = nullptr;
@@ -53,7 +55,7 @@ export namespace Rev::Core {
             texture = new Texture(canvas->context, {
                 .data = bitmap.data,
                 .width = bitmap.width, .height = bitmap.height,
-                .channels = 1
+                .channels = 4
             });
         }
 
@@ -65,9 +67,11 @@ export namespace Rev::Core {
 
         void bake() {
 
+            dbg("[Svg] Baking");
+
             // Free old resources if rebaking
             if (texture) { delete texture; texture = nullptr; }
-            if (pixels) { delete[] pixels; pixels = nullptr; }
+            if (bitmap.data) { delete[] bitmap.data; bitmap.data = nullptr; }
             if (rast) { nsvgDeleteRasterizer(rast); rast = nullptr; }
             if (image) { nsvgDelete(image); image = nullptr; }
 
@@ -90,17 +94,15 @@ export namespace Rev::Core {
                 throw std::runtime_error("Svg::bake(): failed to parse SVG.");
             }
 
-            // Compute scaled raster size
-            width  = int(image->width  * scale);
-            height = int(image->height * scale);
-
             if (width <= 0 || height <= 0) {
                 throw std::runtime_error("Svg::bake(): invalid SVG dimensions.");
             }
 
             // Allocate pixel buffer (RGBA 8-bit)
-            pixels = new unsigned char[width * height * 4];
-            std::memset(pixels, 0, width * height * 4);
+            bitmap.width = width; bitmap.height = height;
+            bitmap.size = bitmap.width * bitmap.height * 4 * sizeof(char);
+            bitmap.data = new unsigned char[bitmap.size];
+            std::memset(bitmap.data, 0, bitmap.size);
 
             // Create rasterizer
             rast = nsvgCreateRasterizer();
@@ -108,23 +110,26 @@ export namespace Rev::Core {
                 throw std::runtime_error("Svg::bake(): failed to create rasterizer.");
             }
 
+            // NanoSVG only supports UNIFORM scale → choose one
+            scale = std::min(width / image->width, height / image->height);
+
             // Rasterize!
             nsvgRasterize(
                 rast,
                 image,
                 0, 0,      // no translation
                 scale,     // scaling applied to rasterizer
-                pixels,
-                width,
-                height,
-                width * 4  // stride
+                bitmap.data,
+                bitmap.width,
+                bitmap.height,
+                bitmap.width * 4  // stride
             );
 
             // Upload to GPU texture
             texture = new Rev::Graphics::Texture(canvas->context, {
-                .data = pixels,
-                .width  = (size_t)width,
-                .height = (size_t)height,
+                .data = bitmap.data,
+                .width  = bitmap.width,
+                .height = bitmap.height,
                 .channels = 4
             });
         }

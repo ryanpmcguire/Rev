@@ -108,10 +108,10 @@ export namespace Rev::Element {
         struct Params {
 
             // Options: a list of options to choose from
-            struct Option { std::string name = ""; std::string value = ""; };
+            struct Option { std::string name; std::string value; };
 
             std::vector<Option> options;
-            std::string value;
+            Option value;
 
         };
 
@@ -143,29 +143,60 @@ export namespace Rev::Element {
                 optionsContainer = new Box(dropdown, { &Styles::OptionsContainer });
                 optionsContainer->name = "OptionsContainer";
 
-                for (Params::Option& option : params.options) {
-                    options.push_back(new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover }));
-                }
-
             // Events
             //--------------------------------------------------
 
             dropdown->onLoseFocus([this](Event& e) {
                 optionsContainer->style->visibility = Visibility::Hidden;
+                optionsContainer->style->dirty = true;
             });
 
             dropdown->onGainFocus([this](Event& e) {
                 optionsContainer->style->visibility = Visibility::Visible;
+                optionsContainer->style->dirty = true;
             });
         }
 
         std::string savedValue = "";
 
+        void select(Params::Option option) {
+            
+            params.value = option;
+            dropdownText->content = params.value.name;
+
+            optionsContainer->style->visibility = Visibility::Hidden;
+            optionsContainer->style->dirty = true;
+        }
+
         void computeChildren(Event& e) override {
 
             //if (savedValue == params.value) { return; }
 
+            dropdownText->content = params.value.name;
+
+            size_t oldSize = options.size();
+            size_t newSize = params.options.size();
+
+            // Delete old
+            for (size_t i = newSize; i < oldSize; i++) { delete options[i]; }
+            options.resize(newSize);
+
+            // Add new
+            for (size_t i = oldSize; i < newSize; i++) {
+
+                Params::Option option = params.options[i];
+                options[i] = new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover });
+
+                options[i]->onMouseDown([this, option](Event& e) {
+                    this->select(option);
+                });
+            }
             
+            // Compute content
+            for (size_t i = 0; i < newSize; i++) {
+                Params::Option option = params.options[i];
+                options[i]->content = option.name;
+            }
         }
 
         void computeStyle(Event& e) override {
