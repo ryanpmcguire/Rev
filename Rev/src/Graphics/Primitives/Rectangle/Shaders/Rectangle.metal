@@ -9,11 +9,11 @@ struct Transform {
 };
 
 struct Data {
-    float x, y, w, h;                           // Rect
-    float r, g, b, a;                           // Fill color
-    float tl, tr, bl, br;                       // Corner radii
-    float b_l, b_r, b_t, b_b;                   // Border widths
-    float4 l_color, r_color, t_color, b_color;  // Border colors
+    float x, y, w, h;                                   // Rect
+    float4 fillColor;                                    // Fill color
+    float tl, tr, bl, br;                               // Corner radii
+    float l_width, r_width, t_width, b_width;           // Border widths
+    float4 l_color, r_color, t_color, b_color;            // Border colors
     float shadowX, shadowY, shadowSize, shadowBlur;
     float4 shadowColor;
 };
@@ -33,35 +33,73 @@ vertex VertexOut vertex_main(
     constant Transform& transform [[buffer(10)]],
     constant Data& data [[buffer(11)]]
 ) {
-    const float2 corners[4] = {
+    // ---------------------------------------------
+    // GLSL lookup tables (Metal version)
+    // ---------------------------------------------
+
+    const float2 offsets[4] = {
         float2(0.0, 0.0),
         float2(1.0, 0.0),
         float2(1.0, 1.0),
         float2(0.0, 1.0)
     };
-    const ushort indices[6] = { 0, 1, 2, 0, 2, 3 };
 
-    float2 cornerOffset = corners[ indices[vid] ];
+    const float4 sideMasks[4] = {
+        float4(1,0,1,0),  // left + top
+        float4(0,1,1,0),  // right + top
+        float4(0,1,0,1),  // right + bottom
+        float4(1,0,0,1)   // left + bottom
+    };
 
-    // --- Expanded rect (for rasterization) ---
-    float shadowExtent = data.shadowSize + data.shadowBlur;
-    float2 expandedOrigin = float2(data.x, data.y) - float2(shadowExtent);
-    float2 expandedSize   = float2(data.w, data.h) + float2(shadowExtent * 2.0);
-    float2 expandedPos    = expandedOrigin + cornerOffset * expandedSize;
+    const float4 cornerMasks[4] = {
+        float4(1,0,0,0),  // TL
+        float4(0,1,0,0),  // TR
+        float4(0,0,1,0),  // BL
+        float4(0,0,0,1)   // BR
+    };
 
-    // Apply shadow offset globally
-    expandedPos += float2(data.shadowX, data.shadowY);
+    // ---------------------------------------------
+    // Matching GLSL: vertex index is vid % 4
+    // ---------------------------------------------
 
-    // --- Original rect center (for local coordinates) ---
-    float2 rectCenter = float2(data.x + data.w * 0.5, data.y + data.h * 0.5);
+    const uint indices[6] = { 0, 1, 2, 0, 2, 3 };
+    uint idx = indices[vid];
+    
+
+    float2 cornerOffset = offsets[idx];
 
     VertexOut out;
+    out.cornerMask = cornerMasks[idx];
+    out.sideMask   = sideMasks[idx];
+    out.color      = data.fillColor;
+
+    // ---------------------------------------------
+    // Expanded rect for shadow + rasterization
+    // ---------------------------------------------
+    float shadowExtent = max(data.shadowSize + data.shadowBlur, 0.0f);
+
+    float2 expandedOrigin =
+        float2(data.x, data.y) - float2(shadowExtent);
+
+    float2 expandedSize =
+        float2(data.w, data.h) + float2(shadowExtent * 2.0f);
+
+    float2 expandedPos =
+        float2(data.shadowX, data.shadowY)
+        + expandedOrigin
+        + cornerOffset * expandedSize;
+
+    // ---------------------------------------------
+    // Preserve local rect-space coordinates
+    // (same definition as GLSL: fragLocalPos = expandedPos)
+    // ---------------------------------------------
+    out.localPos = expandedPos;
+
+    // ---------------------------------------------
+    // Final projection
+    // ---------------------------------------------
     out.position = transform.uProjection * float4(expandedPos, 0.0, 1.0);
 
-    // Preserve the same local coordinate system as before
-    out.localPos = expandedPos - rectCenter;
-
-    out.color = float4(data.r, data.g, data.b, data.a);
     return out;
 }
 
