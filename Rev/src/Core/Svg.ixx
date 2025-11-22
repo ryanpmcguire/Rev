@@ -1,5 +1,7 @@
 module;
 
+#include <cmath>
+#include <cstring>
 #include <stdexcept>
 
 #define NANOSVG_IMPLEMENTATION
@@ -52,11 +54,14 @@ export namespace Rev::Core {
             this->canvas = canvas;
             this->resource = resource;
 
-            texture = new Texture(canvas->context, {
+            bitmap.width = 1;
+            bitmap.height = 1;
+
+            /*texture = new Texture(canvas->context, {
                 .data = bitmap.data,
                 .width = bitmap.width, .height = bitmap.height,
                 .channels = 4
-            });
+            });*/
         }
 
         ~Svg() {
@@ -111,7 +116,7 @@ export namespace Rev::Core {
             }
 
             // NanoSVG only supports UNIFORM scale → choose one
-            scale = std::min(width / image->width, height / image->height);
+            scale = std::fmin(width / image->width, height / image->height);
 
             // Rasterize!
             nsvgRasterize(

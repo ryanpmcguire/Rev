@@ -37,7 +37,7 @@ export namespace Rev::Graphics {
             size_t pos = src.find("DEFINITIONS");
             if (pos != std::string::npos) { src.replace(pos, 11, definitions); }
 
-            dbg(src.c_str());
+            //dbg(src.c_str());
 
             shader = metal_create_shader((MetalContext*)context, src.c_str(), src.size());
             if (!shader) { throw std::runtime_error("Failed to create shader!"); }

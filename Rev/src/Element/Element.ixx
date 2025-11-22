@@ -53,7 +53,7 @@ export namespace Rev::Element {
 
         struct Dirty {
             Core::DirtyFlag style;
-            bool draw = true;
+            bool draw = false;
         };
 
         // Shared betweeen elements

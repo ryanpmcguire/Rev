@@ -256,8 +256,8 @@ void* metal_create_framebuffer(MetalContext* ctx,
     fb->stencilTest = [ctx->device newDepthStencilStateWithDescriptor:
                     makeStencilDesc(MTLCompareFunctionLessEqual, MTLStencilOperationKeep)];
 
-    NSLog(@"[MetalFramebuffer] Created (%lux%lu) at scale %.2f",
-          scaledWidth, scaledHeight, scale);
+    /*NSLog(@"[MetalFramebuffer] Created (%lux%lu) at scale %.2f",
+          scaledWidth, scaledHeight, scale);*/
 
     return fb;
 }
@@ -310,8 +310,8 @@ void metal_framebuffer_begin_frame(MetalContext* ctx, void* framebuffer) {
     ctx->enc = fb->enc;
     ctx->cmd = fb->cmd;
 
-    NSLog(@"[MetalFramebuffer] Began offscreen frame (%zux%zu @ scale %.2f)",
-          fb->width, fb->height, ctx->scale);
+    /*NSLog(@"[MetalFramebuffer] Began offscreen frame (%zux%zu @ scale %.2f)",
+          fb->width, fb->height, ctx->scale);*/
 }
 
 void metal_framebuffer_end_frame(MetalContext* ctx, void* framebuffer) {
@@ -332,7 +332,7 @@ void metal_framebuffer_end_frame(MetalContext* ctx, void* framebuffer) {
     ctx->enc = ctx->_enc;
     ctx->cmd = ctx->_cmd;
 
-    NSLog(@"[MetalFramebuffer] Ended offscreen frame");
+    //NSLog(@"[MetalFramebuffer] Ended offscreen frame");
 }
 
 void metal_framebuffer_blit_to_drawable(MetalContext* ctx, void* framebuffer) {
@@ -433,8 +433,8 @@ void metal_present(MetalContext* ctx, void* framebuffer)
     [cmd commit];
     [cmd waitUntilCompleted];
 
-    NSLog(@"[Metal] Presented framebuffer (%zux%zu @ scale %.2f)",
-          fb->width, fb->height, ctx->scale);
+    /*NSLog(@"[Metal] Presented framebuffer (%zux%zu @ scale %.2f)",
+          fb->width, fb->height, ctx->scale);*/
 }
 
 void metal_stencil_clear(MetalContext* ctx, void* framebuffer, size_t value)

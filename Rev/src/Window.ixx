@@ -55,7 +55,7 @@ export namespace Rev {
         Pos downPos = { 0, 0 };
 
         // With other Rev window as parent
-        Window(Window* parent, Details details = Details()) {
+        Window(Window* parent, Details details = Details()) : Element(parent) {
             
             this->parent = parent;
             this->details = details;
@@ -70,7 +70,7 @@ export namespace Rev {
         }
 
         // With native window as parent
-        Window(void* parent, Details details = Details()) {
+        Window(void* parent, Details details = Details()) : Element() {
 
             this->details = details;
 
@@ -86,7 +86,7 @@ export namespace Rev {
         }
 
         // With application as parent
-        Window(std::vector<Window*>& group, Details details = Details()) {
+        Window(std::vector<Window*>& group, Details details = Details()) : Element() {
 
             this->parent = this;
             this->details = details;

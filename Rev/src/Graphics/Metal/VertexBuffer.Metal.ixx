@@ -4,6 +4,8 @@ module;
 #include <vector>
 #include <numeric>
 
+#include <dbg.hpp>
+
 #include "./Helpers/MetalBackend.hpp"
 
 export module Rev.Graphics.VertexBuffer;
@@ -74,6 +76,10 @@ export namespace Rev::Graphics {
         }
 
         void bind() {
+            if (!context || !buffer) {
+                dbg("Couldn't bind vertex buffer!");
+            }
+            
             metal_bind_vertex_buffer((MetalContext*)context, buffer, 0);
         }
 

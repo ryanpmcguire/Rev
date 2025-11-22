@@ -111,6 +111,8 @@ export namespace Rev::Graphics {
             metal_framebuffer_end_frame(context, frameBuffer->buffer);
             metal_present(context, frameBuffer->buffer);
 
+            window->swapBuffers();
+
             //metal_begin_frame(context);
             //metal_framebuffer_blit_to_drawable(context, frameBuffer->buffer);
             //metal_end_frame(context);

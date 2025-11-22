@@ -126,6 +126,7 @@ export namespace Rev::Element {
             this->styles.add(&Styles::Self);
 
             this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option Option Option", "3" } };
+            this->params.value = { "Select... ", "null" };
 
             // Label
             label = new Text(this, "Dropdown", { &Styles::Label });

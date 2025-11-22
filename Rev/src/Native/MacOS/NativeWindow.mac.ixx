@@ -8,6 +8,8 @@ module;
 
 export module Rev.NativeWindow;
 
+import Rev.Element.Style;
+
 export namespace Rev {
 
     struct NativeWindow {
@@ -62,6 +64,10 @@ export namespace Rev {
             rev_mac_window_set_size(handle, w, h);
         };
 
+        void setCursor(Element::Cursor newCursor) {
+
+        }
+
         void requestFrame() {
             if (dirty) { return; }
             dirty = true;
@@ -75,10 +81,15 @@ export namespace Rev {
 
         void makeContextCurrent() {};
         void loadGlFunctions() {};
-        void swapBuffers() {};
+
+        void swapBuffers() {
+            this->dirty = false;
+        };
 
         Size size;
         float scale = 1.0f;
+        Element::Cursor cursor;
+
         bool dirty = false;
 
         EventCallback callback;
