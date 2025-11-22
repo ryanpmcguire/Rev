@@ -20,8 +20,12 @@ struct Data {
 
 struct VertexOut {
     float4 position [[position]];
+    float2 localPos;
+
     float4 color;
-    float2 localPos;        // position in local rect space
+
+    float4 cornerMask;
+    float4 sideMask;
 };
 
 vertex VertexOut vertex_main(
@@ -62,95 +66,152 @@ vertex VertexOut vertex_main(
 }
 
 
-inline float roundedBoxSDF(float2 p, float2 halfSize, float radius) {
+// ------------------------------------------------------------
+// IDENTICAL softMax()
+// ------------------------------------------------------------
+inline float4 softMax(float4 v, float sharpness)
+{
+    float M = max(max(v.x, v.y), max(v.z, v.w));
+    float4 e = exp((v - float4(M)) * sharpness);
+    float s = e.x + e.y + e.z + e.w;
+    return e / max(s, 1e-6);
+}
+
+// ------------------------------------------------------------
+// IDENTICAL roundedBoxSDF()
+// ------------------------------------------------------------
+inline float roundedBoxSDF(float2 p, float2 halfSize, float radius)
+{
     float2 q = abs(p) - halfSize + float2(radius);
     return length(max(q, float2(0.0))) - radius;
 }
 
-fragment float4 fragment_main(VertexOut in [[stage_in]],
-                              constant Data& data [[buffer(11)]])
+// ------------------------------------------------------------
+// FRAGMENT SHADER — EXACT GLSL LOGIC
+// ------------------------------------------------------------
+fragment float4 fragment_main(VertexOut in              [[stage_in]],
+                              constant Data& data       [[buffer(11)]])
 {
-    float2 halfSize = float2(data.w, data.h) * 0.5;
+    // --------------------------------------------------------
+    // Compute basic dimensions
+    // --------------------------------------------------------
+    float2 rectCenter = float2(data.x + data.w * 0.5, data.y + data.h * 0.5);
+    float2 localPos = in.localPos - rectCenter;
 
-    // Branchless corner selection
-    float isLeft   = 1.0 - step(0.0, in.localPos.x);
-    float isTop    = 1.0 - step(0.0, in.localPos.y);
-    float isRight  = 1.0 - isLeft;
-    float isBottom = 1.0 - isTop;
+    // --------------------------------------------------------
+    // Side & corner masking
+    // --------------------------------------------------------
+    float4 mCorner = softMax(in.cornerMask, 1.0f);
 
-    float w_tl = isLeft  * isTop;
-    float w_tr = isRight * isTop;
-    float w_bl = isLeft  * isBottom;
-    float w_br = isRight * isBottom;
+    float maxSide = max(max(in.sideMask.x, in.sideMask.y),
+                        max(in.sideMask.z, in.sideMask.w));
+    float4 mSide = step(maxSide - 0.0001f, in.sideMask);
 
+    // --------------------------------------------------------
+    // Choose corner radius, border width, color
+    // --------------------------------------------------------
     float cornerRadius =
-          w_tl * data.tl +
-          w_tr * data.tr +
-          w_bl * data.bl +
-          w_br * data.br;
+          mCorner.x * data.tl +
+          mCorner.y * data.tr +
+          mCorner.z * data.bl +
+          mCorner.w * data.br;
 
-    cornerRadius = clamp(cornerRadius, 0.0, min(halfSize.x, halfSize.y));
+    float borderWidth =
+          mSide.x * data.l_width +
+          mSide.y * data.r_width +
+          mSide.z * data.t_width +
+          mSide.w * data.b_width;
 
-    // Local border width
-    float localBorderW =
-          isLeft   * data.b_l +
-          isRight  * data.b_r +
-          isTop    * data.b_t +
-          isBottom * data.b_b;
+    // --------------------------------------------------------
+    // Outer/inner rect sizes
+    // --------------------------------------------------------
+    float2 outerHalfSize = float2(data.w, data.h) * 0.5;
+    float2 innerHalfSize = max(outerHalfSize - float2(borderWidth), float2(0.0));
 
-    // Outer and inner distances
-    float distOuter = roundedBoxSDF(in.localPos, halfSize, cornerRadius);
-    float2 innerHalfSize = max(halfSize - float2(localBorderW * 0.5), float2(0.0));
-    float distInner = roundedBoxSDF(in.localPos, innerHalfSize,
-                                    max(cornerRadius - localBorderW * 0.5, 0.0));
+    float outerRadius = clamp(cornerRadius, 0.0f,
+                              min(outerHalfSize.x, outerHalfSize.y));
+    float innerRadius = max(outerRadius - borderWidth, 0.0f);
 
-    float smoothingBase = 0.5 * fwidth(distOuter);
+    // --------------------------------------------------------
+    // SDF distances
+    // --------------------------------------------------------
+    float distInner = roundedBoxSDF(localPos, innerHalfSize, innerRadius);
+    float distOuter = roundedBoxSDF(localPos, outerHalfSize, outerRadius);
 
-    float2 edgeDist = abs(in.localPos) - (halfSize - float2(cornerRadius));
-    float fade = cornerRadius;
-    float cornerFactor =
-        smoothstep(-fade, 0.0, edgeDist.x) *
-        smoothstep(-fade, 0.0, edgeDist.y);
-    float smoothing = mix(0.0, smoothingBase, cornerFactor);
+    // --------------------------------------------------------
+    // Unified smoothing
+    // --------------------------------------------------------
+    float baseSmooth = 0.5 * fwidth(distOuter);
 
-    float outerAlpha = 1.0 - smoothstep(-smoothing, smoothing, distOuter);
-    float innerMask  = 1.0 - smoothstep(-smoothing, smoothing, distInner);
-    float borderMask = clamp(outerAlpha - innerMask, 0.0, 1.0);
+    float2 cornerProbe = abs(localPos) - (outerHalfSize - float2(outerRadius));
+    float cornerFade = smoothstep(-outerRadius, 0.0f, max(cornerProbe.x, cornerProbe.y));
 
-#ifdef STENCIL
-    if (distInner > -smoothing) discard_fragment();
-    return float4(0.0);
-#else
-    float4 fillColor = float4(data.r, data.g, data.b, data.a);
+    float smoothing = mix(0.0f, baseSmooth, cornerFade);
 
-    float sideX = smoothstep(-halfSize.x, halfSize.x, in.localPos.x);
-    float sideY = smoothstep(-halfSize.y, halfSize.y, in.localPos.y);
-    float4 horizColor = mix(data.l_color, data.r_color, sideX);
-    float4 vertColor  = mix(data.t_color, data.b_color, sideY);
-    float4 borderColor = mix(horizColor, vertColor, 0.5);
+    float outerMask = 1.0 - smoothstep(-smoothing,  smoothing, distOuter);
+    float innerMask = 1.0 - smoothstep(-smoothing,  smoothing, distInner);
 
-    float4 shapeColor = mix(fillColor, borderColor, borderMask);
-    float shapeAlpha = max(outerAlpha, borderMask);
+    float borderMask = outerMask * (1.0 - innerMask);
+    float fillMask   = innerMask;
 
-    // --- Shadow ---
-    float2 shadowPos = in.localPos - float2(data.shadowX, data.shadowY);
-    float shadowDist = roundedBoxSDF(
-        shadowPos,
-        halfSize + float2(data.shadowSize),
-        cornerRadius + data.shadowSize
-    );
+    // --------------------------------------------------------
+    // STENCIL MODE (identical behavior)
+    // --------------------------------------------------------
+    #ifdef STENCIL
+        if (innerMask == 0.0) discard_fragment();
+        return float4(0,0,0,0);
+    #else
+
+    // --------------------------------------------------------
+    // SHADOW
+    // --------------------------------------------------------
+    float shadowEnabled = step(0.001f, data.shadowColor.a);
+
+    float2 shadowPos = localPos - float2(data.shadowX, data.shadowY);
+    float2 shadowHalfSize = outerHalfSize + float2(data.shadowSize);
+    float shadowRadius = cornerRadius + data.shadowSize;
+
+    float shadowDist = roundedBoxSDF(shadowPos, shadowHalfSize, shadowRadius);
 
     float rawShadowAlpha = 1.0 - smoothstep(0.0, data.shadowBlur, shadowDist);
-    float blurAtt = 1.0 / (1.0 + data.shadowBlur * 0.05);
-    blurAtt = mix(1.0, blurAtt, clamp(data.shadowBlur / 50.0, 0.0, 1.0));
 
-    float shadowAlpha = rawShadowAlpha * blurAtt * (1.0 - shapeAlpha);
+    float blurAtt = 1.0 / (1.0 + data.shadowBlur * 0.05f);
+    blurAtt = mix(1.0, blurAtt, clamp(data.shadowBlur / 50.0f, 0.0f, 1.0f));
 
-    float finalAlpha = clamp(shapeAlpha + shadowAlpha, 0.0, 1.0);
-    float shadowWeight = shadowAlpha / max(finalAlpha, 1e-5);
-    float shapeWeight  = 1.0 - shadowWeight;
+    // --------------------------------------------------------
+    // COLOR COMPOSITION
+    // --------------------------------------------------------
+    float4 borderColor =
+        mSide.x * data.l_color +
+        mSide.y * data.r_color +
+        mSide.z * data.t_color +
+        mSide.w * data.b_color;
 
-    float4 finalRGBA = data.shadowColor * shadowWeight + shapeColor * shapeWeight;
-    return float4(finalRGBA.rgb, finalRGBA.a * finalAlpha);
-#endif
+    // Premultiplied
+    float fillAlpha = fillMask * data.fillColor.a;
+    float3 fillRGB  = data.fillColor.rgb * fillAlpha;
+
+    float borderAlpha = borderMask * borderColor.a;
+    float3 borderRGB  = borderColor.rgb * borderAlpha;
+
+    float shapeAlpha = fillAlpha + borderAlpha;
+    float3 shapeRGB  = fillRGB + borderRGB;
+
+    // Shadow
+    float shadowAlpha = rawShadowAlpha *
+                        blurAtt *
+                        (1.0 - outerMask) *
+                        data.shadowColor.a;
+
+    float3 shadowRGB = data.shadowColor.rgb * shadowAlpha;
+
+    // --------------------------------------------------------
+    // Final premultiplied → straight alpha
+    // --------------------------------------------------------
+    float finalAlpha = shapeAlpha + shadowAlpha;
+    float3 finalRGB  = shapeRGB  + shadowRGB;
+
+    return float4(finalRGB / max(finalAlpha, 1e-5f), finalAlpha);
+
+    #endif
 }
