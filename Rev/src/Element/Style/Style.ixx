@@ -35,7 +35,7 @@ export namespace Rev::Element {
 
         static void createNew(float& newVal, float& oldVal, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
 
-            // Search for redundant transitions
+            // Search for or modify redundant transitions
             for (Transition& transition : transitions) {
 
                 if (transition.subject == &newVal) {
@@ -421,7 +421,7 @@ export namespace Rev::Element {
         False
     };
 
-    struct Alignment {
+    struct LayoutStyle {
 
         Axis direction = Axis::Unset;
         Align horizontal = Align::Unset;
@@ -431,7 +431,7 @@ export namespace Rev::Element {
 
         Core::DirtyFlag* dirty = nullptr;
 
-        static inline Alignment Null() {
+        static inline LayoutStyle Null() {
 
             return {
                 Axis::Unset,
@@ -446,7 +446,7 @@ export namespace Rev::Element {
             this->dirty = dirty;
         }
 
-        inline void apply(Alignment& other) {
+        inline void apply(LayoutStyle& other) {
             if (other.direction != Axis::Unset) { direction = other.direction; }
             if (other.horizontal != Align::Unset) { horizontal = other.horizontal; }
             if (other.vertical != Align::Unset) { vertical = other.vertical; }
@@ -778,6 +778,43 @@ export namespace Rev::Element {
         Inherit
     };
 
+    struct VisibilityStyle {
+        
+        Visibility mode;
+        Core::DirtyFlag* dirty = nullptr;
+
+        static inline VisibilityStyle Null() { return { Visibility::Unset, nullptr }; }
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) { this->dirty = dirty; }
+        inline void apply(VisibilityStyle& other) { if (other.mode != Visibility::Unset) { *this = other; } }
+        explicit operator bool() { return mode != Visibility::Unset; }
+
+        bool operator==(const VisibilityStyle& other) { return (mode == other.mode); }
+        bool operator==(const Visibility& otherMode) { return (mode == otherMode); }
+
+        // Assign from Visibility enum
+        VisibilityStyle& operator=(const Visibility& newMode) {
+
+            if (mode == newMode) { return *this; }
+
+            mode = newMode;
+            *dirty = true;
+
+            return *this;
+        }
+
+        // Copy everything except the "dirty" flag pointer
+        VisibilityStyle& operator=(const VisibilityStyle& other) {
+
+            if (this == &other) { return *this; }
+            if (*this == other) { return *this; }
+            if (dirty) { *dirty = true; }
+
+            mode = other.mode;
+
+            return *this;
+        }
+    };
+
     // Overflow
     //--------------------------------------------------
 
@@ -833,10 +870,10 @@ export namespace Rev::Element {
 
         Applies applies;
 
-        Visibility visibility = Visibility::Unset;
+        VisibilityStyle visibility;
         Overflow overflow = Overflow::Unset;
 
-        Alignment alignment;
+        LayoutStyle layout;
         LrtbStyle position;
 
         Size size;
@@ -865,10 +902,10 @@ export namespace Rev::Element {
 
             Style nullStyle = {
                 .applies = { false, false, false, false },
-                .visibility = Visibility::Unset,
+                .visibility = VisibilityStyle::Null(),
                 .overflow = Overflow::Unset,
                 .position = LrtbStyle::Null(),
-                .alignment = Alignment::Null(),
+                .layout = LayoutStyle::Null(),
                 .size = Size::Null(),
                 .margin = LrtbStyle::Null(),
                 .padding = LrtbStyle::Null(),
@@ -908,7 +945,8 @@ export namespace Rev::Element {
                 )) { return; }
             }
 
-            alignment.apply(style.alignment);
+            visibility.apply(style.visibility);
+            layout.apply(style.layout);
             position.apply(style.position);
 
             size.apply(style.size);
@@ -923,7 +961,6 @@ export namespace Rev::Element {
 
             // Apply transition, overflow, cursor
             if (style.transition) { transition = style.transition; }
-            if (style.visibility != Visibility::Unset && style.visibility != Visibility::Inherit) { visibility = style.visibility; }
             if (style.overflow != Overflow::Unset) { overflow = style.overflow; }
             if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
         }
@@ -957,14 +994,18 @@ export namespace Rev::Element {
 
         void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
-            alignment.linkDirtyFlag(dirty);
+            visibility.linkDirtyFlag(dirty);
+            layout.linkDirtyFlag(dirty);
             position.linkDirtyFlag(dirty);
+
             size.linkDirtyFlag(dirty);
             margin.linkDirtyFlag(dirty);
             padding.linkDirtyFlag(dirty);
+
             background.linkDirtyFlag(dirty);
             border.linkDirtyFlag(dirty);
             shadow.linkDirtyFlag(dirty);
+
             text.linkDirtyFlag(dirty);
         }
 
@@ -978,7 +1019,7 @@ export namespace Rev::Element {
             visibility = other.visibility;
             overflow = other.overflow;
             position = other.position;
-            alignment = other.alignment;
+            layout = other.layout;
             size = other.size;
             margin = other.margin;
             padding = other.padding;

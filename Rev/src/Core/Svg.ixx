@@ -131,13 +131,13 @@ export namespace Rev::Core {
             );
 
             // Upload to GPU texture
-            texture = new Rev::Graphics::Texture(canvas->context, {
+            texture = new Texture(canvas->context, {
                 .data = bitmap.data,
                 .width  = bitmap.width,
                 .height = bitmap.height,
-                .channels = 4
+                .channels = 4,
+                .filter = Texture::Filter::Bilinear
             });
         }
-
     };
 };

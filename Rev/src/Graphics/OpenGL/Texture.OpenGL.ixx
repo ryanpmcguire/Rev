@@ -8,10 +8,22 @@ export namespace Rev::Graphics {
 
     struct Texture {
 
+        enum class Filter : GLint {
+            
+            Nearest                 = GL_NEAREST,
+            Bilinear                = GL_LINEAR,
+        
+            NearestMipmapNearest    = GL_NEAREST_MIPMAP_NEAREST,
+            BilinearMipmapNearest   = GL_LINEAR_MIPMAP_NEAREST,
+            NearestMipmapBilinear   = GL_NEAREST_MIPMAP_LINEAR,
+            Trilinear               = GL_LINEAR_MIPMAP_LINEAR
+        };
+
         unsigned char* data = nullptr;
         size_t width, height;
         size_t channels;
         size_t size = 0;
+        Filter filter;
 
         GLuint id = 0;
 
@@ -21,6 +33,8 @@ export namespace Rev::Graphics {
 
             size_t width = 0, height = 0;
             size_t channels = 4;
+
+            Filter filter = Filter::Nearest;
         };
 
         // Create
@@ -29,6 +43,7 @@ export namespace Rev::Graphics {
             data = params.data;
             width = params.width; height = params.height;
             channels = params.channels;
+            filter = params.filter;
 
             // Determine format
             GLenum format = GL_RED;
@@ -53,8 +68,8 @@ export namespace Rev::Graphics {
             }
 
             // Set default filtering
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)filter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)filter);
 
             // Set clamping to edge
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);

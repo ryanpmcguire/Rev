@@ -25,14 +25,14 @@ export namespace HelloWorld {
         Interface(Element* parent) : Box(parent) {
 
             // Self
-            this->style->alignment = { Axis::Horizontal, Align::Center, Align::Center };
+            this->style->layout = { Axis::Horizontal, Align::Center, Align::Center };
             this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 100_px, 100_px, 100_px, 100_px };
 
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
-                .alignment = { Axis::Horizontal, Align::Center, Align::Center },
+                .layout = { Axis::Horizontal, Align::Center, Align::Center },
                 .size = { .width = Grow(), .height = Grow() },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
@@ -46,7 +46,9 @@ export namespace HelloWorld {
                 text->style->text.color = rgba(0, 0, 0, 1);
                 text->style->background.color = rgba(1, 0, 0, 0.2);
 
-                Chart* chart = new Chart(greyBox);
+                Dropdown* dropdown = new Dropdown(greyBox);
+
+                /*Chart* chart = new Chart(greyBox);
                 
                 chart->style = {
                     .size = { .width = 100_pct, .height = Grow(), .min = { .height = 100_px } },
@@ -57,9 +59,9 @@ export namespace HelloWorld {
                 for (size_t i = 0; i < num; i++) {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
-                }
+                }*/
                 
-                Dropdown* dropdown = new Dropdown(greyBox);
+                Dropdown* dropdown2 = new Dropdown(greyBox);
                 //Dropdown* dropdown1 = new Dropdown(greyBox);
 
                 /*for (size_t i = 0; i < 100; i++) {

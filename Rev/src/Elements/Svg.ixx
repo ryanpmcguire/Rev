@@ -26,17 +26,17 @@ export namespace Rev::Element {
         Primitive::Svg* svg = nullptr;
         Resource resource;
 
+        float rotation = 0.0f;
+
         // Create
         Svg(Element* parent, Resource resource, StyleList styles = {}, std::string name = "Svg") : Element(parent, styles, name) {
 
-            svg = new Primitive::Svg(shared->canvas);
             this->resource = resource;
+            svg = new Primitive::Svg(shared->canvas);
         }
 
         // Destroy
         ~Svg() {
-
-            //dbg("[Box] destroying");
             delete svg;
         }
 
@@ -52,6 +52,7 @@ export namespace Rev::Element {
             // Assign rect, fill color
             data.rect = this->rect.rounded().translate({ 0.0, 0.0 });
             data.color = styleRef.background.color;
+            data.rotation = rotation;
 
             svg->resource = resource;
             svg->compute();

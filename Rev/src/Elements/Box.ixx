@@ -26,9 +26,7 @@ export namespace Rev::Element {
 
         // Create
         Box(Element* parent, StyleList styles = {}, std::string name = "Box") : Element(parent, styles, name) {
-
             rectangle = new Rectangle(shared->canvas);
-            scissor = true;
         }
 
         // Destroy

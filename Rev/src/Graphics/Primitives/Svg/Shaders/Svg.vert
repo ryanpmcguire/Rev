@@ -8,7 +8,8 @@ layout(std140, binding = 0) uniform Transform {
 
 layout(std140, binding = 1) uniform Data {
     float x, y, w, h;
-    float u0, v0;
+    vec4 color;
+    float rotation;
 };
 
 out vec2 fragUV;
@@ -31,6 +32,23 @@ void main() {
 
     // Local quad position
     vec2 pxPos = origin + cornerOffset * size;
+
+    //--------------- Rotate around center ------------------
+
+    // Compute quad center
+    vec2 center = origin + size * 0.5;
+
+    // Offset from center
+    vec2 pos = pxPos - center;
+
+    // Rotation matrix
+    float s = sin(rotation);
+    float c = cos(rotation);
+    mat2 R = mat2(c, -s,
+                  s,  c);
+
+    // Rotate and reapply translation
+    pxPos = center + R * pos;
 
     // Output UV (simple full-quad mapping)
     fragUV = cornerOffset;

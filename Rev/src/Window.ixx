@@ -273,12 +273,12 @@ export namespace Rev {
 
             for (Element* child : children) { child->cascadeStyle(); }
 
-            // Animate style transitions
+            // Animate transitions
             //--------------------------------------------------
 
             std::vector<Element*>& animate = shared->dirty.animate;
 
-            for (Element* element : animate) { element->animateStyle(e); }
+            for (Element* element : animate) { element->animate(e); }
 
             // Remove elements that no longer have any transitions
             animate.erase(
@@ -290,13 +290,6 @@ export namespace Rev {
 
             // Visibility and layout
             //--------------------------------------------------
-            
-            // Set and cascade visibility
-            for (Element* element : topDown) {
-
-                if (!element->parent->visible) { element->visible = false; }
-                if (element->resolved.style.visibility == Visibility::Hidden) { element->visible=false; }
-            }
 
             this->calcFlexLayouts();
 
@@ -336,7 +329,8 @@ export namespace Rev {
                     }
                 }
 
-                if (element->resolved.style.visibility == Visibility::Hidden) { continue; }
+                // Do not draw hidden objects
+                if (element->resolved.hidden) { continue; }
 
                 element->draw(e);
             }

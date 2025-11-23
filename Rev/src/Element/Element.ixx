@@ -78,9 +78,6 @@ export namespace Rev::Element {
         size_t draws = 0;
         size_t depth = 0;
 
-        bool visible = true;
-        bool scissor = false;
-
         Dirty dirty;
 
         // Create
@@ -159,7 +156,23 @@ export namespace Rev::Element {
 
         std::vector<Transition> transitions;
 
-        virtual void animateStyle(Event& e) {
+        void transition(float* val, float newVal, int ms) {
+
+            if (*val == newVal) { return; }
+
+            float old = *val;
+            *val = newVal;
+
+            bool hadTransitions = !transitions.empty();
+
+            Transition::createNew(*val, old, transitions, shared->event->time, ms);
+
+            if (!hadTransitions && !transitions.empty()) {
+                shared->dirty.animate.push_back(this);
+            }
+        }
+
+        virtual void animate(Event& e) {
 
             // Transition styles
             //--------------------------------------------------
@@ -350,7 +363,7 @@ export namespace Rev::Element {
             resolved.max = defSizeDetails;
 
             // Element does not wrap if its position is not absolute
-            resolved.absolute = resolved.style.alignment.position == Position::Absolute;
+            resolved.absolute = resolved.style.layout.position == Position::Absolute;
             resolved.wrap = !resolved.absolute;
             resolved.affectsParentSize = !resolved.absolute;
 
@@ -425,7 +438,7 @@ export namespace Rev::Element {
 
         void resolveMinima() {
 
-            if (!visible) { return; }
+            if (resolved.hidden) { return; }
 
             float& minWidth = resolved.min.width;
             float& minHeight = resolved.min.height;
@@ -514,7 +527,7 @@ export namespace Rev::Element {
             float& minMarginWidth = resolved.min.marginWidth;
             float& minMarginHeight = resolved.min.marginHeight;
 
-            if (!visible) { return; }
+            if (resolved.hidden) { return; }
         
             // Get from style
             //--------------------------------------------------
@@ -546,7 +559,7 @@ export namespace Rev::Element {
 
         void resolveLayout() {
 
-            if (!visible) { return; }
+            if (resolved.hidden) { return; }
 
             // Wrap children
             //--------------------------------------------------
@@ -568,12 +581,12 @@ export namespace Rev::Element {
                     Element& elem = *child;
 
                     // Ignore wrap entirely if element does not wrap
-                    if (!elem.resolved.wrap) {
+                    if (!elem.resolved.wrap || resolved.style.layout.wrap == Wrap::False) {
                         row.members.push_back(child);
                         continue;
                     }
                     
-                    bool horizontal = (resolved.style.alignment.direction != Axis::Vertical);
+                    bool horizontal = (resolved.style.layout.direction != Axis::Vertical);
                     Axis axis = horizontal ? Axis::Horizontal : Axis::Vertical;
 
                     // Get minimum abs/rel sizes
@@ -629,7 +642,7 @@ export namespace Rev::Element {
             // Measure layout val/min
             //--------------------------------------------------
 
-            if (resolved.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.layout.direction == Axis::Vertical) {
             
                 for (Row& row : layout.rows) {
 
@@ -700,7 +713,7 @@ export namespace Rev::Element {
                         continue;
                     }
 
-                    if (resolved.style.alignment.direction == Axis::Vertical) {
+                    if (resolved.style.layout.direction == Axis::Vertical) {
                     
                         if (elem.resolved.canGrow(Axis::Vertical)) {
                             resolved.size.h.growable = true;
@@ -737,7 +750,7 @@ export namespace Rev::Element {
             innerWidth = 0;
             innerHeight = 0;
 
-            if (!visible) { return; }
+            if (resolved.hidden) { return; }
 
             Resolved& res = resolved;
             
@@ -782,8 +795,8 @@ export namespace Rev::Element {
                 LrtbStyle& cPadding = child.resolved.style.padding;
                 LrtbStyle& cPosition = child.resolved.style.position;
 
-                float& compareValW = child.resolved.style.alignment.position == Position::Absolute ? resolved.size.w.val : innerWidth;
-                float& compareValH = child.resolved.style.alignment.position == Position::Absolute ? resolved.size.h.val : innerHeight;
+                float& compareValW = child.resolved.style.layout.position == Position::Absolute ? resolved.size.w.val : innerWidth;
+                float& compareValH = child.resolved.style.layout.position == Position::Absolute ? resolved.size.h.val : innerHeight;
 
                 // Resolve nominal
                 if (cSize.width) { child.resolved.size.w.val = child.resolved.size.w.min = child.resolved.size.w.max = cSize.width.resolve(compareValW); }
@@ -837,7 +850,7 @@ export namespace Rev::Element {
 
             bool testb = true;
 
-            if (resolved.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.layout.direction == Axis::Vertical) {
 
                 // Measure val
                 for (Row& row : layout.rows) {
@@ -916,7 +929,7 @@ export namespace Rev::Element {
             // Grow layout and members
             //--------------------------------------------------
 
-            if (resolved.style.alignment.direction == Axis::Vertical) { this->growVerticalMode(); }
+            if (resolved.style.layout.direction == Axis::Vertical) { this->growVerticalMode(); }
             else { this->growHorizontalMode(); }
 
             // Measure layout val after grow
@@ -928,7 +941,7 @@ export namespace Rev::Element {
                 layout.size.h.val = -0.0f;
             }
 
-            if (resolved.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.layout.direction == Axis::Vertical) {
 
                 // Measure val
                 for (Row& row : layout.rows) {
@@ -1149,7 +1162,7 @@ export namespace Rev::Element {
         // Resolve final positions (top down)
         void resolveRects() {
 
-            if (!visible) { return; }
+            if (resolved.hidden) { return; }
 
             // If top level
             if (parent == this) {
@@ -1194,21 +1207,21 @@ export namespace Rev::Element {
 
             Style& rStyle = resolved.style;
 
-            layoutOffsetX += center(resolved.getInner(Axis::Horizontal), layout.rect.w, rStyle.alignment.horizontal);
-            layoutOffsetY += center(resolved.getInner(Axis::Vertical), layout.rect.h, rStyle.alignment.vertical);
+            layoutOffsetX += center(resolved.getInner(Axis::Horizontal), layout.rect.w, rStyle.layout.horizontal);
+            layoutOffsetY += center(resolved.getInner(Axis::Vertical), layout.rect.h, rStyle.layout.vertical);
 
             // Resolve layout position
             layout.rect.x = rect.x + layoutOffsetX;
             layout.rect.y = rect.y + layoutOffsetY;
 
-            if (resolved.style.alignment.direction == Axis::Vertical) {
+            if (resolved.style.layout.direction == Axis::Vertical) {
 
                 float runningX = 0;
 
                 // Position rows
                 for (Row& row : layout.rows) {
 
-                    float rowOffsetY = center(layout.rect.h, row.rect.h, rStyle.alignment.vertical);
+                    float rowOffsetY = center(layout.rect.h, row.rect.h, rStyle.layout.vertical);
                     
                     row.rect.x = layout.rect.x + runningX;
                     row.rect.y = layout.rect.y + rowOffsetY;
@@ -1220,7 +1233,7 @@ export namespace Rev::Element {
 
                     for (Element* member : row.members) {
 
-                        if (member->resolved.style.alignment.position == Position::Absolute) {
+                        if (member->resolved.style.layout.position == Position::Absolute) {
 
                             member->rect.x = rect.x + member->resolved.mar.l.val;
                             member->rect.y = rect.y + member->resolved.mar.t.val;
@@ -1251,7 +1264,7 @@ export namespace Rev::Element {
                 // Position rows
                 for (Row& row : layout.rows) {
 
-                    float rowOffsetX = center(layout.rect.w, row.rect.w, rStyle.alignment.horizontal);
+                    float rowOffsetX = center(layout.rect.w, row.rect.w, rStyle.layout.horizontal);
                     
                     row.rect.x = layout.rect.x + rowOffsetX;
                     row.rect.y = layout.rect.y + runningY;
@@ -1263,7 +1276,7 @@ export namespace Rev::Element {
 
                     for (Element* member : row.members) {
 
-                        if (member->resolved.style.alignment.position == Position::Absolute) {
+                        if (member->resolved.style.layout.position == Position::Absolute) {
 
                             member->rect.x = rect.x + member->resolved.mar.l.val;
                             member->rect.y = rect.y + member->resolved.mar.t.val;
@@ -1452,9 +1465,9 @@ export namespace Rev::Element {
                 bool isFocusTarget = child.targetFlags.focus;
                 bool containsEvent = child.targetFlags.hit;
 
+                if (containsEvent) { child.mouseDown(e); }
                 if (containsEvent && !isFocusTarget) { child.gainFocus(e); }
                 if (!containsEvent && isFocusTarget) { child.loseFocus(e); }
-                if (containsEvent) { child.mouseDown(e); }
             
                 if (!e.propagate) { return; }
             }

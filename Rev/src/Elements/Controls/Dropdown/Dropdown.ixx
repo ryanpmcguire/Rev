@@ -30,7 +30,7 @@ export namespace Rev::Element {
         };
         
         Style Self = {
-            .alignment = { Axis::Vertical, Align::Start, Align::Center },
+            .layout = { Axis::Vertical, Align::Start, Align::Center },
             .size = { Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px }
         };
@@ -41,7 +41,7 @@ export namespace Rev::Element {
             };
 
             Style Dropdown {
-                .alignment = { Axis::Horizontal, Align::Center, Align::Center },
+                .layout = { Axis::Horizontal, Align::Center, Align::Center },
                 .size = { Grow() },
                 .padding = { 8_px, 6_px, 6_px, 8_px },
                 .background = { rgb(225, 228, 238 )},
@@ -51,7 +51,7 @@ export namespace Rev::Element {
 
                 Style DropdownFocus {
                     .applies = { .focus = true },
-                    .border = { .color = rgb(64, 77, 255), .width = 2_px }
+                    .border = { .color = rgb(109, 119, 255), .width = 1_px }
                 };
 
                 Style DropdownText {
@@ -65,9 +65,9 @@ export namespace Rev::Element {
                 };
 
             Style OptionsContainer {
-                .visibility = Visibility::Visible,
+                .visibility = Visibility::Hidden,
                 .overflow = Overflow::Hide,
-                .alignment = { .direction = Axis::Vertical, .position = Position::Absolute },
+                .layout = { .direction = Axis::Vertical, .vertical = Align::End, .position = Position::Absolute, .wrap = Wrap::False },
                 .position = { .top = 100_pct },
                 .size = { Grow(), .max = { 100_pct } },
                 .margin = { .top = 8_px },
@@ -148,25 +148,44 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             dropdown->onLoseFocus([this](Event& e) {
-                optionsContainer->style->visibility = Visibility::Hidden;
-                optionsContainer->style->dirty = true;
+                this->closeMenu();
             });
 
             dropdown->onGainFocus([this](Event& e) {
-                optionsContainer->style->visibility = Visibility::Visible;
-                optionsContainer->style->dirty = true;
+                if (!this->open) { this->openMenu(); }
+            });
+
+            dropdown->onMouseDown([this](Event& e) {
+                if (this->open) { this->closeMenu(); }
+                else { this->openMenu(); }
             });
         }
 
         std::string savedValue = "";
-
+        bool open = false;
+        
         void select(Params::Option option) {
             
             params.value = option;
             dropdownText->content = params.value.name;
 
-            optionsContainer->style->visibility = Visibility::Hidden;
-            optionsContainer->style->dirty = true;
+            this->closeMenu();
+        }
+
+        void openMenu() {
+            dropdownArrow->transition(&dropdownArrow->rotation, 3.14159/2.0f, 200);
+            optionsContainer->style->visibility = Visibility::Visible;
+            optionsContainer->style->size.height = 400_px;
+            open = true;
+        }
+
+        void closeMenu() {
+            dropdownArrow->transition(&dropdownArrow->rotation, 3.14158/2.0f + 3.15159, 200);
+            optionsContainer->style->visibility = Visibility::Visible;
+            
+            optionsContainer->style->size.height = 0_px;
+            optionsContainer->style->size.transition = 1000_ms;
+            open = false;
         }
 
         void computeChildren(Event& e) override {
@@ -179,7 +198,10 @@ export namespace Rev::Element {
             size_t newSize = params.options.size();
 
             // Delete old
-            for (size_t i = newSize; i < oldSize; i++) { delete options[i]; }
+            for (size_t i = newSize; i < oldSize; i++) {
+                delete options[i];
+            }
+
             options.resize(newSize);
 
             // Add new
@@ -201,6 +223,8 @@ export namespace Rev::Element {
         }
 
         void computeStyle(Event& e) override {
+
+
         
             Box::computeStyle(e);
         }
