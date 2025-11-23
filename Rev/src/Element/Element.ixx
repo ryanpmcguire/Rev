@@ -76,7 +76,6 @@ export namespace Rev::Element {
 
         // Tracking
         size_t draws = 0;
-        size_t depth = 0;
 
         Dirty dirty;
 
@@ -142,10 +141,16 @@ export namespace Rev::Element {
 
         void cascadeStyle() {
 
-            this->resolved.hidden = false;
-            if (parent->resolved.hidden) { this->resolved.hidden = true; }
-            if (resolved.style.visibility == Visibility::Hidden) { this->resolved.hidden = true; }
+            // Set hidden state
+            resolved.hidden = false;
+            if (parent->resolved.hidden) { resolved.hidden = true; }
+            if (resolved.style.visibility == Visibility::Hidden) { resolved.hidden = true; }
 
+            // Set depth
+            resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;
+            
+
+            // Continue
             for (Element* child : children) {
                 child->cascadeStyle();
             }

@@ -30,7 +30,7 @@ export namespace Rev::Element {
         };
         
         Style Self = {
-            .layout = { Axis::Vertical, Align::Start, Align::Center },
+            .layout = { Axis::Vertical, Align::Start, Align::Center, Wrap::False },
             .size = { Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px }
         };
@@ -74,6 +74,7 @@ export namespace Rev::Element {
                 .background = { .color = rgb(225, 228, 238) },
                 .border = { .color = rgb(226, 228, 238), .radius = 6_px },
                 .shadow = subtleShadow,
+                .zIndex = +2,
             };
 
                 Style Option {
@@ -175,16 +176,12 @@ export namespace Rev::Element {
         void openMenu() {
             dropdownArrow->transition(&dropdownArrow->rotation, 3.14159/2.0f, 200);
             optionsContainer->style->visibility = Visibility::Visible;
-            optionsContainer->style->size.height = 400_px;
             open = true;
         }
 
         void closeMenu() {
             dropdownArrow->transition(&dropdownArrow->rotation, 3.14158/2.0f + 3.15159, 200);
-            optionsContainer->style->visibility = Visibility::Visible;
-            
-            optionsContainer->style->size.height = 0_px;
-            optionsContainer->style->size.transition = 1000_ms;
+            optionsContainer->style->visibility = Visibility::Hidden;
             open = false;
         }
 

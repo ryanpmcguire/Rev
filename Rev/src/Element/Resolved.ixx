@@ -147,24 +147,26 @@ export namespace Rev::Element {
     };
 
     struct Resolved {
-
-        ResolvedSize size;
-        ResolvedLrtb mar, pad, pos;
-
-        SizeDetails min, max;
-
-        bool hidden = false;
-
-        bool wrap = false;
-        bool absolute = false;
-        bool affectsParentSize = false;
-
+        
         bool hasHoverStyle = false;
         bool hasPressStyle = false;
         bool hasDragStyle = false;
         bool hasFocusStyle = false;
 
         Style style;
+
+        ResolvedSize size;
+        ResolvedLrtb mar, pad, pos;
+
+        SizeDetails min, max;
+
+        int depth = 0;
+
+        bool hidden = false;
+
+        bool wrap = false;
+        bool absolute = false;
+        bool affectsParentSize = false;
 
         // Clamp all dims
         void clamp() {

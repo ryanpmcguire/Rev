@@ -1,6 +1,8 @@
 module;
 
 #include <vector>
+#include <queue>
+#include <algorithm>
 #include <string>
 #include <codecvt>
 #include <locale>
@@ -178,13 +180,12 @@ export namespace Rev {
         std::vector<Element*> bottomUp;
 
         // Calculate top-down call order
-        void calcTopDownQueue(Element* element, size_t depth = 0) {
+        void calcTopDownQueue(Element* element) {
 
             topDown.push_back(element);
-            element->depth = depth;
         
             for (Element* child : element->children) {
-                calcTopDownQueue(child, depth + 1);
+                calcTopDownQueue(child);
             }
         }
 
@@ -219,6 +220,48 @@ export namespace Rev {
             for (Element* element : topDown) { element->resolveDims(); }
 
             for (Element* element: topDown) { element->resolveRects(); }
+        }
+
+        // Calculate draw order
+        //--------------------------------------------------
+
+        std::vector<Element*> drawList;
+        std::queue<Element*> deferred;
+
+        void recurseDrawList(Element* current) {
+
+            for (Element* elem : current->children) {
+
+                if (elem->resolved.depth > current->resolved.depth) {
+                    drawList.push_back(elem);
+                    recurseDrawList(elem);
+                    continue;
+                }
+
+                deferred.push(elem);
+            }
+
+            while (!deferred.empty()) {
+
+                Element* elem = deferred.front();
+
+                if (elem->resolved.depth > current->resolved.depth) {
+                    deferred.pop();
+                    drawList.push_back(elem);
+                    recurseDrawList(elem);
+                    continue;
+                }
+
+                break;
+            }
+        }
+
+        void calcDrawList() {
+
+            drawList.clear();
+            deferred = std::queue<Element*>();
+
+            recurseDrawList(this);
         }
 
         // Draw
@@ -304,7 +347,9 @@ export namespace Rev {
             // Draw all elements
             //--------------------------------------------------
 
-            for (Element* element : topDown) {
+            this->calcDrawList();
+
+            for (Element* element : drawList) {
 
                 // Ignore self and hidden elements
                 if (element == this) { continue; }
@@ -315,7 +360,7 @@ export namespace Rev {
                 // Ensure we don't run twice for the same element
                 if (back && back != this) {
 
-                    if (element->depth <= back->depth) {
+                    if (element->resolved.depth <= back->resolved.depth) {
 
                         // Pop back, get new size
                         stencilStack.pop_back();
@@ -384,6 +429,7 @@ export namespace Rev {
                 
                 Element& elem = *element;
 
+                if (elem.resolved.hidden) { continue; }
                 if (elem.contains(e.mouse.pos)) { elem.targetFlags.hit = true; }
                 if (elem.targetFlags.hit) { elem.parent->targetFlags.hit = true; }
             }

@@ -887,6 +887,8 @@ export namespace Rev::Element {
         TextStyle text;
         Cursor cursor;
 
+        int zIndex = 0;
+
         int transition = -1; // Transition 
         Core::DirtyFlag dirty;
 
@@ -914,6 +916,7 @@ export namespace Rev::Element {
                 .shadow = Shadow::Null(),
                 .text = TextStyle::Null(),
                 .cursor = Cursor::Unset,
+                .zIndex = 0,
                 .transition = -1,
                 .dirty = true
             };
@@ -960,6 +963,7 @@ export namespace Rev::Element {
             text.apply(style.text);
 
             // Apply transition, overflow, cursor
+            if (style.zIndex != 0) { zIndex = style.zIndex; }
             if (style.transition) { transition = style.transition; }
             if (style.overflow != Overflow::Unset) { overflow = style.overflow; }
             if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
@@ -1028,6 +1032,8 @@ export namespace Rev::Element {
             shadow = other.shadow;
             text = other.text;
             cursor = other.cursor;
+
+            zIndex = other.zIndex;
 
             this->linkDirtyFlag(&dirty);
 
