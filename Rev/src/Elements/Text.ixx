@@ -109,8 +109,8 @@ export namespace Rev::Element {
             Primitive::Text::MinMax minMax = text->measure();
             text->layout(99999999.0f);
 
-            float minPaddingWidth = this->getMinPadding(Axis::Horizontal, Dist::Type::Abs);
-            float minPaddingHeight = this->getMinPadding(Axis::Vertical, Dist::Type::Abs);
+            float minPaddingWidth = resolved.getMinPadding(Axis::Horizontal, Dist::Type::Abs);
+            float minPaddingHeight = resolved.getMinPadding(Axis::Vertical, Dist::Type::Abs);
 
             resolved.style.size.min.width = Px(text->dims.width + minPaddingWidth);
             resolved.style.size.min.height = Px(text->dims.height + minPaddingHeight);

@@ -148,6 +148,10 @@ export namespace Rev::Element {
 
     struct Resolved {
         
+        static constexpr ResolvedSize defResolvedSize = ResolvedSize();
+        static constexpr ResolvedLrtb defResolvedLrtb = ResolvedLrtb();
+        static constexpr SizeDetails defSizeDetails = SizeDetails();
+
         bool hasHoverStyle = false;
         bool hasPressStyle = false;
         bool hasDragStyle = false;
@@ -159,6 +163,8 @@ export namespace Rev::Element {
         ResolvedLrtb mar, pad, pos;
 
         SizeDetails min, max;
+        float innerWidth;
+        float innerHeight;
 
         int depth = 0;
 
@@ -173,6 +179,22 @@ export namespace Rev::Element {
             size.clamp();
             mar.clamp();
             pad.clamp();
+        }
+
+        void reset() {
+
+            // Reset res, rect, layout
+            size = defResolvedSize;
+            mar = defResolvedLrtb;
+            pad = defResolvedLrtb;
+            pos = defResolvedLrtb;
+            min = defSizeDetails;
+            max = defSizeDetails;
+
+            // Element does not wrap if its position is not absolute
+            absolute = style.layout.position == Position::Absolute;
+            wrap = !absolute;
+            affectsParentSize = !absolute;
         }
 
         // Get outer dimension along axis
@@ -231,6 +253,72 @@ export namespace Rev::Element {
             if (!minSize && !minMar) { return 0; }
 
             return minSize + minMar;
+        }
+
+        float getMinSize(Axis axis, Dist::Type type) {
+
+            // Choose axis, prefer minimum if matching type
+            Dist& minDist = (axis == Axis::Horizontal) ? style.size.min.width : style.size.min.height;
+            Dist& nomDist = (axis == Axis::Horizontal) ? style.size.width : style.size.height;
+            Dist& dist = (minDist.type == type) ? minDist : nomDist;
+
+            // Return only if type matches
+            if (dist.type == type) { return dist.val; }
+            else { return -0.0f; }
+        }
+
+        float getMaxSize(Axis axis, Dist::Type type) {
+
+            // Choose axis, prefer minimum if matching type
+            Dist& maxDist = (axis == Axis::Horizontal) ? style.size.max.width : style.size.max.height;
+            Dist& nomDist = (axis == Axis::Horizontal) ? style.size.width : style.size.height;
+            Dist& dist = (maxDist.type == type) ? maxDist : nomDist;
+
+            // Return only if type matches
+            if (dist.type == type) { return dist.val; }
+            else { return -0.0f; }
+        }
+
+        float getMinPadding(Axis axis, Dist::Type type) {
+
+            float min = -0.0f;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minA = (axis == Axis::Horizontal) ? style.padding.min.left : style.padding.min.top;
+            Dist& nomA = (axis == Axis::Horizontal) ? style.padding.left : style.padding.top;
+            Dist& a = (minA.type == type) ? minA : nomA;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minB = (axis == Axis::Horizontal) ? style.padding.min.right : style.padding.min.bottom;
+            Dist& nomB = (axis == Axis::Horizontal) ? style.padding.right : style.padding.bottom;
+            Dist& b = (minB.type == type) ? minB : nomB;
+
+            // Dimensions contribute only if matching type
+            if (a.type == type) { min += a.val; }
+            if (b.type == type) { min += b.val; }
+
+            return min;
+        }
+
+        float getMinMargin(Axis axis, Dist::Type type) {
+
+            float min = -0.0f;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minA = (axis == Axis::Horizontal) ? style.margin.min.left : style.margin.min.top;
+            Dist& nomA = (axis == Axis::Horizontal) ? style.margin.left : style.margin.top;
+            Dist& a = (minA.type == type) ? minA : nomA;
+
+            // Chose axis, prefer minimum if matching type
+            Dist& minB = (axis == Axis::Horizontal) ? style.margin.min.right : style.margin.min.bottom;
+            Dist& nomB = (axis == Axis::Horizontal) ? style.margin.right : style.margin.bottom;
+            Dist& b = (minB.type == type) ? minB : nomB;
+
+            // Dimensions contribute only if matching type
+            if (a.type == type) { min += a.val; }
+            if (b.type == type) { min += b.val; }
+
+            return min;
         }
 
         // Get number of growable dims

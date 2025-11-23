@@ -53,6 +53,7 @@ export namespace Rev::Element {
 
         struct Dirty {
             Core::DirtyFlag style;
+            bool structure = false;
             bool draw = false;
         };
 
@@ -265,17 +266,17 @@ export namespace Rev::Element {
             }
         }
 
+        // Alter children to reflect data
         virtual void computeChildren(Event& e) {}
         
+        // Alter style to reflect data
         virtual void computeStyle(Event& e) {}
 
-        // Compute attributes
+        // Alter primitives to reflect style/data
         virtual void computePrimitives(Event& e) {}
 
         // Draw stencil (this must be seperate from draw logic)
-        virtual void stencil(Event& e) {
-
-        }
+        virtual void stencil(Event& e) {}
 
         // Draw color
         virtual void draw(Event& e) {
@@ -346,10 +347,6 @@ export namespace Rev::Element {
 
         Layout layout;
 
-        static constexpr ResolvedSize defResolvedSize = ResolvedSize();
-        static constexpr ResolvedLrtb defResolvedLrtb = ResolvedLrtb();
-        static constexpr SizeDetails defSizeDetails = SizeDetails();
-
         // Default is to simply reset the layout
         virtual void computeLayout() {
             layout = Layout();
@@ -359,86 +356,9 @@ export namespace Rev::Element {
         // Step zero is to reset all data which will be modified
         void resetResolved() {
 
-            // Reset res, rect, layout
-            resolved.size = defResolvedSize;
-            resolved.mar = defResolvedLrtb;
-            resolved.pad = defResolvedLrtb;
-            resolved.pos = defResolvedLrtb;
-            resolved.min = defSizeDetails;
-            resolved.max = defSizeDetails;
-
-            // Element does not wrap if its position is not absolute
-            resolved.absolute = resolved.style.layout.position == Position::Absolute;
-            resolved.wrap = !resolved.absolute;
-            resolved.affectsParentSize = !resolved.absolute;
+            resolved.reset();
 
             rect = Rect();
-        }
-
-        float getMinSize(Axis axis, Dist::Type type) {
-
-            // Choose axis, prefer minimum if matching type
-            Dist& minDist = (axis == Axis::Horizontal) ? resolved.style.size.min.width : resolved.style.size.min.height;
-            Dist& nomDist = (axis == Axis::Horizontal) ? resolved.style.size.width : resolved.style.size.height;
-            Dist& dist = (minDist.type == type) ? minDist : nomDist;
-
-            // Return only if type matches
-            if (dist.type == type) { return dist.val; }
-            else { return -0.0f; }
-        }
-
-        float getMaxSize(Axis axis, Dist::Type type) {
-
-            // Choose axis, prefer minimum if matching type
-            Dist& maxDist = (axis == Axis::Horizontal) ? resolved.style.size.max.width : resolved.style.size.max.height;
-            Dist& nomDist = (axis == Axis::Horizontal) ? resolved.style.size.width : resolved.style.size.height;
-            Dist& dist = (maxDist.type == type) ? maxDist : nomDist;
-
-            // Return only if type matches
-            if (dist.type == type) { return dist.val; }
-            else { return -0.0f; }
-        }
-
-        float getMinPadding(Axis axis, Dist::Type type) {
-
-            float min = -0.0f;
-
-            // Chose axis, prefer minimum if matching type
-            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.padding.min.left : resolved.style.padding.min.top;
-            Dist& nomA = (axis == Axis::Horizontal) ? resolved.style.padding.left : resolved.style.padding.top;
-            Dist& a = (minA.type == type) ? minA : nomA;
-
-            // Chose axis, prefer minimum if matching type
-            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.padding.min.right : resolved.style.padding.min.bottom;
-            Dist& nomB = (axis == Axis::Horizontal) ? resolved.style.padding.right : resolved.style.padding.bottom;
-            Dist& b = (minB.type == type) ? minB : nomB;
-
-            // Dimensions contribute only if matching type
-            if (a.type == type) { min += a.val; }
-            if (b.type == type) { min += b.val; }
-
-            return min;
-        }
-
-        float getMinMargin(Axis axis, Dist::Type type) {
-
-            float min = -0.0f;
-
-            // Chose axis, prefer minimum if matching type
-            Dist& minA = (axis == Axis::Horizontal) ? resolved.style.margin.min.left : resolved.style.margin.min.top;
-            Dist& nomA = (axis == Axis::Horizontal) ? resolved.style.margin.left : resolved.style.margin.top;
-            Dist& a = (minA.type == type) ? minA : nomA;
-
-            // Chose axis, prefer minimum if matching type
-            Dist& minB = (axis == Axis::Horizontal) ? resolved.style.margin.min.right : resolved.style.margin.min.bottom;
-            Dist& nomB = (axis == Axis::Horizontal) ? resolved.style.margin.right : resolved.style.margin.bottom;
-            Dist& b = (minB.type == type) ? minB : nomB;
-
-            // Dimensions contribute only if matching type
-            if (a.type == type) { min += a.val; }
-            if (b.type == type) { min += b.val; }
-
-            return min;
         }
 
         void resolveMinima() {
@@ -463,14 +383,14 @@ export namespace Rev::Element {
             // Get from style
             //--------------------------------------------------
 
-            minWidth = this->getMinSize(Axis::Horizontal, Dist::Type::Abs);
-            minHeight = this->getMinSize(Axis::Vertical, Dist::Type::Abs);
+            minWidth = resolved.getMinSize(Axis::Horizontal, Dist::Type::Abs);
+            minHeight = resolved.getMinSize(Axis::Vertical, Dist::Type::Abs);
 
-            minPaddingWidth = this->getMinPadding(Axis::Horizontal, Dist::Type::Abs);
-            minPaddingHeight = this->getMinPadding(Axis::Vertical, Dist::Type::Abs);
+            minPaddingWidth = resolved.getMinPadding(Axis::Horizontal, Dist::Type::Abs);
+            minPaddingHeight = resolved.getMinPadding(Axis::Vertical, Dist::Type::Abs);
 
-            minMarginWidth = this->getMinMargin(Axis::Horizontal, Dist::Type::Abs);
-            minMarginHeight = this->getMinMargin(Axis::Vertical, Dist::Type::Abs);
+            minMarginWidth = resolved.getMinMargin(Axis::Horizontal, Dist::Type::Abs);
+            minMarginHeight = resolved.getMinMargin(Axis::Vertical, Dist::Type::Abs);
 
             // Infer from self (or children if necessary)
             //--------------------------------------------------
@@ -537,8 +457,8 @@ export namespace Rev::Element {
             // Get from style
             //--------------------------------------------------
             
-            maxWidth = this->getMaxSize(Axis::Horizontal, Dist::Type::Abs);
-            maxHeight = this->getMaxSize(Axis::Vertical, Dist::Type::Abs);
+            maxWidth = resolved.getMaxSize(Axis::Horizontal, Dist::Type::Abs);
+            maxHeight = resolved.getMaxSize(Axis::Vertical, Dist::Type::Abs);
 
             // Infer from set values
             //--------------------------------------------------
@@ -606,9 +526,9 @@ export namespace Rev::Element {
                     float& minAbsPadding = horizontal ? elem.resolved.min.paddingWidth : elem.resolved.min.paddingHeight;
 
                     // We directly get the proportional values
-                    float minRelSize = elem.getMinSize(axis, Dist::Type::Rel);
-                    float minRelMargin = elem.getMinMargin(axis, Dist::Type::Rel);
-                    float minRelPadding = elem.getMinPadding(axis, Dist::Type::Rel); 
+                    float minRelSize = elem.resolved.getMinSize(axis, Dist::Type::Rel);
+                    float minRelMargin = elem.resolved.getMinMargin(axis, Dist::Type::Rel);
+                    float minRelPadding = elem.resolved.getMinPadding(axis, Dist::Type::Rel); 
 
                     // Calculate additional relative sizes
                     //--------------------------------------------------
@@ -746,14 +666,11 @@ export namespace Rev::Element {
             }
         }
 
-        float innerWidth;
-        float innerHeight;
-
         // Top down: Resolve flex and grow dimensions
         void resolveDims() {
 
-            innerWidth = 0;
-            innerHeight = 0;
+            resolved.innerWidth = 0;
+            resolved.innerHeight = 0;
 
             if (resolved.hidden) { return; }
 
@@ -764,8 +681,8 @@ export namespace Rev::Element {
                 res.size.h.val = res.size.h.min = res.size.h.max = resolved.style.size.height.val;
             }
 
-            innerWidth = res.size.w.val;
-            innerHeight = res.size.h.val;
+            resolved.innerWidth = res.size.w.val;
+            resolved.innerHeight = res.size.h.val;
 
             // Resolve own padding (needed for fit)
             //--------------------------------------------------
@@ -775,10 +692,8 @@ export namespace Rev::Element {
             res.pad.t.val = res.pad.t.min = res.pad.t.max = resolved.style.padding.top.val;
             res.pad.b.val = res.pad.b.min = res.pad.b.max = resolved.style.padding.bottom.val;
 
-            innerWidth -= res.pad.l.val + res.pad.r.val;
-            innerHeight -= res.pad.t.val + res.pad.b.val;
-
-            bool testa = true;
+            resolved.innerWidth -= res.pad.l.val + res.pad.r.val;
+            resolved.innerHeight -= res.pad.t.val + res.pad.b.val;
 
             if (children.empty()) {
                 return;
@@ -800,8 +715,8 @@ export namespace Rev::Element {
                 LrtbStyle& cPadding = child.resolved.style.padding;
                 LrtbStyle& cPosition = child.resolved.style.position;
 
-                float& compareValW = child.resolved.style.layout.position == Position::Absolute ? resolved.size.w.val : innerWidth;
-                float& compareValH = child.resolved.style.layout.position == Position::Absolute ? resolved.size.h.val : innerHeight;
+                float& compareValW = child.resolved.style.layout.position == Position::Absolute ? resolved.size.w.val : resolved.innerWidth;
+                float& compareValH = child.resolved.style.layout.position == Position::Absolute ? resolved.size.h.val : resolved.innerHeight;
 
                 // Resolve nominal
                 if (cSize.width) { child.resolved.size.w.val = child.resolved.size.w.min = child.resolved.size.w.max = cSize.width.resolve(compareValW); }
@@ -846,14 +761,10 @@ export namespace Rev::Element {
                 // If no set val, get from min
                 if (!set(child.resolved.size.w.val)) { child.resolved.size.w.val = child.resolved.size.w.min; }
                 if (!set(child.resolved.size.h.val)) { child.resolved.size.h.val = child.resolved.size.h.min; }
-
-                bool test = true;
             }
 
             // Measure layout max prior to grow
             //--------------------------------------------------
-
-            bool testb = true;
 
             if (resolved.style.layout.direction == Axis::Vertical) {
 
@@ -1387,6 +1298,11 @@ export namespace Rev::Element {
 
         TargetFlags targetFlags;
 
+        // Default behavior is to ask our rect if it contains a position
+        virtual bool contains(Pos& pos) {
+            return this->rect.contains(pos);
+        }
+
         virtual void refresh(Event& e) {
 
             if (!this->dirty.draw) {
@@ -1641,70 +1557,6 @@ export namespace Rev::Element {
                 if (child.targetFlags.focus) { child.keyUp(e); }
                 if (!e.propagate) { return; }
             }
-        }
-
-        // Collision / Containment / Intersection
-        //--------------------------------------------------------------------------------
-
-        bool includeChildren = false;
-
-        // Default behavior is to ask our rect if it contains a position
-        virtual bool contains(Pos& pos) {
-        
-            if (includeChildren) {
-                return (rect.contains(pos) || anyChildContains(pos));
-            }
-            
-            return this->rect.contains(pos);
-        }
-
-        virtual bool intersects(Rect& rect) {
-            return this->rect.intersects(rect);
-        }
-
-        // Sometimes we need to skip and simply pass the concern to our children
-        bool anyChildContains(Pos& pos) {
-
-            for (Element* child: children) {
-                if (child->contains(pos)) { return true; }
-            }
-
-            return false;
-        }
-
-        bool anyChildIntersects(Rect& rect) {
-
-            for (Element* child: children) {
-                if (child->intersects(rect)) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
-        bool decendantContains(Pos& pos) {
-            
-            for (Element* child : children) {
-
-                if (child->contains(pos)) { return true; }
-                if (child->decendantContains(pos)) { return true; }
-            }
-
-            return false;
-        }
-
-        // Sometimes we need to skip multiple levels and simply ask whether ANY decendent contains a position
-        bool decendantIntersects(Rect& rect) {
-            
-            for (Element* child : children) {
-
-                if (child->intersects(rect)) { return true; }
-                if (child->decendantIntersects(rect)) { return true; }
-            }
-
-            return false;
         }
     };
 }
