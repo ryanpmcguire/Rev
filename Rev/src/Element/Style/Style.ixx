@@ -757,6 +757,7 @@ export namespace Rev::Element {
 
     enum class Cursor : int {
         Unset,
+        Default,
         Arrow,
         Caret,
         Crosshair,
@@ -833,6 +834,7 @@ export namespace Rev::Element {
         bool press = false;
         bool drag = false;
         bool focus = false;
+        bool disabled = false;
     };
 
     // Inheritance struct
@@ -903,7 +905,7 @@ export namespace Rev::Element {
         static inline Style Null() {
 
             Style nullStyle = {
-                .applies = { false, false, false, false },
+                .applies = { false, false, false, false, false },
                 .visibility = VisibilityStyle::Null(),
                 .overflow = Overflow::Unset,
                 .position = LrtbStyle::Null(),
@@ -937,14 +939,15 @@ export namespace Rev::Element {
         void apply(Style& style, Applies flags = {}) {
 
             // If there are application rules for the style (needs hover, drag, etc)
-            if (style.applies.hover || style.applies.press || style.applies.drag || style.applies.focus) {
+            if (style.applies.hover || style.applies.press || style.applies.drag || style.applies.focus || style.applies.disabled) {
 
                 // If there are no matching flags, return
                 if (!(
                     (style.applies.hover && flags.hover) ||
                     (style.applies.press && flags.press) ||
                     (style.applies.drag && flags.drag) ||
-                    (style.applies.focus && flags.focus)
+                    (style.applies.focus && flags.focus) ||
+                    (style.applies.disabled && flags.disabled)
                 )) { return; }
             }
 

@@ -331,6 +331,7 @@ export namespace Rev {
             switch (newCursor) {
         
                 case Element::Cursor::Unset:
+                case Element::Cursor::Default:
                 case Element::Cursor::Arrow:
                     cursorId = IDC_ARROW;
                     break;

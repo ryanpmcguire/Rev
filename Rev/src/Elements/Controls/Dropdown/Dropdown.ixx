@@ -37,7 +37,7 @@ export namespace Rev::Element {
 
             Style Label = {
                 .margin = { .bottom = 4_px },
-                .text = { .size = 12_px, .color = rgba(0, 0, 0, 0.6) }
+                .text = { .color = rgba(0, 0, 0, 0.6), .size = 12_px }
             };
 
             Style Dropdown {
@@ -65,11 +65,11 @@ export namespace Rev::Element {
                 };
 
             Style OptionsContainer {
-                .visibility = Visibility::Hidden,
+                .visibility = { Visibility::Hidden },
                 .overflow = Overflow::Hide,
-                .layout = { .direction = Axis::Vertical, .vertical = Align::End, .position = Position::Absolute, .wrap = Wrap::False },
+                .layout = { .direction = Axis::Vertical, .vertical = Align::End, .wrap = Wrap::False, .position = Position::Absolute },
                 .position = { .top = 100_pct },
-                .size = { Grow(), .max = { 100_pct } },
+                .size = { .width = Grow(), .max = { .width = 100_pct } },
                 .margin = { .top = 8_px },
                 .background = { .color = rgb(225, 228, 238) },
                 .border = { .color = rgb(226, 228, 238), .radius = 6_px },
@@ -80,14 +80,21 @@ export namespace Rev::Element {
                 Style Option {
                     .size = { 100_pct },
                     .padding = { 8_px, 8_px, 6_px, 6_px },
-                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },
                     .background = { .color = rgba(203, 213, 223, 0.0), .transition = 100_ms },
+                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },
                     .cursor = Cursor::Hand
                 };
 
                     Style OptionHover = {
                         .applies = { .hover = true, .focus = true },
                         .background = { .color = rgba(203, 213, 223, 1.0) }
+                    };
+                    
+                    Style OptionDisabled = {
+                        .applies = { .disabled = true },
+                        .background = { .color = rgba(203, 213, 223, 0.0) },
+                        .text = { .color = rgba(0, 0, 0, 0.667 ) },
+                        .cursor = Cursor::Default
                     };
     };
 
@@ -105,29 +112,36 @@ export namespace Rev::Element {
         // Option elements
         Box* optionsContainer = nullptr;
         std::vector<Text*> options;
+        bool open = false;
 
+        struct Option { std::string name; std::string value; bool disabled; };
+        
         struct Params {
 
-            // Options: a list of options to choose from
-            struct Option { std::string name; std::string value; };
-
             std::vector<Option> options;
-            Option value;
+            std::string placeholder;
+            std::string value;
 
+            static Params Default() {
+                return {
+                    .options = { { "Select...", "" }, { "Option 1", "1" }, { "Option 2", "2" }, { "Disabled", "3", true } },
+                    .placeholder = "Select...",
+                    .value = "",
+                };
+            };
         };
 
         Params params;
 
         // Create
-        Dropdown(Element* parent, Params p = Params(), StyleList styles = {}) : Box(parent, styles) {
+        Dropdown(Element* parent, Params p = Params::Default(), StyleList styles = {}) : Box(parent, styles) {
 
             // Self
             this->name = "Dropdown";
             this->params = p;
             this->styles.add(&Styles::Self);
 
-            this->params.options = { { "Option 1", "1" }, { "Option 2", "2"}, { "Option Option Option", "3" } };
-            this->params.value = { "Select... ", "null" };
+            //this->params.value = { "Select... ", "null" };
 
             // Label
             label = new Text(this, "Dropdown", { &Styles::Label });
@@ -162,13 +176,32 @@ export namespace Rev::Element {
             });
         }
 
-        std::string savedValue = "";
-        bool open = false;
+        Option getOptionWithVal(std::string val) {
+
+            for (Option& option : params.options) {
+                if (option.value == val) {
+                    return option;
+                }
+            }
+
+            return { params.placeholder, "" };
+        }
+
+        Option getOptionWithName(std::string name) {
+
+            for (Option& option : params.options) {
+                if (option.name == name) {
+                    return option;
+                }
+            }
+
+            return { params.placeholder, "" };
+        }
         
-        void select(Params::Option option) {
-            
-            params.value = option;
-            dropdownText->content = params.value.name;
+        void select(Option option) {
+        
+            params.value = option.value;
+            dropdownText->content = option.name;
 
             this->closeMenu();
         }
@@ -189,7 +222,7 @@ export namespace Rev::Element {
 
             //if (savedValue == params.value) { return; }
 
-            dropdownText->content = params.value.name;
+            dropdownText->content = getOptionWithVal(params.value).name;
 
             size_t oldSize = options.size();
             size_t newSize = params.options.size();
@@ -204,18 +237,25 @@ export namespace Rev::Element {
             // Add new
             for (size_t i = oldSize; i < newSize; i++) {
 
-                Params::Option option = params.options[i];
-                options[i] = new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover });
+                Option& option = params.options[i];
+                options[i] = new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover, &Styles::OptionDisabled });
 
                 options[i]->onMouseDown([this, option](Event& e) {
+                    if (option.disabled) { return; }
                     this->select(option);
                 });
             }
             
             // Compute content
             for (size_t i = 0; i < newSize; i++) {
-                Params::Option option = params.options[i];
+
+                Option& option = params.options[i];
                 options[i]->content = option.name;
+
+                if (options[i]->resolved.disabled != option.disabled) {
+                    options[i]->resolved.disabled = option.disabled;
+                    options[i]->dirty.style = true;
+                }
             }
         }
 

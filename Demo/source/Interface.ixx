@@ -12,6 +12,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Slider;
 import Rev.Element.Dropdown;
+import Rev.Element.Radio;
 import Rev.Element.Chart;
 
 export namespace HelloWorld {
@@ -25,7 +26,7 @@ export namespace HelloWorld {
         Interface(Element* parent) : Box(parent) {
 
             // Self
-            this->style->layout = { Axis::Horizontal, Align::Center, Align::Center };
+            this->style->layout = { Axis::Horizontal, Align::Start, Align::Start };
             this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 100_px, 100_px, 100_px, 100_px };
@@ -46,7 +47,32 @@ export namespace HelloWorld {
                 text->style->text.color = rgba(0, 0, 0, 1);
                 text->style->background.color = rgba(1, 0, 0, 0.2);
 
-                Dropdown* dropdown = new Dropdown(greyBox);
+                Dropdown* dropdown = new Dropdown(greyBox, {
+                    .options = { { "Option A", "0" }, { "Option B", "2 "}, { "Option C", "3", true} },
+                    .placeholder = "A or B..."
+                });
+
+                Slider* slider = new Slider(greyBox);
+
+                Radio* radio = new Radio(greyBox, {
+                    .options = { { "Pizza", "0" }, { "Hamburger", "2 "}, { "Option C", "3", true} }
+                });
+
+                Radio* countryRadio = new Radio(greyBox, {
+                    .options = {
+                        { "United States", "us" },
+                        { "Canada", "ca" },
+                        { "Germany", "de" },
+                        { "France", "fr" },
+                        { "United Kingdom", "uk" },
+                        { "Australia", "au" },
+                        { "Japan", "jp" },
+                        { "Brazil", "br" },
+                        { "India", "in" },
+                        { "South Africa", "za" }
+                    },
+                    .placeholder = "Select a country..."
+                });
 
                 /*Chart* chart = new Chart(greyBox);
                 
@@ -60,15 +86,13 @@ export namespace HelloWorld {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
                 }*/
-                
-                Dropdown* dropdown2 = new Dropdown(greyBox);
+            
                 //Dropdown* dropdown1 = new Dropdown(greyBox);
 
-                /*for (size_t i = 0; i < 100; i++) {
+                for (size_t i = 0; i < 10; i++) {
                     new Dropdown(greyBox);
-                }*/
-
-                Slider* slider = new Slider(greyBox);
+                    new Slider(greyBox);
+                }
         }
 
         // Destroy

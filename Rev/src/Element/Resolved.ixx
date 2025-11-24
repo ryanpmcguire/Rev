@@ -156,6 +156,7 @@ export namespace Rev::Element {
         bool hasPressStyle = false;
         bool hasDragStyle = false;
         bool hasFocusStyle = false;
+        bool hasDisabledStyle = false;
 
         Style style;
 
@@ -169,6 +170,7 @@ export namespace Rev::Element {
         int depth = 0;
 
         bool hidden = false;
+        bool disabled = false;
 
         bool wrap = false;
         bool absolute = false;

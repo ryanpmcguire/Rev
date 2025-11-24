@@ -384,7 +384,6 @@ export namespace Rev {
             //--------------------------------------------------
 
             shared->canvas->endFrame();
-
             if (this->dirty.draw) {
                 refresh(e);
             }

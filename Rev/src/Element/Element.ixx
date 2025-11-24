@@ -216,6 +216,7 @@ export namespace Rev::Element {
             resolved.hasPressStyle = false;
             resolved.hasDragStyle = false;
             resolved.hasFocusStyle = false;
+            resolved.hasDisabledStyle = false;
 
             // Calculate whether we have certain styles
             for (Style* style : styles.styles) {
@@ -223,6 +224,7 @@ export namespace Rev::Element {
                 if (style->applies.press) { resolved.hasPressStyle = true; }
                 if (style->applies.drag) { resolved.hasDragStyle = true; }
                 if (style->applies.focus) { resolved.hasFocusStyle = true; }
+                if (style->applies.disabled) { resolved.hasDisabledStyle = true; }
             }
 
             // Compile / apply styles
@@ -238,6 +240,7 @@ export namespace Rev::Element {
                 .press = targetFlags.press,
                 .drag = targetFlags.drag,
                 .focus = targetFlags.focus,
+                .disabled = resolved.disabled
             };
 
             // Apply other styles, then own style

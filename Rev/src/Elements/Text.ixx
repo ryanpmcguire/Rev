@@ -22,8 +22,8 @@ export namespace Rev::Element {
         Style TextDefaults = {
             .text = {
                 .font = File("Rev/resources/Fonts/Arial/Arial.ttf"),
-                .size = 12_px,
                 .color = rgba(0, 0, 0, 1),
+                .size = 12_px,
             }
         };
     };

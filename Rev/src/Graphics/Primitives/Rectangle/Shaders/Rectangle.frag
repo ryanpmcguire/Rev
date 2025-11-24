@@ -33,6 +33,16 @@ vec4 softMax(vec4 v, float sharpness) {
     return e / max(s, 1e-6);
 }
 
+vec4 hardMax4(vec4 v) {
+    float M = max(max(v.x, v.y), max(v.z, v.w));
+    return vec4(
+        v.x == M ? 1.0 : 0.0,
+        v.y == M ? 1.0 : 0.0,
+        v.z == M ? 1.0 : 0.0,
+        v.w == M ? 1.0 : 0.0
+    );
+}
+
 float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
     vec2 q = abs(p) - halfSize + vec2(radius);
     return length(max(q, 0.0)) - radius;
@@ -48,12 +58,12 @@ void main() {
     //--------------------------------------------------
 
     vec4 mCorner = softMax(cornerMask, 1.0f);
-    vec4 mSide   = step(max(sideMask.x, max(sideMask.y, max(sideMask.z, sideMask.w))) - 0.0001, sideMask);
+    vec4 mSide   = softMax(sideMask, 1.0f);
 
     // Choose corner radius, border width, and color
     float cornerRadius = mCorner.x * tl + mCorner.y * tr + mCorner.z * bl + mCorner.w * br;
     float borderWidth = mSide.x * l_width + mSide.y * r_width + mSide.z * t_width + mSide.w * b_width;
-
+    
     // Calculate outer and inner half-size (accounting for border width)
     vec2 outerHalfSize = vec2(w, h) * 0.5;
     vec2 innerHalfSize = max(outerHalfSize - vec2(borderWidth), vec2(0.0));
