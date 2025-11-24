@@ -14,6 +14,7 @@ import Rev.Core.Resource;
 import Rev.Core.Font;
 import Rev.Core.FontAtlas;
 import Rev.Core.Pos;
+import Rev.Core.Rect;
 
 import Rev.Graphics.Canvas;
 import Rev.Graphics.UniformBuffer;
@@ -84,18 +85,13 @@ export namespace Rev::Primitive {
         float fontSize = 12.0f;
 
         struct Line {
-            std::string dbg;    // Debug
-            size_t start, end;  // Start and end of line
-            float x, y;         // x, y position of line
-            float w, h;
-        };
 
-        struct Dims {
-            float width, height;
+            std::string content;            // Line content
+            size_t start, end;
+            Core::Rect rect;
         };
 
         std::vector<Line> lines;
-        Dims dims;
 
         float xPos = 0;
         float yPos = 0;
@@ -125,164 +121,6 @@ export namespace Rev::Primitive {
             delete databuff;
         }
 
-        // Measure / layout
-        //--------------------------------------------------
-
-        enum WrapMode {
-            None,
-            BreakChar,
-            BreakWord
-        };
-
-        // Struct for measuring hypothetical dimensions
-        struct MinMax {
-            float minWidth = 0; float maxWidth = 0;
-            float maxHeight = 0; float minHeight = 0;
-        };
-        
-        WrapMode mode = WrapMode::BreakChar;
-        MinMax minMax;
-        
-        MinMax measure() {
-
-            font = fontAtlas->get(Arial_ttf, fontSize, canvas->details.scale);
-
-            float xl = 0, yl = 0;
-            float xr = 0, yr = 0;
-
-            struct Tracked {
-                float current = 0;
-                float max = 0;
-                float min = 99999999;
-            };
-
-            Font& fontRef = *font;
-            Tracked letter, word, line;
-        
-            // Iterate through each character in the content
-            for (char c : content) {
-
-                // Track current
-                letter.current = fontRef.glyphs[c].advance;
-                word.current += letter.current;
-                line.current += letter.current;
-
-                // Always track max char
-                letter.min = std::min(letter.min, letter.current);
-                letter.max = std::max(letter.max, letter.current);
-
-                if (c == ' ') {
-                    word.min = std::min(word.min, word.current);
-                    word.max = std::max(word.max, word.current);
-                    word.current = 0;
-                }
-
-                // End of line
-                if (c == '\n') {
-                    line.min = std::min(line.min, line.current);
-                    line.max = std::max(line.max, line.current);
-                    line.current = 0;
-                }
-            }
-
-            // Min/max any that weren't caught in the loop
-            //--------------------------------------------------
-
-            letter.min = std::min(letter.min, letter.current);
-            letter.max = std::max(letter.max, letter.current);
-
-            word.min = std::min(word.min, word.current);
-            word.max = std::max(word.max, word.current);
-
-            line.min = std::min(line.min, line.current);
-            line.max = std::max(line.max, line.current);
-
-            switch (mode) {
-
-                case (WrapMode::None): {
-                    minMax.minWidth = line.min;
-                    minMax.maxWidth = line.max;
-                    break;
-                }
-
-                case (WrapMode::BreakChar): {
-                    minMax.minWidth = letter.max;
-                    minMax.maxWidth = line.max;
-                    break;
-                }
-
-                case (WrapMode::BreakWord): {
-                    minMax.minWidth = word.max;
-                    minMax.maxWidth = line.max;
-                    break;
-                }
-            }
-
-            // Add line height as min width
-            minMax.minHeight = fontRef.lineHeight;
-        
-            return minMax;
-        }
-
-        Dims layout(float maxWidth) {
-
-            // Ensure font size matches
-            font = fontAtlas->get(Arial_ttf, fontSize, canvas->details.scale);
-
-            // Layout text
-            //--------------------------------------------------
-
-            lines.clear();
-
-            size_t idx = 0;
-            float pos = 0;
-            
-            float x = 0;
-            float y = font->ascent;
-
-            Font& fontRef = *font;
-            Line line = { "", idx, idx, x, y, 0.0f, fontRef.lineHeight };
-
-            for (char c : content) {
-
-                float charWidth = fontRef.glyphs[c].advance;
-                float newWidth = line.w + charWidth;
-
-                // Reset line on overflow
-                if (idx > 0 && (newWidth > maxWidth || c == '\r')) {
-
-                    lines.push_back(line);
-
-                    y += fontRef.lineHeight;
-
-                    line = { "", idx, idx, x, y, charWidth, fontRef.lineHeight };
-                }
-
-                // Continue line
-                else {
-                    line.w += fontRef.glyphs[c].advance;
-                }
-
-                line.dbg += c;
-                line.end = idx;
-                idx += 1;
-            }
-
-            lines.push_back(line);
-
-            // Measure dims
-            //--------------------------------------------------
-
-            dims = { 0, 0 };
-
-            for (Line& line : lines) {
-                dims.height += line.h;
-                dims.width = std::max(dims.width, line.w);
-            }
-
-            return dims;
-        }
-
         // Compute vertices
         void compute() override {
 
@@ -304,9 +142,9 @@ export namespace Rev::Primitive {
             for (Line& line : lines) {
 
                 char prev = 0;
-                x = line.x; y = line.y;
+                x = line.rect.x; y = line.rect.y + font->ascent;
 
-                for (char c : line.dbg) {
+                for (char c : line.content) {
 
                     // Continue / break conditions
                     if (c < 32 || c >= 128) { continue; }
@@ -316,7 +154,7 @@ export namespace Rev::Primitive {
 
                     float index = float(c);
                     x += prevGlyph.advance + glyph.kerning[prevGlyph.index];
-                    verts[count] = {x, y, index, index };
+                    verts[count] = { x, y, index, index };
 
                     count += 1;
                     prev = c;

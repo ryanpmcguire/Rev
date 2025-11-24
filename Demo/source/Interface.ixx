@@ -33,7 +33,7 @@ export namespace HelloWorld {
 
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
-                .layout = { Axis::Horizontal, Align::Center, Align::Center },
+                .layout = { Axis::Horizontal, Align::Start, Align::Start },
                 .size = { .width = Grow(), .height = Grow() },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
@@ -42,10 +42,18 @@ export namespace HelloWorld {
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
 
-                Text* text = new Text(greyBox, "Hello");
+                /*Text* text = new Text(greyBox, "Hello");
                 text->style->text.size = 32_px;
                 text->style->text.color = rgba(0, 0, 0, 1);
-                text->style->background.color = rgba(1, 0, 0, 0.2);
+                text->style->background.color = rgba(1, 0, 0, 0.2);*/
+
+                //Box* holder = new Box(greyBox);
+                    for (size_t i = 0; i < 20; i++) {
+                        Text* testText = new Text(greyBox, "Hello ");
+                        testText->style->text.size = 32_px;
+                        testText->style->text.color = rgba(0, 0, 0, 1);
+                        testText->style->background.color = rgba(1, 0, 0, 0.2);
+                    }
 
                 Dropdown* dropdown = new Dropdown(greyBox, {
                     .options = { { "Option A", "0" }, { "Option B", "2 "}, { "Option C", "3", true} },

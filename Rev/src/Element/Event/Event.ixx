@@ -86,6 +86,8 @@ export namespace Rev::Element {
         struct Keyboard {
 
             Button ctrl, alt, shift;
+
+            std::string input;
         };
 
         Mouse mouse;

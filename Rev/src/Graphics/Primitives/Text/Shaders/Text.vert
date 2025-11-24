@@ -34,6 +34,6 @@ void main() {
     CharVertex v = glyphs[index];
     fragUV = v.uv;
 
-    vec2 worldPos = iPosition.xy + v.pos + pos;
+    vec2 worldPos = iPosition.xy + v.pos;
     gl_Position = uProjection * vec4(worldPos, 0.0, 1.0);
 }

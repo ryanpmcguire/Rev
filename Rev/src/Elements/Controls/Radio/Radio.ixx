@@ -44,21 +44,26 @@ export namespace Rev::Element {
                 .size = { 100_pct },
                 .padding = { 8_px, 8_px, 6_px, 6_px },
                 .background = { .color = rgba(203, 213, 223, 0.0), .transition = 100_ms },
-                .text = { .color = rgba(0, 0, 0, 1), .size = 14_px },
-                .cursor = Cursor::Hand
+                .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
             };
+
+                Style OptionLabel = {
+                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
+                };
 
                 Style OptionDot = {
                     .size = { 14_px, 14_px },
                     .margin = { .right = 6_px },
                     .background = { .color = rgba(0, 0, 0, 0) },
                     .border = { .color = rgba(0, 0, 0, 0.667), .width = 1_px, .radius = 100_px },
+                    .cursor = Cursor::Hand
                     //.shadow = subtleShadow
                 };
 
-                Style OptionLabel = {
-                    .text = { .color = rgba(0, 0, 0, 1), .size = 14_px }
-                };
+                    Style OptionDotDisabled = {
+                        .applies = { .disabled = true },
+                        .cursor = Cursor::Default
+                    };
     };
 
     using namespace RadioStyle;
@@ -174,13 +179,16 @@ export namespace Rev::Element {
             for (size_t i = 0; i < newSize; i++) {
 
                 Option& option = params.options[i];
-                options[i]->label->content = option.name;
+                RadioOption* optionElem = options[i];
 
-                if (option.value == params.value) { options[i]->dot->style->background.color = rgb(51, 106, 255); }
-                else { options[i]->dot->style->background.color = Color::Null(); }
+                optionElem->resolved.disabled = option.disabled;
+                optionElem->label->content = option.name;
 
-                if (option.disabled) { options[i]->label->style->text.color = rgba(0, 0, 0, 0.5); }
-                else { options[i]->label->style->text.color = Color::Null(); }
+                Color backgroundColor = option.value == params.value ? rgb(51, 106, 255) : Color::Null();
+                Color textColor = option.disabled ? rgba(0, 0, 0, 0.5) : Color::Null();
+
+                optionElem->dot->style->background.color = backgroundColor;
+                optionElem->label->style->text.color = textColor;
             }
         }
 

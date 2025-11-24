@@ -1286,6 +1286,7 @@ export namespace Rev::Element {
         void onMouseWheel(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseWheel, listener); }
         void onKeyDown(const std::function<void(Event&)>& listener) { this->listen(&Element::keyDown, listener); }
         void onKeyUp(const std::function<void(Event&)>& listener) { this->listen(&Element::keyUp, listener); }
+        void onTextInput(const std::function<void(Event&)>& listener) { this->listen(&Element::textInput, listener); }
 
         // Event propagation
         //--------------------------------------------------
@@ -1306,6 +1307,7 @@ export namespace Rev::Element {
             return this->rect.contains(pos);
         }
 
+        // When the element refreshes
         virtual void refresh(Event& e) {
 
             if (!this->dirty.draw) {
@@ -1321,6 +1323,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When the element gains focus
         virtual void gainFocus(Event& e) {
 
             if (!targetFlags.focus) {
@@ -1347,6 +1350,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When the element loses focus
         virtual void loseFocus(Event& e) {
 
             if (targetFlags.focus) {
@@ -1369,6 +1373,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When a mouse button is pressed
         virtual void mouseDown(Event& e) {
 
             // Mouse down event means we are a drag target
@@ -1397,6 +1402,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When a mouse button is released
         virtual void mouseUp(Event& e) {
 
             // Mouseup means dragging must end
@@ -1423,7 +1429,7 @@ export namespace Rev::Element {
             }
         }
 
-        // When the mouse moves on/over an element
+        // When the mouse moves on/over the element
         virtual void mouseMove(Event& e) {
 
             // If there is a cursor we need to set
@@ -1478,7 +1484,7 @@ export namespace Rev::Element {
             }
         }
 
-        // When a mouse leaves an element
+        // When a mouse leaves the element
         virtual void mouseLeave(Event& e) {
 
             if (targetFlags.hover) {
@@ -1501,6 +1507,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When the mouse drags in/on the element
         virtual void mouseDrag(Event& e) {
 
             // Stop if listener does not pass "continue" flag
@@ -1517,6 +1524,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When the mouse scrolls
         virtual void mouseWheel(Event& e) {
 
             tell(&Element::mouseWheel, e);
@@ -1532,6 +1540,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When a key is pressed
         virtual void keyDown(Event& e) {
 
             tell(&Element::keyDown, e);
@@ -1547,6 +1556,7 @@ export namespace Rev::Element {
             }
         }
 
+        // When a key is released
         virtual void keyUp(Event& e) {
 
             tell(&Element::keyUp, e);
@@ -1558,6 +1568,22 @@ export namespace Rev::Element {
                 Element& child = *pChild;
 
                 if (child.targetFlags.focus) { child.keyUp(e); }
+                if (!e.propagate) { return; }
+            }
+        }
+
+        // When text is recieved
+        virtual void textInput(Event& e) {
+
+            tell(&Element::textInput, e);
+            if (!e.propagate) { return; }
+
+            // Propagate in reverse order
+            for (Element* pChild : std::views::reverse(children)) {
+
+                Element& child = *pChild;
+
+                if (child.targetFlags.focus) { child.textInput(e); }
                 if (!e.propagate) { return; }
             }
         }

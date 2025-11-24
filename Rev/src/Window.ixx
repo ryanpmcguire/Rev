@@ -289,7 +289,7 @@ export namespace Rev {
 
         void draw(Event& e) override {
 
-            dbg("Drawing");
+            //dbg("Drawing");
 
             // Reset before
             event.resetBeforeDispatch();
@@ -471,34 +471,34 @@ export namespace Rev {
         //--------------------------------------------------
 
         void onOpen() {
-            dbg("[Window] Open");
+            //dbg("[Window] Open");
         }
 
         void onClose(bool& rejectClose) {
-            dbg("[Window] Close");
+           // dbg("[Window] Close");
             rejectClose = false;
         }
 
         virtual void onMaximize() {
-            dbg("[Window] Maximize");
+            //dbg("[Window] Maximize");
         }
 
         virtual void onMinimize() {
-            dbg("[Window] Minimize");
+            //dbg("[Window] Minimize");
         }
 
         virtual void onRestore() {
-            dbg("[Window] Restore");
+            //dbg("[Window] Restore");
         }
         
         // When the window gains focus
         virtual void onFocus() {
-            dbg("[Window] Focus");
+            //dbg("[Window] Focus");
         }
 
         // When the window loses focus
         virtual void onDefocus() {
-            dbg("[Window] Defocus");
+            //dbg("[Window] Defocus");
         }
 
         // When the window changes position
@@ -542,7 +542,7 @@ export namespace Rev {
         // When a mouse button is clicked or released
         void onMouseButton(int button, int action, int x, int y) {
 
-            dbg("[Window] mouseButton");
+            //dbg("[Window] mouseButton");
 
             // Get mouse position
             event.mouse.pos = { float(x), float(y) };
@@ -599,7 +599,7 @@ export namespace Rev {
         // When mouse wheel or trackpad scrolls
         void onMouseWheel(float dx, float dy) {
 
-            dbg("[Window] mouseWheel: %f, %f", dx, dy);
+            //dbg("[Window] mouseWheel: %f, %f", dx, dy);
 
             event.mouse.wheel = { dx, dy };
             event.resetBeforeDispatch();
@@ -616,7 +616,7 @@ export namespace Rev {
         // When a key is depressed or released
         void onKeyboard(int key, int action) {
 
-            dbg("[Window] Key %s", window->keyToString(key));
+            //dbg("[Window] Key %s", window->keyToString(key));
 
             NativeWindow::Key winKey = static_cast<NativeWindow::Key>(key);
 
@@ -643,7 +643,17 @@ export namespace Rev {
             std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
             std::string utf8 = conv.to_bytes(s32);
         
-            dbg("Character: %s (U+%04X)", utf8.c_str(), (unsigned)character);
+            //dbg("[Window] Character: %s (U+%04X)", utf8.c_str(), (unsigned)character);
+            event.keyboard.input = utf8;
+
+            event.resetBeforeDispatch();
+            this->setTargets(event);
+
+            this->textInput(event);
+
+            if (event.causedRefresh) {
+                this->refresh(event);
+            }
         }
     };
 }
