@@ -621,8 +621,20 @@ export namespace Rev {
             NativeWindow::Key winKey = static_cast<NativeWindow::Key>(key);
 
             switch (winKey) {
+
                 case (NativeWindow::Key::Ctrl): { event.keyboard.ctrl.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Shift): { event.keyboard.shift.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Alt): { event.keyboard.alt.set(action, event.mouse.pos); break; }
+                
+                case (NativeWindow::Key::Left): { event.keyboard.arrows.left.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Right): { event.keyboard.arrows.right.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Up): { event.keyboard.arrows.up.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Down): { event.keyboard.arrows.down.set(action, event.mouse.pos); break; }
+
+                case (NativeWindow::Key::Backspace): { event.keyboard.backspace.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Delete): { event.keyboard.del.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Escape): { event.keyboard.escape.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Tab): { event.keyboard.tab.set(action, event.mouse.pos); break; }
             }
 
             event.resetBeforeDispatch();

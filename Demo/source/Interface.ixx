@@ -34,7 +34,7 @@ export namespace HelloWorld {
             Box* greyBox = new Box(this, {}, "GreyBox");
             greyBox->style = {
                 .layout = { Axis::Horizontal, Align::Start, Align::Start },
-                .size = { .width = Grow(), .height = Grow() },
+                .size = { .width = Grow(), .height = Grow(), .max = { .width = 100_pct } },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
                 .background { .color = rgba(0, 0, 0, 0.05) },
@@ -48,11 +48,12 @@ export namespace HelloWorld {
                 text->style->background.color = rgba(1, 0, 0, 0.2);*/
 
                 //Box* holder = new Box(greyBox);
-                    for (size_t i = 0; i < 20; i++) {
-                        Text* testText = new Text(greyBox, "Hello ");
+                    for (size_t i = 0; i < 1; i++) {
+                        Text* testText = new Text(greyBox, "Hello_World");
                         testText->style->text.size = 32_px;
                         testText->style->text.color = rgba(0, 0, 0, 1);
                         testText->style->background.color = rgba(1, 0, 0, 0.2);
+                        testText->style->layout.wrap = Wrap::BreakChar;
                     }
 
                 Dropdown* dropdown = new Dropdown(greyBox, {

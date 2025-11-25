@@ -35,6 +35,15 @@ export namespace Rev::Core {
             // Return the normalized rect
             return Rect(x, y, w, h);
         }
+        
+        void round() {
+
+            float left = std::round(x); float right = std::round(x + w);
+            float top = std::round(y); float bottom = std::round(y + h);
+
+            x = left; y = top;
+            w = right - left; h = bottom - top;
+        }
 
         Rect rounded() {
             

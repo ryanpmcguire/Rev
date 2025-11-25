@@ -167,6 +167,9 @@ export namespace Rev::Element {
         float innerWidth;
         float innerHeight;
 
+        float minContentWidth;
+        float minContentHeight;
+
         int depth = 0;
 
         bool hidden = false;

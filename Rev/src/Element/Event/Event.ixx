@@ -85,7 +85,14 @@ export namespace Rev::Element {
 
         struct Keyboard {
 
+            struct Arrows {
+                Button left, right, up, down;
+            };
+
             Button ctrl, alt, shift;
+            Button escape, tab, del, backspace;
+
+            Arrows arrows;
 
             std::string input;
         };

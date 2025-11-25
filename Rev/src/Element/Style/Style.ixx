@@ -418,7 +418,10 @@ export namespace Rev::Element {
     enum class Wrap {
         Unset,
         True,
-        False
+        False,
+        BreakChar,
+        BreakWord,
+        BreakLine
     };
 
     struct LayoutStyle {

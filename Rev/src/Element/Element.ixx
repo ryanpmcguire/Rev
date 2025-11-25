@@ -412,6 +412,8 @@ export namespace Rev::Element {
                     if (!c->resolved.affectsParentSize) { continue; }
                     maxOfMin = std::max(maxOfMin, c->resolved.min.outerWidth);
                 }
+
+                maxOfMin = std::max(maxOfMin, this->resolved.minContentWidth);
                 
                 minInnerWidth = maxOfMin;
                 minOuterWidth = maxOfMin + minPaddingWidth + minMarginWidth;
@@ -431,6 +433,8 @@ export namespace Rev::Element {
                     if (!c->resolved.affectsParentSize) { continue; }
                     maxOfMin = std::max(maxOfMin, c->resolved.min.outerHeight);
                 }
+
+                maxOfMin = std::max(maxOfMin, this->resolved.minContentHeight);
 
                 minInnerHeight = maxOfMin;
                 minOuterHeight = maxOfMin + minPaddingHeight + minMarginHeight;
