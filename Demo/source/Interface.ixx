@@ -50,6 +50,7 @@ export namespace HelloWorld {
                 //Box* holder = new Box(greyBox);
                     for (size_t i = 0; i < 1; i++) {
                         Text* testText = new Text(greyBox, "Hello_World");
+                        testText->editable = true;
                         testText->style->text.size = 32_px;
                         testText->style->text.color = rgba(0, 0, 0, 1);
                         testText->style->background.color = rgba(1, 0, 0, 0.2);

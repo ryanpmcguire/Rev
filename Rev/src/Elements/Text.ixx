@@ -44,6 +44,7 @@ export namespace Rev::Element {
         Primitive::Lines* line = nullptr;
 
         Observable<std::string> content;
+        Observable<bool> editable;
 
         enum WrapMode {
             None,
@@ -181,51 +182,77 @@ export namespace Rev::Element {
         //--------------------------------------------------
 
         int cursor = 0;
+        int selectAnchor = 0, selectEnd = 0;
 
         void setCursorPos(int newCursor) {
-            cursor = std::clamp(newCursor, 0, (int)strContent.size());
+            cursor = std::clamp(newCursor, 0, (int)strContent.size() + 1);
+        }
+
+        int getCursorPos(Core::Pos pos) {
+
+            // Find intersecting line
+            for (Primitive::Text::Line& line : text->lines) {
+
+                if (line.rect.y > pos.y) { continue; }
+                if (line.rect.y + line.rect.h < pos.y) { continue; }
+
+                int idx = line.start;
+                float left = line.rect.x;
+
+                // Get char at x position
+                for (char c : line.content) {
+
+                    float right = left + font->glyphs[c].advance;
+
+                    // Find intersecting glyph
+                    if (pos.x >= left && pos.x <= right) {
+
+                        float distLeft = pos.x - left;
+                        float distRight = right - pos.x;
+
+                        // Return left or right depending on which is closest
+                        return distLeft < distRight ? idx : idx + 1;
+                    }
+
+                    left = right;
+                    idx += 1;
+                }
+
+                // Return end of line if we did not reach a char
+                return line.end + 1;
+            }
+
+            // Return start of content
+            return 0;
         }
 
         void mouseDown(Event& e) override {
 
-            Core::Pos& selectPos = e.mouse.pos;
+            // Interactions require editable
+            if (!editable) { return Box::mouseDown(e); }
 
-            for (Primitive::Text::Line& line : text->lines) {
-                if (line.rect.contains(selectPos)) {
-
-                    float left = line.rect.x;
-                    int idx = line.start;
-
-                    // Get char at x position
-                    for (char c : line.content) {
-
-                        float right = left + font->glyphs[c].advance;
-
-                        if (selectPos.x >= left && selectPos.x <= right) {
-
-                            float distLeft = selectPos.x - left;
-                            float distRight = right - selectPos.x;
-
-                            setCursorPos(distLeft < distRight ? idx : idx + 1);
-
-                            break;
-                        }
-
-                        left = right;
-                        idx += 1;
-                    }
-                }
-            }
-
+            // Shift + click sets end of selection, normal click sets start/cursor
+            if (e.keyboard.shift) { cursor = selectEnd = this->getCursorPos(e.mouse.pos); }
+            else { cursor = selectAnchor = selectEnd = this->getCursorPos(e.mouse.pos); }
+            
             this->refresh(e);
             Box::mouseDown(e);
         }
 
         void keyDown(Event& e) override {
 
-            if (e.keyboard.arrows.left) { setCursorPos(cursor - 1); }
-            if (e.keyboard.arrows.right) { setCursorPos(cursor + 1); }
+            // Interactions require editable
+            if (!editable) { return Box::keyDown(e); }
 
+            // Left/right controls direction
+            if (e.keyboard.arrows.right) { cursor += 1; }
+            if (e.keyboard.arrows.left) { cursor -= 1; }
+
+            // Shift moves end of selection
+            if (e.keyboard.shift) { selectEnd = cursor; }
+            else { selectAnchor = selectEnd = cursor; }
+
+            // Delete back or forward
             if (e.keyboard.backspace) { this->deleteAt(cursor, -1); }
             if (e.keyboard.del) { this->deleteAt(cursor, +1); }
 
@@ -234,6 +261,9 @@ export namespace Rev::Element {
         }
 
         void textInput(Event& e) override {
+
+            // Interactions require editable
+            if (!editable) { return Box::textInput(e); }
 
             dbg("[Text] Input: %s", e.keyboard.input.c_str());
 
@@ -250,7 +280,7 @@ export namespace Rev::Element {
 
         void computeStyle(Event& e) override {
 
-            if (content.changed()) {
+            if (content.changed() || editable.changed()) {
                 this->dirty.style = true;
             }
             
@@ -273,21 +303,22 @@ export namespace Rev::Element {
             if (!fontResource.data) { fontResource = File("Rev/resources/Fonts/Arial/Arial.ttf"); }
 
             font = text->fontAtlas->get(fontResource, fontSize, shared->canvas->details.scale);
-            text->font = font;
             
+            text->font = font;
             text->fontSize = fontSize;
             text->content = strContent;
 
             this->measureText();
             maxWidth = 99999999.0f;
 
-            //this->layoutText();
-
             float minPaddingWidth = resolved.getMinPadding(Axis::Horizontal, Dist::Type::Abs);
             float minPaddingHeight = resolved.getMinPadding(Axis::Vertical, Dist::Type::Abs);
 
             resolved.minContentWidth = minWidth + minPaddingWidth;
             resolved.minContentHeight = minHeight + minPaddingHeight;
+            
+            // Cursor
+            if (editable) { resolved.style.cursor = Cursor::Caret; }
         }
 
         // Computing text layout
@@ -392,7 +423,7 @@ export namespace Rev::Element {
                 float newWidth = line.rect.w + charWidth;
 
                 // Reset line on overflow
-                if (idx > 0 && (newWidth > maxWidth || c == '\r' || c == '\n' || c == '_')) {
+                if (idx > 0 && (newWidth > maxWidth || c == '\r' || c == '\n')) {
 
                     text->lines.push_back(line);
                     line = { "", idx, idx, { x, y, 0.0f, fontRef.lineHeight } };
@@ -458,39 +489,81 @@ export namespace Rev::Element {
 
             text->compute();
 
-            // Find cursor pos
+            // Skip cursor/region calculations if not editable
+            if (!editable) { return Box::computePrimitives(e); }
+
+            // Place cursor at cursor pos
             //--------------------------------------------------
 
-            float cursorX, cursorY, cursorH;
+            line->lines.clear();
 
             for (Primitive::Text::Line& line : text->lines) {
-                if (cursor >= line.start && cursor <= line.end) {
 
-                    // Cursor y is line rect
-                    cursorY = line.rect.y;
-                    cursorX = line.rect.x;
-                    cursorH = line.rect.h;
+                if (line.end + 1 < cursor) { continue; }
+                if (line.start > cursor) { continue; }
+            
+                int idx = line.start;
+                float cursor_x = line.rect.x;
 
-                    int idx = line.start;
+                // Get x position at line
+                for (char c : line.content) {
 
-                    // Get x position at line
-                    for (char c : line.content) {
-
-                        if (idx >= cursor) { break; }
-
-                        cursorX += font->glyphs[c].advance;
-                        idx += 1;
+                    if (idx == cursor) {
+                        break;
                     }
+
+                    cursor_x += font->glyphs[c].advance;
+                    idx += 1;
                 }
+                
+                // Place line at cursor position
+                this->line->lines.push_back({
+                    .points = { { cursor_x, line.rect.y }, { cursor_x, line.rect.y + line.rect.h } }, 
+                    .color = { 0, 0, 0, 1 }, .strokeWidth = 1.0f, .smoothing = 0.0f
+                });
+
+                break;
             }
 
-            // Place line at cursor position
-            line->lines = {
-                {
-                    .points = { { cursorX, cursorY }, { cursorX, cursorY + cursorH } }, 
-                    .color = { 1, 0, 0, 1 }, .strokeWidth = 2
+            // Highlight selected region(s)
+            //--------------------------------------------------
+
+            if (selectEnd != selectAnchor) {
+
+                int leftMost = std::min(selectAnchor, selectEnd);
+                int rightMost = std::max(selectAnchor, selectEnd);
+
+                // Add select lines
+                for (Primitive::Text::Line& line : text->lines) {
+
+                    // Skip if this line would not contain what we're looking for
+                    if (line.end < leftMost) { continue; }
+                    if (line.start > rightMost) { continue; }
+
+                    int idx = line.start;
+                    float left_x = line.rect.x;
+                    float right_x = line.rect.x;
+
+                    for (char c : line.content) {
+
+                        if (idx < leftMost) { left_x += font->glyphs[c].advance; }
+                        if (idx < rightMost) { right_x += font->glyphs[c].advance; }
+
+                        idx += 1;
+                    }
+
+                    if (right_x - left_x < 0.1) { right_x = left_x + 5.0f; }
+
+                    float line_y = line.rect.y + 0.5f * line.rect.h;
+                    float line_width = line.rect.h;
+
+                    // Place line at cursor position
+                    this->line->lines.push_back({
+                        .points = { { left_x, line_y }, { right_x, line_y } }, 
+                        .color = { 0, 0, 1, 0.2 }, .strokeWidth = line_width, .smoothing = 0.0f
+                    });
                 }
-            };
+            }
 
             line->compute();
 
@@ -501,8 +574,11 @@ export namespace Rev::Element {
 
             Box::draw(e);
 
+            // Always draw text
             text->draw();
-            if (targetFlags.focus) { line->draw(); }
+
+            // Draw line only if editable
+            if (targetFlags.focus && editable) { line->draw(); }
         }
     };
 };
