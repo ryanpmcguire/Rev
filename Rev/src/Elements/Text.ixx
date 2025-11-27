@@ -120,6 +120,37 @@ export namespace Rev::Element {
             content = str;
 
             setCursorPos(cursor + (int)toInsert.size());
+            selectEnd = selectAnchor = cursor;
+        }
+
+        void replaceAt(int posStart, int posEnd, const std::string& toInsert) {
+    
+            // Canonical ordering
+            int left = std::min(posStart, posEnd);
+            int right = std::max(posStart, posEnd);
+        
+            std::string str = content;
+            int len = (int)str.size();
+        
+            // Clamp boundaries
+            left = std::clamp(left, 0, len);
+            right = std::clamp(right, 0, len);
+        
+            // Erase the range
+            str.erase(left, right - left);
+        
+            // Insert new text
+            str.insert(left, toInsert);
+        
+            // Update observable string
+            content = str;
+        
+            // Update cursor position: at end of inserted text
+            cursor = left + (int)toInsert.size();
+        
+            // Clear selection
+            selectAnchor = cursor;
+            selectEnd = cursor;
         }
 
         void deleteAt(int pos, int n) {
@@ -232,22 +263,45 @@ export namespace Rev::Element {
             Box::mouseDown(e);
         }
 
+        void mouseDrag(Event& e) override {
+
+            if (!editable) { return Box::mouseDrag(e); }
+
+            cursor = selectEnd = this->getCursorPos(e.mouse.pos);
+
+            this->refresh(e);
+            Box::mouseDrag(e);
+        }
+
         void keyDown(Event& e) override {
 
             // Interactions require editable
             if (!editable) { return Box::keyDown(e); }
 
-            // Left/right controls direction
-            if (e.keyboard.arrows.right) { cursor += 1; }
-            if (e.keyboard.arrows.left) { cursor -= 1; }
+            // Avoid ugly long names
+            bool left = e.keyboard.arrows.left; bool right = e.keyboard.arrows.right;
+            bool up = e.keyboard.arrows.up; bool down = e.keyboard.arrows.down;
 
-            // Shift moves end of selection
-            if (e.keyboard.shift) { selectEnd = cursor; }
-            else { selectAnchor = selectEnd = cursor; }
+            if (left || right || up || down) {
+
+                if (left) { cursor -= 1; }
+                else if (right) { cursor += 1; }
+
+                if (e.keyboard.shift) { selectEnd = cursor; }
+                else { selectAnchor = selectEnd = cursor; }
+            }
 
             // Delete back or forward
-            if (e.keyboard.backspace) { this->deleteAt(cursor, -1); }
-            if (e.keyboard.del) { this->deleteAt(cursor, +1); }
+            if (selectEnd == selectAnchor) {
+                if (e.keyboard.backspace) { this->deleteAt(cursor, -1); }
+                if (e.keyboard.del) { this->deleteAt(cursor, +1); }    
+            }
+
+            // Replace in region
+            else {
+                if (e.keyboard.backspace) { this->replaceAt(selectAnchor, selectEnd, ""); }
+                if (e.keyboard.del) { this->replaceAt(selectAnchor, selectEnd, ""); }
+            }
 
             this->refresh(e);
             Box::keyDown(e);
@@ -260,9 +314,10 @@ export namespace Rev::Element {
 
             dbg("[Text] Input: %s", e.keyboard.input.c_str());
 
-            if (e.keyboard.input == "\n") { this->insertAt(cursor, "\n"); }
-            else if (e.keyboard.input == "\b") { return Box::textInput(e); }
-            else { this->insertAt(cursor, e.keyboard.input); }
+            if (e.keyboard.input == "\b") { return Box::textInput(e); }
+
+            if (selectEnd == selectAnchor) { this->insertAt(cursor, e.keyboard.input); }
+            else { this->replaceAt(selectAnchor, selectEnd, e.keyboard.input); }
 
             this->refresh(e);
             Box::textInput(e);
@@ -417,27 +472,93 @@ export namespace Rev::Element {
 
             std::string chunk = "";
             float chunkWidth = 0.0f;
+            size_t chunkStart = 0;
 
             for (char c : strContent) {
 
-                chunkWidth += fontRef.glyphs[c].advance;
-                chunk += c;
+                bool isWordEnd;
 
-                // Have we reached the end of a word?
-                if (c == ' ' || idx == last) {
-                    
-                    // Would adding this word make us overflow?
-                    if (line.rect.w + chunkWidth > maxWidth) {
+                switch (resolved.style.text.wrap) {
+                    case (Wrap::BreakChar): { isWordEnd = true; break; }
+                    case (Wrap::BreakWord): { isWordEnd = (c == ' '); break; }
+                    case (Wrap::BreakLine): { isWordEnd = (c == '.'); break; }
+                    default: { isWordEnd = false; }
+                }
+
+                bool isNewLine = (c == '\n' || c == '\r');
+
+                bool checkWrap = isWordEnd || idx == last;
+                bool forceWrap = isNewLine;
+
+                // If we are being forced to make a new line
+                if (forceWrap) {
+
+                    // If current chunk would fit, add it first
+                    if (line.rect.w + chunkWidth <= maxWidth || chunkStart == 0) {
+
+                        // Add chunk to line
+                        line.rect.w += chunkWidth;
+                        line.content += chunk;
+                        line.end = idx - 1;
+
+                        // Reset chunk
+                        chunk = "";
+                        chunkWidth = 0.0f;
+                        chunkStart = idx;
+
                         text->lines.push_back(line);
-                        line = { "", idx, idx, { x, y, 0.0f, fontRef.lineHeight } };
+                        line = { "", chunkStart, idx, { x, y, 0.0f, fontRef.lineHeight } };
                     }
 
+                    // If current chunk would not fit, add it last
+                    else {
+
+                        text->lines.push_back(line);
+                        line = { "", chunkStart, idx, { x, y, 0.0f, fontRef.lineHeight } };
+
+                        // Add chunk to line
+                        line.rect.w += chunkWidth;
+                        line.content += chunk;
+                        line.end = idx - 1;
+
+                        // Reset chunk
+                        chunk = "";
+                        chunkWidth = 0.0f;
+                        chunkStart = idx;
+                    }
+
+                    chunk += c;
+                }
+
+                // If we should check to see if this chunk fits
+                else if (checkWrap) {
+
+                    // Add char to chunk
+                    chunk += c;
+                    chunkWidth += fontRef.glyphs[c].advance;
+
+                    // If current chunk would not fit, start a new line
+                    if (line.rect.w + chunkWidth > maxWidth && chunkStart != 0) {
+                        text->lines.push_back(line);
+                        line = { "", chunkStart, idx, { x, y, 0.0f, fontRef.lineHeight } };
+                    }
+
+                    // Add chunk to new line
                     line.rect.w += chunkWidth;
                     line.content += chunk;
                     line.end = idx;
 
-                    chunkWidth = 0.0f;
+                    // Reset chunk
                     chunk = "";
+                    chunkWidth = 0.0f;
+                    chunkStart = idx + 1;
+                }
+
+                else {
+
+                    // Add char to chunk
+                    chunk += c;
+                    chunkWidth += fontRef.glyphs[c].advance;
                 }
 
                 idx += 1;
@@ -544,8 +665,8 @@ export namespace Rev::Element {
                 for (Primitive::Text::Line& line : text->lines) {
 
                     // Skip if this line would not contain what we're looking for
-                    if (line.end < leftMost) { continue; }
-                    if (line.start > rightMost) { continue; }
+                    if (line.end + 1 < leftMost) { continue; }
+                    if (line.start + 1 > rightMost) { continue; }
 
                     int idx = line.start;
                     float left_x = line.rect.x;

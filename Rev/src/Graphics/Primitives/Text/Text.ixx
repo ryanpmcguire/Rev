@@ -95,6 +95,7 @@ export namespace Rev::Primitive {
 
         float xPos = 0;
         float yPos = 0;
+        size_t glyphCount = 0;
 
         // Create
         Text(Canvas* canvas) : Primitive(canvas) {
@@ -160,6 +161,8 @@ export namespace Rev::Primitive {
                     prev = c;
                 }
             }
+
+            this->glyphCount = count;
         }
 
         // Draw vertices
@@ -172,7 +175,7 @@ export namespace Rev::Primitive {
             vertices->bind();
             databuff->bind(1);
 
-            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, content.size());
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, glyphCount);
         }
     };
 };
