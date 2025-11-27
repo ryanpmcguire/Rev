@@ -46,13 +46,6 @@ export namespace Rev::Element {
         Observable<std::string> content;
         Observable<bool> editable;
 
-        enum WrapMode {
-            None,
-            BreakChar,
-            BreakWord
-        };
-        
-        WrapMode mode = WrapMode::None;
         std::string strContent;
         float fontSize = 12.0f;
         Font* font = nullptr;
@@ -297,7 +290,6 @@ export namespace Rev::Element {
             strContent = content;
             fontSize = resolved.style.text.size.val;
             if (!fontSize) { fontSize = 12.0f; }
-            if (resolved.style.layout.wrap == Wrap::BreakChar) { mode = WrapMode::BreakChar; }
 
             Core::Resource fontResource = resolved.style.text.font;
             if (!fontResource.data) { fontResource = File("Rev/resources/Fonts/Arial/Arial.ttf"); }
@@ -350,14 +342,18 @@ export namespace Rev::Element {
                 letter.min = std::min(letter.min, letter.current);
                 letter.max = std::max(letter.max, letter.current);
 
-                if (c == ' ') {
+                bool wordBreak = (c == ' ');
+                bool lineBreak = (c == '\n' || c == '\r');
+
+                // End of word (lines also count)
+                if (wordBreak || lineBreak) {
                     word.min = std::min(word.min, word.current);
                     word.max = std::max(word.max, word.current);
                     word.current = 0;
                 }
 
                 // End of line
-                if (c == '\n') {
+                if (lineBreak) {
                     line.min = std::min(line.min, line.current);
                     line.max = std::max(line.max, line.current);
                     line.current = 0;
@@ -377,22 +373,22 @@ export namespace Rev::Element {
             line.max = std::max(line.max, line.current);
 
             // We set our actual min/max depending on the wrap mode
-            switch (mode) {
+            switch (resolved.style.text.wrap) {
 
-                case (WrapMode::None): {
-                    minWidth = line.min;
-                    maxWidth = line.max;
-                    break;
-                }
-
-                case (WrapMode::BreakChar): {
+                case (Wrap::BreakChar): {
                     minWidth = letter.max;
                     maxWidth = line.max;
                     break;
                 }
 
-                case (WrapMode::BreakWord): {
+                case (Wrap::BreakWord): {
                     minWidth = word.max;
+                    maxWidth = line.max;
+                    break;
+                }
+
+                default: {
+                    minWidth = line.min;
                     maxWidth = line.max;
                     break;
                 }
@@ -417,21 +413,32 @@ export namespace Rev::Element {
             Font& fontRef = *font;
             Primitive::Text::Line line = { "", idx, idx, { x, y, 0.0f, fontRef.lineHeight } };
 
+            int last = strContent.size() - 1;
+
+            std::string chunk = "";
+            float chunkWidth = 0.0f;
+
             for (char c : strContent) {
 
-                float charWidth = fontRef.glyphs[c].advance;
-                float newWidth = line.rect.w + charWidth;
+                chunkWidth += fontRef.glyphs[c].advance;
+                chunk += c;
 
-                // Reset line on overflow
-                if (idx > 0 && (newWidth > maxWidth || c == '\r' || c == '\n')) {
+                // Have we reached the end of a word?
+                if (c == ' ' || idx == last) {
+                    
+                    // Would adding this word make us overflow?
+                    if (line.rect.w + chunkWidth > maxWidth) {
+                        text->lines.push_back(line);
+                        line = { "", idx, idx, { x, y, 0.0f, fontRef.lineHeight } };
+                    }
 
-                    text->lines.push_back(line);
-                    line = { "", idx, idx, { x, y, 0.0f, fontRef.lineHeight } };
+                    line.rect.w += chunkWidth;
+                    line.content += chunk;
+                    line.end = idx;
+
+                    chunkWidth = 0.0f;
+                    chunk = "";
                 }
-
-                line.rect.w += fontRef.glyphs[c].advance;
-                line.content += c;
-                line.end = idx;
 
                 idx += 1;
             }
@@ -505,7 +512,7 @@ export namespace Rev::Element {
                 int idx = line.start;
                 float cursor_x = line.rect.x;
 
-                // Get x position at line
+                // Get x position at line56
                 for (char c : line.content) {
 
                     if (idx == cursor) {

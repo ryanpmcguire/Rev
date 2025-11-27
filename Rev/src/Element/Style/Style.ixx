@@ -714,6 +714,7 @@ export namespace Rev::Element {
         int weight = -1;
         Dist lineHeight;
         Dist spacing;
+        Wrap wrap;
 
         int transition = -1;
         Core::DirtyFlag* dirty = nullptr;
@@ -725,6 +726,7 @@ export namespace Rev::Element {
                 Color::Null(), Dist::Null(),
                 -1,
                 Dist::Null(), Dist::Null(),
+                Wrap::Unset,
                 -1, nullptr
             };
         }
@@ -745,6 +747,10 @@ export namespace Rev::Element {
             color.apply(other.color);
             lineHeight.apply(other.lineHeight);
             spacing.apply(other.spacing);
+
+            if (other.font.data) { font = other.font; }
+            if (other.weight > -1) { weight = other.weight; }
+            if (other.wrap != Wrap::Unset) { wrap = other.wrap; }
         }
 
         inline void animate(TextStyle& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {

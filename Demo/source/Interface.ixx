@@ -2,6 +2,7 @@ module;
 
 #include <cstddef>
 #include <cmath>
+#include <string>
 
 export module Interface;
 
@@ -54,8 +55,13 @@ export namespace HelloWorld {
                         testText->style->text.size = 32_px;
                         testText->style->text.color = rgba(0, 0, 0, 1);
                         testText->style->background.color = rgba(1, 0, 0, 0.2);
-                        testText->style->layout.wrap = Wrap::BreakChar;
+                        testText->style->text.wrap = Wrap::BreakWord;
                     }
+
+                std::string harryPotter = "Mr. and Mrs. Dursley, of number four, Privet Drive, were proud to say that they were perfectly normal, thank you very much.";
+
+                Text* testWrap = new Text(greyBox, harryPotter);
+                testWrap->style->text.wrap = Wrap::BreakWord;
 
                 Dropdown* dropdown = new Dropdown(greyBox, {
                     .options = { { "Option A", "0" }, { "Option B", "2 "}, { "Option C", "3", true} },
