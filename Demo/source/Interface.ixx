@@ -14,6 +14,7 @@ import Rev.Element.Text;
 import Rev.Element.Slider;
 import Rev.Element.Dropdown;
 import Rev.Element.Radio;
+import Rev.Element.Checkbox;
 import Rev.Element.Chart;
 
 export namespace HelloWorld {
@@ -43,25 +44,20 @@ export namespace HelloWorld {
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
 
-                /*Text* text = new Text(greyBox, "Hello");
-                text->style->text.size = 32_px;
-                text->style->text.color = rgba(0, 0, 0, 1);
-                text->style->background.color = rgba(1, 0, 0, 0.2);*/
-
                 //Box* holder = new Box(greyBox);
-                    for (size_t i = 0; i < 1; i++) {
-                        Text* testText = new Text(greyBox, "Hello_World");
-                        testText->editable = true;
-                        testText->style->text.size = 32_px;
-                        testText->style->text.color = rgba(0, 0, 0, 1);
-                        testText->style->background.color = rgba(1, 0, 0, 0.2);
-                        testText->style->text.wrap = Wrap::BreakWord;
-                    }
+                for (size_t i = 0; i < 1; i++) {
+                    Text* testText = new Text(greyBox, "Hello_World");
+                    testText->editable = true;
+                    testText->style->text.size = 32_px;
+                    testText->style->text.color = rgba(0, 0, 0, 1);
+                    testText->style->background.color = rgba(1, 0, 0, 0.2);
+                    testText->style->text.wrap = Wrap::BreakWord;
+                }
 
                 std::string harryPotter = "Mr. and Mrs. Dursley, of number four, Privet Drive, were proud to say that they were perfectly normal, thank you very much.";
-
                 Text* testWrap = new Text(greyBox, harryPotter);
-                testWrap->style->text.wrap = Wrap::False;
+                testWrap->style->text.wrap = Wrap::BreakWord;
+                testWrap->selectable = true;
 
                 Dropdown* dropdown = new Dropdown(greyBox, {
                     .options = { { "Option A", "0" }, { "Option B", "2 "}, { "Option C", "3", true} },
@@ -74,21 +70,7 @@ export namespace HelloWorld {
                     .options = { { "Pizza", "0" }, { "Hamburger", "2 "}, { "Option C", "3", true} }
                 });
 
-                Radio* countryRadio = new Radio(greyBox, {
-                    .options = {
-                        { "United States", "us" },
-                        { "Canada", "ca" },
-                        { "Germany", "de" },
-                        { "France", "fr" },
-                        { "United Kingdom", "uk" },
-                        { "Australia", "au" },
-                        { "Japan", "jp" },
-                        { "Brazil", "br" },
-                        { "India", "in" },
-                        { "South Africa", "za" }
-                    },
-                    .placeholder = "Select a country..."
-                });
+                Checkbox* checkbox = new Checkbox(greyBox);
 
                 /*Chart* chart = new Chart(greyBox);
                 
@@ -102,13 +84,6 @@ export namespace HelloWorld {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
                 }*/
-            
-                //Dropdown* dropdown1 = new Dropdown(greyBox);
-
-                for (size_t i = 0; i < 10; i++) {
-                    new Dropdown(greyBox);
-                    new Slider(greyBox);
-                }
         }
 
         // Destroy

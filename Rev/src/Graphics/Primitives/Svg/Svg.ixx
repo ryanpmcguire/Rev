@@ -62,12 +62,13 @@ export namespace Rev::Primitive {
             Core::Rect rect;
             Core::Color color;
             float rotation;
+            float opacity;
 
             static Data Default() {
                 return {
                     { 0, 0, 100, 100 },
                     { 1, 0, 0, 1},
-                    0.0f
+                    0.0f, 1.0f
                 };
             }
         };

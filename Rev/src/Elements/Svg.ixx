@@ -27,6 +27,7 @@ export namespace Rev::Element {
         Resource resource;
 
         float rotation = 0.0f;
+        float opacity = 1.0f;
 
         // Create
         Svg(Element* parent, Resource resource, StyleList styles = {}, std::string name = "Svg") : Element(parent, styles, name) {
@@ -51,8 +52,9 @@ export namespace Rev::Element {
 
             // Assign rect, fill color
             data.rect = this->rect.rounded().translate({ 0.0, 0.0 });
-            data.color = styleRef.background.color;
+            data.color = resolved.style.text.color;
             data.rotation = rotation;
+            data.opacity = opacity;
 
             svg->resource = resource;
             svg->compute();

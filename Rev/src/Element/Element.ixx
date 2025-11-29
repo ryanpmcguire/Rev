@@ -146,10 +146,9 @@ export namespace Rev::Element {
             resolved.hidden = false;
             if (parent->resolved.hidden) { resolved.hidden = true; }
             if (resolved.style.visibility == Visibility::Hidden) { resolved.hidden = true; }
-
-            // Set depth
-            resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;
             
+            // Set depth
+            resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;            
 
             // Continue
             for (Element* child : children) {
@@ -1279,6 +1278,7 @@ export namespace Rev::Element {
 
         // Wrapper functions
         void onRefresh(const std::function<void(Event&)>& listener) { this->listen(&Element::refresh, listener); }
+        void onClick(const std::function<void(Event&)>& listener) { this->listen(&Element::click, listener); }
         void onMouseDown(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDown, listener); }
         void onMouseUp(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseUp, listener); }
         void onMouseMove(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseMove, listener); }
@@ -1377,6 +1377,14 @@ export namespace Rev::Element {
             }
         }
 
+        virtual void click(Event& e) {
+
+            tell(&Element::click, e);
+            if (!e.propagate) { return; }
+
+
+        }
+
         // When a mouse button is pressed
         virtual void mouseDown(Event& e) {
 
@@ -1384,6 +1392,13 @@ export namespace Rev::Element {
             if (!targetFlags.drag) {
                 targetFlags.drag = true;
                 if (resolved.hasDragStyle) { styles.dirty = true; }
+            }
+
+            if (!targetFlags.press) {
+                targetFlags.press = true;
+                if (resolved.hasPressStyle) {
+                    styles.dirty = true;
+                }
             }
 
             // Tell event listeners
@@ -1415,6 +1430,11 @@ export namespace Rev::Element {
                 if (resolved.hasDragStyle) { styles.dirty = true; }
             }
 
+            if (targetFlags.press) {
+                targetFlags.press = false;
+                if (resolved.hasPressStyle) { styles.dirty = true; }
+            }
+
             // Stop if listener does not pass "continue" flag
             tell(&Element::mouseUp, e);
             if (!e.propagate) { return; }
@@ -1424,10 +1444,12 @@ export namespace Rev::Element {
 
                 Element& child = *pChild;
 
-                // If child contains the event or is/was a drag target
-                if (child.targetFlags.hit || child.targetFlags.drag) {
-                    child.mouseUp(e);
-                }
+                bool isDragTarget = child.targetFlags.drag;
+                bool isPressTarget = child.targetFlags.press;
+                bool containsEvent = child.targetFlags.hit;
+
+                if (containsEvent || isDragTarget) { child.mouseUp(e); }
+                if (containsEvent && isPressTarget) { child.click(e); }
 
                 if (!e.propagate) { return; }
             }

@@ -45,6 +45,7 @@ export namespace Rev::Element {
 
         Observable<std::string> content;
         Observable<bool> editable;
+        Observable<bool> selectable;
 
         std::string strContent;
         float fontSize = 12.0f;
@@ -252,22 +253,38 @@ export namespace Rev::Element {
 
         void mouseDown(Event& e) override {
 
-            // Interactions require editable
-            if (!editable) { return Box::mouseDown(e); }
+            // If none apply, skip
+            if (!(editable || selectable)) { return Box::mouseDown(e); }
 
-            // Shift + click sets end of selection, normal click sets start/cursor
-            if (e.keyboard.shift) { cursor = selectEnd = this->getCursorPos(e.mouse.pos); }
-            else { cursor = selectAnchor = selectEnd = this->getCursorPos(e.mouse.pos); }
-            
+            // If we can select (or edit), modify select region
+            if (selectable || editable) {
+                if (e.keyboard.shift) { selectEnd = this->getCursorPos(e.mouse.pos); }
+                else { selectEnd = selectAnchor = this->getCursorPos(e.mouse.pos); }
+            }
+
+            // If we can edit, move the cursor also
+            if (editable) {
+                cursor = selectEnd;
+            }
+
             this->refresh(e);
             Box::mouseDown(e);
         }
 
         void mouseDrag(Event& e) override {
 
-            if (!editable) { return Box::mouseDrag(e); }
+            // If none apply, skip
+            if (!(editable || selectable)) { return Box::mouseDrag(e); }
 
-            cursor = selectEnd = this->getCursorPos(e.mouse.pos);
+            // If we can select (or edit), modify select region
+            if (selectable || editable) {
+                selectEnd = this->getCursorPos(e.mouse.pos);
+            }
+
+            // If we can edit, move the cursor also
+            if (editable) {
+                cursor = selectEnd;
+            }
 
             this->refresh(e);
             Box::mouseDrag(e);
@@ -275,13 +292,14 @@ export namespace Rev::Element {
 
         void keyDown(Event& e) override {
 
-            // Interactions require editable
+            // All keyboard interactions require edit ability
             if (!editable) { return Box::keyDown(e); }
 
             // Avoid ugly long names
             bool left = e.keyboard.arrows.left; bool right = e.keyboard.arrows.right;
             bool up = e.keyboard.arrows.up; bool down = e.keyboard.arrows.down;
 
+            // If any arrow key, move the cursor
             if (left || right || up || down) {
 
                 if (left) { cursor -= 1; }
@@ -312,10 +330,10 @@ export namespace Rev::Element {
             // Interactions require editable
             if (!editable) { return Box::textInput(e); }
 
-            dbg("[Text] Input: %s", e.keyboard.input.c_str());
-
+            // Ignore backspace (handled in keyDown)
             if (e.keyboard.input == "\b") { return Box::textInput(e); }
 
+            // If just cursor, insert. If range, replace
             if (selectEnd == selectAnchor) { this->insertAt(cursor, e.keyboard.input); }
             else { this->replaceAt(selectAnchor, selectEnd, e.keyboard.input); }
 
@@ -328,7 +346,8 @@ export namespace Rev::Element {
 
         void computeStyle(Event& e) override {
 
-            if (content.changed() || editable.changed()) {
+            // Recompute style only if either of these changed
+            if (content.changed() || editable.changed() || selectable.changed()) {
                 this->dirty.style = true;
             }
             
@@ -356,7 +375,6 @@ export namespace Rev::Element {
             text->content = strContent;
 
             this->measureText();
-            maxWidth = 99999999.0f;
 
             float minPaddingWidth = resolved.getMinPadding(Axis::Horizontal, Dist::Type::Abs);
             float minPaddingHeight = resolved.getMinPadding(Axis::Vertical, Dist::Type::Abs);
@@ -364,8 +382,10 @@ export namespace Rev::Element {
             resolved.minContentWidth = minWidth + minPaddingWidth;
             resolved.minContentHeight = minHeight + minPaddingHeight;
             
-            // Cursor
-            if (editable) { resolved.style.cursor = Cursor::Caret; }
+            // If we can edit or select, use text cursor
+            if (editable || selectable) {
+                resolved.style.cursor = Cursor::Caret;
+            }
         }
 
         // Computing text layout

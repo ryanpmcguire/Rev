@@ -10,6 +10,7 @@ layout(std140, binding = 1) uniform Data {
     float x, y, w, h;
     vec4 color;
     float rotation;
+    float opacity;
 };
 
 out vec2 fragUV;
