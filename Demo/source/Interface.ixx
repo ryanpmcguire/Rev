@@ -15,6 +15,7 @@ import Rev.Element.Slider;
 import Rev.Element.Dropdown;
 import Rev.Element.Radio;
 import Rev.Element.Checkbox;
+import Rev.Element.TextInput;
 import Rev.Element.Chart;
 
 export namespace HelloWorld {
@@ -71,6 +72,8 @@ export namespace HelloWorld {
                 });
 
                 Checkbox* checkbox = new Checkbox(greyBox);
+
+                TextInput* textInput = new TextInput(greyBox);
 
                 /*Chart* chart = new Chart(greyBox);
                 

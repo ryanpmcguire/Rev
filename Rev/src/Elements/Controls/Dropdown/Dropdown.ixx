@@ -45,7 +45,7 @@ export namespace Rev::Element {
                 .size = { Grow() },
                 .padding = { 8_px, 6_px, 6_px, 8_px },
                 .background = { rgb(225, 228, 238 )},
-                .border = { .radius = 6_px },
+                .border = { .radius = 4_px },
                 .shadow = subtleShadow
             };
 

@@ -32,7 +32,6 @@ export namespace Rev::Element {
         
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Center, Wrap::False },
-            .size = { Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px }
         };
 
