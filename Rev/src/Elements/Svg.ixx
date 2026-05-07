@@ -19,11 +19,9 @@ import Rev.Primitive.Svg;
 
 export namespace Rev::Element {
 
-    using namespace Rev::Primitive;
-
     struct Svg : public Element {
 
-        Primitive::Svg* svg = nullptr;
+        Primitives::Svg* svg = nullptr;
         Resource resource;
 
         float rotation = 0.0f;
@@ -33,7 +31,7 @@ export namespace Rev::Element {
         Svg(Element* parent, Resource resource, StyleList styles = {}, std::string name = "Svg") : Element(parent, styles, name) {
 
             this->resource = resource;
-            svg = new Primitive::Svg(shared->canvas);
+            svg = new Primitives::Svg(shared->canvas);
         }
 
         // Destroy
@@ -48,7 +46,7 @@ export namespace Rev::Element {
             // Box data
             //--------------------------------------------------
 
-            Primitive::Svg::Data& data = *svg->data;
+            Primitives::Svg::Data& data = *svg->data;
 
             // Assign rect, fill color
             data.rect = this->rect.rounded().translate({ 0.0, 0.0 });

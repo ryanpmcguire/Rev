@@ -18,11 +18,11 @@ import Rev.Primitive.Rectangle;
 
 export namespace Rev::Element {
 
-    using namespace Rev::Primitive;
+    using namespace Rev::Primitives;
 
     struct Box : public Element {
 
-        Primitive::Rectangle* rectangle = nullptr;
+        Primitives::Rectangle* rectangle = nullptr;
 
         // Create
         Box(Element* parent, StyleList styles = {}, std::string name = "Box") : Element(parent, styles, name) {

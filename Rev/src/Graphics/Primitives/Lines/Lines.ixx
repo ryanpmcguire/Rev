@@ -21,7 +21,7 @@ import Rev.Graphics.VertexBuffer;
 import Rev.Graphics.Pipeline;
 import Rev.Graphics.Shader;
 
-export namespace Rev::Primitive {
+export namespace Rev::Primitives {
 
     using namespace sentinel;
 

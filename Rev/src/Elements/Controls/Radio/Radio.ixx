@@ -55,7 +55,7 @@ export namespace Rev::Element {
                     .size = { 14_px, 14_px },
                     .margin = { .right = 6_px },
                     .background = { .color = rgba(0, 0, 0, 0) },
-                    .border = { .color = rgba(0, 0, 0, 0.667), .width = 1_px, .radius = 100_px },
+                    .border = { .color = rgba(0, 0, 0, 0.667), .radius = 100_px, .width = 1_px, },
                     .cursor = Cursor::Hand
                     //.shadow = subtleShadow
                 };

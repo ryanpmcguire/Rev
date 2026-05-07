@@ -40,7 +40,7 @@ export namespace HelloWorld {
                 .size = { .width = Grow(), .height = Grow(), .max = { .width = 100_pct } },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
-                .background { .color = rgba(0, 0, 0, 0.05) },
+                .background { .color = rgb(185, 82, 82) },
                 .border = { .radius = 10_px },
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
@@ -75,18 +75,18 @@ export namespace HelloWorld {
 
                 TextInput* textInput = new TextInput(greyBox);
 
-                /*Chart* chart = new Chart(greyBox);
+                Chart* chart = new Chart(greyBox);
                 
                 chart->style = {
                     .size = { .width = 100_pct, .height = Grow(), .min = { .height = 100_px } },
-                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 100_px, .width = 1_px, .bottom = { .color = rgba(255, 0, 0, 1), .width = 50_px }, .transition = 200 }
+                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
                 };
 
-                size_t num = 100;
+                size_t num = 1000;
                 for (size_t i = 0; i < num; i++) {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
-                }*/
+                }
         }
 
         // Destroy

@@ -4,7 +4,7 @@ export module Rev.Primitive;
 
 import Rev.Graphics.Canvas;
 
-export namespace Rev::Primitive {
+export namespace Rev::Primitives {
 
     using namespace Rev::Graphics;
 

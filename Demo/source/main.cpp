@@ -2,6 +2,7 @@
 
 import Rev.Application;
 import Rev.Window;
+import Rev.Socket;
 
 import Interface;
 
@@ -10,19 +11,43 @@ using namespace HelloWorld;
 
 int main() {
 
-    //try {
+    Application* application = new Application();
 
-        Application* application = new Application();
-            Window* window = new Window(application->windows);
-                Interface* interface = new Interface(window);
+    Window* window = new Window(application->windows);
+    Interface* interface = new Interface(window);
 
-        application->run();
+    // Create socket
+    Socket* socket = new Socket(8080, [&](Socket::NetEvent& e) {
 
-        return 0;
-    //}
+        switch (e.type) {
 
-    /*catch (std::exception& e) {
-        std::cerr << "Exception: " << e.what() << std::endl;
-        return 1;
-    }*/
+            case Socket::NetEvent::Connect: {
+                //dbg("Client connected");
+                break;
+            }
+
+            case Socket::NetEvent::Disconnect: {
+                //dbg("Client disconnected");
+                break;
+            }
+
+            case Socket::NetEvent::Data: {
+                
+                // Example: interpret data
+                std::string msg(e.data.begin(), e.data.end());
+
+                // Update UI state here
+                // interface->something = ...
+
+                // Trigger redraw
+                window->refresh(window->event);
+
+                break;
+            }
+        }
+    });
+
+    application->run();
+
+    return 0;
 }

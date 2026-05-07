@@ -40,8 +40,8 @@ export namespace Rev::Element {
 
     struct Text : public Box {
 
-        Primitive::Text* text = nullptr;
-        Primitive::Lines* line = nullptr;
+        Primitives::Text* text = nullptr;
+        Primitives::Lines* line = nullptr;
 
         Observable<std::string> content;
         Observable<bool> editable;
@@ -58,8 +58,8 @@ export namespace Rev::Element {
         // Create
         Text(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "Text") {
 
-            text = new Primitive::Text(shared->canvas);
-            line = new Primitive::Lines(shared->canvas);
+            text = new Primitives::Text(shared->canvas);
+            line = new Primitives::Lines(shared->canvas);
 
             this->styles.prepend(&TextStyles::TextDefaults);
             this->content = content;
@@ -216,7 +216,7 @@ export namespace Rev::Element {
         int getCursorPos(Core::Pos pos) {
 
             // Find intersecting line
-            for (Primitive::Text::Line& line : text->lines) {
+            for (Primitives::Text::Line& line : text->lines) {
 
                 if (line.rect.y > pos.y) { continue; }
                 if (line.rect.y + line.rect.h < pos.y) { continue; }
@@ -486,7 +486,7 @@ export namespace Rev::Element {
             float y = font->ascent;
 
             Font& fontRef = *font;
-            Primitive::Text::Line line = { "", idx, idx, { x, y, 0.0f, fontRef.lineHeight } };
+            Primitives::Text::Line line = { "", idx, idx, { x, y, 0.0f, fontRef.lineHeight } };
 
             int last = strContent.size() - 1;
 
@@ -592,7 +592,7 @@ export namespace Rev::Element {
             width = 0;
             height = 0;
 
-            for (Primitive::Text::Line& line : text->lines) {
+            for (Primitives::Text::Line& line : text->lines) {
                 height += line.rect.h;
                 width = std::max(width, line.rect.w);
             }
@@ -627,7 +627,7 @@ export namespace Rev::Element {
 
             float runningY = 0;
 
-            for (Primitive::Text::Line& line : text->lines) {
+            for (Primitives::Text::Line& line : text->lines) {
 
                 line.rect.x = std::round(rect.x + resolved.pad.l.val);
                 line.rect.y = std::round(runningY + rect.y + resolved.pad.t.val);
@@ -645,7 +645,7 @@ export namespace Rev::Element {
 
             line->lines.clear();
 
-            for (Primitive::Text::Line& line : text->lines) {
+            for (Primitives::Text::Line& line : text->lines) {
 
                 if (line.end + 1 < cursor) { continue; }
                 if (line.start > cursor) { continue; }
@@ -682,7 +682,7 @@ export namespace Rev::Element {
                 int rightMost = std::max(selectAnchor, selectEnd);
 
                 // Add select lines
-                for (Primitive::Text::Line& line : text->lines) {
+                for (Primitives::Text::Line& line : text->lines) {
 
                     // Skip if this line would not contain what we're looking for
                     if (line.end + 1 < leftMost) { continue; }

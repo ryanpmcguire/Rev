@@ -35,11 +35,11 @@ export namespace Rev::Element {
             };
 
                 Style LabelText = {
-                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 0.6) }
+                    .text = { .color = rgba(0, 0, 0, 0.6), .size = 12_px }
                 };
 
                 Style ValueText = {
-                    .text = { .size = 12_px, .color = rgba(0, 0, 0, 0.6) }
+                    .text = { .color = rgba(0, 0, 0, 0.6), .size = 12_px }
                 };
 
             Style Slider = {
@@ -53,7 +53,8 @@ export namespace Rev::Element {
 
                 Style SliderHover = {
                     .applies = { .hover = true, .drag = true },
-                    .background = { .color = rgba(203, 213, 223, 1.0) }
+                    .background = { .color = rgba(203, 213, 223, 1.0) },
+                    .border = { .color = rgba(255, 0, 0, 1.0), .width = 2_px, .transition = 0.5_sec }
                 };
 
                 Style Track = {
