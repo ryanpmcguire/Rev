@@ -38,10 +38,10 @@ export namespace Rev {
 
             bool decorated = true;
             bool resizable = true;
-
-            Details() {
-
-            }
+            bool borderless = false;
+            bool fullscreen = false;
+            
+            std::string display = "";
         };
 
         // Persistent event
@@ -57,7 +57,7 @@ export namespace Rev {
         Pos downPos = { 0, 0 };
 
         // With other Rev window as parent
-        Window(Window* parent, Details details = Details()) : Element(parent) {
+        Window(Window* parent, Details details) : Element(parent) {
             
             this->parent = parent;
             this->details = details;
@@ -65,6 +65,7 @@ export namespace Rev {
             window = new NativeWindow(
                 parent->window->handle,
                 { details.width, details.height },
+                details.borderless,
                 [this](WinEvent& event) { this->onEvent(event); }
             );
 
@@ -72,13 +73,14 @@ export namespace Rev {
         }
 
         // With native window as parent
-        Window(void* parent, Details details = Details()) : Element() {
+        Window(void* parent, Details details) : Element() {
 
             this->details = details;
 
             window = new NativeWindow(
                 parent,
                 { details.width, details.height },
+                details.borderless,
                 [this](WinEvent& event) { this->onEvent(event); }
             );
 
@@ -88,7 +90,7 @@ export namespace Rev {
         }
 
         // With application as parent
-        Window(std::vector<Window*>& group, Details details = Details()) : Element() {
+        Window(std::vector<Window*>& group, Details details) : Element() {
 
             this->parent = this;
             this->details = details;
@@ -97,6 +99,7 @@ export namespace Rev {
             window = new NativeWindow(
                 nullptr,
                 { details.width, details.height },
+                details.borderless,
                 [this](WinEvent& event) { this->onEvent(event); }
             );
 
@@ -160,6 +163,33 @@ export namespace Rev {
 
                     this->setPos(this->details.x, this->details.y);
                 });
+            }
+
+            // Follow guidelines supplied by details
+            //--------------------------------------------------
+
+            if (!details.display.empty()) {
+
+                std::vector<NativeWindow::Display> displays =
+                    NativeWindow::getDisplays();
+
+                for (NativeWindow::Display& display : displays) {
+
+                    if (display.friendlyName.find(details.display)
+                        == std::wstring::npos)
+                    {
+                        continue;
+                    }
+
+                    setRect(
+                        display.x,
+                        display.y,
+                        display.w,
+                        display.h
+                    );
+
+                    break;
+                }
             }
         }
 
@@ -414,6 +444,21 @@ export namespace Rev {
 
         void setPos(int x, int y) {
 
+            details.x = x;
+            details.y = y;
+
+            window->setPos(x, y);
+        }
+
+        void setRect(int x, int y, int w, int h) {
+
+            details.x = x;
+            details.y = y;
+
+            details.width = w;
+            details.height = h;
+
+            window->setRect(x, y, w, h);
         }
 
         // Responding to window events

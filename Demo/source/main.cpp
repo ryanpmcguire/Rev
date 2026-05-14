@@ -17,11 +17,11 @@ int main() {
 
     Application* application = new Application();
 
-    Window* window = new Window(application->windows);
+    Window* window = new Window(application->windows, {});
     Interface* interface = new Interface(window);
 
-    Window* window2 = new Window(application->windows);
-    //Interface* interface2 = new Interface(window2);
+    Window* window2 = new Window(application->windows, { .fullscreen = true, .borderless = true, .display = "CF329-XC" });
+    Interface* interface2 = new Interface(window2);
 
     application->run();
 

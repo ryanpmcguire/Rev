@@ -23,6 +23,8 @@ import Rev.Element.Chart;
 
 import Rev.Serial;
 
+import Rev.Window;
+
 export namespace HelloWorld {
 
     using namespace Rev;
@@ -94,6 +96,8 @@ export namespace HelloWorld {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
                 }
+
+            
 
             serial = new Rev::Serial("COM9", 250000);
 

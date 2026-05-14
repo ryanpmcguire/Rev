@@ -16,6 +16,9 @@ module;
 #include <windowsx.h>
 #include <windows.h>
 #include <shellscalingapi.h>
+#include <setupapi.h>
+#include <devguid.h>
+#include <regstr.h>
 
 // Misc
 #include <glew/glew.h>
@@ -186,15 +189,231 @@ export namespace Rev {
             }
         }
 
+        // Monitor Info
+        //--------------------------------------------------
+
+        struct Display {
+
+            HMONITOR handle;
+
+            std::string friendlyName;
+
+            int x, y, w, h;
+
+            bool primary = false;
+        };
+
+        static std::string narrow(const std::wstring& wide) {
+
+            if (wide.empty()) {
+                return "";
+            }
+
+            int size = WideCharToMultiByte(
+                CP_UTF8,
+                0,
+                wide.c_str(),
+                (int)wide.size(),
+                nullptr,
+                0,
+                nullptr,
+                nullptr
+            );
+
+            std::string result(size, 0);
+
+            WideCharToMultiByte(
+                CP_UTF8,
+                0,
+                wide.c_str(),
+                (int)wide.size(),
+                result.data(),
+                size,
+                nullptr,
+                nullptr
+            );
+
+            return result;
+        }
+
+        static std::string getFriendlyName(HMONITOR monitor) {
+
+            MONITORINFOEXW monInfo = {};
+            monInfo.cbSize = sizeof(monInfo);
+
+            if (!GetMonitorInfoW(monitor, &monInfo)) {
+                return "";
+            }
+
+            UINT32 pathCount = 0;
+            UINT32 modeCount = 0;
+
+            if (GetDisplayConfigBufferSizes(
+                QDC_ONLY_ACTIVE_PATHS,
+                &pathCount,
+                &modeCount
+            ) != ERROR_SUCCESS)
+            {
+                return "";
+            }
+
+            std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+            std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+
+            if (QueryDisplayConfig(
+                QDC_ONLY_ACTIVE_PATHS,
+                &pathCount,
+                paths.data(),
+                &modeCount,
+                modes.data(),
+                nullptr
+            ) != ERROR_SUCCESS)
+            {
+                return "";
+            }
+
+            for (const auto& path : paths) {
+
+                // Query SOURCE name
+                DISPLAYCONFIG_SOURCE_DEVICE_NAME source = {};
+
+                source.header.type =
+                    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+
+                source.header.size = sizeof(source);
+
+                source.header.adapterId =
+                    path.sourceInfo.adapterId;
+
+                source.header.id =
+                    path.sourceInfo.id;
+
+                if (DisplayConfigGetDeviceInfo(&source.header)
+                    != ERROR_SUCCESS)
+                {
+                    continue;
+                }
+
+                // Match this path to the monitor
+                if (wcscmp(
+                    source.viewGdiDeviceName,
+                    monInfo.szDevice
+                ) != 0)
+                {
+                    continue;
+                }
+
+                // Query TARGET name
+                DISPLAYCONFIG_TARGET_DEVICE_NAME target = {};
+
+                target.header.type =
+                    DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+
+                target.header.size = sizeof(target);
+
+                target.header.adapterId =
+                    path.targetInfo.adapterId;
+
+                target.header.id =
+                    path.targetInfo.id;
+
+                if (DisplayConfigGetDeviceInfo(&target.header)
+                    != ERROR_SUCCESS)
+                {
+                    continue;
+                }
+
+                std::wstring wide =
+                    target.monitorFriendlyDeviceName;
+
+                int size = WideCharToMultiByte(
+                    CP_UTF8,
+                    0,
+                    wide.c_str(),
+                    (int)wide.size(),
+                    nullptr,
+                    0,
+                    nullptr,
+                    nullptr
+                );
+
+                std::string result(size, 0);
+
+                WideCharToMultiByte(
+                    CP_UTF8,
+                    0,
+                    wide.c_str(),
+                    (int)wide.size(),
+                    result.data(),
+                    size,
+                    nullptr,
+                    nullptr
+                );
+
+                return result;
+            }
+
+            return "";
+        }
+
+        static std::vector<Display> getDisplays() {
+
+            std::vector<Display> displays;
+
+            EnumDisplayMonitors(
+                nullptr,
+                nullptr,
+                [](HMONITOR hMon, HDC, LPRECT, LPARAM user) -> BOOL {
+
+                    auto* out =
+                        reinterpret_cast<std::vector<Display>*>(user);
+
+                    MONITORINFOEXW info = {};
+                    info.cbSize = sizeof(info);
+
+                    GetMonitorInfoW(hMon, &info);
+
+                    std::string friendly =
+                        getFriendlyName(hMon);
+
+                    out->push_back({
+                        .handle = hMon,
+                        .friendlyName = friendly,
+
+                        .x = info.rcMonitor.left,
+                        .y = info.rcMonitor.top,
+
+                        .w = info.rcMonitor.right - info.rcMonitor.left,
+                        .h = info.rcMonitor.bottom - info.rcMonitor.top,
+
+                        .primary =
+                            bool(info.dwFlags & MONITORINFOF_PRIMARY)
+                    });
+
+                    return TRUE;
+                },
+                (LPARAM)&displays
+            );
+
+            return displays;
+        }
+
+        // Own data
+        //--------------------------------------------------
+
         struct Size {
             int w, h, minW, minH, maxW, maxH;
         };
 
-        using EventCallback = std::function<void(WinEvent&)>;
+        int posX, posY;
 
-        static constexpr LPCWSTR kClassName = L"Room360RawViewWindow";        
-        HWND handle = nullptr;
+        using EventCallback = std::function<void(WinEvent&)>;
         EventCallback callback;
+
+        static constexpr LPCWSTR kClassName = L"Room360RawViewWindow";
+
+        inline static HGLRC sharedRoot = nullptr;
+        HWND handle = nullptr;
         
         Size size;
         float scale = 1.0f;
@@ -203,7 +422,7 @@ export namespace Rev {
 
         bool dirty = false;
 
-        NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
+        NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, bool borderless = false, EventCallback callback = nullptr) {
             
             this->size = size;
             this->callback = callback;
@@ -258,6 +477,7 @@ export namespace Rev {
             // Determine style based off of parent HWDN, if present
             DWORD style = WS_VISIBLE;
             if (parentHwnd) { style |= WS_CHILD; }
+            else if (borderless) { style = WS_POPUP | WS_VISIBLE; }
             else { style |= WS_OVERLAPPEDWINDOW; }
 
             // When we ask for a size, the resulting window size includes the top bar, etc.
@@ -315,6 +535,44 @@ export namespace Rev {
             this->size.h = h;
             
             SetWindowPos(handle, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+        }
+
+        void setPos(int x, int y) {
+
+            posX = x;
+            posY = y;
+
+            SetWindowPos(
+                handle,
+                nullptr,
+                x,
+                y,
+                0,
+                0,
+                SWP_NOZORDER |
+                SWP_NOACTIVATE |
+                SWP_NOSIZE
+            );
+        }
+
+        void setRect(int x, int y, int w, int h) {
+
+            posX = x;
+            posY = y;
+
+            size.w = w;
+            size.h = h;
+
+            SetWindowPos(
+                handle,
+                nullptr,
+                x,
+                y,
+                w,
+                h,
+                SWP_NOZORDER |
+                SWP_NOACTIVATE
+            );
         }
 
         void setCursor(Element::Cursor newCursor) {
@@ -858,7 +1116,19 @@ export namespace Rev {
                     0
                 };
 
-                realRC = wglCreateContextAttribsARB(hdc, 0, ctxAttribs);
+                HGLRC share = nullptr;
+
+                // Explicitly establish the root context
+                if (sharedRoot) {
+                    share = sharedRoot;
+                }
+
+                realRC = wglCreateContextAttribsARB(hdc, share, ctxAttribs);
+
+                if (realRC && !sharedRoot) {
+                    sharedRoot = realRC;
+                }
+
                 if (realRC) { break; }
             }
 
