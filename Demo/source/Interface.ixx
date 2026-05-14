@@ -4,10 +4,13 @@ module;
 #include <cmath>
 #include <string>
 
+#include <dbg.hpp>
+
 export module Interface;
 
 import Rev.Element;
 import Rev.Element.Style;
+import Rev.Element.Event;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
@@ -18,12 +21,16 @@ import Rev.Element.Checkbox;
 import Rev.Element.TextInput;
 import Rev.Element.Chart;
 
+import Rev.Serial;
+
 export namespace HelloWorld {
 
     using namespace Rev;
     using namespace Rev::Element;
 
     struct Interface : public Box {
+
+        Rev::Serial* serial;
 
         // Create
         Interface(Element* parent) : Box(parent) {
@@ -40,7 +47,7 @@ export namespace HelloWorld {
                 .size = { .width = Grow(), .height = Grow(), .max = { .width = 100_pct } },
                 .margin = { 5_px, 5_px, 5_px, 5_px },
                 .padding = { 10_px, 10_px, 10_px, 10_px },
-                .background { .color = rgb(185, 82, 82) },
+                .background { .color = rgb(255, 255, 255) },
                 .border = { .radius = 10_px },
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
@@ -87,11 +94,42 @@ export namespace HelloWorld {
                     float t = float(i) / float(num);
                     chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
                 }
+
+            serial = new Rev::Serial("COM9", 250000);
+
+            if (!serial->connected()) {
+
+                dbg("Could not connect");
+            }
+
+            this->onKeyDown([this](Event& e) {
+                this->keyChange(e);
+            });
+
+            this->onKeyUp([this](Event& e) {
+                this->keyChange(e);
+            });
         }
 
         // Destroy
         ~Interface() {
 
+        }
+
+
+        void keyChange(Event& e) {
+
+            if (e.keyboard.arrows.left) { serial->sendByte('L'); }
+            else if (!e.keyboard.arrows.left) { serial->sendByte('l'); }
+
+            if (e.keyboard.arrows.right) { serial->sendByte('R'); }
+            else if (!e.keyboard.arrows.right) { serial->sendByte('r'); }
+
+            if (e.keyboard.arrows.down) { serial->sendByte('U'); }
+            else if (!e.keyboard.arrows.down) { serial->sendByte('u'); }
+
+            if (e.keyboard.arrows.up) { serial->sendByte('D'); }
+            else if (!e.keyboard.arrows.up) { serial->sendByte('d'); }
         }
     };
 };
