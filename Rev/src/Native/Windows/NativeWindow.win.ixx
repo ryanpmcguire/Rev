@@ -718,7 +718,7 @@ export namespace Rev {
             dbg("");
         }
 
-        void makeContextCurrent() {
+        void createContext() {
 
             if (!handle) { throw std::runtime_error("[NativeWindow] No window handle available"); }
 
@@ -892,6 +892,17 @@ export namespace Rev {
             }
         }
 
+        void makeContextCurrent() {
+
+            if (!hdc || !hglrc) {
+                throw std::runtime_error("[NativeWindow] Invalid GL context");
+            }
+
+            if (!wglMakeCurrent(hdc, hglrc)) {
+                throw std::runtime_error("[NativeWindow] wglMakeCurrent failed");
+            }
+        }
+        
         void swapBuffers() {
             if (hdc) {
                 this->dirty = false;

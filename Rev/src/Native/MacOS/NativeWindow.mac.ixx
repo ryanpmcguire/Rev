@@ -79,6 +79,7 @@ export namespace Rev {
             return event;
         }
 
+        void createContext();
         void makeContextCurrent() {};
         void loadGlFunctions() {};
 

@@ -101,7 +101,9 @@ export namespace Rev::Primitives {
         Text(Canvas* canvas) : Primitive(canvas) {
 
             // Create shared pipeline
-            shared.create([this]() { this->createShared(); });
+            shared.create([this]() {
+                this->createShared();
+            });
 
             vertices = new VertexBuffer(canvas->context, { .divisor = 1, .attribs = { 4 } });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));

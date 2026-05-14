@@ -291,6 +291,9 @@ export namespace Rev {
 
             //dbg("Drawing");
 
+            Graphics::Canvas& canvas = *shared->canvas;
+            canvas.beginFrame();
+
             // Reset before
             event.resetBeforeDispatch();
             shared->dirty.refresh.clear();
@@ -338,10 +341,9 @@ export namespace Rev {
 
             for (Element* element : topDown) { element->computePrimitives(e); }
 
-            Graphics::Canvas& canvas = *shared->canvas;
+            //raphics::Canvas& canvas = *shared->canvas;
             std::vector<Element*>& stencilStack = shared->stencilStack;
 
-            canvas.beginFrame();
             canvas.stencilReset(0);
 
             // Draw all elements

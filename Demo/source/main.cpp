@@ -21,7 +21,7 @@ int main() {
     Interface* interface = new Interface(window);
 
     Window* window2 = new Window(application->windows);
-    Interface* interface2 = new Interface(window2);
+    //Interface* interface2 = new Interface(window2);
 
     application->run();
 

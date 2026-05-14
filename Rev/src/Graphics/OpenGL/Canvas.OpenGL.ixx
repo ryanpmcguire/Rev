@@ -48,6 +48,7 @@ export namespace Rev::Graphics {
 
             this->window = window;
 
+            window->createContext();
             window->makeContextCurrent();
             window->loadGlFunctions();
 
@@ -71,6 +72,8 @@ export namespace Rev::Graphics {
         void beginFrame() {
             
             if (!window) { return; }
+
+            window->makeContextCurrent();
 
             // Ensure cache coherency (wait for flush) before proceeding
             // (this is because any changes to buffers need to make it to
