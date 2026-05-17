@@ -38,7 +38,7 @@ export namespace HelloWorld {
         Interface(Element* parent) : Box(parent) {
 
             // Self
-            this->style->layout = { Axis::Horizontal, Align::Start, Align::Start };
+            this->style->layout = { Axis::Horizontal, Align::Center, Align::Center };
             this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 100_px, 100_px, 100_px, 100_px };
@@ -53,6 +53,19 @@ export namespace HelloWorld {
                 .border = { .radius = 10_px },
                 .shadow = { .color = rgba(0, 0, 0, 0.5), .size = Px(-10), .blur = 20_px }
             };
+
+                Chart* chart = new Chart(greyBox);
+                
+                chart->style = {
+                    .size = { .width = 100_pct, .height = Grow(), .min = { .height = 100_px } },
+                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
+                };
+
+                size_t num = 1000;
+                for (size_t i = 0; i < num; i++) {
+                    float t = float(i) / float(num);
+                    chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
+                }
 
                 //Box* holder = new Box(greyBox);
                 for (size_t i = 0; i < 1; i++) {
@@ -83,22 +96,7 @@ export namespace HelloWorld {
                 Checkbox* checkbox = new Checkbox(greyBox);
 
                 TextInput* textInput = new TextInput(greyBox);
-
-                Chart* chart = new Chart(greyBox);
-                
-                chart->style = {
-                    .size = { .width = 100_pct, .height = Grow(), .min = { .height = 100_px } },
-                    .border = { .color = rgba(0, 0, 0, 0.1), .radius = 10_px, .width = 1_px, .transition = 200 }
-                };
-
-                size_t num = 1000;
-                for (size_t i = 0; i < num; i++) {
-                    float t = float(i) / float(num);
-                    chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
-                }
-
             
-
             serial = new Rev::Serial("COM9", 250000);
 
             if (!serial->connected()) {

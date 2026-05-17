@@ -7,6 +7,7 @@ module;
 export module Rev.Graphics.VertexBuffer;
 
 import Rev.Core.Vertex;
+import Rev.Core.Vertex3;
 
 export namespace Rev::Graphics {
 
@@ -61,7 +62,15 @@ export namespace Rev::Graphics {
             return static_cast<Vertex*>(data);
         }
 
+        Vertex3* verts3() {
+            return static_cast<Vertex3*>(data);
+        }
+
         void set(std::vector<Vertex> newVertices) {
+            memcpy(data, newVertices.data(), size);
+        }
+
+        void set3(std::vector<Vertex3> newVertices) {
             memcpy(data, newVertices.data(), size);
         }
 
