@@ -15,6 +15,9 @@ export namespace Rev::Graphics {
         void* context = nullptr;    // Unused for OpenGL implementation
 
         GLuint buffer = 0;
+
+        // This is still named stencil to avoid disturbing the rest of the
+        // framework, but it is now a combined depth/stencil renderbuffer.
         GLuint stencil = 0;
 
         Texture* texture = nullptr;
@@ -65,15 +68,36 @@ export namespace Rev::Graphics {
                 .channels = params.colorChannels
             });
 
-            // Create stencil buffer
+            // Create combined depth/stencil buffer.
+            //
+            // This preserves stencil functionality while also providing
+            // a depth buffer for View3D.
             glGenRenderbuffers(1, &stencil);
             glBindRenderbuffer(GL_RENDERBUFFER, stencil);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, width, height);
+            glRenderbufferStorage(
+                GL_RENDERBUFFER,
+                GL_DEPTH24_STENCIL8,
+                width,
+                height
+            );
 
             // Attach to framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, buffer);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture->id, 0);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, stencil);
+
+            glFramebufferTexture2D(
+                GL_FRAMEBUFFER,
+                GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D,
+                texture->id,
+                0
+            );
+
+            glFramebufferRenderbuffer(
+                GL_FRAMEBUFFER,
+                GL_DEPTH_STENCIL_ATTACHMENT,
+                GL_RENDERBUFFER,
+                stencil
+            );
 
             // Check completeness
             GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
