@@ -25,7 +25,8 @@ import Rev.Serial;
 
 import Rev.Window;
 
-import Rev.Element.View3D;
+import Rev.Element.View3d;
+import Rev.Element.View3d.Actor3d;
 
 export namespace HelloWorld {
 
@@ -34,7 +35,10 @@ export namespace HelloWorld {
 
     struct Interface : public Box {
 
-        View3D* view3d = nullptr;
+        View3d* view3d = nullptr;
+
+        Actor3D* cubeActor = nullptr;
+        bool cubeInView = false;
 
         // Create
         Interface(Element* parent) : Box(parent) {
@@ -45,12 +49,22 @@ export namespace HelloWorld {
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 10_px, 10_px, 10_px, 10_px };
 
-            view3d = new View3D(this);
+            view3d = new View3d(this);
+
+            cubeActor = Actor3D::Cube(shared->canvas);
+            view3d->addActor(cubeActor);
+            cubeInView = true;
         }
 
         // Destroy
         ~Interface() {
 
+            if (view3d && cubeActor) {
+                view3d->removeActor(cubeActor);
+            }
+
+            delete cubeActor;
+            cubeActor = nullptr;
         }
     };
 };

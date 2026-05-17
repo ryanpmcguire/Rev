@@ -71,7 +71,7 @@ export namespace Rev::Graphics {
             // Create combined depth/stencil buffer.
             //
             // This preserves stencil functionality while also providing
-            // a depth buffer for View3D.
+            // a depth buffer for View3d.
             glGenRenderbuffers(1, &stencil);
             glBindRenderbuffer(GL_RENDERBUFFER, stencil);
             glRenderbufferStorage(
