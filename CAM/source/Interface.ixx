@@ -22,11 +22,14 @@ import Rev.Element.TextInput;
 import Rev.Element.Chart;
 
 import Rev.Serial;
+import Rev.OS.File;
 
 import Rev.Window;
 
 import Rev.Element.View3d;
 import Rev.Element.View3d.Actor3d;
+
+import CAM.Step;
 
 export namespace HelloWorld {
 
@@ -37,8 +40,10 @@ export namespace HelloWorld {
 
         View3d* view3d = nullptr;
 
-        Actor3D* cubeActor = nullptr;
-        bool cubeInView = false;
+        Actor3D* partActor = nullptr;
+        bool partInView = false;
+
+        OS::File file = OS::File({ .pathname = "C:/Users/Ryan/Desktop/Ryan/recils/parts/Nut Mount (Cross Mounted) (Chamfered).STEP" });
 
         // Create
         Interface(Element* parent) : Box(parent) {
@@ -51,20 +56,40 @@ export namespace HelloWorld {
 
             view3d = new View3d(this);
 
-            cubeActor = Actor3D::Cube(shared->canvas);
-            view3d->addActor(cubeActor);
-            cubeInView = true;
+            try {
+
+                partActor = CAM::Step::ActorFromFile(
+                    shared->canvas,
+                    file
+                );
+
+                view3d->addActor(partActor);
+                partInView = true;
+
+                dbg("STEP actor loaded");
+                //dbg(file.string());
+            }
+
+            catch (const std::exception& e) {
+
+                dbg("Failed to load STEP actor");
+                dbg(e.what());
+            }
         }
 
         // Destroy
         ~Interface() {
 
-            if (view3d && cubeActor) {
-                view3d->removeActor(cubeActor);
+            if (view3d && partActor) {
+                view3d->removeActor(partActor);
             }
 
-            delete cubeActor;
-            cubeActor = nullptr;
+            delete partActor;
+            partActor = nullptr;
+        }
+
+        void keyDown(Event& e) override {
+
         }
     };
 };

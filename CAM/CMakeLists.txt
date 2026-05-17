@@ -52,7 +52,13 @@ target_sources(CAMDemo
     FILE_SET cxx_modules TYPE CXX_MODULES FILES ${MODULE_SOURCES}
 )
 
-target_link_libraries(CAMDemo PRIVATE Rev)
+find_package(OpenCASCADE REQUIRED)
+
+target_include_directories(CAMDemo PRIVATE
+    ${OpenCASCADE_INCLUDE_DIR}
+)
+
+target_link_libraries(CAMDemo PRIVATE Rev ${OpenCASCADE_LIBRARIES})
 
 target_compile_definitions(CAMDemo PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
