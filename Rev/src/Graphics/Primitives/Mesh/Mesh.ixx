@@ -70,17 +70,17 @@ export namespace Rev::Primitives {
         // We may own our triangles, or we may be given a pointer
         // to some other triangle vertex list.
         std::vector<Vertex3> triangles;
-        std::vector<Vertex3>* pTriangles;
+        std::vector<Vertex3>* pTriangles = nullptr;
 
-        size_t numFaces, numVerts;
+        size_t numFaces = 0;
+        size_t numVerts = 0;
 
         struct Params {
-
-            std::vector<Vertex3>* triangles;
+            std::vector<Vertex3>* triangles = nullptr;
         };
         
         // Create
-        Mesh(Canvas* canvas, Params params = {}) : Primitive(canvas) {
+        Mesh(Canvas* canvas, Params params) : Primitive(canvas) {
 
             // Set params
             //--------------------------------------------------
@@ -109,12 +109,30 @@ export namespace Rev::Primitives {
             delete databuff;
         }
 
+        std::vector<Vertex3>* getTriangles() {
+
+            if (pTriangles) {
+                return pTriangles;
+            }
+
+            return &triangles;
+        }
+
         void compute() override {
 
             data->color = color;
             data->depth = 0.5f;
 
-            std::vector<Vertex3>& rTriangles = *pTriangles;
+            std::vector<Vertex3>* pSource = getTriangles();
+
+            if (!pSource) {
+                numVerts = 0;
+                numFaces = 0;
+                vertices->resize(0);
+                return;
+            }
+
+            std::vector<Vertex3>& rTriangles = *pSource;
 
             // Each face is one triangle.
             numVerts = rTriangles.size();

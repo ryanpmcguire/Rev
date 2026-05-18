@@ -6,9 +6,13 @@ module;
 #include <vector>
 #include <limits>
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include <glew/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 export module Rev.Element.View3d;
 
@@ -34,6 +38,7 @@ export namespace Rev::Element {
             .overflow = Overflow::Hide,
             .size = { .width = Grow(), .height = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
+            .border = { .color = rgba(0, 0, 0, 1), .width = 1_px },
             .background = { .color = rgba(255, 255, 255, 0.05) }
         };
     };
@@ -49,6 +54,18 @@ export namespace Rev::Element {
             glm::vec4 eyePos;
         };
 
+        struct Hit {
+            bool hit = false;
+
+            Rev::Actor3D* actor = nullptr;
+
+            size_t triangleId = 0;
+
+            glm::vec3 point = { 0.0f, 0.0f, 0.0f };
+
+            float t = 0.0f;
+        };
+
         // View3d does NOT own these actors unless explicitly noted.
         std::vector<Rev::Actor3D*> actors;
 
@@ -61,8 +78,12 @@ export namespace Rev::Element {
         Core::Pos orbitMouse;
         bool hasOrbitPivot = false;
 
-        Pos yawPitch = { 0.65f, 0.45f };
-        Pos pinYawPitch;
+        glm::quat orientation = glm::normalize(
+            glm::angleAxis(0.65f, glm::vec3(0.0f, 1.0f, 0.0f)) *
+            glm::angleAxis(0.45f, glm::vec3(1.0f, 0.0f, 0.0f))
+        );
+
+        glm::quat pinOrientation = orientation;
 
         glm::vec3 target = { 0.0f, 0.0f, 0.0f };
         glm::vec3 pinTarget = { 0.0f, 0.0f, 0.0f };
@@ -92,12 +113,46 @@ export namespace Rev::Element {
 
         ~View3d() {
 
-            // View3d does not own arbitrary actors in actors.
-            // It only owns the temporary demo cube actor.
             actors.clear();
 
             delete cameraBuff;
             cameraBuff = nullptr;
+        }
+
+        // Canvas and view management
+        //--------------------------------------------------
+
+        float canvasWidth() {
+
+            float scale = shared->canvas->details.scale;
+
+            if (scale <= 0.0f) {
+                return std::max(float(shared->canvas->details.width), 1.0f);
+            }
+
+            return std::max(float(shared->canvas->details.width) / scale, 1.0f);
+        }
+
+        float canvasHeight() {
+
+            float scale = shared->canvas->details.scale;
+
+            if (scale <= 0.0f) {
+                return std::max(float(shared->canvas->details.height), 1.0f);
+            }
+
+            return std::max(float(shared->canvas->details.height) / scale, 1.0f);
+        }
+
+        float canvasAspect() {
+
+            float h = canvasHeight();
+
+            if (h <= 0.0f) {
+                return 1.0f;
+            }
+
+            return canvasWidth() / h;
         }
 
         // Actor list
@@ -116,7 +171,14 @@ export namespace Rev::Element {
 
         void removeActor(Rev::Actor3D* actor) {
 
-            actors.erase( std::remove(actors.begin(), actors.end(), actor), actors.end());
+            actors.erase(
+                std::remove(
+                    actors.begin(),
+                    actors.end(),
+                    actor
+                ),
+                actors.end()
+            );
 
             if (shared && shared->event) {
                 refresh(*shared->event); 
@@ -135,29 +197,47 @@ export namespace Rev::Element {
         // Camera
         //--------------------------------------------------
 
-        glm::vec3 worldOnTargetPlane(Core::Pos mousePos, float scale) {
+        glm::vec3 worldOnTargetPlane(
+            Core::Pos mousePos,
+            float scale
+        ) {
+            glm::vec3 rayOrigin;
+            glm::vec3 rayDir;
+
+            rayFromMouse(
+                mousePos,
+                rayOrigin,
+                rayDir
+            );
 
             glm::vec3 right;
             glm::vec3 up;
             glm::vec3 forward;
 
-            cameraBasis(right, up, forward);
-
-            float safeWidth = std::max(rect.w, 1.0f);
-            float safeHeight = std::max(rect.h, 1.0f);
-            float aspect = safeWidth / safeHeight;
-
-            float localX = mousePos.x - rect.x;
-            float localY = mousePos.y - rect.y;
-
-            float ndcX = (localX / safeWidth) * 2.0f - 1.0f;
-            float ndcY = 1.0f - (localY / safeHeight) * 2.0f;
-
-            return (
-                target
-                + right * (ndcX * scale * aspect)
-                + up * (ndcY * scale)
+            cameraBasis(
+                right,
+                up,
+                forward
             );
+
+            glm::vec3 planePoint = target;
+            glm::vec3 planeNormal = forward;
+
+            float denom = glm::dot(
+                rayDir,
+                planeNormal
+            );
+
+            if (std::abs(denom) < 1e-6f) {
+                return target;
+            }
+
+            float t = glm::dot(
+                planePoint - rayOrigin,
+                planeNormal
+            ) / denom;
+
+            return rayOrigin + rayDir * t;
         }
 
         glm::vec3 targetForScreenPoint(
@@ -165,26 +245,11 @@ export namespace Rev::Element {
             Core::Pos mousePos,
             float scale
         ) {
-            glm::vec3 right;
-            glm::vec3 up;
-            glm::vec3 forward;
-
-            cameraBasis(right, up, forward);
-
-            float safeWidth = std::max(rect.w, 1.0f);
-            float safeHeight = std::max(rect.h, 1.0f);
-            float aspect = safeWidth / safeHeight;
-
-            float localX = mousePos.x - rect.x;
-            float localY = mousePos.y - rect.y;
-
-            float ndcX = (localX / safeWidth) * 2.0f - 1.0f;
-            float ndcY = 1.0f - (localY / safeHeight) * 2.0f;
-
-            return (
-                worldPoint
-                - right * (ndcX * scale * aspect)
-                - up * (ndcY * scale)
+            return targetForScreenPointWithOrientation(
+                worldPoint,
+                mousePos,
+                scale,
+                orientation
             );
         }
 
@@ -193,19 +258,46 @@ export namespace Rev::Element {
             glm::vec3& rayOrigin,
             glm::vec3& rayDir
         ) {
-            glm::vec3 right;
-            glm::vec3 up;
-            glm::vec3 forward;
+            float safeWidth = canvasWidth();
+            float safeHeight = canvasHeight();
 
-            cameraBasis(right, up, forward);
+            float ndcX = (mousePos.x / safeWidth) * 2.0f - 1.0f;
+            float ndcY = 1.0f - (mousePos.y / safeHeight) * 2.0f;
 
-            glm::vec3 planePoint = worldOnTargetPlane(
-                mousePos,
-                orthoScale
+            glm::mat4 viewProj = viewProjMatrixFor(
+                orientation,
+                target
             );
 
-            rayOrigin = planePoint - forward * distance;
-            rayDir = forward;
+            glm::mat4 invViewProj = glm::inverse(
+                viewProj
+            );
+
+            glm::vec4 nearClip = {
+                ndcX,
+                ndcY,
+                -1.0f,
+                1.0f
+            };
+
+            glm::vec4 farClip = {
+                ndcX,
+                ndcY,
+                1.0f,
+                1.0f
+            };
+
+            glm::vec4 nearWorld = invViewProj * nearClip;
+            glm::vec4 farWorld = invViewProj * farClip;
+
+            nearWorld /= nearWorld.w;
+            farWorld /= farWorld.w;
+
+            rayOrigin = glm::vec3(nearWorld);
+
+            rayDir = glm::normalize(
+                glm::vec3(farWorld - nearWorld)
+            );
         }
 
         bool rayTriangle(
@@ -251,7 +343,7 @@ export namespace Rev::Element {
 
         bool hitTest(
             Core::Pos mousePos,
-            glm::vec3& hitPoint
+            Hit& outHit
         ) {
             glm::vec3 rayOrigin;
             glm::vec3 rayDir;
@@ -262,7 +354,8 @@ export namespace Rev::Element {
                 rayDir
             );
 
-            bool hit = false;
+            outHit = Hit();
+
             float bestT = std::numeric_limits<float>::max();
 
             for (Rev::Actor3D* actor : actors) {
@@ -271,7 +364,18 @@ export namespace Rev::Element {
                     continue;
                 }
 
-                std::vector<Core::Vertex3>& triangles = actor->triangles;
+                if (!actor->mesh) {
+                    continue;
+                }
+
+                std::vector<Core::Vertex3>* pTriangles =
+                    actor->mesh->getTriangles();
+
+                if (!pTriangles) {
+                    continue;
+                }
+
+                std::vector<Core::Vertex3>& triangles = *pTriangles;
 
                 for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
 
@@ -290,38 +394,60 @@ export namespace Rev::Element {
                     }
 
                     if (t < bestT) {
+
                         bestT = t;
-                        hit = true;
+
+                        outHit.hit = true;
+                        outHit.actor = actor;
+                        outHit.triangleId = i / 3;
+                        outHit.point = rayOrigin + rayDir * t;
+                        outHit.t = t;
                     }
                 }
             }
 
-            if (!hit) {
+            return outHit.hit;
+        }
+
+        bool hitTest(
+            Core::Pos mousePos,
+            glm::vec3& hitPoint
+        ) {
+            Hit hit;
+
+            if (!hitTest(mousePos, hit)) {
                 return false;
             }
 
-            hitPoint = rayOrigin + rayDir * bestT;
+            hitPoint = hit.point;
 
             return true;
         }
 
         glm::mat4 cameraRotation() {
 
-            glm::mat4 r = glm::mat4(1.0f);
+            return glm::toMat4(
+                orientation
+            );
+        }
 
-            r = glm::rotate(
-                r,
-                yawPitch.x,
-                glm::vec3(0.0f, 1.0f, 0.0f)
+        void cameraBasisFor(
+            glm::quat q,
+            glm::vec3& right,
+            glm::vec3& up,
+            glm::vec3& forward
+        ) {
+            right = glm::normalize(
+                q * glm::vec3(1.0f, 0.0f, 0.0f)
             );
 
-            r = glm::rotate(
-                r,
-                yawPitch.y,
-                glm::vec3(1.0f, 0.0f, 0.0f)
+            up = glm::normalize(
+                q * glm::vec3(0.0f, 1.0f, 0.0f)
             );
 
-            return r;
+            forward = glm::normalize(
+                q * glm::vec3(0.0f, 0.0f, -1.0f)
+            );
         }
 
         void cameraBasis(
@@ -329,25 +455,94 @@ export namespace Rev::Element {
             glm::vec3& up,
             glm::vec3& forward
         ) {
-            glm::mat4 rot = cameraRotation();
+            cameraBasisFor(
+                orientation,
+                right,
+                up,
+                forward
+            );
+        }
 
-            right = glm::normalize(
-                glm::vec3(rot * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f))
+        glm::mat4 viewMatrixFor(
+            glm::quat q,
+            glm::vec3 cameraTarget
+        ) {
+            glm::vec3 right;
+            glm::vec3 up;
+            glm::vec3 forward;
+
+            cameraBasisFor(
+                q,
+                right,
+                up,
+                forward
             );
 
-            up = glm::normalize(
-                glm::vec3(rot * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f))
+            glm::vec3 eye = cameraTarget - forward * distance;
+
+            return glm::lookAt(
+                eye,
+                cameraTarget,
+                up
+            );
+        }
+
+        glm::mat4 projectionMatrix() {
+
+            float aspect = canvasAspect();
+
+            return glm::ortho(
+                -orthoScale * aspect,
+                orthoScale * aspect,
+                -orthoScale,
+                orthoScale,
+                -100.0f,
+                100.0f
+            );
+        }
+
+        glm::mat4 viewProjMatrixFor(
+            glm::quat q,
+            glm::vec3 cameraTarget
+        ) {
+            return projectionMatrix() * viewMatrixFor(
+                q,
+                cameraTarget
+            );
+        }
+
+        glm::vec3 targetForScreenPointWithOrientation(
+            glm::vec3 worldPoint,
+            Core::Pos mousePos,
+            float scale,
+            glm::quat q
+        ) {
+            glm::vec3 right;
+            glm::vec3 up;
+            glm::vec3 forward;
+
+            cameraBasisFor(
+                q,
+                right,
+                up,
+                forward
             );
 
-            forward = glm::normalize(
-                glm::vec3(rot * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f))
+            float safeWidth = canvasWidth();
+            float safeHeight = canvasHeight();
+            float aspect = safeWidth / safeHeight;
+
+            float ndcX = (mousePos.x / safeWidth) * 2.0f - 1.0f;
+            float ndcY = 1.0f - (mousePos.y / safeHeight) * 2.0f;
+
+            return (
+                worldPoint
+                - right * (ndcX * scale * aspect)
+                - up * (ndcY * scale)
             );
         }
 
         void updateCamera() {
-
-            float safeHeight = std::max(rect.h, 1.0f);
-            float aspect = rect.w / safeHeight;
 
             glm::vec3 right;
             glm::vec3 up;
@@ -361,24 +556,12 @@ export namespace Rev::Element {
 
             glm::vec3 eye = target - forward * distance;
 
-            glm::mat4 view = glm::lookAt(
-                eye,
-                target,
-                up
-            );
-
-            glm::mat4 proj = glm::ortho(
-                -orthoScale * aspect,
-                orthoScale * aspect,
-                -orthoScale,
-                orthoScale,
-                -100.0f,
-                100.0f
-            );
-
             CameraData data;
 
-            data.viewProj = proj * view;
+            data.viewProj = viewProjMatrixFor(
+                orientation,
+                target
+            );
 
             glm::vec3 light = glm::normalize(
                 glm::vec3(-0.4f, 0.8f, 0.6f)
@@ -408,16 +591,17 @@ export namespace Rev::Element {
 
         void mouseDown(Event& e) override {
 
-            pinYawPitch = yawPitch;
-            pinTarget = target;
-
             orbitMouse = e.mouse.pos;
-            hasOrbitPivot = hitTest(
-                e.mouse.pos,
-                orbitPivot
-            );
+            hasOrbitPivot = false;
 
-            if (!hasOrbitPivot) {
+            Hit hit;
+
+            if (hitTest(e.mouse.pos, hit)) {
+                orbitPivot = hit.point;
+                hasOrbitPivot = true;
+            }
+
+            else {
                 orbitPivot = worldOnTargetPlane(
                     e.mouse.pos,
                     orthoScale
@@ -425,6 +609,16 @@ export namespace Rev::Element {
 
                 hasOrbitPivot = true;
             }
+
+            target = targetForScreenPointWithOrientation(
+                orbitPivot,
+                orbitMouse,
+                orthoScale,
+                orientation
+            );
+
+            pinOrientation = orientation;
+            pinTarget = target;
 
             Box::mouseDown(e);
         }
@@ -439,7 +633,8 @@ export namespace Rev::Element {
                 glm::vec3 up;
                 glm::vec3 forward;
 
-                cameraBasis(
+                cameraBasisFor(
+                    pinOrientation,
                     right,
                     up,
                     forward
@@ -458,14 +653,47 @@ export namespace Rev::Element {
 
             else {
 
-                yawPitch.x = pinYawPitch.x - e.mouse.diff.x * rotateSensitivity;
-                yawPitch.y = pinYawPitch.y - e.mouse.diff.y * rotateSensitivity;
+                glm::vec3 pinRight;
+                glm::vec3 pinUp;
+                glm::vec3 pinForward;
+
+                cameraBasisFor(
+                    pinOrientation,
+                    pinRight,
+                    pinUp,
+                    pinForward
+                );
+
+                float yawAngle =
+                    -e.mouse.diff.x * rotateSensitivity;
+
+                float pitchAngle =
+                    -e.mouse.diff.y * rotateSensitivity;
+
+                glm::quat yawRotation = glm::angleAxis(
+                    yawAngle,
+                    pinUp
+                );
+
+                glm::quat pitchRotation = glm::angleAxis(
+                    pitchAngle,
+                    pinRight
+                );
+
+                glm::quat nextOrientation = glm::normalize(
+                    pitchRotation *
+                    yawRotation *
+                    pinOrientation
+                );
+
+                orientation = nextOrientation;
 
                 if (hasOrbitPivot) {
-                    target = targetForScreenPoint(
+                    target = targetForScreenPointWithOrientation(
                         orbitPivot,
                         orbitMouse,
-                        orthoScale
+                        orthoScale,
+                        nextOrientation
                     );
                 }
             }

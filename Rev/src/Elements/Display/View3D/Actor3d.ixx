@@ -24,6 +24,7 @@ export namespace Rev {
         // If true, Actor3D owns the triangle data used by mesh.
         bool ownsTriangles = false;
 
+        std::vector<Core::Vertex3>* pTriangles = nullptr;
         std::vector<Core::Vertex3> triangles;
 
         // Later:
@@ -89,6 +90,15 @@ export namespace Rev {
             return v;
         }
 
+        std::vector<Core::Vertex3>* getTriangles() {
+
+            if (mesh->pTriangles) {
+                return mesh->pTriangles;
+            }
+
+            return &(mesh->triangles);
+        }
+
         static void pushTriangle(
             std::vector<Core::Vertex3>& out,
             Core::Vertex3 a,
@@ -109,102 +119,6 @@ export namespace Rev {
         ) {
             pushTriangle(out, a, b, c);
             pushTriangle(out, a, c, d);
-        }
-
-        static void buildCubeTriangles(
-            std::vector<Core::Vertex3>& out
-        ) {
-            out.clear();
-
-            Core::Color color = {
-                0.75f,
-                0.75f,
-                0.82f,
-                1.0f
-            };
-
-            float s = 1.0f;
-
-            // Front, +Z
-            pushQuad(
-                out,
-                makeVertex(-s, -s,  s, color, 0, 0, 1),
-                makeVertex( s, -s,  s, color, 0, 0, 1),
-                makeVertex( s,  s,  s, color, 0, 0, 1),
-                makeVertex(-s,  s,  s, color, 0, 0, 1)
-            );
-
-            // Back, -Z
-            pushQuad(
-                out,
-                makeVertex( s, -s, -s, color, 0, 0, -1),
-                makeVertex(-s, -s, -s, color, 0, 0, -1),
-                makeVertex(-s,  s, -s, color, 0, 0, -1),
-                makeVertex( s,  s, -s, color, 0, 0, -1)
-            );
-
-            // Left, -X
-            pushQuad(
-                out,
-                makeVertex(-s, -s, -s, color, -1, 0, 0),
-                makeVertex(-s, -s,  s, color, -1, 0, 0),
-                makeVertex(-s,  s,  s, color, -1, 0, 0),
-                makeVertex(-s,  s, -s, color, -1, 0, 0)
-            );
-
-            // Right, +X
-            pushQuad(
-                out,
-                makeVertex( s, -s,  s, color, 1, 0, 0),
-                makeVertex( s, -s, -s, color, 1, 0, 0),
-                makeVertex( s,  s, -s, color, 1, 0, 0),
-                makeVertex( s,  s,  s, color, 1, 0, 0)
-            );
-
-            // Top, +Y
-            pushQuad(
-                out,
-                makeVertex(-s,  s,  s, color, 0, 1, 0),
-                makeVertex( s,  s,  s, color, 0, 1, 0),
-                makeVertex( s,  s, -s, color, 0, 1, 0),
-                makeVertex(-s,  s, -s, color, 0, 1, 0)
-            );
-
-            // Bottom, -Y
-            pushQuad(
-                out,
-                makeVertex(-s, -s, -s, color, 0, -1, 0),
-                makeVertex( s, -s, -s, color, 0, -1, 0),
-                makeVertex( s, -s,  s, color, 0, -1, 0),
-                makeVertex(-s, -s,  s, color, 0, -1, 0)
-            );
-        }
-
-        static Actor3D* Cube(
-            Graphics::Canvas* canvas
-        ) {
-            Actor3D* actor = new Actor3D();
-
-            actor->visible = true;
-            actor->ownsMesh = true;
-            actor->ownsTriangles = true;
-
-            buildCubeTriangles(
-                actor->triangles
-            );
-
-            actor->mesh = new Primitives::Mesh(canvas, {
-                .triangles = &actor->triangles
-            });
-
-            actor->mesh->color = {
-                0.75f,
-                0.75f,
-                0.82f,
-                1.0f
-            };
-
-            return actor;
         }
     };
 }

@@ -48,6 +48,8 @@ export namespace Rev::Element {
             Graphics::Canvas* canvas = nullptr;
             std::vector<Element*> stencilStack;
 
+            void* state = nullptr;
+
             Event* event = nullptr;
         };
 
