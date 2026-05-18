@@ -1,0 +1,26 @@
+#version 430 core
+
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec4 aColor;
+layout(location = 2) in vec3 aNormal;
+layout(location = 3) in float a;
+layout(location = 4) in float b;
+
+layout(std140, binding = 1) uniform Data {
+    vec4 uColor;
+    float depth, pad1, pad2, pad3;
+};
+
+layout(std140, binding = 2) uniform Camera {
+    mat4 uViewProj;
+    vec4 uLightDir;
+    vec4 uEyePos;
+};
+
+out vec4 vColor;
+
+void main()
+{
+    vColor = (aColor.a != 0.0) ? aColor : uColor;
+    gl_Position = uViewProj * vec4(aPos, 1.0);
+}

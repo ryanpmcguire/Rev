@@ -5,7 +5,7 @@ module;
 
 #include <managed.hpp>
 
-export module Rev.Primitive.Mesh;
+export module Rev.Primitive.Mesh3d;
 
 import Rev.Primitive;
 import Rev.Core.Resource;
@@ -21,7 +21,7 @@ import Rev.Graphics.Shader;
 
 export namespace Rev::Primitives {
 
-    struct Mesh : public Primitive {
+    struct Mesh3d : public Primitive {
 
         // Shared
         //--------------------------------------------------
@@ -33,9 +33,9 @@ export namespace Rev::Primitives {
                 .instanced = false,
                 .attribs = Vertex3::attribs,
 
-                .openGlVert = File("./Shaders/Mesh.vert"),
-                .openGlFrag = File("./Shaders/Mesh.frag"),
-                .metalUniversal = File("./Shaders/Mesh.metal")
+                .openGlVert = File("./Shaders/Mesh3d.vert"),
+                .openGlFrag = File("./Shaders/Mesh3d.frag"),
+                .metalUniversal = File("./Shaders/Mesh3d.metal")
             });
         }
 
@@ -80,7 +80,7 @@ export namespace Rev::Primitives {
         };
         
         // Create
-        Mesh(Canvas* canvas, Params params) : Primitive(canvas) {
+        Mesh3d(Canvas* canvas, Params params) : Primitive(canvas) {
 
             // Set params
             //--------------------------------------------------
@@ -100,7 +100,7 @@ export namespace Rev::Primitives {
         }
 
         // Destroy
-        ~Mesh() {
+        ~Mesh3d() {
 
             // Destroy shared pipeline
             shared.destroy([this]() { this->destroyShared(); });

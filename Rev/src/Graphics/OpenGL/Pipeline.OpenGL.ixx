@@ -20,7 +20,8 @@ export namespace Rev::Graphics {
 
         enum Topology {
             TriangleFan = GL_TRIANGLE_FAN,
-            TriangleList = GL_TRIANGLES
+            TriangleList = GL_TRIANGLES,
+            LineList = GL_LINES
         };
 
         GLuint id = 0;

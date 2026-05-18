@@ -33,7 +33,7 @@ export namespace Rev::Element::View3d {
             .overflow = Overflow::Hide,
             .size = { .width = Grow(), .height = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
-            .border = { .color = rgba(0, 0, 0, 1), .width = 1_px },
+            //.border = { .color = rgba(0, 0, 0, 1), .width = 1_px },
             .background = { .color = rgba(255, 255, 255, 0.05) }
         };
     };
@@ -124,6 +124,43 @@ export namespace Rev::Element::View3d {
             }
 
             return std::max(float(shared->canvas->details.height) / scale, 1.0f);
+        }
+
+        void fitToActors() {
+
+            glm::vec3 sceneMin;
+            glm::vec3 sceneMax;
+
+            bool valid = false;
+
+            for (View3d::Actor* actor : actors) {
+
+                if (!actor || !actor->visible) { continue; }
+
+                glm::vec3 actorMin;
+                glm::vec3 actorMax;
+
+                if (!actor->bounds(actorMin, actorMax)) { continue; }
+
+                if (!valid) {
+                    sceneMin = actorMin;
+                    sceneMax = actorMax;
+                    valid = true;
+                    continue;
+                }
+
+                sceneMin = glm::min(sceneMin, actorMin);
+                sceneMax = glm::max(sceneMax, actorMax);
+            }
+
+            if (!valid) { return; }
+
+            camera.fitBounds(
+                sceneMin,
+                sceneMax,
+                canvasWidth(),
+                canvasHeight()
+            );
         }
 
         // Actor list
@@ -257,64 +294,38 @@ export namespace Rev::Element::View3d {
 
         void mouseDown(Event& e) override {
 
-            orbit.mouse = e.mouse.pos;
-            orbit.hasPivot = false;
-
             Hit hit;
+            glm::vec3 pivot;
 
             if (hitTest(e.mouse.pos, hit)) {
-
-                orbit.pivot = hit.point;
-                orbit.hasPivot = true;
+                pivot = hit.point;
             }
 
             else {
-
-                orbit.pivot = camera.worldOnTargetPlane(
+                pivot = camera.worldOnTargetPlane(
                     e.mouse.pos,
                     canvasWidth(),
                     canvasHeight()
                 );
-
-                orbit.hasPivot = true;
             }
 
-            camera.target = camera.targetForScreenPoint(
-                orbit.pivot,
-                orbit.mouse,
+            camera.mouseDown(
+                e,
+                pivot,
                 canvasWidth(),
                 canvasHeight()
             );
-
-            camera.pin();
 
             Box::mouseDown(e);
         }
 
         void mouseDrag(Event& e) override {
 
-            if (e.keyboard.shift) {
-
-                camera.panFromPinned(
-                    e.mouse.diff,
-                    canvasWidth(),
-                    canvasHeight()
-                );
-            }
-
-            else {
-
-                if (orbit.hasPivot) {
-
-                    camera.orbitFromPinned(
-                        e.mouse.diff,
-                        orbit.pivot,
-                        orbit.mouse,
-                        canvasWidth(),
-                        canvasHeight()
-                    );
-                }
-            }
+            camera.mouseDrag(
+                e,
+                canvasWidth(),
+                canvasHeight()
+            );
 
             refresh(e);
 
@@ -323,9 +334,8 @@ export namespace Rev::Element::View3d {
 
         void mouseWheel(Event& e) override {
 
-            camera.zoomAtMouse(
-                e.mouse.pos,
-                e.mouse.wheel.y,
+            camera.mouseWheel(
+                e,
                 canvasWidth(),
                 canvasHeight()
             );

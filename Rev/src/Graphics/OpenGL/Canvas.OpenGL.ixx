@@ -227,7 +227,7 @@ export namespace Rev::Graphics {
         }
 
         void drawArraysInstanced(Pipeline::Topology topology, size_t start, size_t verticesPer, size_t numInstances) {
-            glDrawArraysInstanced(GL_TRIANGLE_FAN, start, verticesPer, numInstances);
+            glDrawArraysInstanced(topology, start, verticesPer, numInstances);
         }
     };
 };

@@ -141,7 +141,7 @@ export namespace Rev::Primitives {
             databuff->bind(1);
 
             canvas->stencilWrite(true);
-            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleFan, 0, 6, 1);
             canvas->stencilWrite(false);
         }
 
@@ -152,7 +152,7 @@ export namespace Rev::Primitives {
             vertices->bind();
             databuff->bind(1);
 
-            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleFan, 0, 6, 1);
         }
     };
 };

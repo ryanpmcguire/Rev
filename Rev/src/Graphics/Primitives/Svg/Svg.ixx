@@ -124,7 +124,7 @@ export namespace Rev::Primitives {
             databuff->bind(1);
             svg->texture->bind(0);
 
-            canvas->drawArraysInstanced(Pipeline::Topology::TriangleList, 0, 6, 1);
+            canvas->drawArraysInstanced(Pipeline::Topology::TriangleFan, 0, 6, 1);
         }
     };
 };
