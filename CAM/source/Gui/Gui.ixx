@@ -49,9 +49,9 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
 
         MaterialStates* materialStates = nullptr;
-        View3d* view3d = nullptr;
+        View3d::View* view3d = nullptr;
 
-        Actor3D* partActor = nullptr;
+        View3d::Actor* partActor = nullptr;
         bool partInView = false;
 
         // Create
@@ -70,7 +70,7 @@ export namespace Cam::Gui {
 
             materialStates = new MaterialStates(this);
 
-            view3d = new View3d(this);
+            view3d = new View3d::View(this);
 
             materialStates->onSelectState = [this](Event& e) {
                 syncActorToDisplayedModel(e);
@@ -81,14 +81,20 @@ export namespace Cam::Gui {
 
             try {
 
-                partActor = new Actor3D();
+                Cam::App::Model* displayed = app->getDisplayedModel();
+
+                if (!displayed) {
+                    throw std::runtime_error("No displayed model.");
+                }
+
+                partActor = new View3d::Actor();
 
                 partActor->visible = true;
                 partActor->ownsMesh = true;
                 partActor->ownsTriangles = false;
 
                 partActor->mesh = new Primitives::Mesh(shared->canvas, {
-                    .triangles = &app->model.render.triangles
+                    .triangles = &displayed->render.triangles
                 });
 
                 partActor->mesh->color = {
@@ -127,19 +133,46 @@ export namespace Cam::Gui {
         // Model display management
         //--------------------------------------------------
 
+        Cam::App::Model* displayedModel() {
+
+            if (!app) {
+                return nullptr;
+            }
+
+            return app->getDisplayedModel();
+        }
+
+        bool displayedModelIsEditable() {
+
+            if (!app) {
+                return false;
+            }
+
+            return (
+                app->displayedState &&
+                app->workingState &&
+                app->displayedState == app->workingState
+            );
+        }
+
         void syncActorToDisplayedModel(Event& e) {
 
-            if (!app || !app->displayedModel || !partActor || !partActor->mesh) {
+            Cam::App::Model* displayed = displayedModel();
+
+            if (!displayed || !partActor || !partActor->mesh) {
                 return;
             }
 
-            partActor->mesh->pTriangles = &app->displayedModel->render.triangles;
+            partActor->mesh->pTriangles = &displayed->render.triangles;
 
             applyFaceColors();
 
             partActor->mesh->compute();
 
-            view3d->refresh(e);
+            if (view3d) {
+                view3d->refresh(e);
+            }
+
             refresh(e);
         }
 
@@ -148,7 +181,9 @@ export namespace Cam::Gui {
 
         void applyFaceColors() {
 
-            if (!app || !partActor || !partActor->mesh) {
+            Cam::App::Model* displayed = displayedModel();
+
+            if (!displayed || !partActor || !partActor->mesh) {
                 return;
             }
 
@@ -160,7 +195,7 @@ export namespace Cam::Gui {
             }
 
             std::vector<Rev::Core::Vertex3>& triangles = *pTriangles;
-            std::vector<size_t>& triangleFaceIds = app->model.render.triangleFaceIds;
+            std::vector<size_t>& triangleFaceIds = displayed->render.triangleFaceIds;
 
             Rev::Core::Color base = {
                 0.0f,
@@ -185,7 +220,7 @@ export namespace Cam::Gui {
                 }
 
                 Rev::Core::Color color = (
-                    app->model.isFaceSelected(triangleFaceIds[tri])
+                    displayed->isFaceSelected(triangleFaceIds[tri])
                     ? selected
                     : base
                 );
@@ -204,6 +239,17 @@ export namespace Cam::Gui {
                 return;
             }
 
+            if (!displayedModelIsEditable()) {
+                dbg("Selected material state is read-only. Select the working state to edit.");
+                return;
+            }
+
+            Cam::App::Model* displayed = displayedModel();
+
+            if (!displayed) {
+                return;
+            }
+
             View3d::Hit hit;
 
             if (!view3d->hitTest(e.mouse.pos, hit)) {
@@ -216,13 +262,13 @@ export namespace Cam::Gui {
 
             size_t tri = hit.triangleId;
 
-            if (tri >= app->model.render.triangleFaceIds.size()) {
+            if (tri >= displayed->render.triangleFaceIds.size()) {
                 return;
             }
 
-            size_t faceId = app->model.render.triangleFaceIds[tri];
+            size_t faceId = displayed->render.triangleFaceIds[tri];
 
-            app->model.toggleFace(faceId);
+            displayed->toggleFace(faceId);
 
             applyFaceColors();
 
@@ -248,18 +294,15 @@ export namespace Cam::Gui {
 
         void keyDown(Event& e) override {
 
-            if (e.keyboard.del) {
+            if (e.keyboard.key == "delete" || e.keyboard.del) {
 
                 if (app && app->defeatureSelected()) {
 
-                    applyFaceColors();
+                    syncActorToDisplayedModel(e);
 
-                    if (partActor && partActor->mesh) {
-                        partActor->mesh->compute();
+                    if (materialStates) {
+                        materialStates->refresh(e);
                     }
-
-                    view3d->refresh(e);
-                    refresh(e);
 
                     dbg("defeatured selected faces");
                 }
@@ -272,22 +315,21 @@ export namespace Cam::Gui {
                 return;
             }
 
-            if (e.keyboard.input == "c" || e.keyboard.input == "C") {
+            if (e.keyboard.key == "enter" || e.keyboard.enter) {
 
-                if (app) {
-                    app->commitMaterialState();
+                if (app && app->commitWorkingState()) {
 
-                    applyFaceColors();
-
-                    if (partActor && partActor->mesh) {
-                        partActor->mesh->compute();
+                    if (materialStates) {
+                        materialStates->refresh(e);
                     }
 
-                    view3d->refresh(e);
-                    refresh(e);
+                    syncActorToDisplayedModel(e);
 
-                    dbg("committed material state");
-                    //dbg(app->materialStateCount());
+                    dbg("committed working material state");
+                }
+
+                else {
+                    dbg("commit ignored");
                 }
 
                 e.propagate = false;

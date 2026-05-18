@@ -1,11 +1,14 @@
 module;
 
+#include <string>
 #include <vector>
 
 export module Cam.App;
 
 import Rev.OS.File;
+
 import Cam.App.Model;
+import Cam.App.MaterialState;
 
 export namespace Cam::App {
 
@@ -15,120 +18,116 @@ export namespace Cam::App {
             .pathname = "C:/Users/Ryan/Desktop/Ryan/recils/parts/Nut Mount (Cross Mounted) (Chamfered).STEP"
         });
 
-        // Current working / preview model.
-        // Delete/defeature operations happen here first.
-        Model model;
+        std::vector<MaterialState*> states;
 
-        // Committed material states.
-        // State 0 is the final loaded STEP model and should not be modified.
-        std::vector<Model> materialStates;
-
-        // Display management.
-        //
-        // Normally this points at `model` while working.
-        // When the user clicks a committed material state in the UI,
-        // this points at materialStates[index].
-        Model* displayedModel = nullptr;
-        size_t displayedMaterialState = 0;
-        bool displayingWorkingModel = true;
+        MaterialState* rootState = nullptr;
+        MaterialState* latestCommittedState = nullptr;
+        MaterialState* workingState = nullptr;
+        MaterialState* displayedState = nullptr;
 
         AppState() {
-
             loadDefaultModel();
+        }
+
+        ~AppState() {
+
+            for (MaterialState* state : states) {
+                delete state;
+            }
+
+            states.clear();
         }
 
         void loadDefaultModel() {
 
-            model.loadStep(file);
-            model.clearSelection();
+            for (MaterialState* state : states) {
+                delete state;
+            }
 
-            materialStates.clear();
-            materialStates.push_back(model);
+            states.clear();
 
-            displayedModel = &model;
-            displayedMaterialState = 0;
-            displayingWorkingModel = true;
+            rootState = MaterialState::FromStep(file);
+
+            states.push_back(rootState);
+
+            latestCommittedState = rootState;
+
+            workingState = MaterialState::FromPriorState(latestCommittedState);
+            states.push_back(workingState);
+
+            displayedState = workingState;
         }
-
-        // Display selection
-        //--------------------------------------------------
 
         Model* getDisplayedModel() {
 
-            if (displayedModel) {
-                return displayedModel;
+            if (!displayedState) {
+                return nullptr;
             }
 
-            return &model;
+            return &displayedState->model;
         }
 
-        void displayWorkingModel() {
+        void displayState(MaterialState* state) {
 
-            displayedModel = &model;
-            displayingWorkingModel = true;
-        }
-
-        void displayMaterialState(size_t index) {
-
-            if (index >= materialStates.size()) {
+            if (!state) {
                 return;
             }
 
-            displayedModel = &materialStates[index];
-            displayedMaterialState = index;
-            displayingWorkingModel = false;
+            displayedState = state;
         }
-
-        bool isDisplayingMaterialState(size_t index) const {
-
-            if (displayingWorkingModel) {
-                return false;
-            }
-
-            return displayedMaterialState == index;
-        }
-
-        // Model operations
-        //--------------------------------------------------
 
         bool defeatureSelected() {
 
-            displayWorkingModel();
-
-            bool ok = model.defeatureSelected();
-
-            if (ok) {
-                model.clearSelection();
+            if (!workingState) {
+                return false;
             }
 
-            return ok;
+            displayedState = workingState;
+
+            return workingState->model.defeatureSelected();
         }
 
-        void commitMaterialState() {
+        bool commitWorkingState() {
 
-            Model committed = model;
-            committed.clearSelection();
+            if (!workingState) {
+                return false;
+            }
 
-            materialStates.push_back(committed);
+            if (!workingState->model.changed) {
+                return false;
+            }
 
-            displayedMaterialState = materialStates.size() - 1;
-            displayMaterialState(displayedMaterialState);
+            workingState->model.clearSelection();
+            workingState->model.changed = false;
 
-            model.clearSelection();
+            workingState->committed = true;
+            workingState->working = false;
+            workingState->name = "Material State " + std::to_string(committedCount());
+
+            latestCommittedState = workingState;
+
+            workingState = MaterialState::FromPriorState(latestCommittedState);
+            states.push_back(workingState);
+
+            displayedState = workingState;
+
+            return true;
         }
 
-        size_t materialStateCount() const {
+        size_t committedCount() const {
 
-            return materialStates.size();
-        }
+            size_t count = 0;
 
-        Model& materialState(size_t index) {
+            for (MaterialState* state : states) {
+                if (state && state->committed) {
+                    count += 1;
+                }
+            }
 
-            return materialStates[index];
+            return count;
         }
 
         static AppState* Get(void* pState) {
-
             return static_cast<AppState*>(pState);
         }
     };

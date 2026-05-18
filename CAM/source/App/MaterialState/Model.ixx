@@ -39,8 +39,6 @@ export namespace Cam::App {
 
     struct Model {
 
-        Rev::OS::File stepFile;
-
         TopoDS_Shape shape;
         std::vector<TopoDS_Face> faces;
 
@@ -67,6 +65,19 @@ export namespace Cam::App {
         std::set<size_t> selectedFaceIds;
 
         bool loaded = false;
+        bool changed = false;
+
+        // Construction
+        //--------------------------------------------------
+
+        static Model FromStep(Rev::OS::File& file) {
+
+            Model model;
+
+            model.loadStep(file);
+
+            return model;
+        }
 
         // State
         //--------------------------------------------------
@@ -80,6 +91,7 @@ export namespace Cam::App {
             selectedFaceIds.clear();
 
             loaded = false;
+            changed = false;
         }
 
         void clearSelection() {
@@ -139,17 +151,17 @@ export namespace Cam::App {
             return loadedShape;
         }
 
-        void loadStep(Rev::OS::File file) {
+        void loadStep(Rev::OS::File& file) {
 
             clear();
 
-            stepFile = file;
-            shape = loadStepShape(stepFile);
+            shape = loadStepShape(file);
 
             collectFaces();
             tessellate();
 
             loaded = true;
+            changed = false;
         }
 
         // Topology
@@ -349,6 +361,7 @@ export namespace Cam::App {
             clearSelection();
 
             loaded = true;
+            changed = true;
 
             return true;
         }

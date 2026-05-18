@@ -667,6 +667,7 @@ export namespace Rev {
 
             NativeWindow::Key winKey = static_cast<NativeWindow::Key>(key);
 
+            // Persistent button-state representation of Key
             switch (winKey) {
 
                 case (NativeWindow::Key::Ctrl): { event.keyboard.ctrl.set(action, event.mouse.pos); break; }
@@ -682,6 +683,58 @@ export namespace Rev {
                 case (NativeWindow::Key::Delete): { event.keyboard.del.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Escape): { event.keyboard.escape.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Tab): { event.keyboard.tab.set(action, event.mouse.pos); break; }
+                
+                case (NativeWindow::Key::NumpadEnter): { event.keyboard.enter.set(action, event.mouse.pos); break; }
+            }
+
+            // Clear textual represenation first
+            event.keyboard.key = "";
+
+            // Textual representation of Key.
+            switch (winKey) {
+
+                case (NativeWindow::Key::Ctrl): { event.keyboard.key = "ctrl"; break; }
+                case (NativeWindow::Key::Shift): { event.keyboard.key = "shift"; break; }
+                case (NativeWindow::Key::Alt): { event.keyboard.key = "alt"; break; }
+
+                case (NativeWindow::Key::Left): { event.keyboard.key = "left"; break; }
+                case (NativeWindow::Key::Right): { event.keyboard.key = "right"; break; }
+                case (NativeWindow::Key::Up): { event.keyboard.key = "up"; break; }
+                case (NativeWindow::Key::Down): { event.keyboard.key = "down"; break; }
+
+                case (NativeWindow::Key::Backspace): { event.keyboard.key = "backspace"; break; }
+                case (NativeWindow::Key::Delete): { event.keyboard.key = "delete"; break; }
+                case (NativeWindow::Key::Escape): { event.keyboard.key = "escape"; break; }
+                case (NativeWindow::Key::Tab): { event.keyboard.key = "tab"; break; }
+
+                case (NativeWindow::Key::NumpadEnter): { event.keyboard.key = "enter"; break; }
+
+                case (NativeWindow::Key::A): { event.keyboard.key = "a"; break; }
+                case (NativeWindow::Key::B): { event.keyboard.key = "b"; break; }
+                case (NativeWindow::Key::C): { event.keyboard.key = "c"; break; }
+                case (NativeWindow::Key::D): { event.keyboard.key = "d"; break; }
+                case (NativeWindow::Key::E): { event.keyboard.key = "e"; break; }
+                case (NativeWindow::Key::F): { event.keyboard.key = "f"; break; }
+                case (NativeWindow::Key::G): { event.keyboard.key = "g"; break; }
+                case (NativeWindow::Key::H): { event.keyboard.key = "h"; break; }
+                case (NativeWindow::Key::I): { event.keyboard.key = "i"; break; }
+                case (NativeWindow::Key::J): { event.keyboard.key = "j"; break; }
+                case (NativeWindow::Key::K): { event.keyboard.key = "k"; break; }
+                case (NativeWindow::Key::L): { event.keyboard.key = "l"; break; }
+                case (NativeWindow::Key::M): { event.keyboard.key = "m"; break; }
+                case (NativeWindow::Key::N): { event.keyboard.key = "n"; break; }
+                case (NativeWindow::Key::O): { event.keyboard.key = "o"; break; }
+                case (NativeWindow::Key::P): { event.keyboard.key = "p"; break; }
+                case (NativeWindow::Key::Q): { event.keyboard.key = "q"; break; }
+                case (NativeWindow::Key::R): { event.keyboard.key = "r"; break; }
+                case (NativeWindow::Key::S): { event.keyboard.key = "s"; break; }
+                case (NativeWindow::Key::T): { event.keyboard.key = "t"; break; }
+                case (NativeWindow::Key::U): { event.keyboard.key = "u"; break; }
+                case (NativeWindow::Key::V): { event.keyboard.key = "v"; break; }
+                case (NativeWindow::Key::W): { event.keyboard.key = "w"; break; }
+                case (NativeWindow::Key::X): { event.keyboard.key = "x"; break; }
+                case (NativeWindow::Key::Y): { event.keyboard.key = "y"; break; }
+                case (NativeWindow::Key::Z): { event.keyboard.key = "z"; break; }
             }
 
             event.resetBeforeDispatch();
@@ -702,7 +755,7 @@ export namespace Rev {
             std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
             std::string utf8 = conv.to_bytes(s32);
         
-            //dbg("[Window] Character: %s (U+%04X)", utf8.c_str(), (unsigned)character);
+            dbg("[Window] Character: %s (U+%04X)", utf8.c_str(), (unsigned)character);
             event.keyboard.input = utf8;
 
             event.resetBeforeDispatch();

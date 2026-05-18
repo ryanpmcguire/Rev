@@ -92,8 +92,11 @@ export namespace Rev::Element {
             Button ctrl, alt, shift;
             Button escape, tab, del, backspace;
 
+            Button enter;
+
             Arrows arrows;
 
+            std::string key;
             std::string input;
         };
 

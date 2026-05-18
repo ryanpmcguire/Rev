@@ -1,31 +1,73 @@
 module;
 
+#include <cstddef>
 #include <vector>
+#include <limits>
+
+#include <glm/glm.hpp>
 
 export module Rev.Element.View3d.Actor3d;
 
-import Rev.Core.Color;
 import Rev.Core.Vertex3;
 
 import Rev.Primitive.Mesh;
-import Rev.Graphics.Canvas;
 
-export namespace Rev {
+export namespace Rev::Element::View3d {
 
-    struct Actor3D {
+    struct Actor;
+
+    enum class HitKind {
+        None,
+        Face,
+        Edge,
+        Vertex,
+        Actor
+    };
+
+    struct Ray {
+
+        glm::vec3 origin = {
+            0.0f,
+            0.0f,
+            0.0f
+        };
+
+        glm::vec3 direction = {
+            0.0f,
+            0.0f,
+            -1.0f
+        };
+    };
+
+    struct Hit {
+
+        bool hit = false;
+
+        HitKind kind = HitKind::None;
+
+        Actor* actor = nullptr;
+
+        size_t triangleId = 0;
+        size_t faceId = 0;
+        size_t edgeId = 0;
+
+        glm::vec3 point = {
+            0.0f,
+            0.0f,
+            0.0f
+        };
+
+        float t = 0.0f;
+    };
+
+    struct Actor {
 
         Primitives::Mesh* mesh = nullptr;
 
         bool visible = true;
 
-        // If true, Actor3D deletes mesh in destructor.
         bool ownsMesh = false;
-
-        // If true, Actor3D owns the triangle data used by mesh.
         bool ownsTriangles = false;
-
-        std::vector<Core::Vertex3>* pTriangles = nullptr;
-        std::vector<Core::Vertex3> triangles;
 
         // Later:
         // glm::mat4 transform = glm::mat4(1.0f);
@@ -33,13 +75,145 @@ export namespace Rev {
         // std::string name;
         // uint32_t id = 0;
 
-        ~Actor3D() {
+        ~Actor() {
 
             if (ownsMesh) {
                 delete mesh;
             }
 
             mesh = nullptr;
+        }
+
+        static bool rayTriangle(
+            const Ray& ray,
+            glm::vec3 a,
+            glm::vec3 b,
+            glm::vec3 c,
+            float& t
+        ) {
+            const float eps = 1e-6f;
+
+            glm::vec3 edge1 = b - a;
+            glm::vec3 edge2 = c - a;
+
+            glm::vec3 h = glm::cross(
+                ray.direction,
+                edge2
+            );
+
+            float det = glm::dot(
+                edge1,
+                h
+            );
+
+            if (det > -eps && det < eps) {
+                return false;
+            }
+
+            float invDet = 1.0f / det;
+
+            glm::vec3 s = ray.origin - a;
+
+            float u = invDet * glm::dot(
+                s,
+                h
+            );
+
+            if (u < 0.0f || u > 1.0f) {
+                return false;
+            }
+
+            glm::vec3 q = glm::cross(
+                s,
+                edge1
+            );
+
+            float v = invDet * glm::dot(
+                ray.direction,
+                q
+            );
+
+            if (v < 0.0f || u + v > 1.0f) {
+                return false;
+            }
+
+            t = invDet * glm::dot(
+                edge2,
+                q
+            );
+
+            return t > eps;
+        }
+
+        bool hitTest(
+            const Ray& ray,
+            Hit& outHit
+        ) {
+            outHit = Hit();
+
+            if (!visible) {
+                return false;
+            }
+
+            if (!mesh) {
+                return false;
+            }
+
+            std::vector<Core::Vertex3>* pTriangles =
+                mesh->getTriangles();
+
+            if (!pTriangles) {
+                return false;
+            }
+
+            std::vector<Core::Vertex3>& triangles = *pTriangles;
+
+            float bestT = std::numeric_limits<float>::max();
+
+            for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
+
+                Core::Vertex3& va = triangles[i];
+                Core::Vertex3& vb = triangles[i + 1];
+                Core::Vertex3& vc = triangles[i + 2];
+
+                glm::vec3 a = {
+                    va.x,
+                    va.y,
+                    va.z
+                };
+
+                glm::vec3 b = {
+                    vb.x,
+                    vb.y,
+                    vb.z
+                };
+
+                glm::vec3 c = {
+                    vc.x,
+                    vc.y,
+                    vc.z
+                };
+
+                float t = 0.0f;
+
+                if (!rayTriangle(ray, a, b, c, t)) {
+                    continue;
+                }
+
+                if (t < bestT) {
+
+                    bestT = t;
+
+                    outHit.hit = true;
+                    outHit.kind = HitKind::Face;
+                    outHit.actor = this;
+                    outHit.triangleId = i / 3;
+                    outHit.point = ray.origin + ray.direction * t;
+                    outHit.t = t;
+                }
+            }
+
+            return outHit.hit;
         }
 
         void compute() {
@@ -62,63 +236,6 @@ export namespace Rev {
             }
 
             mesh->draw();
-        }
-
-        // Cube construction
-        //--------------------------------------------------
-
-        static Core::Vertex3 makeVertex(
-            float x,
-            float y,
-            float z,
-            Core::Color color,
-            float nx,
-            float ny,
-            float nz
-        ) {
-            Core::Vertex3 v = {
-                x,
-                y,
-                z,
-                color
-            };
-
-            v.nx = nx;
-            v.ny = ny;
-            v.nz = nz;
-
-            return v;
-        }
-
-        std::vector<Core::Vertex3>* getTriangles() {
-
-            if (mesh->pTriangles) {
-                return mesh->pTriangles;
-            }
-
-            return &(mesh->triangles);
-        }
-
-        static void pushTriangle(
-            std::vector<Core::Vertex3>& out,
-            Core::Vertex3 a,
-            Core::Vertex3 b,
-            Core::Vertex3 c
-        ) {
-            out.push_back(a);
-            out.push_back(b);
-            out.push_back(c);
-        }
-
-        static void pushQuad(
-            std::vector<Core::Vertex3>& out,
-            Core::Vertex3 a,
-            Core::Vertex3 b,
-            Core::Vertex3 c,
-            Core::Vertex3 d
-        ) {
-            pushTriangle(out, a, b, c);
-            pushTriangle(out, a, c, d);
         }
     };
 }

@@ -14,6 +14,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 
 import Cam.App;
+import Cam.App.MaterialState;
 
 export namespace Cam::Gui {
 
@@ -70,6 +71,16 @@ export namespace Cam::Gui {
                     .background = { .color = rgba(109, 119, 255, 0.22) },
                     .border = { .color = rgba(109, 119, 255, 1.0), .width = 1_px }
                 };
+
+                Style StateWorking = {
+                    .background = { .color = rgba(255, 255, 255, 0.10) },
+                    .border = { .color = rgba(0, 0, 0, 0.25), .width = 1_px },
+                    .text = { .color = rgba(0, 0, 0, 0.50), .size = 14_px }
+                };
+
+                Style StateChanged = {
+                    .border = { .color = rgba(255, 150, 0, 1.0), .width = 1_px }
+                };
     };
 
     using namespace MaterialStatesStyle;
@@ -100,11 +111,17 @@ export namespace Cam::Gui {
 
             if (!app) { return; }
 
-            if (index >= app->materialStates.size()) {
+            if (index >= app->states.size()) {
                 return;
             }
 
-            app->displayMaterialState(index);
+            Cam::App::MaterialState* state = app->states[index];
+
+            if (!state) {
+                return;
+            }
+
+            app->displayState(state);
 
             if (onSelectState) {
                 onSelectState(e);
@@ -113,7 +130,24 @@ export namespace Cam::Gui {
             refresh(e);
         }
 
-        std::string stateName(size_t index) {
+        std::string stateName(Cam::App::MaterialState* state, size_t index) {
+
+            if (!state) {
+                return "Invalid State";
+            }
+
+            if (!state->name.empty()) {
+                return state->name;
+            }
+
+            if (state->working) {
+
+                if (state->model.changed) {
+                    return "Working State *";
+                }
+
+                return "Working State";
+            }
 
             if (index == 0) {
                 return "Final State";
@@ -130,7 +164,7 @@ export namespace Cam::Gui {
             }
 
             size_t oldSize = states.size();
-            size_t newSize = app->materialStates.size();
+            size_t newSize = app->states.size();
 
             // Delete old
             for (size_t i = newSize; i < oldSize; i++) {
@@ -144,7 +178,7 @@ export namespace Cam::Gui {
 
                 states[i] = new Text(
                     list,
-                    stateName(i),
+                    "",
                     { &Styles::State, &Styles::StateHover }
                 );
 
@@ -156,14 +190,51 @@ export namespace Cam::Gui {
             // Update rows
             for (size_t i = 0; i < newSize; i++) {
 
-                states[i]->content = stateName(i);
+                Cam::App::MaterialState* state = app->states[i];
 
-                if (app->isDisplayingMaterialState(i)) {
+                states[i]->content = stateName(
+                    state,
+                    i
+                );
+
+                bool selected = (
+                    state &&
+                    app->displayedState == state
+                );
+
+                bool working = (
+                    state &&
+                    state->working
+                );
+
+                bool changed = (
+                    state &&
+                    state->working &&
+                    state->model.changed
+                );
+
+                if (selected) {
                     states[i]->styles.add(&Styles::StateSelected);
                 }
 
                 else {
                     states[i]->styles.remove(&Styles::StateSelected);
+                }
+
+                if (working) {
+                    states[i]->styles.add(&Styles::StateWorking);
+                }
+
+                else {
+                    states[i]->styles.remove(&Styles::StateWorking);
+                }
+
+                if (changed) {
+                    states[i]->styles.add(&Styles::StateChanged);
+                }
+
+                else {
+                    states[i]->styles.remove(&Styles::StateChanged);
                 }
             }
 
