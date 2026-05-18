@@ -114,6 +114,66 @@ export namespace Cam::App {
             return true;
         }
 
+        bool removeState(MaterialState* state) {
+
+            if (!state) { return false; }
+            if (state == rootState) { return false; }
+
+            MaterialState* fallback = state->parent;
+
+            std::vector<MaterialState*> removed;
+            state->collectSubtree(removed);
+
+            auto willRemove = [&removed](MaterialState* p) {
+
+                return std::find(
+                    removed.begin(),
+                    removed.end(),
+                    p
+                ) != removed.end();
+            };
+
+            states.erase(
+                std::remove_if(
+                    states.begin(),
+                    states.end(),
+                    [&](MaterialState* p) {
+                        return willRemove(p);
+                    }
+                ),
+                states.end()
+            );
+
+            if (willRemove(latestCommittedState)) {
+                latestCommittedState = fallback ? fallback : rootState;
+            }
+
+            if (willRemove(displayedState)) {
+                displayedState = nullptr;
+            }
+
+            if (willRemove(workingState)) {
+                workingState = nullptr;
+            }
+
+            state->remove();
+
+            if (!latestCommittedState) {
+                latestCommittedState = rootState;
+            }
+
+            if (!workingState) {
+                workingState = MaterialState::FromPriorState(latestCommittedState);
+                states.push_back(workingState);
+            }
+
+            if (!displayedState) {
+                displayedState = workingState;
+            }
+
+            return true;
+        }
+
         size_t committedCount() const {
 
             size_t count = 0;

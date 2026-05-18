@@ -115,19 +115,24 @@ export namespace Rev::Core {
                 throw std::runtime_error("Svg::bake(): failed to create rasterizer.");
             }
 
-            // NanoSVG only supports UNIFORM scale → choose one
             scale = std::fmin(width / image->width, height / image->height);
 
-            // Rasterize!
+            float scaledW = image->width * scale;
+            float scaledH = image->height * scale;
+
+            float tx = (width - scaledW) * 0.5f;
+            float ty = (height - scaledH) * 0.5f;
+
             nsvgRasterize(
                 rast,
                 image,
-                0, 0,      // no translation
-                scale,     // scaling applied to rasterizer
+                tx,
+                ty,
+                scale,
                 bitmap.data,
                 bitmap.width,
                 bitmap.height,
-                bitmap.width * 4  // stride
+                bitmap.width * 4
             );
 
             // Upload to GPU texture
