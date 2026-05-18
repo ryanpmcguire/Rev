@@ -97,11 +97,13 @@ export namespace Cam::App {
                 return false;
             }
 
+            workingState->committed = true;
+            workingState->working = false;
             workingState->model.clearSelection();
             workingState->model.changed = false;
 
-            workingState->committed = true;
-            workingState->working = false;
+            workingState->computeDelta();
+
             workingState->name = "Material State " + std::to_string(committedCount());
 
             latestCommittedState = workingState;

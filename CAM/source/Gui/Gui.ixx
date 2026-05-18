@@ -39,6 +39,7 @@ import Rev.Element.View3d.Actor3d;
 
 import Cam.App;
 import Cam.App.Model;
+import Cam.App.MaterialState;
 
 import Cam.Gui.MaterialStates;
 
@@ -55,6 +56,7 @@ export namespace Cam::Gui {
         View3d::View* view3d = nullptr;
 
         View3d::Actor* partActor = nullptr;
+        View3d::Actor* deltaActor = nullptr;
         View3d::Actor* lineActor = nullptr;
 
         std::vector<Rev::Core::Vertex3> testLines;
@@ -66,54 +68,33 @@ export namespace Cam::Gui {
 
             app = Cam::App::AppState::Get(shared->state);
 
-            // Self
             this->style->layout = { Axis::Horizontal, Align::Center, Align::Center };
             this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             this->style->padding = { 10_px, 10_px, 10_px, 10_px };
 
-            // Material States
-            //--------------------------------------------------
-
             materialStates = new MaterialStates(this);
-
             view3d = new View3d::View(this);
 
             materialStates->onSelectState = [this](Event& e) {
                 syncActorToDisplayedModel(e);
             };
 
-            // 3d View
-            //--------------------------------------------------
+            materialStates->onDeleteState = [this](Event& e) {
+                syncActorToDisplayedModel(e);
+            };
 
             try {
 
-                Cam::App::Model* displayed = app->getDisplayedModel();
-
-                if (!displayed) {
-                    throw std::runtime_error("No displayed model.");
-                }
-
-                partActor = new View3d::Actor();
-
-                partActor->visible = true;
-                partActor->ownsMesh = true;
-                partActor->ownsTriangles = false;
-
-                partActor->mesh = new Primitives::Mesh3d(shared->canvas, {
-                    .triangles = &displayed->render.triangles
-                });
-
-                partActor->mesh->color = {
-                    0.75f,
-                    0.75f,
-                    0.82f,
-                    1.0f
-                };
-
-                applyFaceColors();
+                createPartActor();
+                createDeltaActor();
 
                 view3d->addActor(partActor);
+                view3d->addActor(deltaActor);
+
+                applyFaceColors();
+                syncDeltaActorToDisplayedState();
+
                 view3d->camera.setDefaultView();
                 view3d->fitToActors();
 
@@ -125,23 +106,76 @@ export namespace Cam::Gui {
             }
 
             catch (const std::exception& e) {
-
                 dbg("Failed to load CAD model");
                 dbg(e.what());
             }
         }
 
         // Destroy
+        //--------------------------------------------------
+
         ~Interface() {
 
             if (view3d && partActor) { view3d->removeActor(partActor); }
+            if (view3d && deltaActor) { view3d->removeActor(deltaActor); }
             if (view3d && lineActor) { view3d->removeActor(lineActor); }
 
             delete partActor;
+            delete deltaActor;
             delete lineActor;
 
             partActor = nullptr;
+            deltaActor = nullptr;
             lineActor = nullptr;
+        }
+
+        // Actor creation
+        //--------------------------------------------------
+
+        void createPartActor() {
+
+            Cam::App::Model* displayed = displayedModel();
+
+            if (!displayed) {
+                throw std::runtime_error("No displayed model.");
+            }
+
+            partActor = new View3d::Actor();
+
+            partActor->visible = true;
+            partActor->ownsMesh = true;
+            partActor->ownsTriangles = false;
+            partActor->includeInFit = true;
+
+            partActor->mesh = new Primitives::Mesh3d(shared->canvas, {
+                .triangles = &displayed->render.triangles
+            });
+
+            partActor->mesh->color = {
+                0.75f,
+                0.75f,
+                0.82f,
+                1.0f
+            };
+        }
+
+        void createDeltaActor() {
+
+            deltaActor = new View3d::Actor();
+
+            deltaActor->visible = false;
+            deltaActor->ownsMesh = true;
+            deltaActor->ownsTriangles = false;
+            deltaActor->includeInFit = false;
+
+            deltaActor->mesh = new Primitives::Mesh3d(shared->canvas, {});
+
+            deltaActor->mesh->color = {
+                1.0f,
+                0.0f,
+                0.0f,
+                0.30f
+            };
         }
 
         // Test lines
@@ -151,13 +185,8 @@ export namespace Cam::Gui {
 
             testLines.clear();
 
-            float core = 2.0f;
-            float far = 90.0f;
+            auto addAxis = [this](glm::vec3 dir, Rev::Core::Color color) {
 
-            auto addAxis = [this](
-                glm::vec3 dir,
-                Rev::Core::Color color
-            ) {
                 float core = 2.0f;
                 float far = 90.0f;
 
@@ -174,41 +203,28 @@ export namespace Cam::Gui {
                 glm::vec3 pCore =  dir * core;
                 glm::vec3 pFar =  dir * far;
 
-                // Negative extended fade
                 testLines.push_back({ nFar.x,  nFar.y,  nFar.z,  fade });
                 testLines.push_back({ nCore.x, nCore.y, nCore.z, soft });
 
-                // Core axis
                 testLines.push_back({ nCore.x, nCore.y, nCore.z, soft });
                 testLines.push_back({ 0.0f,    0.0f,    0.0f,    full });
 
                 testLines.push_back({ 0.0f,    0.0f,    0.0f,    full });
                 testLines.push_back({ pCore.x, pCore.y, pCore.z, soft });
 
-                // Positive extended fade
                 testLines.push_back({ pCore.x, pCore.y, pCore.z, soft });
                 testLines.push_back({ pFar.x,  pFar.y,  pFar.z,  fade });
             };
 
-            addAxis(
-                { 1.0f, 0.0f, 0.0f },
-                { 1.0f, 0.0f, 0.0f, 1.0f }
-            );
-
-            addAxis(
-                { 0.0f, 1.0f, 0.0f },
-                { 0.0f, 1.0f, 0.0f, 1.0f }
-            );
-
-            addAxis(
-                { 0.0f, 0.0f, 1.0f },
-                { 0.0f, 0.25f, 1.0f, 1.0f }
-            );
+            addAxis({ 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f });
+            addAxis({ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f });
+            addAxis({ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.25f, 1.0f, 1.0f });
 
             lineActor = new View3d::Actor();
 
             lineActor->visible = true;
             lineActor->ownsLines = true;
+            lineActor->includeInFit = false;
 
             lineActor->lines = new Primitives::Lines3d(shared->canvas, {
                 .lines = &testLines
@@ -228,8 +244,25 @@ export namespace Cam::Gui {
         //--------------------------------------------------
 
         Cam::App::Model* displayedModel() {
+
             if (!app) { return nullptr; }
-            return app->getDisplayedModel();
+
+            Cam::App::MaterialState* state = app->displayedState;
+
+            if (!state) { return app->getDisplayedModel(); }
+
+            // If this state has a parent and a delta, show the parent model
+            // underneath the red transparent removed-material delta.
+            if (state->parent && state->hasDelta) {
+                return &state->parent->model;
+            }
+
+            return &state->model;
+        }
+
+        Cam::App::MaterialState* displayedState() {
+            if (!app) { return nullptr; }
+            return app->displayedState;
         }
 
         bool displayedModelIsEditable() {
@@ -255,9 +288,27 @@ export namespace Cam::Gui {
 
             partActor->mesh->compute();
 
+            syncDeltaActorToDisplayedState();
+
             if (view3d) { view3d->refresh(e); }
 
             refresh(e);
+        }
+
+        void syncDeltaActorToDisplayedState() {
+
+            if (!deltaActor || !deltaActor->mesh) { return; }
+
+            Cam::App::MaterialState* state = displayedState();
+
+            if (!state || !state->hasDelta) {
+                deltaActor->visible = false;
+                return;
+            }
+
+            deltaActor->mesh->pTriangles = &state->delta.render.triangles;
+            deltaActor->visible = true;
+            deltaActor->mesh->compute();
         }
 
         // Selection display
@@ -269,7 +320,8 @@ export namespace Cam::Gui {
 
             if (!displayed || !partActor || !partActor->mesh) { return; }
 
-            std::vector<Rev::Core::Vertex3>* pTriangles = partActor->mesh->getTriangles();
+            std::vector<Rev::Core::Vertex3>* pTriangles =
+                partActor->mesh->getTriangles();
 
             if (!pTriangles) { return; }
 

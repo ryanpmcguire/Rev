@@ -21,6 +21,7 @@ module;
 #include <BRep_Tool.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 
 #include <Poly_Triangulation.hxx>
 #include <Poly_Triangle.hxx>
@@ -77,6 +78,43 @@ export namespace Cam::App {
             model.loadStep(file);
 
             return model;
+        }
+
+        static Model Difference(
+            const Model& a,
+            const Model& b
+        ) {
+            Model result;
+
+            if (a.shape.IsNull()) { return result; }
+            if (b.shape.IsNull()) { return result; }
+
+            BRepAlgoAPI_Cut cut(
+                a.shape,
+                b.shape
+            );
+
+            cut.Build();
+
+            if (!cut.IsDone()) {
+                return result;
+            }
+
+            TopoDS_Shape shape = cut.Shape();
+
+            if (shape.IsNull()) {
+                return result;
+            }
+
+            result.shape = result.healShape(shape);
+
+            result.collectFaces();
+            result.tessellate();
+
+            result.loaded = true;
+            result.changed = false;
+
+            return result;
         }
 
         // State

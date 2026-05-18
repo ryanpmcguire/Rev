@@ -66,6 +66,7 @@ export namespace Cam::Gui {
         std::vector<MaterialState*> rows;
 
         std::function<void(Event&)> onSelectState;
+        std::function<void(Event&)> onDeleteState;
 
         // Create
         MaterialStates(Element* parent, StyleList styles = {}) : Box(parent, styles, "MaterialStates") {
@@ -87,6 +88,18 @@ export namespace Cam::Gui {
             if (onSelectState) { onSelectState(e); }
 
             refresh(e);
+        }
+
+        void deleteState(Cam::App::MaterialState* state, Event& e) {
+
+            if (!app || !state) { return; }
+
+            if (app->removeState(state)) {
+
+                if (onDeleteState) { onDeleteState(e); }
+
+                refresh(e);
+            }
         }
 
         void computeChildren(Event& e) override {
@@ -111,6 +124,10 @@ export namespace Cam::Gui {
 
                 rows[i]->onSelect = [this](Event& e, Cam::App::MaterialState* state) {
                     this->selectState(state, e);
+                };
+
+                rows[i]->onDelete = [this](Event& e, Cam::App::MaterialState* state) {
+                    this->deleteState(state, e);
                 };
             }
 

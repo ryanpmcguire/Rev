@@ -22,6 +22,9 @@ export namespace Cam::App {
         bool committed = false;
         bool working = false;
 
+        Model delta;
+        bool hasDelta = false;
+
         std::string name = "";
 
         static MaterialState* FromStep(Rev::OS::File& file) {
@@ -58,6 +61,29 @@ export namespace Cam::App {
 
             return state;
         }
+
+        // Modification
+        //--------------------------------------------------
+
+        void computeDelta() {
+
+            hasDelta = false;
+            delta.clear();
+
+            if (!parent) { return; }
+            if (!model.loaded) { return; }
+            if (!parent->model.loaded) { return; }
+
+            delta = Model::Difference(
+                model,
+                parent->model
+            );
+
+            hasDelta = delta.loaded;
+        }
+
+        // Family management
+        //--------------------------------------------------
 
         void collectSubtree(std::vector<MaterialState*>& out) {
 

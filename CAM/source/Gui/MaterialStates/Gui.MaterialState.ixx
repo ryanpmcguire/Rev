@@ -126,14 +126,14 @@ export namespace Cam::Gui {
                 "DeleteMaterialState"
             );
 
-            this->onMouseDown([this](Event& e) {
-                if (onSelect && state) { onSelect(e, state); }
-            });
-
             deleteIcon->onMouseDown([this](Event& e) {
                 if (!canDelete()) { return; }
                 if (onDelete && state) { onDelete(e, state); }
                 e.propagate = false;
+            });
+
+            this->onMouseDown([this](Event& e) {
+                if (onSelect && state) { onSelect(e, state); }
             });
         }
 
