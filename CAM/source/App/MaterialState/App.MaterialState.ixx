@@ -250,10 +250,14 @@ export namespace Cam::App {
 
             if (!hasDelta) { return; }
             if (!delta.loaded) { return; }
+            if (!parent->model.loaded) { return; }
 
-            hasToolPath = toolPath.computeFromDelta(
+            Tool tool = Tool::GodTool();
+
+            hasToolPath = toolPath.compute(
                 delta,
-                Tool::GodTool()
+                parent->model,
+                tool
             );
         }
     };
