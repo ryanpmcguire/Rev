@@ -42,6 +42,7 @@ import Cam.App.Model;
 import Cam.App.MaterialState;
 
 import Cam.Gui.MaterialStates;
+import Cam.Gui.ToolPath;
 
 export namespace Cam::Gui {
 
@@ -57,7 +58,10 @@ export namespace Cam::Gui {
 
         View3d::Actor* partActor = nullptr;
         View3d::Actor* deltaActor = nullptr;
+        View3d::Actor* pickActor = nullptr;
         View3d::Actor* lineActor = nullptr;
+
+        ToolPath toolPath;
 
         std::vector<Rev::Core::Vertex3> testLines;
 
@@ -88,12 +92,20 @@ export namespace Cam::Gui {
 
                 createPartActor();
                 createDeltaActor();
+                createPickActor();
+
+                toolPath.create(shared->canvas);
 
                 view3d->addActor(partActor);
+                view3d->addActor(toolPath.actor);
                 view3d->addActor(deltaActor);
-
+                view3d->addActor(pickActor);
+                
                 applyFaceColors();
+
                 syncDeltaActorToDisplayedState();
+                syncPickActorToWorkingState();
+                syncToolPathToDisplayedState();
 
                 view3d->camera.setDefaultView();
                 view3d->fitToActors();
@@ -118,14 +130,20 @@ export namespace Cam::Gui {
 
             if (view3d && partActor) { view3d->removeActor(partActor); }
             if (view3d && deltaActor) { view3d->removeActor(deltaActor); }
+            if (view3d && pickActor) { view3d->removeActor(pickActor); }
+            if (view3d && toolPath.actor) { view3d->removeActor(toolPath.actor); }
             if (view3d && lineActor) { view3d->removeActor(lineActor); }
 
             delete partActor;
             delete deltaActor;
+            delete pickActor;
             delete lineActor;
+
+            toolPath.destroy();
 
             partActor = nullptr;
             deltaActor = nullptr;
+            pickActor = nullptr;
             lineActor = nullptr;
         }
 
@@ -143,6 +161,7 @@ export namespace Cam::Gui {
             partActor = new View3d::Actor();
 
             partActor->visible = true;
+            partActor->selectable = false;
             partActor->ownsMesh = true;
             partActor->ownsTriangles = false;
             partActor->includeInFit = true;
@@ -164,6 +183,7 @@ export namespace Cam::Gui {
             deltaActor = new View3d::Actor();
 
             deltaActor->visible = false;
+            deltaActor->selectable = false;
             deltaActor->ownsMesh = true;
             deltaActor->ownsTriangles = false;
             deltaActor->includeInFit = false;
@@ -175,6 +195,34 @@ export namespace Cam::Gui {
                 0.0f,
                 0.0f,
                 0.30f
+            };
+        }
+
+        void createPickActor() {
+
+            Cam::App::Model* editable = selectionModel();
+
+            if (!editable) {
+                throw std::runtime_error("No editable working model.");
+            }
+
+            pickActor = new View3d::Actor();
+
+            pickActor->visible = false;
+            pickActor->selectable = true;
+            pickActor->ownsMesh = true;
+            pickActor->ownsTriangles = false;
+            pickActor->includeInFit = false;
+
+            pickActor->mesh = new Primitives::Mesh3d(shared->canvas, {
+                .triangles = &editable->render.triangles
+            });
+
+            pickActor->mesh->color = {
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f
             };
         }
 
@@ -223,6 +271,7 @@ export namespace Cam::Gui {
             lineActor = new View3d::Actor();
 
             lineActor->visible = true;
+            lineActor->selectable = false;
             lineActor->ownsLines = true;
             lineActor->includeInFit = false;
 
@@ -251,8 +300,6 @@ export namespace Cam::Gui {
 
             if (!state) { return app->getDisplayedModel(); }
 
-            // If this state has a parent and a delta, show the parent model
-            // underneath the red transparent removed-material delta.
             if (state->parent && state->hasDelta) {
                 return &state->parent->model;
             }
@@ -260,8 +307,17 @@ export namespace Cam::Gui {
             return &state->model;
         }
 
+        Cam::App::Model* selectionModel() {
+
+            if (!app || !app->workingState) { return nullptr; }
+
+            return &app->workingState->model;
+        }
+
         Cam::App::MaterialState* displayedState() {
+
             if (!app) { return nullptr; }
+
             return app->displayedState;
         }
 
@@ -289,6 +345,8 @@ export namespace Cam::Gui {
             partActor->mesh->compute();
 
             syncDeltaActorToDisplayedState();
+            syncPickActorToWorkingState();
+            syncToolPathToDisplayedState();
 
             if (view3d) { view3d->refresh(e); }
 
@@ -309,6 +367,23 @@ export namespace Cam::Gui {
             deltaActor->mesh->pTriangles = &state->delta.render.triangles;
             deltaActor->visible = true;
             deltaActor->mesh->compute();
+        }
+
+        void syncPickActorToWorkingState() {
+
+            Cam::App::Model* editable = selectionModel();
+
+            if (!editable || !pickActor || !pickActor->mesh) { return; }
+
+            pickActor->mesh->pTriangles = &editable->render.triangles;
+            pickActor->mesh->compute();
+        }
+
+        void syncToolPathToDisplayedState() {
+
+            toolPath.sync(
+                displayedState()
+            );
         }
 
         // Selection display
@@ -353,29 +428,29 @@ export namespace Cam::Gui {
 
         void selectFaceAtMouse(Event& e) {
 
-            if (!app || !view3d || !partActor) { return; }
+            if (!app || !view3d || !pickActor) { return; }
 
             if (!displayedModelIsEditable()) {
                 dbg("Selected material state is read-only. Select the working state to edit.");
                 return;
             }
 
-            Cam::App::Model* displayed = displayedModel();
+            Cam::App::Model* editable = selectionModel();
 
-            if (!displayed) { return; }
+            if (!editable) { return; }
 
             View3d::Hit hit;
 
             if (!view3d->hitTest(e.mouse.pos, hit)) { return; }
-            if (hit.actor != partActor) { return; }
+            if (hit.actor != pickActor) { return; }
 
             size_t tri = hit.triangleId;
 
-            if (tri >= displayed->render.triangleFaceIds.size()) { return; }
+            if (tri >= editable->render.triangleFaceIds.size()) { return; }
 
-            size_t faceId = displayed->render.triangleFaceIds[tri];
+            size_t faceId = editable->render.triangleFaceIds[tri];
 
-            displayed->toggleFace(faceId);
+            editable->toggleFace(faceId);
 
             applyFaceColors();
 

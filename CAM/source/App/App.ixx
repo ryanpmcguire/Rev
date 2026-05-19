@@ -78,13 +78,18 @@ export namespace Cam::App {
 
         bool defeatureSelected() {
 
-            if (!workingState) {
-                return false;
-            }
+            if (!workingState) { return false; }
 
             displayedState = workingState;
 
-            return workingState->model.defeatureSelected();
+            bool ok = workingState->model.defeatureSelected();
+
+            if (!ok) { return false; }
+
+            workingState->model.clearSelection();
+            workingState->computeDelta();
+
+            return true;
         }
 
         bool commitWorkingState() {

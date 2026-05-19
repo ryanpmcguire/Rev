@@ -33,7 +33,6 @@ export namespace Rev::Element::View3d {
             .overflow = Overflow::Hide,
             .size = { .width = Grow(), .height = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
-            //.border = { .color = rgba(0, 0, 0, 1), .width = 1_px },
             .background = { .color = rgba(255, 255, 255, 0.05) }
         };
     };
@@ -42,34 +41,17 @@ export namespace Rev::Element::View3d {
 
     struct View : public Box {
 
-        // Camera UBO layout must match Mesh.vert / Mesh.frag.
+        // Camera UBO layout must match Mesh3d.vert / Mesh3d.frag.
         struct CameraData {
             glm::mat4 viewProj;
             glm::vec4 lightDir;
             glm::vec4 eyePos;
         };
 
-        struct OrbitGesture {
-
-            glm::vec3 pivot = {
-                0.0f,
-                0.0f,
-                0.0f
-            };
-
-            Core::Pos mouse;
-
-            bool hasPivot = false;
-        };
-
         // View3d does NOT own these actors.
         std::vector<Actor*> actors;
 
-        // Camera
-        //--------------------------------------------------
-
         Camera camera;
-        OrbitGesture orbit;
 
         Graphics::UniformBuffer* cameraBuff = nullptr;
 
@@ -80,15 +62,12 @@ export namespace Rev::Element::View3d {
             Element* parent,
             StyleList styles = {},
             std::string name = "View3d"
-        ) : Box(parent, styles, "View3d") {
+        ) : Box(parent, styles, name) {
 
-            // Self
             this->styles = { &Styles::View3d };
 
-            Graphics::Canvas* canvas = shared->canvas;
-
             cameraBuff = new Graphics::UniformBuffer(
-                canvas->context,
+                shared->canvas->context,
                 sizeof(CameraData)
             );
         }
@@ -101,66 +80,27 @@ export namespace Rev::Element::View3d {
             cameraBuff = nullptr;
         }
 
-        // Canvas and view management
+        // Canvas
         //--------------------------------------------------
 
         float canvasWidth() {
 
             float scale = shared->canvas->details.scale;
+            float width = float(shared->canvas->details.width);
 
-            if (scale <= 0.0f) {
-                return std::max(float(shared->canvas->details.width), 1.0f);
-            }
+            if (scale > 0.0f) { width /= scale; }
 
-            return std::max(float(shared->canvas->details.width) / scale, 1.0f);
+            return std::max(width, 1.0f);
         }
 
         float canvasHeight() {
 
             float scale = shared->canvas->details.scale;
+            float height = float(shared->canvas->details.height);
 
-            if (scale <= 0.0f) {
-                return std::max(float(shared->canvas->details.height), 1.0f);
-            }
+            if (scale > 0.0f) { height /= scale; }
 
-            return std::max(float(shared->canvas->details.height) / scale, 1.0f);
-        }
-
-        void fitToActors() {
-
-            glm::vec3 sceneMin;
-            glm::vec3 sceneMax;
-
-            bool valid = false;
-
-            for (View3d::Actor* actor : actors) {
-
-                if (!actor || !actor->visible) { continue; }
-
-                glm::vec3 actorMin;
-                glm::vec3 actorMax;
-
-                if (!actor->bounds(actorMin, actorMax)) { continue; }
-
-                if (!valid) {
-                    sceneMin = actorMin;
-                    sceneMax = actorMax;
-                    valid = true;
-                    continue;
-                }
-
-                sceneMin = glm::min(sceneMin, actorMin);
-                sceneMax = glm::max(sceneMax, actorMax);
-            }
-
-            if (!valid) { return; }
-
-            camera.fitBounds(
-                sceneMin,
-                sceneMax,
-                canvasWidth(),
-                canvasHeight()
-            );
+            return std::max(height, 1.0f);
         }
 
         // Actor list
@@ -202,6 +142,46 @@ export namespace Rev::Element::View3d {
             }
         }
 
+        // Fit
+        //--------------------------------------------------
+
+        void fitToActors() {
+
+            glm::vec3 sceneMin;
+            glm::vec3 sceneMax;
+
+            bool valid = false;
+
+            for (Actor* actor : actors) {
+
+                if (!actor) { continue; }
+
+                glm::vec3 actorMin;
+                glm::vec3 actorMax;
+
+                if (!actor->bounds(actorMin, actorMax)) { continue; }
+
+                if (!valid) {
+                    sceneMin = actorMin;
+                    sceneMax = actorMax;
+                    valid = true;
+                    continue;
+                }
+
+                sceneMin = glm::min(sceneMin, actorMin);
+                sceneMax = glm::max(sceneMax, actorMax);
+            }
+
+            if (!valid) { return; }
+
+            camera.fitBounds(
+                sceneMin,
+                sceneMax,
+                canvasWidth(),
+                canvasHeight()
+            );
+        }
+
         // Hit testing
         //--------------------------------------------------
 
@@ -219,15 +199,13 @@ export namespace Rev::Element::View3d {
 
             for (Actor* actor : actors) {
 
-                if (!actor || !actor->visible) {
-                    continue;
-                }
+                if (!actor) { continue; }
 
                 Hit hit;
 
-                if (!actor->hitTest(ray, hit)) {
-                    continue;
-                }
+                // Actor::hitTest decides whether the actor is selectable.
+                // This allows visible=false / selectable=true picking actors.
+                if (!actor->hitTest(ray, hit)) { continue; }
 
                 if (!outHit.hit || hit.t < outHit.t) {
                     outHit = hit;
@@ -243,9 +221,7 @@ export namespace Rev::Element::View3d {
         ) {
             Hit hit;
 
-            if (!hitTest(mousePos, hit)) {
-                return false;
-            }
+            if (!hitTest(mousePos, hit)) { return false; }
 
             hitPoint = hit.point;
 
@@ -257,36 +233,19 @@ export namespace Rev::Element::View3d {
 
         void updateCamera() {
 
-            CameraData data;
-
-            data.viewProj = camera.viewProjMatrix(
-                canvasWidth(),
-                canvasHeight()
-            );
-
             glm::vec3 light = glm::normalize(
                 glm::vec3(-0.4f, 0.8f, 0.6f)
             );
 
-            data.lightDir = {
-                light.x,
-                light.y,
-                light.z,
-                0.0f
-            };
-
             glm::vec3 eye = camera.eye();
 
-            data.eyePos = {
-                eye.x,
-                eye.y,
-                eye.z,
-                1.0f
+            CameraData data = {
+                camera.viewProjMatrix(canvasWidth(), canvasHeight()),
+                { light.x, light.y, light.z, 0.0f },
+                { eye.x, eye.y, eye.z, 1.0f }
             };
 
-            cameraBuff->set(
-                &data
-            );
+            cameraBuff->set(&data);
         }
 
         // Events
@@ -351,12 +310,7 @@ export namespace Rev::Element::View3d {
         void computePrimitives(Event& e) override {
 
             for (Actor* actor : actors) {
-
-                if (!actor) {
-                    continue;
-                }
-
-                actor->compute();
+                if (actor) { actor->compute(); }
             }
 
             Box::computePrimitives(e);
@@ -380,12 +334,7 @@ export namespace Rev::Element::View3d {
         void drawActors() {
 
             for (Actor* actor : actors) {
-
-                if (!actor) {
-                    continue;
-                }
-
-                actor->draw();
+                if (actor) { actor->draw(); }
             }
         }
 
@@ -402,9 +351,7 @@ export namespace Rev::Element::View3d {
             updateCamera();
 
             begin3dDraw();
-
             drawActors();
-
             end3dDraw();
         }
     };

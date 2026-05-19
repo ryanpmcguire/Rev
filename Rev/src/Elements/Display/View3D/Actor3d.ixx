@@ -52,18 +52,21 @@ export namespace Rev::Element::View3d {
         Primitives::Mesh3d* mesh = nullptr;
         Primitives::Lines3d* lines = nullptr;
 
+        // Drawing and picking are intentionally separate.
+        //
+        // visible:
+        //     Actor is drawn.
+        //
+        // selectable:
+        //     Actor participates in View3d hit testing.
         bool visible = true;
+        bool selectable = true;
+
         bool includeInFit = true;
 
         bool ownsMesh = false;
         bool ownsLines = false;
         bool ownsTriangles = false;
-
-        // Later:
-        // glm::mat4 transform = glm::mat4(1.0f);
-        // bool selected = false;
-        // std::string name;
-        // uint32_t id = 0;
 
         ~Actor() {
 
@@ -72,46 +75,6 @@ export namespace Rev::Element::View3d {
 
             mesh = nullptr;
             lines = nullptr;
-        }
-
-        bool bounds(glm::vec3& min, glm::vec3& max) {
-
-            bool valid = false;
-
-            auto include = [&](Core::Vertex3& v) {
-
-                glm::vec3 p = { v.x, v.y, v.z };
-
-                if (!valid) {
-                    min = p;
-                    max = p;
-                    valid = true;
-                    return;
-                }
-
-                min = glm::min(min, p);
-                max = glm::max(max, p);
-            };
-
-            if (mesh) {
-
-                std::vector<Core::Vertex3>* triangles = mesh->getTriangles();
-
-                if (triangles) {
-                    for (Core::Vertex3& v : *triangles) { include(v); }
-                }
-            }
-
-            if (lines) {
-
-                std::vector<Core::Vertex3>* lineVerts = lines->getLines();
-
-                if (lineVerts) {
-                    for (Core::Vertex3& v : *lineVerts) { include(v); }
-                }
-            }
-
-            return valid;
         }
 
         static bool rayTriangle(
@@ -154,7 +117,7 @@ export namespace Rev::Element::View3d {
         ) {
             outHit = Hit();
 
-            if (!visible) { return false; }
+            if (!selectable) { return false; }
             if (!mesh) { return false; }
 
             std::vector<Core::Vertex3>* pTriangles = mesh->getTriangles();
@@ -193,6 +156,50 @@ export namespace Rev::Element::View3d {
             }
 
             return outHit.hit;
+        }
+
+        bool bounds(
+            glm::vec3& min,
+            glm::vec3& max
+        ) {
+            if (!includeInFit) { return false; }
+
+            bool valid = false;
+
+            auto include = [&](Core::Vertex3& v) {
+
+                glm::vec3 p = { v.x, v.y, v.z };
+
+                if (!valid) {
+                    min = p;
+                    max = p;
+                    valid = true;
+                    return;
+                }
+
+                min = glm::min(min, p);
+                max = glm::max(max, p);
+            };
+
+            if (mesh) {
+
+                std::vector<Core::Vertex3>* pTriangles = mesh->getTriangles();
+
+                if (pTriangles) {
+                    for (Core::Vertex3& v : *pTriangles) { include(v); }
+                }
+            }
+
+            if (lines) {
+
+                std::vector<Core::Vertex3>* pLines = lines->getLines();
+
+                if (pLines) {
+                    for (Core::Vertex3& v : *pLines) { include(v); }
+                }
+            }
+
+            return valid;
         }
 
         void compute() {

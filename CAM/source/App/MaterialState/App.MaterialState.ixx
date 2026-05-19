@@ -4,28 +4,52 @@ module;
 #include <vector>
 #include <algorithm>
 
+#include <dbg.hpp>
+
 export module Cam.App.MaterialState;
 
 import Rev.OS.File;
 
 import Cam.App.Model;
+import Cam.App.ToolPath;
 
 export namespace Cam::App {
 
     struct MaterialState {
 
+        // Geometry
+        //--------------------------------------------------
+
         Model model;
+
+        // Removed material from parent -> this state.
+        //
+        // delta = parent.model - model
+        Model delta;
+        bool hasDelta = false;
+
+        // Family
+        //--------------------------------------------------
 
         MaterialState* parent = nullptr;
         std::vector<MaterialState*> children;
 
+        // State
+        //--------------------------------------------------
+
         bool committed = false;
         bool working = false;
 
-        Model delta;
-        bool hasDelta = false;
-
         std::string name = "";
+
+        // Tool Path
+        //--------------------------------------------------
+
+        ToolPath toolPath;
+        bool hasToolPath = false;
+
+        // Construction
+        //--------------------------------------------------
 
         static MaterialState* FromStep(Rev::OS::File& file) {
 
@@ -34,9 +58,15 @@ export namespace Cam::App {
             state->model = Model::FromStep(file);
             state->model.clearSelection();
 
+            state->delta.clear();
+            state->hasDelta = false;
+
             state->parent = nullptr;
+            state->children.clear();
+
             state->committed = true;
             state->working = false;
+
             state->name = "Final State";
 
             return state;
@@ -52,9 +82,15 @@ export namespace Cam::App {
             state->model.clearSelection();
             state->model.changed = false;
 
+            state->delta.clear();
+            state->hasDelta = false;
+
             state->parent = prior;
+            state->children.clear();
+
             state->committed = false;
             state->working = true;
+
             state->name = "Working State";
 
             prior->children.push_back(state);
@@ -62,36 +98,65 @@ export namespace Cam::App {
             return state;
         }
 
-        // Modification
+
+        // Selection
         //--------------------------------------------------
 
-        void computeDelta() {
+        void clearSelection() {
 
-            hasDelta = false;
-            delta.clear();
-
-            if (!parent) { return; }
-            if (!model.loaded) { return; }
-            if (!parent->model.loaded) { return; }
-
-            delta = Model::Difference(
-                model,
-                parent->model
-            );
-
-            hasDelta = delta.loaded;
+            model.clearSelection();
         }
 
         // Family management
         //--------------------------------------------------
 
-        void collectSubtree(std::vector<MaterialState*>& out) {
+        bool isRoot() const {
 
-            out.push_back(this);
+            return parent == nullptr;
+        }
 
-            for (MaterialState* child : children) {
-                if (child) { child->collectSubtree(out); }
+        bool hasChild(MaterialState* state) const {
+
+            return std::find(
+                children.begin(),
+                children.end(),
+                state
+            ) != children.end();
+        }
+
+        void addChild(MaterialState* state) {
+
+            if (!state) { return; }
+            if (hasChild(state)) { return; }
+
+            children.push_back(state);
+            state->parent = this;
+        }
+
+        void removeChild(MaterialState* state) {
+
+            if (!state) { return; }
+
+            children.erase(
+                std::remove(
+                    children.begin(),
+                    children.end(),
+                    state
+                ),
+                children.end()
+            );
+
+            if (state->parent == this) {
+                state->parent = nullptr;
             }
+        }
+
+        void detach() {
+
+            if (!parent) { return; }
+
+            parent->removeChild(this);
+            parent = nullptr;
         }
 
         bool contains(MaterialState* state) {
@@ -105,21 +170,17 @@ export namespace Cam::App {
             return false;
         }
 
-        void detach() {
+        void collectSubtree(std::vector<MaterialState*>& out) {
 
-            if (!parent) { return; }
+            out.push_back(this);
 
-            parent->children.erase(
-                std::remove(
-                    parent->children.begin(),
-                    parent->children.end(),
-                    this
-                ),
-                parent->children.end()
-            );
-
-            parent = nullptr;
+            for (MaterialState* child : children) {
+                if (child) { child->collectSubtree(out); }
+            }
         }
+
+        // Destruction
+        //--------------------------------------------------
 
         void remove() {
 
@@ -136,7 +197,64 @@ export namespace Cam::App {
                 child->remove();
             }
 
+            model.clear();
+            clearDelta();
+
             delete this;
         }
+
+        // Delta
+        //--------------------------------------------------
+
+        void clearDelta() {
+
+            delta.clear();
+            hasDelta = false;
+
+            clearToolPath();
+        }
+
+        void computeDelta() {
+
+            clearDelta();
+
+            if (!parent) { return; }
+            if (!parent->model.loaded) { return; }
+            if (!model.loaded) { return; }
+
+            // Removed material = parent state minus current state.
+            delta = Model::Difference(
+                model,
+                parent->model
+            );
+
+            hasDelta = delta.loaded;
+
+            if (hasDelta) {
+                computeToolPath();
+            }
+        }
+
+        // Tool Path
+        //--------------------------------------------------
+
+        void clearToolPath() {
+
+            toolPath.clear();
+            hasToolPath = false;
+        }
+
+        void computeToolPath() {
+
+            clearToolPath();
+
+            if (!hasDelta) { return; }
+            if (!delta.loaded) { return; }
+
+            hasToolPath = toolPath.computeFromDelta(
+                delta,
+                Tool::GodTool()
+            );
+        }
     };
-};
+}
