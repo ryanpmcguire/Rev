@@ -1,6 +1,8 @@
 module;
 
 #include <cmath>
+#include <algorithm>
+
 #include <dbg.hpp>
 
 export module Rev.Core.Pos;
@@ -34,6 +36,20 @@ export namespace Rev::Core {
             return Pos(
                 cos(angle),
                 sin(angle)
+            );
+        }
+
+        static Pos min(const Pos& a, const Pos& b) {
+            return Pos(
+                std::min(a.x, b.x),
+                std::min(a.y, b.y)
+            );
+        }
+
+        static Pos max(const Pos& a, const Pos& b) {
+            return Pos(
+                std::max(a.x, b.x),
+                std::max(a.y, b.y)
             );
         }
 
@@ -75,7 +91,7 @@ export namespace Rev::Core {
         // Simple operations
         inline Pos setNan() { x = std::nan(""); y = std::nan(""); return *this; }
         inline bool nan() const { return (std::isnan(x) || std::isnan(y)); }
-        inline bool isClose(Pos& other, float thresh = 1e-3) { return this->distanceTo(other) < thresh; }
+        inline bool isClose(const Pos& other, float thresh = 1e-3f) const { return this->distanceTo(other) < thresh; }
         inline float pythag() const { return sqrt(x*x + y*y); }
         inline float distanceTo(const Pos& pos) const { return (pos - *this).pythag();  }
         inline float angle() const { return atan2(y, x); }

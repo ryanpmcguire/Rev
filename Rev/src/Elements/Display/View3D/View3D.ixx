@@ -11,6 +11,7 @@ module;
 export module Rev.Element.View3d;
 
 import Rev.Core.Pos;
+import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
 import Rev.Element;
@@ -28,7 +29,7 @@ import Rev.Element.View3d.Camera3d;
 export namespace Rev::Element::View3d {
 
     namespace Styles {
-        
+
         Style View3d = {
             .overflow = Overflow::Hide,
             .size = { .width = Grow(), .height = Grow() },
@@ -42,6 +43,9 @@ export namespace Rev::Element::View3d {
     struct View : public Box {
 
         // Camera UBO layout must match Mesh3d.vert / Mesh3d.frag.
+        //
+        // This intentionally stays GLM-backed because it is the GPU boundary.
+        // Camera / Actor world-space math is Pos3-backed.
         struct CameraData {
             glm::mat4 viewProj;
             glm::vec4 lightDir;
@@ -147,8 +151,8 @@ export namespace Rev::Element::View3d {
 
         void fitToActors() {
 
-            glm::vec3 sceneMin;
-            glm::vec3 sceneMax;
+            Pos3 sceneMin;
+            Pos3 sceneMax;
 
             bool valid = false;
 
@@ -156,8 +160,8 @@ export namespace Rev::Element::View3d {
 
                 if (!actor) { continue; }
 
-                glm::vec3 actorMin;
-                glm::vec3 actorMax;
+                Pos3 actorMin;
+                Pos3 actorMax;
 
                 if (!actor->bounds(actorMin, actorMax)) { continue; }
 
@@ -168,8 +172,8 @@ export namespace Rev::Element::View3d {
                     continue;
                 }
 
-                sceneMin = glm::min(sceneMin, actorMin);
-                sceneMax = glm::max(sceneMax, actorMax);
+                sceneMin = Pos3::min(sceneMin, actorMin);
+                sceneMax = Pos3::max(sceneMax, actorMax);
             }
 
             if (!valid) { return; }
@@ -217,7 +221,7 @@ export namespace Rev::Element::View3d {
 
         bool hitTest(
             Core::Pos mousePos,
-            glm::vec3& hitPoint
+            Core::Pos3& hitPoint
         ) {
             Hit hit;
 
@@ -233,11 +237,13 @@ export namespace Rev::Element::View3d {
 
         void updateCamera() {
 
+            // Keep this as GLM because CameraData is uploaded directly to the
+            // shader uniform buffer and must match the existing shader layout.
             glm::vec3 light = glm::normalize(
                 glm::vec3(-0.4f, 0.8f, 0.6f)
             );
 
-            glm::vec3 eye = camera.eye();
+            Pos3 eye = camera.eye();
 
             CameraData data = {
                 camera.viewProjMatrix(canvasWidth(), canvasHeight()),
@@ -254,7 +260,7 @@ export namespace Rev::Element::View3d {
         void mouseDown(Event& e) override {
 
             Hit hit;
-            glm::vec3 pivot;
+            Pos3 pivot;
 
             if (hitTest(e.mouse.pos, hit)) {
                 pivot = hit.point;

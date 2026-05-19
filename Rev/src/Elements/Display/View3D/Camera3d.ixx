@@ -6,6 +6,7 @@ module;
 #define GLM_ENABLE_EXPERIMENTAL
 
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -13,6 +14,7 @@ module;
 export module Rev.Element.View3d.Camera3d;
 
 import Rev.Core.Pos;
+import Rev.Core.Pos3;
 import Rev.Element.Event;
 import Rev.Element.View3d.Actor3d;
 
@@ -30,18 +32,32 @@ export namespace Rev::Element::View3d {
 
         glm::quat pinOrientation = orientation;
 
-        glm::vec3 target = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 pinTarget = { 0.0f, 0.0f, 0.0f };
+        Core::Pos3 target = { 0.0f, 0.0f, 0.0f };
+        Core::Pos3 pinTarget = { 0.0f, 0.0f, 0.0f };
 
         float distance = 4.0f;
         float orthoScale = 2.2f;
 
-        glm::vec3 orbitPivot = { 0.0f, 0.0f, 0.0f };
+        Core::Pos3 orbitPivot = { 0.0f, 0.0f, 0.0f };
         Core::Pos orbitMouse;
         Core::Pos orbitLastMouse;
         bool hasOrbitPivot = false;
 
         float rotateSensitivity = glm::two_pi<float>() / 800.0f;
+
+        // GLM boundary helpers
+        //--------------------------------------------------
+        //
+        // Camera3d still uses GLM for matrix/quaternion operations.
+        // Pos/Pos3 are used for vector-space state and arithmetic.
+
+        static glm::vec3 toGlm(const Core::Pos3& p) {
+            return glm::vec3(p.x, p.y, p.z);
+        }
+
+        static Core::Pos3 fromGlm(const glm::vec3& p) {
+            return Core::Pos3(p.x, p.y, p.z);
+        }
 
         // Canvas
         //--------------------------------------------------
@@ -62,27 +78,25 @@ export namespace Rev::Element::View3d {
         //--------------------------------------------------
 
         glm::quat orientationFromForwardUp(
-            glm::vec3 forward,
-            glm::vec3 upHint = { 0.0f, 0.0f, 1.0f }
+            Core::Pos3 forward,
+            Core::Pos3 upHint = { 0.0f, 0.0f, 1.0f }
         ) const {
-            forward = glm::normalize(forward);
+            forward = forward.normalized();
 
-            glm::vec3 right = glm::cross(forward, upHint);
+            Core::Pos3 right = forward.cross(upHint);
 
-            if (glm::length(right) < 1e-6f) {
-                right = glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f));
+            if (right.pythag() < 1e-6f) {
+                right = forward.cross({ 0.0f, 1.0f, 0.0f });
             }
 
-            right = glm::normalize(right);
+            right = right.normalized();
 
-            glm::vec3 up = glm::normalize(
-                glm::cross(right, forward)
-            );
+            Core::Pos3 up = right.cross(forward).normalized();
 
             glm::mat3 basis(
-                right,
-                up,
-                -forward
+                toGlm(right),
+                toGlm(up),
+                toGlm(forward * -1.0f)
             );
 
             return glm::normalize(
@@ -92,13 +106,11 @@ export namespace Rev::Element::View3d {
 
         void setDefaultView() {
 
-            glm::vec3 forward = glm::normalize(
-                glm::vec3(
-                    -1.0f,
-                    -1.0f,
-                    -1.41421356f
-                )
-            );
+            Core::Pos3 forward = Core::Pos3(
+                -1.0f,
+                -1.0f,
+                -1.41421356f
+            ).normalized();
 
             orientation = orientationFromForwardUp(
                 forward,
@@ -109,15 +121,15 @@ export namespace Rev::Element::View3d {
         }
 
         void fitBounds(
-            glm::vec3 min,
-            glm::vec3 max,
+            Core::Pos3 min,
+            Core::Pos3 max,
             float width,
             float height,
             float padding = 1.15f
         ) {
-            glm::vec3 center = (min + max) * 0.5f;
+            Core::Pos3 center = (min + max) * 0.5f;
 
-            glm::vec3 corners[8] = {
+            Core::Pos3 corners[8] = {
                 { min.x, min.y, min.z },
                 { max.x, min.y, min.z },
                 { min.x, max.y, min.z },
@@ -128,7 +140,10 @@ export namespace Rev::Element::View3d {
                 { max.x, max.y, max.z }
             };
 
-            glm::vec3 right, up, forward;
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
             basis(right, up, forward);
 
             float minX = 0.0f;
@@ -140,13 +155,13 @@ export namespace Rev::Element::View3d {
 
             bool first = true;
 
-            for (glm::vec3& corner : corners) {
+            for (Core::Pos3& corner : corners) {
 
-                glm::vec3 d = corner - center;
+                Core::Pos3 d = corner - center;
 
-                float x = glm::dot(d, right);
-                float y = glm::dot(d, up);
-                float z = glm::dot(d, forward);
+                float x = d.dot(right);
+                float y = d.dot(up);
+                float z = d.dot(forward);
 
                 if (first) {
                     minX = maxX = x;
@@ -178,7 +193,7 @@ export namespace Rev::Element::View3d {
                 orthoScale = 1.0f;
             }
 
-            float radius = glm::length(max - min) * 0.5f;
+            float radius = (max - min).pythag() * 0.5f;
 
             distance = std::max(4.0f, radius * 2.0f);
 
@@ -190,26 +205,29 @@ export namespace Rev::Element::View3d {
 
         void basisFor(
             glm::quat q,
-            glm::vec3& right,
-            glm::vec3& up,
-            glm::vec3& forward
+            Core::Pos3& right,
+            Core::Pos3& up,
+            Core::Pos3& forward
         ) const {
-            right = glm::normalize(q * glm::vec3(1.0f, 0.0f, 0.0f));
-            up = glm::normalize(q * glm::vec3(0.0f, 1.0f, 0.0f));
-            forward = glm::normalize(q * glm::vec3(0.0f, 0.0f, -1.0f));
+            right = fromGlm(glm::normalize(q * glm::vec3(1.0f, 0.0f, 0.0f)));
+            up = fromGlm(glm::normalize(q * glm::vec3(0.0f, 1.0f, 0.0f)));
+            forward = fromGlm(glm::normalize(q * glm::vec3(0.0f, 0.0f, -1.0f)));
         }
 
         void basis(
-            glm::vec3& right,
-            glm::vec3& up,
-            glm::vec3& forward
+            Core::Pos3& right,
+            Core::Pos3& up,
+            Core::Pos3& forward
         ) const {
             basisFor(orientation, right, up, forward);
         }
 
-        glm::vec3 eye() const {
+        Core::Pos3 eye() const {
 
-            glm::vec3 right, up, forward;
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
             basis(right, up, forward);
 
             return target - forward * distance;
@@ -220,15 +238,18 @@ export namespace Rev::Element::View3d {
 
         glm::mat4 viewMatrixFor(
             glm::quat q,
-            glm::vec3 cameraTarget
+            Core::Pos3 cameraTarget
         ) const {
-            glm::vec3 right, up, forward;
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
             basisFor(q, right, up, forward);
 
             return glm::lookAt(
-                cameraTarget - forward * distance,
-                cameraTarget,
-                up
+                toGlm(cameraTarget - forward * distance),
+                toGlm(cameraTarget),
+                toGlm(up)
             );
         }
 
@@ -247,7 +268,7 @@ export namespace Rev::Element::View3d {
 
         glm::mat4 viewProjMatrixFor(
             glm::quat q,
-            glm::vec3 cameraTarget,
+            Core::Pos3 cameraTarget,
             float width,
             float height
         ) const {
@@ -264,7 +285,7 @@ export namespace Rev::Element::View3d {
         // Mouse/world mapping
         //--------------------------------------------------
 
-        glm::vec2 ndcFromMouse(
+        Core::Pos ndcFromMouse(
             Core::Pos mousePos,
             float width,
             float height
@@ -283,7 +304,7 @@ export namespace Rev::Element::View3d {
             float width,
             float height
         ) const {
-            glm::vec2 ndc = ndcFromMouse(mousePos, width, height);
+            Core::Pos ndc = ndcFromMouse(mousePos, width, height);
 
             glm::mat4 invViewProj = glm::inverse(viewProjMatrix(width, height));
 
@@ -294,46 +315,53 @@ export namespace Rev::Element::View3d {
             farWorld /= farWorld.w;
 
             Ray ray;
-            ray.origin = glm::vec3(nearWorld);
-            ray.direction = glm::normalize(glm::vec3(farWorld - nearWorld));
+
+            ray.origin = fromGlm(glm::vec3(nearWorld));
+            ray.direction = fromGlm(glm::normalize(glm::vec3(farWorld - nearWorld)));
 
             return ray;
         }
 
-        glm::vec3 worldOnTargetPlane(
+        Core::Pos3 worldOnTargetPlane(
             Core::Pos mousePos,
             float width,
             float height
         ) const {
             Ray ray = rayFromMouse(mousePos, width, height);
 
-            glm::vec3 right, up, forward;
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
             basis(right, up, forward);
 
-            float denom = glm::dot(ray.direction, forward);
+            float denom = ray.direction.dot(forward);
 
             if (std::abs(denom) < 1e-6f) { return target; }
 
-            float t = glm::dot(target - ray.origin, forward) / denom;
+            float t = (target -  ray.origin).dot(forward) / denom;
 
-            return ray.origin + ray.direction * t;
+            return  ray.origin + ray.direction * t;
         }
 
-        glm::vec3 targetForScreenPointWithOrientation(
-            glm::vec3 worldPoint,
+        Core::Pos3 targetForScreenPointWithOrientation(
+            Core::Pos3 worldPoint,
             Core::Pos mousePos,
             float width,
             float height,
             glm::quat q
         ) const {
-            glm::vec3 right, up, forward;
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
             basisFor(q, right, up, forward);
 
             float safeW = safeWidth(width);
             float safeH = safeHeight(height);
             float a = aspect(safeW, safeH);
 
-            glm::vec2 ndc = ndcFromMouse(mousePos, safeW, safeH);
+            Core::Pos ndc = ndcFromMouse(mousePos, safeW, safeH);
 
             return (
                 worldPoint
@@ -342,8 +370,8 @@ export namespace Rev::Element::View3d {
             );
         }
 
-        glm::vec3 targetForScreenPoint(
-            glm::vec3 worldPoint,
+        Core::Pos3 targetForScreenPoint(
+            Core::Pos3 worldPoint,
             Core::Pos mousePos,
             float width,
             float height
@@ -367,7 +395,7 @@ export namespace Rev::Element::View3d {
 
         void mouseDown(
             Event& e,
-            glm::vec3 hitPoint,
+            Core::Pos3 hitPoint,
             float width,
             float height
         ) {
@@ -391,11 +419,17 @@ export namespace Rev::Element::View3d {
             float width,
             float height
         ) {
-            glm::vec3 right, up, forward;
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
             basisFor(pinOrientation, right, up, forward);
 
             float worldPerPixel = (2.0f * orthoScale) / safeHeight(height);
-            glm::vec3 pan = (-right * e.mouse.diff.x + up * e.mouse.diff.y) * worldPerPixel;
+            Core::Pos3 pan = (
+                right * -e.mouse.diff.x +
+                up * e.mouse.diff.y
+            ) * worldPerPixel;
 
             target = pinTarget + pan;
         }
@@ -413,17 +447,20 @@ export namespace Rev::Element::View3d {
                 return;
             }
 
-            glm::vec3 right, up, forward;
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
             basis(right, up, forward);
 
             glm::quat yaw = glm::angleAxis(
                 -step.x * rotateSensitivity,
-                up
+                toGlm(up)
             );
 
             glm::quat pitch = glm::angleAxis(
                 -step.y * rotateSensitivity,
-                right
+                toGlm(right)
             );
 
             orientation = glm::normalize(pitch * yaw * orientation);
@@ -453,14 +490,14 @@ export namespace Rev::Element::View3d {
             float width,
             float height
         ) {
-            glm::vec3 before = worldOnTargetPlane(e.mouse.pos, width, height);
+            Core::Pos3 before = worldOnTargetPlane(e.mouse.pos, width, height);
 
             float zoom = (e.mouse.wheel.y > 0.0f ? 0.9f : 1.1f);
 
             orthoScale *= zoom;
             orthoScale = std::clamp(orthoScale, 0.05f, 100.0f);
 
-            glm::vec3 after = worldOnTargetPlane(e.mouse.pos, width, height);
+            Core::Pos3 after = worldOnTargetPlane(e.mouse.pos, width, height);
 
             target += before - after;
         }

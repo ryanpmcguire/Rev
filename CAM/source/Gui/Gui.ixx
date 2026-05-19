@@ -6,8 +6,6 @@ module;
 #include <stdexcept>
 #include <vector>
 
-#include <glm/glm.hpp>
-
 #include <dbg.hpp>
 
 export module Cam.Gui;
@@ -28,6 +26,7 @@ import Rev.Element.Chart;
 import Rev.Serial;
 import Rev.Window;
 
+import Rev.Core.Pos3;
 import Rev.Core.Color;
 import Rev.Core.Vertex3;
 
@@ -233,7 +232,22 @@ export namespace Cam::Gui {
 
             testLines.clear();
 
-            auto addAxis = [this](glm::vec3 dir, Rev::Core::Color color) {
+            auto addLinePoint = [this](
+                const Rev::Core::Pos3& p,
+                const Rev::Core::Color& color
+            ) {
+                testLines.push_back({
+                    p.x,
+                    p.y,
+                    p.z,
+                    color
+                });
+            };
+
+            auto addAxis = [this, &addLinePoint](
+                const Rev::Core::Pos3& dir,
+                Rev::Core::Color color
+            ) {
 
                 float core = 2.0f;
                 float far = 90.0f;
@@ -246,22 +260,28 @@ export namespace Cam::Gui {
                 soft.a = 0.8f;
                 fade.a = 0.0f;
 
-                glm::vec3 nFar = -dir * far;
-                glm::vec3 nCore = -dir * core;
-                glm::vec3 pCore =  dir * core;
-                glm::vec3 pFar =  dir * far;
+                Rev::Core::Pos3 origin = {
+                    0.0f,
+                    0.0f,
+                    0.0f
+                };
 
-                testLines.push_back({ nFar.x,  nFar.y,  nFar.z,  fade });
-                testLines.push_back({ nCore.x, nCore.y, nCore.z, soft });
+                Rev::Core::Pos3 nFar = dir * -far;
+                Rev::Core::Pos3 nCore = dir * -core;
+                Rev::Core::Pos3 pCore = dir * core;
+                Rev::Core::Pos3 pFar = dir * far;
 
-                testLines.push_back({ nCore.x, nCore.y, nCore.z, soft });
-                testLines.push_back({ 0.0f,    0.0f,    0.0f,    full });
+                addLinePoint(nFar, fade);
+                addLinePoint(nCore, soft);
 
-                testLines.push_back({ 0.0f,    0.0f,    0.0f,    full });
-                testLines.push_back({ pCore.x, pCore.y, pCore.z, soft });
+                addLinePoint(nCore, soft);
+                addLinePoint(origin, full);
 
-                testLines.push_back({ pCore.x, pCore.y, pCore.z, soft });
-                testLines.push_back({ pFar.x,  pFar.y,  pFar.z,  fade });
+                addLinePoint(origin, full);
+                addLinePoint(pCore, soft);
+
+                addLinePoint(pCore, soft);
+                addLinePoint(pFar, fade);
             };
 
             addAxis({ 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f });

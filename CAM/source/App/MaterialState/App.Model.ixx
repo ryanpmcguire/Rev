@@ -34,6 +34,7 @@ export module Cam.App.Model;
 
 import Rev.OS.File;
 import Rev.Core.Color;
+import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
 export namespace Cam::App {
@@ -227,23 +228,34 @@ export namespace Cam::App {
         // Tessellation
         //--------------------------------------------------
 
+        static Rev::Core::Pos3 makePos3(const gp_Pnt& p) {
+
+            return Rev::Core::Pos3(
+                static_cast<float>(p.X()),
+                static_cast<float>(p.Y()),
+                static_cast<float>(p.Z())
+            );
+        }
+
+        static Rev::Core::Pos3 makePos3(const gp_Vec& v) {
+
+            return Rev::Core::Pos3(
+                static_cast<float>(v.X()),
+                static_cast<float>(v.Y()),
+                static_cast<float>(v.Z())
+            );
+        }
+
         static Rev::Core::Vertex3 makeVertex(
             const gp_Pnt& p,
             Rev::Core::Color color,
             const gp_Vec& normal
         ) {
-            Rev::Core::Vertex3 v = {
-                static_cast<float>(p.X()),
-                static_cast<float>(p.Y()),
-                static_cast<float>(p.Z()),
-                color
-            };
-
-            v.nx = static_cast<float>(normal.X());
-            v.ny = static_cast<float>(normal.Y());
-            v.nz = static_cast<float>(normal.Z());
-
-            return v;
+            return Rev::Core::Vertex3(
+                makePos3(p),
+                color,
+                makePos3(normal)
+            );
         }
 
         void tessellate(double tolerance = 0.1) {

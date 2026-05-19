@@ -3,11 +3,8 @@ module;
 #include <vector>
 #include <string>
 #include <cstddef>
-#include <limits>
 #include <algorithm>
 #include <cmath>
-
-#include <glm/glm.hpp>
 
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
@@ -28,10 +25,14 @@ export module Cam.App.ToolPath;
 
 import Rev.Core.Vertex3;
 import Rev.Core.Color;
+import Rev.Core.Pos;
+import Rev.Core.Pos3;
 
 import Cam.App.Model;
 
 export namespace Cam::App {
+
+    using namespace Rev::Core;
 
     struct Tool {
 
@@ -47,7 +48,7 @@ export namespace Cam::App {
         double radius = 0.5;
         double length = 100.0;
 
-        glm::vec3 axis = { 0.0f, 0.0f, 1.0f };
+        Pos3 axis = { 0.0f, 0.0f, 1.0f };
 
         static Tool GodTool() {
 
@@ -68,7 +69,7 @@ export namespace Cam::App {
 
     struct ToolPathPoint {
 
-        glm::vec3 position = { 0.0f, 0.0f, 0.0f };
+        Pos3 position = { 0.0f, 0.0f, 0.0f };
 
         double t = 0.0;
 
@@ -83,8 +84,8 @@ export namespace Cam::App {
 
     struct SliceSegment {
 
-        glm::vec2 a = { 0.0f, 0.0f };
-        glm::vec2 b = { 0.0f, 0.0f };
+        Pos a = { 0.0f, 0.0f };
+        Pos b = { 0.0f, 0.0f };
 
         BoundaryKind kind = BoundaryKind::Air;
     };
@@ -100,13 +101,13 @@ export namespace Cam::App {
 
         float z = 0.0f;
 
-        glm::vec2 min = { 0.0f, 0.0f };
-        glm::vec2 max = { 0.0f, 0.0f };
+        Pos min = { 0.0f, 0.0f };
+        Pos max = { 0.0f, 0.0f };
 
         std::vector<SliceSegment> carve;
         std::vector<SliceSegment> avoid;
 
-        std::vector<glm::vec2> points;
+        std::vector<Pos> points;
 
         bool valid = false;
 
@@ -125,8 +126,29 @@ export namespace Cam::App {
             valid = false;
         }
 
-        void includePoint(glm::vec2 p) {
+        static Pos componentMin(
+            const Pos& a,
+            const Pos& b
+        ) {
+            return {
+                std::min(a.x, b.x),
+                std::min(a.y, b.y)
+            };
+        }
 
+        static Pos componentMax(
+            const Pos& a,
+            const Pos& b
+        ) {
+            return {
+                std::max(a.x, b.x),
+                std::max(a.y, b.y)
+            };
+        }
+
+        void includePoint(
+            const Pos& p
+        ) {
             if (!valid) {
                 min = p;
                 max = p;
@@ -134,39 +156,39 @@ export namespace Cam::App {
                 return;
             }
 
-            min = glm::min(min, p);
-            max = glm::max(max, p);
+            min = componentMin(min, p);
+            max = componentMax(max, p);
         }
 
         // Geometry helpers
         //--------------------------------------------------
 
         static float pointSegmentDistance(
-            glm::vec2 p,
-            glm::vec2 a,
-            glm::vec2 b
+            const Pos& p,
+            const Pos& a,
+            const Pos& b
         ) {
-            glm::vec2 ab = b - a;
+            Pos ab = b - a;
 
-            float len2 = glm::dot(ab, ab);
+            float len2 = ab.dot(ab);
 
             if (len2 <= 1e-12f) {
-                return glm::length(p - a);
+                return p.distanceTo(a);
             }
 
-            float t = glm::dot(p - a, ab) / len2;
+            float t = (p - a).dot(ab) / len2;
             t = std::clamp(t, 0.0f, 1.0f);
 
-            glm::vec2 q = a + ab * t;
+            Pos q = a + ab * t;
 
-            return glm::length(p - q);
+            return p.distanceTo(q);
         }
 
         static float segmentSegmentDistance(
-            glm::vec2 a0,
-            glm::vec2 a1,
-            glm::vec2 b0,
-            glm::vec2 b1
+            const Pos& a0,
+            const Pos& a1,
+            const Pos& b0,
+            const Pos& b1
         ) {
             float d0 = pointSegmentDistance(a0, b0, b1);
             float d1 = pointSegmentDistance(a1, b0, b1);
@@ -180,13 +202,13 @@ export namespace Cam::App {
         }
 
         bool segmentNearAvoid(
-            glm::vec2 a,
-            glm::vec2 b,
+            const Pos& a,
+            const Pos& b,
             float tolerance = 0.05f
         ) {
-            glm::vec2 mid = (a + b) * 0.5f;
+            Pos mid = (a + b) * 0.5f;
 
-            for (SliceSegment& s : avoid) {
+            for (const SliceSegment& s : avoid) {
 
                 float dm = pointSegmentDistance(
                     mid,
@@ -214,11 +236,11 @@ export namespace Cam::App {
 
         void addRawSegment(
             std::vector<SliceSegment>& out,
-            glm::vec2 a,
-            glm::vec2 b,
+            const Pos& a,
+            const Pos& b,
             BoundaryKind kind = BoundaryKind::Air
         ) {
-            if (glm::length(a - b) < 1e-6f) { return; }
+            if ((a - b).pythag() < 1e-6f) { return; }
 
             out.push_back({
                 .a = a,
@@ -276,7 +298,7 @@ export namespace Cam::App {
 
                 if (last <= first) { continue; }
 
-                std::vector<glm::vec2> sampled;
+                std::vector<Pos> sampled;
 
                 double lengthStep = 0.25;
 
@@ -332,6 +354,13 @@ export namespace Cam::App {
                 }
             }
 
+            dbg(
+                "[ToolPathSlice] z=%.3f sectionEdges=%zu sectionSegments=%zu",
+                z,
+                edgeCount,
+                segmentCount
+            );
+
             return !out.empty();
         }
 
@@ -352,7 +381,7 @@ export namespace Cam::App {
                 return false;
             }
 
-            for (SliceSegment& s : rawCarve) {
+            for (const SliceSegment& s : rawCarve) {
 
                 BoundaryKind kind = (
                     segmentNearAvoid(s.a, s.b)
@@ -382,10 +411,10 @@ export namespace Cam::App {
         ) {
             crossings.clear();
 
-            for (SliceSegment& s : carve) {
+            for (const SliceSegment& s : carve) {
 
-                glm::vec2 a = s.a;
-                glm::vec2 b = s.b;
+                const Pos& a = s.a;
+                const Pos& b = s.b;
 
                 if (std::abs(a.y - b.y) < 1e-6f) { continue; }
 
@@ -574,8 +603,8 @@ export namespace Cam::App {
 
         bool boundsFromModel(
             const Model& model,
-            glm::vec3& min,
-            glm::vec3& max
+            Pos3& min,
+            Pos3& max
         ) {
             if (!model.loaded) { return false; }
             if (model.render.triangles.empty()) { return false; }
@@ -584,17 +613,15 @@ export namespace Cam::App {
 
             for (const Rev::Core::Vertex3& v : model.render.triangles) {
 
-                glm::vec3 p = { v.x, v.y, v.z };
-
                 if (!valid) {
-                    min = p;
-                    max = p;
+                    min = v;
+                    max = v;
                     valid = true;
                     continue;
                 }
 
-                min = glm::min(min, p);
-                max = glm::max(max, p);
+                min = Pos3::min(min, v);
+                max = Pos3::max(max, v);
             }
 
             return valid;
@@ -609,9 +636,9 @@ export namespace Cam::App {
 
             double t = 0.0;
 
-            for (ToolPathSlice& slice : slices) {
+            for (const ToolPathSlice& slice : slices) {
 
-                for (glm::vec2& p : slice.points) {
+                for (const Pos& p : slice.points) {
 
                     points.push_back({
                         .position = { p.x, p.y, slice.z },
@@ -636,8 +663,8 @@ export namespace Cam::App {
 
             dbg("[ToolPath] Computing toolpath");
 
-            glm::vec3 min;
-            glm::vec3 max;
+            Pos3 min;
+            Pos3 max;
 
             if (!boundsFromModel(toCarve, min, max)) {
                 dbg("[ToolPath] Failed: no carve bounds");
@@ -757,8 +784,8 @@ export namespace Cam::App {
 
             for (size_t i = 0; i + 1 < points.size(); i++) {
 
-                glm::vec3 a = points[i].position;
-                glm::vec3 b = points[i + 1].position;
+                const Pos3& a = points[i].position;
+                const Pos3& b = points[i + 1].position;
 
                 Rev::Core::Color color = (
                     points[i + 1].rapid

@@ -4,10 +4,9 @@ module;
 #include <vector>
 #include <limits>
 
-#include <glm/glm.hpp>
-
 export module Rev.Element.View3d.Actor3d;
 
+import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
 import Rev.Primitive.Mesh3d;
@@ -26,8 +25,8 @@ export namespace Rev::Element::View3d {
     };
 
     struct Ray {
-        glm::vec3 origin = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 direction = { 0.0f, 0.0f, -1.0f };
+        Core::Pos3 origin = { 0.0f, 0.0f, 0.0f };
+        Core::Pos3 direction = { 0.0f, 0.0f, -1.0f };
     };
 
     struct Hit {
@@ -42,7 +41,7 @@ export namespace Rev::Element::View3d {
         size_t faceId = 0;
         size_t edgeId = 0;
 
-        glm::vec3 point = { 0.0f, 0.0f, 0.0f };
+        Core::Pos3 point = { 0.0f, 0.0f, 0.0f };
 
         float t = 0.0f;
     };
@@ -77,36 +76,50 @@ export namespace Rev::Element::View3d {
             lines = nullptr;
         }
 
+        static Core::Pos3 vertexPos(const Core::Vertex3& v) {
+            return {
+                v.x,
+                v.y,
+                v.z
+            };
+        }
+
         static bool rayTriangle(
             const Ray& ray,
-            glm::vec3 a,
-            glm::vec3 b,
-            glm::vec3 c,
+            Core::Pos3 a,
+            Core::Pos3 b,
+            Core::Pos3 c,
             float& t
         ) {
+            // Moller-Trumbore intersection.
+            //
+            // Preserves the previous behavior:
+            // - Two-sided triangle hit test.
+            // - Reject nearly parallel rays.
+            // - Reject hits behind the ray origin.
             const float eps = 1e-6f;
 
-            glm::vec3 edge1 = b - a;
-            glm::vec3 edge2 = c - a;
+            Core::Pos3 edge1 = b - a;
+            Core::Pos3 edge2 = c - a;
 
-            glm::vec3 h = glm::cross(ray.direction, edge2);
-            float det = glm::dot(edge1, h);
+            Core::Pos3 h = ray.direction.cross(edge2);
+            float det = edge1.dot(h);
 
             if (det > -eps && det < eps) { return false; }
 
             float invDet = 1.0f / det;
 
-            glm::vec3 s = ray.origin - a;
-            float u = invDet * glm::dot(s, h);
+            Core::Pos3 s = ray.origin - a;
+            float u = invDet * s.dot(h);
 
             if (u < 0.0f || u > 1.0f) { return false; }
 
-            glm::vec3 q = glm::cross(s, edge1);
-            float v = invDet * glm::dot(ray.direction, q);
+            Core::Pos3 q = s.cross(edge1);
+            float v = invDet * ray.direction.dot(q);
 
             if (v < 0.0f || u + v > 1.0f) { return false; }
 
-            t = invDet * glm::dot(edge2, q);
+            t = invDet * edge2.dot(q);
 
             return t > eps;
         }
@@ -134,9 +147,9 @@ export namespace Rev::Element::View3d {
                 Core::Vertex3& vb = triangles[i + 1];
                 Core::Vertex3& vc = triangles[i + 2];
 
-                glm::vec3 a = { va.x, va.y, va.z };
-                glm::vec3 b = { vb.x, vb.y, vb.z };
-                glm::vec3 c = { vc.x, vc.y, vc.z };
+                Core::Pos3 a = vertexPos(va);
+                Core::Pos3 b = vertexPos(vb);
+                Core::Pos3 c = vertexPos(vc);
 
                 float t = 0.0f;
 
@@ -159,8 +172,8 @@ export namespace Rev::Element::View3d {
         }
 
         bool bounds(
-            glm::vec3& min,
-            glm::vec3& max
+            Core::Pos3& min,
+            Core::Pos3& max
         ) {
             if (!includeInFit) { return false; }
 
@@ -168,7 +181,7 @@ export namespace Rev::Element::View3d {
 
             auto include = [&](Core::Vertex3& v) {
 
-                glm::vec3 p = { v.x, v.y, v.z };
+                Core::Pos3 p = vertexPos(v);
 
                 if (!valid) {
                     min = p;
@@ -177,8 +190,8 @@ export namespace Rev::Element::View3d {
                     return;
                 }
 
-                min = glm::min(min, p);
-                max = glm::max(max, p);
+                min = Core::Pos3::min(min, p);
+                max = Core::Pos3::max(max, p);
             };
 
             if (mesh) {
