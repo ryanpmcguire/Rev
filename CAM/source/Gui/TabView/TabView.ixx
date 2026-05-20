@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <vector>
+#include <functional>
 
 export module Cam.Gui.TabView;
 
@@ -13,6 +14,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 
 import Cam.App;
+import Cam.App.Project;
 
 export namespace Cam::Gui {
 
@@ -105,66 +107,143 @@ export namespace Cam::Gui {
 
         Cam::App::AppState* app = nullptr;
 
-        std::vector<std::string> names = {
-            "Nut Mount",
-            "Bearing Block",
-            "Test Project"
-        };
-
         std::vector<Box*> tabs;
         std::vector<Box*> labelBoxes;
         std::vector<Text*> labels;
 
-        size_t active = 0;
+        std::function<void(Event&)> onSelectProject;
 
         TabView(Element* parent, StyleList styles = {}) : Box(parent, styles, "TabView") {
 
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&TabViewStyle::Self);
-
-            buildDummyTabs();
         }
 
-        void buildDummyTabs() {
+        // Project helpers
+        //--------------------------------------------------
 
-            for (size_t i = 0; i < names.size(); i++) {
+        size_t projectCount() const {
 
-                Box* tab = new Box(
-                    this,
-                    { &TabViewStyle::Tab, &TabViewStyle::TabHover },
-                    "ProjectTab"
-                );
+            if (!app) { return 0; }
 
-                Box* labelBox = new Box(
-                    tab,
-                    { &TabViewStyle::LabelBox },
-                    "ProjectTabLabelBox"
-                );
+            return app->projects.size();
+        }
 
-                Text* label = new Text(
-                    labelBox,
-                    names[i],
-                    { &TabViewStyle::Label }
-                );
+        Cam::App::Project* projectAt(size_t i) const {
 
-                tab->onMouseDown([this, i](Event& e) {
-                    active = i;
+            if (!app) { return nullptr; }
+            if (i >= app->projects.size()) { return nullptr; }
+
+            return app->projects[i];
+        }
+
+        bool projectIsActive(size_t i) const {
+
+            Cam::App::Project* project = projectAt(i);
+
+            return (
+                app &&
+                project &&
+                app->activeProject == project
+            );
+        }
+
+        std::string projectName(size_t i) const {
+
+            Cam::App::Project* project = projectAt(i);
+
+            if (!project) {
+                return "Invalid Project";
+            }
+
+            if (!project->name.empty()) {
+                return project->name;
+            }
+
+            return "Project " + std::to_string(i + 1);
+        }
+
+        // Tabs
+        //--------------------------------------------------
+
+        void createTab(size_t i) {
+
+            Box* tab = new Box(
+                this,
+                { &TabViewStyle::Tab, &TabViewStyle::TabHover },
+                "ProjectTab"
+            );
+
+            Box* labelBox = new Box(
+                tab,
+                { &TabViewStyle::LabelBox },
+                "ProjectTabLabelBox"
+            );
+
+            Text* label = new Text(
+                labelBox,
+                projectName(i),
+                { &TabViewStyle::Label }
+            );
+
+            tab->onMouseDown([this, i](Event& e) {
+
+                if (!app) { return; }
+
+                if (app->setActiveProject(i)) {
+
+                    if (onSelectProject) {
+                        onSelectProject(e);
+                    }
+
                     refresh(e);
-                    e.propagate = false;
-                });
+                }
 
-                tabs.push_back(tab);
-                labelBoxes.push_back(labelBox);
-                labels.push_back(label);
+                e.propagate = false;
+            });
+
+            tabs.push_back(tab);
+            labelBoxes.push_back(labelBox);
+            labels.push_back(label);
+        }
+
+        void syncTabs() {
+
+            size_t newSize = projectCount();
+
+            while (tabs.size() > newSize) {
+
+                Box* tab = tabs.back();
+
+                tabs.pop_back();
+                labelBoxes.pop_back();
+                labels.pop_back();
+
+                delete tab;
+            }
+
+            while (tabs.size() < newSize) {
+                createTab(tabs.size());
+            }
+
+            for (size_t i = 0; i < newSize; i++) {
+                if (labels[i]) {
+                    labels[i]->content = projectName(i);
+                }
             }
         }
 
+        // Compute
+        //--------------------------------------------------
+
         void computeChildren(Event& e) override {
+
+            syncTabs();
 
             for (size_t i = 0; i < tabs.size(); i++) {
 
-                bool isActive = (i == active);
+                bool isActive = projectIsActive(i);
 
                 if (isActive) { tabs[i]->styles.add(&TabViewStyle::TabActive); }
                 else { tabs[i]->styles.remove(&TabViewStyle::TabActive); }

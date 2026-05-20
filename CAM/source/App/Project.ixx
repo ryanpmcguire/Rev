@@ -2,6 +2,7 @@ module;
 
 #include <vector>
 #include <algorithm>
+#include <string>
 
 export module Cam.App.Project;
 
@@ -14,8 +15,10 @@ export namespace Cam::App {
 
     struct Project {
 
+        std::string name = "Untitled Project";
+
         Rev::OS::File file = Rev::OS::File({
-            .pathname = "C:/Users/Ryan/Desktop/Ryan/recils/parts/Nut Mount (Cross Mounted) (Chamfered).STEP"
+            .pathname = ""
         });
 
         std::vector<MaterialState*> states;
@@ -25,15 +28,29 @@ export namespace Cam::App {
         MaterialState* workingState = nullptr;
         MaterialState* displayedState = nullptr;
 
-        Project() {
-            loadDefaultModel();
+        Project(
+            bool loadDefault = true,
+            std::string name = "Untitled Project"
+        ) {
+            this->name = name;
+
+            if (loadDefault) {
+                loadDefaultModel();
+            }
         }
 
         ~Project() {
             clear();
         }
 
+        static Rev::OS::File DefaultFile() {
+            return Rev::OS::File({
+                .pathname = "C:/Users/Ryan/Desktop/Ryan/recils/parts/Nut Mount (Cross Mounted) (Chamfered).STEP"
+            });
+        }
+
         void clear() {
+
             for (MaterialState* state : states) {
                 delete state;
             }
@@ -46,34 +63,56 @@ export namespace Cam::App {
             displayedState = nullptr;
         }
 
+        bool empty() const {
+            return states.empty() || !rootState;
+        }
+
+        bool hasModel() const {
+            return displayedState != nullptr;
+        }
+
         void loadDefaultModel() {
+
             clear();
 
+            name = "Nut Mount";
+            file = DefaultFile();
+
             rootState = MaterialState::FromStep(file);
+
+            if (!rootState) { return; }
 
             states.push_back(rootState);
 
             latestCommittedState = rootState;
+
             workingState = MaterialState::FromPriorState(rootState);
 
-            states.push_back(workingState);
+            if (workingState) {
+                states.push_back(workingState);
+            }
 
-            displayedState = workingState;
+            displayedState = workingState ? workingState : rootState;
         }
 
-        Cam::App::Model* getDisplayedModel() {
+        Model* getDisplayedModel() {
+
             if (!displayedState) { return nullptr; }
+
             return &displayedState->model;
         }
 
         bool selectState(MaterialState* state) {
+
             if (!state) { return false; }
 
             displayedState = state;
+
             return true;
         }
 
         bool deleteState(MaterialState* state) {
+
             if (!state) { return false; }
             if (state == rootState) { return false; }
 
@@ -104,19 +143,30 @@ export namespace Cam::App {
 
             state->remove();
 
-            if (!workingState) {
-                workingState = MaterialState::FromPriorState(latestCommittedState);
-                states.push_back(workingState);
+            if (!latestCommittedState) {
+                latestCommittedState = rootState;
+            }
+
+            if (!workingState && latestCommittedState) {
+
+                workingState = MaterialState::FromPriorState(
+                    latestCommittedState
+                );
+
+                if (workingState) {
+                    states.push_back(workingState);
+                }
             }
 
             if (!displayedState) {
-                displayedState = workingState;
+                displayedState = workingState ? workingState : latestCommittedState;
             }
 
             return true;
         }
 
         bool defeatureSelected() {
+
             if (!workingState) { return false; }
 
             displayedState = workingState;
@@ -132,6 +182,7 @@ export namespace Cam::App {
         }
 
         bool commitWorkingState() {
+
             if (!workingState) { return false; }
             if (!workingState->model.changed && !workingState->hasDelta) { return false; }
 
@@ -143,11 +194,15 @@ export namespace Cam::App {
 
             latestCommittedState = workingState;
 
-            workingState = MaterialState::FromPriorState(latestCommittedState);
+            workingState = MaterialState::FromPriorState(
+                latestCommittedState
+            );
 
-            states.push_back(workingState);
+            if (workingState) {
+                states.push_back(workingState);
+            }
 
-            displayedState = workingState;
+            displayedState = workingState ? workingState : latestCommittedState;
 
             return true;
         }

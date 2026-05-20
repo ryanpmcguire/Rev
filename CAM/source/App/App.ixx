@@ -1,5 +1,6 @@
 module;
 
+#include <string>
 #include <vector>
 #include <algorithm>
 
@@ -31,7 +32,7 @@ export namespace Cam::App {
         }
 
         AppState() {
-            createProject();
+            createInitialProjects();
         }
 
         ~AppState() {
@@ -44,24 +45,75 @@ export namespace Cam::App {
             activeProject = nullptr;
         }
 
-        Project* createProject() {
+        // Projects
+        //--------------------------------------------------
 
-            Project* project = new Project();
+        void createInitialProjects() {
+
+            projects.clear();
+            activeProject = nullptr;
+
+            Project* loadedProject = createProject(true);
+            Project* emptyProject = createProject(false);
+
+            activeProject = loadedProject;
+        }
+
+        Project* createProject(
+            bool loadDefault = true
+        ) {
+            Project* project = new Project(loadDefault);
 
             projects.push_back(project);
-            activeProject = project;
+
+            if (!activeProject) {
+                activeProject = project;
+            }
 
             return project;
+        }
+
+        Project* createEmptyProject() {
+            return createProject(false);
         }
 
         bool setActiveProject(Project* project) {
 
             if (!project) { return false; }
 
+            auto it = std::find(
+                projects.begin(),
+                projects.end(),
+                project
+            );
+
+            if (it == projects.end()) { return false; }
+
             activeProject = project;
 
             return true;
         }
+
+        bool setActiveProject(size_t index) {
+
+            if (index >= projects.size()) { return false; }
+
+            activeProject = projects[index];
+
+            return true;
+        }
+
+        size_t activeProjectIndex() const {
+
+            for (size_t i = 0; i < projects.size(); i++) {
+                if (projects[i] == activeProject) { return i; }
+            }
+
+            return 0;
+        }
+
+        // Active project forwarding
+        //--------------------------------------------------
 
         Model* getDisplayedModel() {
 

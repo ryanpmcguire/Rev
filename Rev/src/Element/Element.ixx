@@ -108,14 +108,42 @@ export namespace Rev::Element {
         // Destroy
         virtual ~Element() {
 
-            // Before doing anything, remove self from parent
-            parent->removeChild(this);
+            if (shared) {
 
-            if (style.pStyle) { delete style.pStyle; style.pStyle = nullptr; }
+                auto removeSelf = [this](std::vector<Element*>& list) {
+                    list.erase(
+                        std::remove(
+                            list.begin(),
+                            list.end(),
+                            this
+                        ),
+                        list.end()
+                    );
+                };
 
-            // Delete children (from copy)
+                removeSelf(shared->dirty.refresh);
+                removeSelf(shared->dirty.restyle);
+                removeSelf(shared->dirty.animate);
+                removeSelf(shared->stencilStack);
+            }
+
+            // Before doing anything structural, remove self from parent
+            if (parent) {
+                parent->removeChild(this);
+            }
+
+            if (style.pStyle) {
+                delete style.pStyle;
+                style.pStyle = nullptr;
+            }
+
+            // Delete children from a copy because child destructors mutate children
             std::vector<Element*> childrenCopy = children;
-            for (Element* child : childrenCopy) { if (child) { delete child; } }
+
+            for (Element* child : childrenCopy) {
+                if (child) { delete child; }
+            }
+
             children.clear();
         }
 
