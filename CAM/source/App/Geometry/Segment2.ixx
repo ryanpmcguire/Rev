@@ -1,347 +1,822 @@
 module;
 
+#include <vector>
 #include <algorithm>
 #include <cmath>
 
-export module Rev.Core.Segment;
+export module Cam.App.Geometry.Segment;
 
 import Rev.Core.Pos;
 
-export namespace Rev::Core {
+export namespace Cam::App::Geometry {
+
+    using namespace Rev::Core;
 
     struct Segment {
 
-        enum class Type { None, Line, Arc, Bezier, Parabola };
+        enum class Kind {
+            None,
+            Line,
+            Arc,
+            Bezier
+        };
 
-        Type kind = Type::None;
-        Pos a = {}, b = {}, c = {}, d = {};
+        struct YHit {
+            Pos point = { 0.0f, 0.0f };
+            float t = 0.0f;
+        };
 
-        static Segment Line(const Pos& a, const Pos& b) { return { Type::Line, a, b }; }
-        static Segment Arc(const Pos& a, const Pos& b, const Pos& c, const Pos& d) { return { Type::Arc, a, b, c, d }; }
-        static Segment Bezier(const Pos& a, const Pos& b, const Pos& c, const Pos& d) { return { Type::Bezier, a, b, c, d }; }
-        static Segment Parabola(const Pos& a, const Pos& b, const Pos& c, const Pos& d) { return { Type::Parabola, a, b, c, d }; }
+        Kind kind = Kind::None;
 
-        Pos at(float t) const {
-            switch (kind) {
-                case Type::Line: return lineAt(t);
-                case Type::Arc: return arcAt(t);
-                case Type::Bezier: return bezierAt(t);
-                case Type::Parabola: return parabolaAt(t);
-                case Type::None: return Pos::Invalid();
-            }
-
-            return Pos::Invalid();
-        }
-
-        Pos tangentAt(float t) const {
-            switch (kind) {
-                case Type::Line: return lineTangentAt(t);
-                case Type::Arc: return arcTangentAt(t);
-                case Type::Bezier: return bezierTangentAt(t);
-                case Type::Parabola: return parabolaTangentAt(t);
-                case Type::None: return Pos::Invalid();
-            }
-
-            return Pos::Invalid();
-        }
-
-        float distanceTo(const Pos& p) const {
-            switch (kind) {
-                case Type::Line: return lineDistanceToPoint(p);
-                case Type::Arc: return arcDistanceToPoint(p);
-                case Type::Bezier: return bezierDistanceToPoint(p);
-                case Type::Parabola: return parabolaDistanceToPoint(p);
-                case Type::None: return 0.0f;
-            }
-
-            return 0.0f;
-        }
-
-        float distanceTo(const Segment& other) const {
-            if (intersects(other)) { return 0.0f; }
-
-            switch (kind) {
-                case Type::Line: return lineDistanceToSegment(other);
-                case Type::Arc: return arcDistanceToSegment(other);
-                case Type::Bezier: return bezierDistanceToSegment(other);
-                case Type::Parabola: return parabolaDistanceToSegment(other);
-                case Type::None: return 0.0f;
-            }
-
-            return 0.0f;
-        }
-
-        bool intersects(const Segment& other) const {
-            switch (kind) {
-                case Type::Line: return lineIntersects(other);
-                case Type::Arc: return arcIntersects(other);
-                case Type::Bezier: return bezierIntersects(other);
-                case Type::Parabola: return parabolaIntersects(other);
-                case Type::None: return false;
-            }
-
-            return false;
-        }
-
-        Pos delta() const { return b - a; }
-        float chordLength() const { return (b - a).pythag(); }
-
-        // Line
-        //--------------------------------------------------
-
-        Pos lineAt(float t) const { return a + (b - a) * t; }
-        Pos lineTangentAt(float t) const { return b - a; }
-
-        float lineDistanceToPoint(const Pos& p) const {
-            Pos ab = b - a;
-            float len2 = ab.dot(ab);
-
-            if (len2 <= 1e-12f) { return p.distanceTo(a); }
-
-            float t = (p - a).dot(ab) / len2;
-
-            if (t < 0.0f) { t = 0.0f; }
-            if (t > 1.0f) { t = 1.0f; }
-
-            return p.distanceTo(lineAt(t));
-        }
-
-        bool lineIntersects(const Segment& other) const {
-            switch (other.kind) {
-                case Type::Line: return lineIntersectsLine(other);
-                case Type::Arc: return lineIntersectsArc(other);
-                case Type::Bezier: return lineIntersectsBezier(other);
-                case Type::Parabola: return lineIntersectsParabola(other);
-                case Type::None: return false;
-            }
-
-            return false;
-        }
-
-        bool lineIntersectsLine(const Segment& other) const {
-            Pos r = b - a;
-            Pos s = other.b - other.a;
-            float denom = r.cross(s);
-
-            if (std::abs(denom) < 1e-6f) { return false; }
-
-            Pos qp = other.a - a;
-            float t = qp.cross(s) / denom;
-            float u = qp.cross(r) / denom;
-
-            return t >= 0.0f && t <= 1.0f && u >= 0.0f && u <= 1.0f;
-        }
-
-        bool lineIntersectsArc(const Segment& other) const { return sampledIntersects(other); }
-        bool lineIntersectsBezier(const Segment& other) const { return sampledIntersects(other); }
-        bool lineIntersectsParabola(const Segment& other) const { return sampledIntersects(other); }
-
-        float lineDistanceToSegment(const Segment& other) const {
-            switch (other.kind) {
-                case Type::Line: return lineDistanceToLine(other);
-                case Type::Arc:
-                case Type::Bezier:
-                case Type::Parabola: return sampledDistanceToSegment(other);
-                case Type::None: return 0.0f;
-            }
-
-            return 0.0f;
-        }
-
-        float lineDistanceToLine(const Segment& other) const {
-            if (lineIntersectsLine(other)) { return 0.0f; }
-
-            float d0 = other.lineDistanceToPoint(a);
-            float d1 = other.lineDistanceToPoint(b);
-            float d2 = lineDistanceToPoint(other.a);
-            float d3 = lineDistanceToPoint(other.b);
-
-            return std::min(std::min(d0, d1), std::min(d2, d3));
-        }
-
-        // Arc
-        //--------------------------------------------------
+        // Unified fixed storage.
         //
-        // Placeholder convention:
-        // a=start, b=mid/control, c=end, d=auxiliary.
-        // Exact arc math can replace these without changing the public shape.
+        // Line:
+        //     p0 = start
+        //     p1 = end
+        //
+        // Arc:
+        //     p0 = center
+        //     f0 = radius
+        //     f1 = start angle
+        //     f2 = end angle
+        //
+        // Bezier:
+        //     p0, p1, p2, p3 = control points
+        Pos p0 = { 0.0f, 0.0f };
+        Pos p1 = { 0.0f, 0.0f };
+        Pos p2 = { 0.0f, 0.0f };
+        Pos p3 = { 0.0f, 0.0f };
 
-        static float twoPi() { return 6.2831853071795864769f; }
+        float f0 = 0.0f;
+        float f1 = 0.0f;
+        float f2 = 0.0f;
+        float f3 = 0.0f;
 
-        static float positiveAngleDelta(float from, float to) {
-            float d = to - from;
-            while (d < 0.0f) { d += twoPi(); }
-            while (d >= twoPi()) { d -= twoPi(); }
-            return d;
-        }
-
-        float arcStartAngle() const { return std::atan2(a.y - d.y, a.x - d.x); }
-        float arcMidAngle() const { return std::atan2(b.y - d.y, b.x - d.x); }
-        float arcEndAngle() const { return std::atan2(c.y - d.y, c.x - d.x); }
-
-        bool arcIsCcw() const {
-            float a0 = arcStartAngle();
-            float am = arcMidAngle();
-            float a1 = arcEndAngle();
-
-            float sweep = positiveAngleDelta(a0, a1);
-            float mid = positiveAngleDelta(a0, am);
-
-            return mid <= sweep + 1e-5f;
-        }
-
-        float arcSweep() const {
-            float a0 = arcStartAngle();
-            float a1 = arcEndAngle();
-
-            if (arcIsCcw()) { return positiveAngleDelta(a0, a1); }
-            return -positiveAngleDelta(a1, a0);
-        }
-
-        Pos arcAt(float t) const {
-            float r = a.distanceTo(d);
-            float angle = arcStartAngle() + arcSweep() * t;
-
-            return {
-                d.x + std::cos(angle) * r,
-                d.y + std::sin(angle) * r
-            };
-        }
-
-        Pos arcTangentAt(float t) const {
-            float r = a.distanceTo(d);
-            float sweep = arcSweep();
-            float angle = arcStartAngle() + sweep * t;
-
-            return {
-                -std::sin(angle) * r * sweep,
-                std::cos(angle) * r * sweep
-            };
-        }
-
-        float arcDistanceToPoint(const Pos& p) const { return sampledDistanceToPoint(p); }
-
-        bool arcIntersects(const Segment& other) const {
-            switch (other.kind) {
-                case Type::Line: return other.lineIntersectsArc(*this);
-                case Type::Arc:
-                case Type::Bezier:
-                case Type::Parabola: return sampledIntersects(other);
-                case Type::None: return false;
-            }
-
-            return false;
-        }
-
-        float arcDistanceToSegment(const Segment& other) const { return sampledDistanceToSegment(other); }
-
-        // Bezier
+        // Create
         //--------------------------------------------------
 
-        Pos bezierAt(float t) const {
-            float u = 1.0f - t;
-            return (
-                a * (u * u * u) +
-                b * (3.0f * u * u * t) +
-                c * (3.0f * u * t * t) +
-                d * (t * t * t)
-            );
+        static Segment Line(
+            const Pos& a,
+            const Pos& b
+        ) {
+            Segment s;
+
+            s.kind = Kind::Line;
+            s.p0 = a;
+            s.p1 = b;
+
+            return s;
         }
 
-        Pos bezierTangentAt(float t) const {
-            float u = 1.0f - t;
-            return (
-                (b - a) * (3.0f * u * u) +
-                (c - b) * (6.0f * u * t) +
-                (d - c) * (3.0f * t * t)
-            );
+        static Segment Arc(
+            const Pos& center,
+            float radius,
+            float a0,
+            float a1
+        ) {
+            Segment s;
+
+            s.kind = Kind::Arc;
+            s.p0 = center;
+            s.f0 = radius;
+            s.f1 = a0;
+            s.f2 = a1;
+
+            return s;
         }
 
-        float bezierDistanceToPoint(const Pos& p) const { return sampledDistanceToPoint(p); }
+        static Segment Bezier(
+            const Pos& p0,
+            const Pos& p1,
+            const Pos& p2,
+            const Pos& p3
+        ) {
+            Segment s;
 
-        bool bezierIntersects(const Segment& other) const {
-            switch (other.kind) {
-                case Type::Line: return other.lineIntersectsBezier(*this);
-                case Type::Arc:
-                case Type::Bezier:
-                case Type::Parabola: return sampledIntersects(other);
-                case Type::None: return false;
-            }
+            s.kind = Kind::Bezier;
+            s.p0 = p0;
+            s.p1 = p1;
+            s.p2 = p2;
+            s.p3 = p3;
 
-            return false;
+            return s;
         }
 
-        float bezierDistanceToSegment(const Segment& other) const { return sampledDistanceToSegment(other); }
-
-        // Parabola
+        // Endpoints
         //--------------------------------------------------
 
-        Pos parabolaAt(float t) const {
-            float u = 1.0f - t;
-            return a * (u * u) + b * (2.0f * u * t) + c * (t * t);
-        }
+        Pos start() const {
 
-        Pos parabolaTangentAt(float t) const {
-            return (b - a) * (2.0f * (1.0f - t)) + (c - b) * (2.0f * t);
-        }
+            switch (kind) {
 
-        float parabolaDistanceToPoint(const Pos& p) const { return sampledDistanceToPoint(p); }
+                case Kind::Line: {
+                    return p0;
+                }
 
-        bool parabolaIntersects(const Segment& other) const {
-            switch (other.kind) {
-                case Type::Line: return other.lineIntersectsParabola(*this);
-                case Type::Arc:
-                case Type::Bezier:
-                case Type::Parabola: return sampledIntersects(other);
-                case Type::None: return false;
+                case Kind::Arc: {
+                    return {
+                        p0.x + std::cos(f1) * f0,
+                        p0.y + std::sin(f1) * f0
+                    };
+                }
+
+                case Kind::Bezier: {
+                    return p0;
+                }
+
+                default: {
+                    return Pos::Invalid();
+                }
             }
-
-            return false;
         }
 
-        float parabolaDistanceToSegment(const Segment& other) const { return sampledDistanceToSegment(other); }
+        Pos end() const {
 
-        // Sampled fallbacks
+            switch (kind) {
+
+                case Kind::Line: {
+                    return p1;
+                }
+
+                case Kind::Arc: {
+                    return {
+                        p0.x + std::cos(f2) * f0,
+                        p0.y + std::sin(f2) * f0
+                    };
+                }
+
+                case Kind::Bezier: {
+                    return p3;
+                }
+
+                default: {
+                    return Pos::Invalid();
+                }
+            }
+        }
+
+        void setStart(
+            const Pos& p
+        ) {
+            switch (kind) {
+
+                case Kind::Line: {
+                    p0 = p;
+                    break;
+                }
+
+                case Kind::Bezier: {
+                    p0 = p;
+                    break;
+                }
+
+                default: {
+                    break;
+                }
+            }
+        }
+
+        void setEnd(
+            const Pos& p
+        ) {
+            switch (kind) {
+
+                case Kind::Line: {
+                    p1 = p;
+                    break;
+                }
+
+                case Kind::Bezier: {
+                    p3 = p;
+                    break;
+                }
+
+                default: {
+                    break;
+                }
+            }
+        }
+
+        Segment reversed() const {
+
+            switch (kind) {
+
+                case Kind::Line: {
+                    return Segment::Line(
+                        p1,
+                        p0
+                    );
+                }
+
+                case Kind::Arc: {
+                    return Segment::Arc(
+                        p0,
+                        f0,
+                        f2,
+                        f1
+                    );
+                }
+
+                case Kind::Bezier: {
+                    return Segment::Bezier(
+                        p3,
+                        p2,
+                        p1,
+                        p0
+                    );
+                }
+
+                default: {
+                    return Segment();
+                }
+            }
+        }
+
+        // Evaluation
         //--------------------------------------------------
 
-        float sampledDistanceToPoint(const Pos& p, int samples = 24) const {
-            float best = p.distanceTo(at(0.0f));
-
-            for (int i = 1; i <= samples; i++) {
-                float d = p.distanceTo(at(float(i) / float(samples)));
-                if (d < best) { best = d; }
-            }
-
-            return best;
+        Pos at(
+            float t
+        ) const {
+            return pointAt(t);
         }
 
-        float sampledDistanceToSegment(const Segment& other, int samples = 24) const {
-            float best = distanceTo(other.at(0.0f));
+        Pos pointAt(
+            float t
+        ) const {
+            t = std::clamp(t, 0.0f, 1.0f);
 
-            for (int i = 0; i <= samples; i++) {
-                float d = other.distanceTo(at(float(i) / float(samples)));
-                if (d < best) { best = d; }
+            switch (kind) {
+
+                case Kind::Line: {
+                    return p0 + (p1 - p0) * t;
+                }
+
+                case Kind::Arc: {
+
+                    float a = f1 + (f2 - f1) * t;
+
+                    return {
+                        p0.x + std::cos(a) * f0,
+                        p0.y + std::sin(a) * f0
+                    };
+                }
+
+                case Kind::Bezier: {
+
+                    float u = 1.0f - t;
+
+                    return (
+                        p0 * (u * u * u) +
+                        p1 * (3.0f * u * u * t) +
+                        p2 * (3.0f * u * t * t) +
+                        p3 * (t * t * t)
+                    );
+                }
+
+                default: {
+                    return Pos::Invalid();
+                }
             }
-
-            for (int i = 0; i <= samples; i++) {
-                float d = distanceTo(other.at(float(i) / float(samples)));
-                if (d < best) { best = d; }
-            }
-
-            return best;
         }
 
-        bool sampledIntersects(const Segment& other, int samples = 24) const {
-            for (int i = 0; i < samples; i++) {
-                Segment aLine = Line(at(float(i) / float(samples)), at(float(i + 1) / float(samples)));
+        Pos tangentAt(
+            float t
+        ) const {
+            t = std::clamp(t, 0.0f, 1.0f);
 
-                for (int j = 0; j < samples; j++) {
-                    Segment bLine = Line(other.at(float(j) / float(samples)), other.at(float(j + 1) / float(samples)));
-                    if (aLine.lineIntersectsLine(bLine)) { return true; }
+            Pos d = { 1.0f, 0.0f };
+
+            switch (kind) {
+
+                case Kind::Line: {
+                    d = p1 - p0;
+                    break;
+                }
+
+                case Kind::Arc: {
+
+                    float a = f1 + (f2 - f1) * t;
+                    float sign = (f2 >= f1) ? 1.0f : -1.0f;
+
+                    d = {
+                        -std::sin(a) * sign,
+                        std::cos(a) * sign
+                    };
+
+                    break;
+                }
+
+                case Kind::Bezier: {
+
+                    float u = 1.0f - t;
+
+                    d = (
+                        (p1 - p0) * (3.0f * u * u) +
+                        (p2 - p1) * (6.0f * u * t) +
+                        (p3 - p2) * (3.0f * t * t)
+                    );
+
+                    break;
+                }
+
+                default: {
+                    break;
                 }
             }
 
+            float len = d.pythag();
+
+            if (len <= 1e-8f) {
+                return { 1.0f, 0.0f };
+            }
+
+            return d * (1.0f / len);
+        }
+
+        Pos startTangency() const {
+            return tangentAt(0.0f);
+        }
+
+        Pos endTangency() const {
+            return tangentAt(1.0f);
+        }
+
+        Pos normalAt(
+            float t
+        ) const {
+            Pos tangent = tangentAt(t);
+
+            return {
+                -tangent.y,
+                tangent.x
+            };
+        }
+
+        bool arcIsCcw() const {
+            if (kind != Kind::Arc) { return false; }
+            return f2 >= f1;
+        }
+
+        // Bounds / measures
+        //--------------------------------------------------
+
+        Pos min(
+            int samples = 32
+        ) const {
+            if (kind == Kind::Line) {
+                return Pos::min(p0, p1);
+            }
+
+            Pos out = pointAt(0.0f);
+
+            if (samples < 1) { samples = 1; }
+
+            for (int i = 1; i <= samples; i++) {
+                out = Pos::min(
+                    out,
+                    pointAt(float(i) / float(samples))
+                );
+            }
+
+            return out;
+        }
+
+        Pos max(
+            int samples = 32
+        ) const {
+            if (kind == Kind::Line) {
+                return Pos::max(p0, p1);
+            }
+
+            Pos out = pointAt(0.0f);
+
+            if (samples < 1) { samples = 1; }
+
+            for (int i = 1; i <= samples; i++) {
+                out = Pos::max(
+                    out,
+                    pointAt(float(i) / float(samples))
+                );
+            }
+
+            return out;
+        }
+
+        float length(
+            int samples = 32
+        ) const {
+            if (kind == Kind::Line) {
+                return (p1 - p0).pythag();
+            }
+
+            if (samples < 1) { samples = 1; }
+
+            float total = 0.0f;
+            Pos prev = pointAt(0.0f);
+
+            for (int i = 1; i <= samples; i++) {
+
+                Pos p = pointAt(
+                    float(i) / float(samples)
+                );
+
+                total += (p - prev).pythag();
+                prev = p;
+            }
+
+            return total;
+        }
+
+        bool valid() const {
+            return length() > 1e-6f;
+        }
+
+        // Distances
+        //--------------------------------------------------
+
+        static float pointLineDistance(
+            const Pos& p,
+            const Pos& a,
+            const Pos& b
+        ) {
+            Pos ab = b - a;
+
+            float len2 = ab.dot(ab);
+
+            if (len2 <= 1e-12f) {
+                return p.distanceTo(a);
+            }
+
+            float t = (p - a).dot(ab) / len2;
+            t = std::clamp(t, 0.0f, 1.0f);
+
+            Pos q = a + ab * t;
+
+            return p.distanceTo(q);
+        }
+
+        static float orient(
+            const Pos& a,
+            const Pos& b,
+            const Pos& c
+        ) {
+            return (b - a).cross(c - a);
+        }
+
+        static bool rangesOverlap(
+            float a0,
+            float a1,
+            float b0,
+            float b1
+        ) {
+            if (a0 > a1) { std::swap(a0, a1); }
+            if (b0 > b1) { std::swap(b0, b1); }
+
+            return std::max(a0, b0) <= std::min(a1, b1);
+        }
+
+        static bool lineLineSegmentsIntersect(
+            const Pos& a0,
+            const Pos& a1,
+            const Pos& b0,
+            const Pos& b1,
+            float eps = 1e-6f
+        ) {
+            float o1 = orient(a0, a1, b0);
+            float o2 = orient(a0, a1, b1);
+            float o3 = orient(b0, b1, a0);
+            float o4 = orient(b0, b1, a1);
+
+            if (
+                ((o1 > eps && o2 < -eps) || (o1 < -eps && o2 > eps)) &&
+                ((o3 > eps && o4 < -eps) || (o3 < -eps && o4 > eps))
+            ) {
+                return true;
+            }
+
+            if (
+                std::abs(o1) <= eps ||
+                std::abs(o2) <= eps ||
+                std::abs(o3) <= eps ||
+                std::abs(o4) <= eps
+            ) {
+                return (
+                    rangesOverlap(a0.x, a1.x, b0.x, b1.x) &&
+                    rangesOverlap(a0.y, a1.y, b0.y, b1.y)
+                );
+            }
+
             return false;
+        }
+
+        static float lineLineDistance(
+            const Pos& a0,
+            const Pos& a1,
+            const Pos& b0,
+            const Pos& b1
+        ) {
+            if (lineLineSegmentsIntersect(a0, a1, b0, b1)) {
+                return 0.0f;
+            }
+
+            float d0 = pointLineDistance(a0, b0, b1);
+            float d1 = pointLineDistance(a1, b0, b1);
+            float d2 = pointLineDistance(b0, a0, a1);
+            float d3 = pointLineDistance(b1, a0, a1);
+
+            return std::min(
+                std::min(d0, d1),
+                std::min(d2, d3)
+            );
+        }
+
+        float distanceTo(
+            const Pos& p,
+            int samples = 64
+        ) const {
+            if (kind == Kind::Line) {
+                return pointLineDistance(
+                    p,
+                    p0,
+                    p1
+                );
+            }
+
+            float best = 1e30f;
+
+            if (samples < 1) { samples = 1; }
+
+            for (int i = 0; i <= samples; i++) {
+
+                Pos q = pointAt(
+                    float(i) / float(samples)
+                );
+
+                best = std::min(
+                    best,
+                    p.distanceTo(q)
+                );
+            }
+
+            return best;
+        }
+
+        float distanceTo(
+            const Segment& other,
+            int samples = 32
+        ) const {
+            if (
+                kind == Kind::Line &&
+                other.kind == Kind::Line
+            ) {
+                return lineLineDistance(
+                    p0,
+                    p1,
+                    other.p0,
+                    other.p1
+                );
+            }
+
+            float best = 1e30f;
+
+            if (samples < 1) { samples = 1; }
+
+            for (int i = 0; i <= samples; i++) {
+
+                Pos p = pointAt(
+                    float(i) / float(samples)
+                );
+
+                best = std::min(
+                    best,
+                    other.distanceTo(p, samples)
+                );
+            }
+
+            for (int i = 0; i <= samples; i++) {
+
+                Pos p = other.pointAt(
+                    float(i) / float(samples)
+                );
+
+                best = std::min(
+                    best,
+                    distanceTo(p, samples)
+                );
+            }
+
+            return best;
+        }
+
+        // Intersections
+        //--------------------------------------------------
+
+        bool intersection(
+            const Segment& other,
+            Pos& out,
+            float eps = 1e-6f
+        ) const {
+            if (
+                kind == Kind::Line &&
+                other.kind == Kind::Line
+            ) {
+                return lineLineIntersection(
+                    *this,
+                    other,
+                    out,
+                    eps
+                );
+            }
+
+            return false;
+        }
+
+        Pos intersection(
+            const Segment& other,
+            float eps = 1e-6f
+        ) const {
+            Pos out;
+
+            if (!intersection(other, out, eps)) {
+                return Pos::Invalid();
+            }
+
+            return out;
+        }
+
+        Pos generalizedIntersection(
+            const Segment& other,
+            float eps = 1e-6f
+        ) const {
+            Pos p = intersection(
+                other,
+                eps
+            );
+
+            if (p) {
+                return p;
+            }
+
+            // Fallback used for relinking nearly adjacent segments.
+            Pos a = end();
+            Pos b = other.start();
+
+            if (a.distanceTo(b) <= eps) {
+                return (a + b) * 0.5f;
+            }
+
+            return Pos::Invalid();
+        }
+
+        static bool lineLineIntersection(
+            const Segment& a,
+            const Segment& b,
+            Pos& out,
+            float eps = 1e-6f
+        ) {
+            if (
+                a.kind != Kind::Line ||
+                b.kind != Kind::Line
+            ) {
+                return false;
+            }
+
+            Pos p = a.p0;
+            Pos r = a.p1 - a.p0;
+
+            Pos q = b.p0;
+            Pos s = b.p1 - b.p0;
+
+            float rxs = r.cross(s);
+
+            if (std::abs(rxs) <= eps) {
+                return false;
+            }
+
+            float t = (q - p).cross(s) / rxs;
+            float u = (q - p).cross(r) / rxs;
+
+            if (
+                t < -eps ||
+                t > 1.0f + eps ||
+                u < -eps ||
+                u > 1.0f + eps
+            ) {
+                return false;
+            }
+
+            t = std::clamp(t, 0.0f, 1.0f);
+
+            out = p + r * t;
+
+            return true;
+        }
+
+        // Scanline hits
+        //--------------------------------------------------
+
+        void hitsAtY(
+            float y,
+            std::vector<YHit>& out
+        ) const {
+            switch (kind) {
+
+                case Kind::Line: {
+                    lineHitsAtY(y, out);
+                    break;
+                }
+
+                default: {
+                    sampledHitsAtY(y, out);
+                    break;
+                }
+            }
+        }
+
+        void lineHitsAtY(
+            float y,
+            std::vector<YHit>& out
+        ) const {
+            if (kind != Kind::Line) { return; }
+
+            if (std::abs(p0.y - p1.y) <= 1e-6f) {
+                return;
+            }
+
+            float yMin = std::min(p0.y, p1.y);
+            float yMax = std::max(p0.y, p1.y);
+
+            // Half-open interval avoids double-counting vertices.
+            if (y < yMin || y >= yMax) {
+                return;
+            }
+
+            float t = (y - p0.y) / (p1.y - p0.y);
+            Pos p = pointAt(t);
+
+            out.push_back({
+                .point = p,
+                .t = t
+            });
+        }
+
+        void sampledHitsAtY(
+            float y,
+            std::vector<YHit>& out,
+            int samples = 64
+        ) const {
+            if (samples < 1) { samples = 1; }
+
+            Pos prev = pointAt(0.0f);
+
+            for (int i = 1; i <= samples; i++) {
+
+                float t1 = float(i) / float(samples);
+                Pos next = pointAt(t1);
+
+                if (std::abs(prev.y - next.y) <= 1e-6f) {
+                    prev = next;
+                    continue;
+                }
+
+                float yMin = std::min(prev.y, next.y);
+                float yMax = std::max(prev.y, next.y);
+
+                if (y < yMin || y >= yMax) {
+                    prev = next;
+                    continue;
+                }
+
+                float local = (y - prev.y) / (next.y - prev.y);
+                Pos p = prev + (next - prev) * local;
+
+                float t0 = float(i - 1) / float(samples);
+                float t = t0 + (t1 - t0) * local;
+
+                out.push_back({
+                    .point = p,
+                    .t = t
+                });
+
+                prev = next;
+            }
+        }
+
+        // Sampling
+        //--------------------------------------------------
+
+        void sample(
+            std::vector<Pos>& out,
+            int samples = 16
+        ) const {
+            if (samples < 1) { samples = 1; }
+
+            for (int i = 0; i <= samples; i++) {
+                out.push_back(
+                    pointAt(float(i) / float(samples))
+                );
+            }
         }
     };
 }

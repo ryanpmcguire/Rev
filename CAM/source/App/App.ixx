@@ -15,7 +15,7 @@ export namespace Cam::App {
     struct AppState {
 
         Rev::OS::File file = Rev::OS::File({
-            .pathname = "C:/Users/Ryan/Desktop/Ryan/recils/parts/Nut Mount (Cross Mounted) (Chamfered).STEP"
+            .pathname = "C:/Users/Ryan/Desktop/Ryan/recils/parts/Test Pocket.STEP"
         });
 
         std::vector<MaterialState*> states;

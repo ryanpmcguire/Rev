@@ -11,6 +11,7 @@ export module Cam.App.MaterialState;
 import Rev.OS.File;
 
 import Cam.App.Model;
+import Cam.App.Tool;
 import Cam.App.ToolPath;
 
 export namespace Cam::App {

@@ -99,7 +99,7 @@ export namespace Rev::Core {
         inline float cross(const Pos& other) const { return x * other.y - y * other.x; }
         inline Pos centerTo(const Pos& pos) const { return (*this + pos) / 2.f; }
         inline Pos& normalize() { *this /= pythag(); return *this; }
-        inline Pos normalized() { return (*this) / this->pythag(); }
+        inline Pos normalized() const { return (*this) / this->pythag(); }
 
         void print() {
             dbg("Pos: { %2f, %2f }", x, y);

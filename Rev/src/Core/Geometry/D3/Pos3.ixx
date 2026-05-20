@@ -119,7 +119,7 @@ export namespace Rev::Core {
 
         inline Pos3 centerTo(const Pos3& pos) const { return (*this + pos) / 2.f; }
         inline Pos3& normalize() { *this /= pythag(); return *this; }
-        inline Pos3 normalized() { return (*this) / this->pythag(); }
+        inline Pos3 normalized() const { return (*this) / this->pythag(); }
 
         void print() {
             dbg("Pos3: { %2f, %2f, %2f }", x, y, z);
