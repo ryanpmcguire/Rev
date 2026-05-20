@@ -3,7 +3,6 @@ module;
 #include <cstddef>
 #include <cmath>
 #include <string>
-#include <stdexcept>
 #include <vector>
 #include <functional>
 
@@ -21,7 +20,6 @@ import Rev.Core.Pos3;
 import Rev.Core.Color;
 import Rev.Core.Vertex3;
 
-import Rev.Primitive.Mesh3d;
 import Rev.Primitive.Lines3d;
 
 import Rev.Element.View3d;
@@ -32,12 +30,14 @@ import Cam.App.Project;
 import Cam.App.Model;
 import Cam.App.MaterialState;
 
-import Cam.Gui.ToolPath;
+import Cam.Gui.World.MaterialState;
 
 export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
+
+    namespace View3d = Rev::Element::View3d;
 
     struct WorldView : public Box {
 
@@ -45,13 +45,14 @@ export namespace Cam::Gui {
 
         View3d::View* view3d = nullptr;
 
-        View3d::Actor* partActor = nullptr;
-        View3d::Actor* deltaActor = nullptr;
-        View3d::Actor* pickActor = nullptr;
+        Cam::App::Project* representedProject = nullptr;
+        Cam::App::MaterialState* representedDisplayedState = nullptr;
+        Cam::App::MaterialState* representedWorkingState = nullptr;
+        size_t representedStateCount = 0;
+
+        std::vector<Cam::Gui::World::MaterialState*> materialViews;
+
         View3d::Actor* lineActor = nullptr;
-
-        ToolPath toolPath;
-
         std::vector<Rev::Core::Vertex3> testLines;
 
         bool partInView = false;
@@ -61,7 +62,10 @@ export namespace Cam::Gui {
         // Create
         //--------------------------------------------------
 
-        WorldView(Element* parent, StyleList styles = {}) : Box(parent, styles, "WorldView") {
+        WorldView(
+            Element* parent,
+            StyleList styles = {}
+        ) : Box(parent, styles, "WorldView") {
 
             app = Cam::App::AppState::Get(shared->state);
 
@@ -70,41 +74,16 @@ export namespace Cam::Gui {
 
             view3d = new View3d::View(this);
 
-            try {
+            createTestLines();
 
-                createPartActor();
-                createDeltaActor();
-                createPickActor();
+            syncRepresentedProject();
 
-                toolPath.create(shared->canvas);
-
-                // Draw order:
-                // part first, toolpath second, transparent delta third.
-                view3d->addActor(partActor);
-                view3d->addActor(toolPath.actor);
-                view3d->addActor(deltaActor);
-                view3d->addActor(pickActor);
-
-                applyFaceColors();
-
-                syncDeltaActorToDisplayedState();
-                syncPickActorToWorkingState();
-                syncToolPathToDisplayedState();
-
+            if (view3d) {
                 view3d->camera.setDefaultView();
                 view3d->fitToActors();
-
-                partInView = true;
-
-                createTestLines();
-
-                dbg("CAD model loaded");
             }
 
-            catch (const std::exception& e) {
-                dbg("Failed to load CAD model");
-                dbg(e.what());
-            }
+            partInView = true;
         }
 
         // Destroy
@@ -112,102 +91,14 @@ export namespace Cam::Gui {
 
         ~WorldView() {
 
-            if (view3d && partActor) { view3d->removeActor(partActor); }
-            if (view3d && deltaActor) { view3d->removeActor(deltaActor); }
-            if (view3d && pickActor) { view3d->removeActor(pickActor); }
-            if (view3d && toolPath.actor) { view3d->removeActor(toolPath.actor); }
-            if (view3d && lineActor) { view3d->removeActor(lineActor); }
+            clearMaterialViews();
 
-            delete partActor;
-            delete deltaActor;
-            delete pickActor;
+            if (view3d && lineActor) {
+                view3d->removeActor(lineActor);
+            }
+
             delete lineActor;
-
-            toolPath.destroy();
-
-            partActor = nullptr;
-            deltaActor = nullptr;
-            pickActor = nullptr;
             lineActor = nullptr;
-        }
-
-        // Actor creation
-        //--------------------------------------------------
-
-        void createPartActor() {
-
-            Cam::App::Model* displayed = displayedModel();
-
-            if (!displayed) {
-                throw std::runtime_error("No displayed model.");
-            }
-
-            partActor = new View3d::Actor();
-
-            partActor->visible = true;
-            partActor->selectable = false;
-            partActor->ownsMesh = true;
-            partActor->ownsTriangles = false;
-            partActor->includeInFit = true;
-
-            partActor->mesh = new Primitives::Mesh3d(shared->canvas, {
-                .triangles = &displayed->render.triangles
-            });
-
-            partActor->mesh->color = {
-                0.75f,
-                0.75f,
-                0.82f,
-                1.0f
-            };
-        }
-
-        void createDeltaActor() {
-
-            deltaActor = new View3d::Actor();
-
-            deltaActor->visible = false;
-            deltaActor->selectable = false;
-            deltaActor->ownsMesh = true;
-            deltaActor->ownsTriangles = false;
-            deltaActor->includeInFit = false;
-
-            deltaActor->mesh = new Primitives::Mesh3d(shared->canvas, {});
-
-            deltaActor->mesh->color = {
-                1.0f,
-                0.0f,
-                0.0f,
-                0.30f
-            };
-        }
-
-        void createPickActor() {
-
-            Cam::App::Model* editable = selectionModel();
-
-            if (!editable) {
-                throw std::runtime_error("No editable working model.");
-            }
-
-            pickActor = new View3d::Actor();
-
-            pickActor->visible = false;
-            pickActor->selectable = true;
-            pickActor->ownsMesh = true;
-            pickActor->ownsTriangles = false;
-            pickActor->includeInFit = false;
-
-            pickActor->mesh = new Primitives::Mesh3d(shared->canvas, {
-                .triangles = &editable->render.triangles
-            });
-
-            pickActor->mesh->color = {
-                0.0f,
-                0.0f,
-                0.0f,
-                0.0f
-            };
         }
 
         // Axis lines
@@ -275,7 +166,7 @@ export namespace Cam::Gui {
             lineActor->ownsLines = true;
             lineActor->includeInFit = false;
 
-            lineActor->lines = new Primitives::Lines3d(shared->canvas, {
+            lineActor->lines = new Rev::Primitives::Lines3d(shared->canvas, {
                 .lines = &testLines
             });
 
@@ -286,123 +177,281 @@ export namespace Cam::Gui {
                 1.0f
             };
 
-            view3d->addActor(lineActor);
+            if (view3d) {
+                view3d->addActor(lineActor);
+            }
         }
 
-        // App/model access
+        // App/project access
         //--------------------------------------------------
 
-        Cam::App::Project* project() {
+        Cam::App::Project* activeProject() {
 
             if (!app) { return nullptr; }
 
             return app->activeProject;
         }
 
-        Cam::App::Model* displayedModel() {
+        Cam::App::MaterialState* displayedState() {
 
-            Cam::App::Project* p = project();
+            Cam::App::Project* project = activeProject();
 
-            if (!p) { return nullptr; }
+            if (!project) { return nullptr; }
 
-            Cam::App::MaterialState* state = p->displayedState;
+            return project->displayedState;
+        }
 
-            if (!state) { return p->getDisplayedModel(); }
+        Cam::App::MaterialState* workingState() {
 
-            if (state->parent && state->hasDelta) {
-                return &state->parent->model;
-            }
+            Cam::App::Project* project = activeProject();
 
-            return &state->model;
+            if (!project) { return nullptr; }
+
+            return project->workingState;
         }
 
         Cam::App::Model* selectionModel() {
 
-            Cam::App::Project* p = project();
+            Cam::App::MaterialState* state = workingState();
 
-            if (!p || !p->workingState) { return nullptr; }
+            if (!state) { return nullptr; }
 
-            return &p->workingState->model;
-        }
-
-        Cam::App::MaterialState* displayedState() {
-
-            Cam::App::Project* p = project();
-
-            if (!p) { return nullptr; }
-
-            return p->displayedState;
+            return &state->model;
         }
 
         bool displayedModelIsEditable() {
 
-            Cam::App::Project* p = project();
+            Cam::App::Project* project = activeProject();
 
-            if (!p) { return false; }
+            if (!project) { return false; }
 
             return (
-                p->displayedState &&
-                p->workingState &&
-                p->displayedState == p->workingState
+                project->displayedState &&
+                project->workingState &&
+                project->displayedState == project->workingState
             );
         }
 
-        // Sync
+        // Material-state world views
         //--------------------------------------------------
 
-        void sync(Event& e) {
-            syncActorToDisplayedModel(e);
+        void clearMaterialViews() {
+
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
+                delete view;
+            }
+
+            materialViews.clear();
+
+            representedProject = nullptr;
+            representedDisplayedState = nullptr;
+            representedWorkingState = nullptr;
+            representedStateCount = 0;
         }
 
-        void syncActorToDisplayedModel(Event& e) {
+        Cam::Gui::World::MaterialState* viewForState(
+            Cam::App::MaterialState* state
+        ) {
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
 
-            Cam::App::Model* displayed = displayedModel();
+                if (view && view->state == state) {
+                    return view;
+                }
+            }
 
-            if (!displayed || !partActor || !partActor->mesh) { return; }
-
-            partActor->mesh->pTriangles = &displayed->render.triangles;
-
-            applyFaceColors();
-
-            partActor->mesh->compute();
-
-            syncDeltaActorToDisplayedState();
-            syncPickActorToWorkingState();
-            syncToolPathToDisplayedState();
-
-            if (view3d) { view3d->refresh(e); }
-
-            refresh(e);
+            return nullptr;
         }
 
-        void syncDeltaActorToDisplayedState() {
+        Cam::Gui::World::MaterialState* displayedMaterialView() {
+            return viewForState(displayedState());
+        }
 
-            if (!deltaActor || !deltaActor->mesh) { return; }
+        Cam::Gui::World::MaterialState* workingMaterialView() {
+            return viewForState(workingState());
+        }
 
-            Cam::App::MaterialState* state = displayedState();
+        Cam::Gui::World::MaterialState* createMaterialView(
+            Cam::App::MaterialState* state
+        ) {
+            Cam::Gui::World::MaterialState* worldState =
+                new Cam::Gui::World::MaterialState(shared->canvas);
 
-            if (!state || !state->hasDelta) {
-                deltaActor->visible = false;
+            worldState->setState(state);
+            worldState->attach(view3d);
+
+            materialViews.push_back(worldState);
+
+            return worldState;
+        }
+
+        bool projectOwnsState(
+            Cam::App::Project* project,
+            Cam::App::MaterialState* state
+        ) {
+            if (!project || !state) { return false; }
+
+            for (Cam::App::MaterialState* candidate : project->states) {
+                if (candidate == state) { return true; }
+            }
+
+            return false;
+        }
+
+        void syncRepresentedProject() {
+
+            Cam::App::Project* project = activeProject();
+
+            if (project == representedProject) {
                 return;
             }
 
-            deltaActor->mesh->pTriangles = &state->delta.render.triangles;
-            deltaActor->visible = true;
-            deltaActor->mesh->compute();
+            clearMaterialViews();
+
+            representedProject = project;
+
+            if (!representedProject) {
+                return;
+            }
+
+            for (Cam::App::MaterialState* state : representedProject->states) {
+                createMaterialView(state);
+            }
+
+            representedDisplayedState = representedProject->displayedState;
+            representedWorkingState = representedProject->workingState;
+            representedStateCount = representedProject->states.size();
+
+            applyDefaultVisibilityPolicy();
+            syncAllMaterialViews();
         }
 
-        void syncPickActorToWorkingState() {
+        void syncMaterialViewList() {
 
-            Cam::App::Model* editable = selectionModel();
+            Cam::App::Project* project = activeProject();
 
-            if (!editable || !pickActor || !pickActor->mesh) { return; }
+            if (!project) {
+                clearMaterialViews();
+                return;
+            }
 
-            pickActor->mesh->pTriangles = &editable->render.triangles;
-            pickActor->mesh->compute();
+            if (project != representedProject) {
+                syncRepresentedProject();
+                return;
+            }
+
+            // Add new material states.
+            for (Cam::App::MaterialState* state : project->states) {
+                if (!viewForState(state)) {
+                    createMaterialView(state);
+                }
+            }
+
+            // Remove deleted material states.
+            for (size_t i = 0; i < materialViews.size();) {
+
+                Cam::Gui::World::MaterialState* view = materialViews[i];
+
+                if (
+                    view &&
+                    projectOwnsState(project, view->state)
+                ) {
+                    i += 1;
+                    continue;
+                }
+
+                delete view;
+                materialViews.erase(materialViews.begin() + i);
+            }
+
+            representedStateCount = project->states.size();
         }
 
-        void syncToolPathToDisplayedState() {
-            toolPath.sync(displayedState());
+        void applyDefaultVisibilityPolicy() {
+
+            Cam::App::MaterialState* displayed = displayedState();
+            Cam::App::MaterialState* working = workingState();
+
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
+
+                if (!view) { continue; }
+
+                view->hideAll();
+
+                if (view->state == displayed) {
+                    view->showDisplayed();
+                }
+
+                if (
+                    view->state == working &&
+                    displayed == working
+                ) {
+                    view->enablePicking();
+                }
+            }
+        }
+
+        void syncAllMaterialViews() {
+
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
+                if (view) { view->sync(); }
+            }
+        }
+
+        void syncRepresentation() {
+
+            Cam::App::Project* project = activeProject();
+
+            if (project != representedProject) {
+                syncRepresentedProject();
+                return;
+            }
+
+            if (!project) {
+                clearMaterialViews();
+                return;
+            }
+
+            bool stateListChanged = (
+                project->states.size() != representedStateCount
+            );
+
+            bool displayedChanged = (
+                project->displayedState != representedDisplayedState
+            );
+
+            bool workingChanged = (
+                project->workingState != representedWorkingState
+            );
+
+            if (stateListChanged) {
+                syncMaterialViewList();
+            }
+
+            if (
+                stateListChanged ||
+                displayedChanged ||
+                workingChanged
+            ) {
+                representedDisplayedState = project->displayedState;
+                representedWorkingState = project->workingState;
+                representedStateCount = project->states.size();
+
+                applyDefaultVisibilityPolicy();
+            }
+
+            syncAllMaterialViews();
+        }
+
+        // External sync hook
+        //--------------------------------------------------
+
+        void sync(Event& e) {
+
+            syncRepresentation();
+
+            if (view3d) {
+                view3d->refresh(e);
+            }
         }
 
         void notifyStateChanged(Event& e) {
@@ -412,54 +461,21 @@ export namespace Cam::Gui {
             }
         }
 
-        // Selection display
+        // Selection
         //--------------------------------------------------
-
-        void applyFaceColors() {
-
-            Cam::App::Model* displayed = displayedModel();
-
-            if (!displayed || !partActor || !partActor->mesh) { return; }
-
-            std::vector<Rev::Core::Vertex3>* pTriangles =
-                partActor->mesh->getTriangles();
-
-            if (!pTriangles) { return; }
-
-            std::vector<Rev::Core::Vertex3>& triangles = *pTriangles;
-            std::vector<size_t>& triangleFaceIds = displayed->render.triangleFaceIds;
-
-            Rev::Core::Color base = { 0.0f, 0.0f, 0.0f, 0.0f };
-            Rev::Core::Color selected = { 1.0f, 0.0f, 0.0f, 1.0f };
-
-            size_t triangleCount = triangles.size() / 3;
-
-            for (size_t tri = 0; tri < triangleCount; tri++) {
-
-                if (tri >= triangleFaceIds.size()) { continue; }
-
-                Rev::Core::Color color = (
-                    displayed->isFaceSelected(triangleFaceIds[tri])
-                    ? selected
-                    : base
-                );
-
-                triangles[tri * 3 + 0].color = color;
-                triangles[tri * 3 + 1].color = color;
-                triangles[tri * 3 + 2].color = color;
-            }
-
-            partActor->mesh->compute();
-        }
 
         void selectFaceAtMouse(Event& e) {
 
-            if (!app || !view3d || !pickActor) { return; }
+            if (!app || !view3d) { return; }
 
             if (!displayedModelIsEditable()) {
                 dbg("Selected material state is read-only. Select the working state to edit.");
                 return;
             }
+
+            Cam::Gui::World::MaterialState* worldState = workingMaterialView();
+
+            if (!worldState || !worldState->pickActor) { return; }
 
             Cam::App::Model* editable = selectionModel();
 
@@ -468,7 +484,7 @@ export namespace Cam::Gui {
             View3d::Hit hit;
 
             if (!view3d->hitTest(e.mouse.pos, hit)) { return; }
-            if (hit.actor != pickActor) { return; }
+            if (hit.actor != worldState->pickActor) { return; }
 
             size_t tri = hit.triangleId;
 
@@ -478,10 +494,9 @@ export namespace Cam::Gui {
 
             editable->toggleFace(faceId);
 
-            applyFaceColors();
+            worldState->applyFaceColors();
 
             view3d->refresh(e);
-            refresh(e);
         }
 
         // App operations
@@ -517,6 +532,16 @@ export namespace Cam::Gui {
             notifyStateChanged(e);
 
             return true;
+        }
+
+        // Computing
+        //--------------------------------------------------
+
+        void computeChildren(Event& e) override {
+
+            syncRepresentation();
+
+            Box::computeChildren(e);
         }
 
         // Events
