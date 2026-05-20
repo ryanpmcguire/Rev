@@ -26,13 +26,22 @@ export namespace Cam::Gui {
             .size = { .width = 100_pct, .height = 42_px },
             .margin = { 4_px, 4_px, 0_px, 4_px },
             .padding = { 8_px, 8_px, 0_px, 0_px },
+
             .border = {
                 .bottom = {
-                    .color = rgba(255, 0, 0, 1.0),
-                    .width = 100_px
+                    .color = rgba(0, 0, 0, 0.25),
+                    .width = 1_px
                 }
             },
-            .background = { .color = rgba(0, 0, 0, 0.025) }
+
+            .background = { .color = rgba(0, 0, 0, 0.025) },
+
+            .shadow = {
+                .color = rgba(0, 0, 0, 0.10),
+                .size = Px(-4),
+                .blur = 8_px,
+                .y = 1_px
+            },
         };
 
         Style Tab = {
@@ -47,12 +56,6 @@ export namespace Cam::Gui {
                 .tl = { .radius = 7_px },
                 .tr = { .radius = 7_px },
                 .bottom = { .width = 0_px }
-            },
-            .shadow = {
-                .color = rgba(0, 0, 0, 0.10),
-                .size = Px(-4),
-                .blur = 8_px,
-                .y = 1_px
             },
             .cursor = Cursor::Hand
         };

@@ -43,6 +43,10 @@ vec4 hardMax4(vec4 v) {
     );
 }
 
+float radiusSharpness(float radius) {
+    return mix(24.0, 4.0, clamp(radius / 24.0, 0.0, 1.0));
+}
+
 float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
     vec2 q = abs(p) - halfSize + vec2(radius);
     return length(max(q, 0.0)) - radius;
@@ -57,8 +61,8 @@ void main() {
     // Choose side and corner
     //--------------------------------------------------
 
-    vec4 mCorner = softMax(cornerMask, 1.0f);
-    vec4 mSide   = softMax(sideMask, 1.0f);
+    vec4 mCorner = softMax(cornerMask, 4.0f);
+    vec4 mSide   = hardMax4(sideMask);
 
     // Choose corner radius, border width, and color
     float cornerRadius = mCorner.x * tl + mCorner.y * tr + mCorner.z * bl + mCorner.w * br;

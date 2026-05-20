@@ -50,7 +50,6 @@ void main() {
     int vid = gl_VertexID % 4;
 
     cornerMask = cornerMasks[vid];
-    sideMask = sideMasks[vid];
     vec2 cornerOffset = offsets[vid];
 
     // Expand rect and attributes
@@ -58,6 +57,22 @@ void main() {
     vec2 expandedOrigin = vec2(x, y) - vec2(shadowExtent);
     vec2 expandedSize   = vec2(w, h) + vec2(shadowExtent * 2.0);
     vec2 expandedPos    = vec2(shadowX, shadowY) + expandedOrigin + cornerOffset * expandedSize;
+
+    // Side scores, based on actual distance to the original rect sides.
+    // These are intentionally not 0/1 masks anymore.
+    float minDim = max(min(w, h), 1.0);
+
+    float dLeft   = expandedPos.x - x;
+    float dRight  = (x + w) - expandedPos.x;
+    float dTop    = expandedPos.y - y;
+    float dBottom = (y + h) - expandedPos.y;
+
+    sideMask = vec4(
+        1.0 - dLeft   / minDim,
+        1.0 - dRight  / minDim,
+        1.0 - dTop    / minDim,
+        1.0 - dBottom / minDim
+    );
 
     // Final projection: expanded position, not original
     fragLocalPos = expandedPos;
