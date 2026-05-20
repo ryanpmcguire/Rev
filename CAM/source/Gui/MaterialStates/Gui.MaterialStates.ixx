@@ -14,6 +14,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 
 import Cam.App;
+import Cam.App.Project;
 import Cam.App.MaterialState;
 import Cam.Gui.MaterialState;
 
@@ -69,6 +70,8 @@ export namespace Cam::Gui {
         std::function<void(Event&)> onDeleteState;
 
         // Create
+        //--------------------------------------------------
+
         MaterialStates(Element* parent, StyleList styles = {}) : Box(parent, styles, "MaterialStates") {
 
             app = Cam::App::AppState::Get(shared->state);
@@ -79,22 +82,36 @@ export namespace Cam::Gui {
             list = new Box(this, { &MaterialStatesStyle::List }, "MaterialStatesList");
         }
 
+        // App/project access
+        //--------------------------------------------------
+
+        Cam::App::Project* activeProject() {
+
+            if (!app) { return nullptr; }
+
+            return app->activeProject;
+        }
+
+        // Actions
+        //--------------------------------------------------
+
         void selectState(Cam::App::MaterialState* state, Event& e) {
 
             if (!app || !state) { return; }
 
-            app->displayState(state);
+            if (app->selectState(state)) {
 
-            if (onSelectState) { onSelectState(e); }
+                if (onSelectState) { onSelectState(e); }
 
-            refresh(e);
+                refresh(e);
+            }
         }
 
         void deleteState(Cam::App::MaterialState* state, Event& e) {
 
             if (!app || !state) { return; }
 
-            if (app->removeState(state)) {
+            if (app->deleteState(state)) {
 
                 if (onDeleteState) { onDeleteState(e); }
 
@@ -102,15 +119,20 @@ export namespace Cam::Gui {
             }
         }
 
+        // Compute
+        //--------------------------------------------------
+
         void computeChildren(Event& e) override {
 
-            if (!app) {
+            Cam::App::Project* project = activeProject();
+
+            if (!project) {
                 Box::computeChildren(e);
                 return;
             }
 
             size_t oldSize = rows.size();
-            size_t newSize = app->states.size();
+            size_t newSize = project->states.size();
 
             for (size_t i = newSize; i < oldSize; i++) {
                 delete rows[i];
@@ -132,7 +154,7 @@ export namespace Cam::Gui {
             }
 
             for (size_t i = 0; i < newSize; i++) {
-                rows[i]->setState(app->states[i], i);
+                rows[i]->setState(project->states[i], i);
             }
 
             Box::computeChildren(e);

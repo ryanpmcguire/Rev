@@ -34,7 +34,7 @@ export namespace Rev::Element::View3d {
             .overflow = Overflow::Hide,
             .size = { .width = Grow(), .height = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
-            .background = { .color = rgba(255, 255, 255, 0.05) }
+            //.background = { .color = rgba(255, 255, 255, 0.05) }
         };
     };
 

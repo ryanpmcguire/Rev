@@ -1,201 +1,101 @@
 module;
 
-#include <string>
 #include <vector>
+#include <algorithm>
+
+#include <managed.hpp>
 
 export module Cam.App;
 
-import Rev.OS.File;
-
-import Cam.App.Model;
+import Cam.App.Project;
 import Cam.App.MaterialState;
+import Cam.App.Model;
 
 export namespace Cam::App {
 
     struct AppState {
 
-        Rev::OS::File file = Rev::OS::File({
-            .pathname = "C:/Users/Ryan/Desktop/Ryan/recils/parts/Test Pocket.STEP"
-        });
+        std::vector<Project*> projects;
+        Project* activeProject = nullptr;
 
-        std::vector<MaterialState*> states;
+        static AppState* Get(void*& state) {
 
-        MaterialState* rootState = nullptr;
-        MaterialState* latestCommittedState = nullptr;
-        MaterialState* workingState = nullptr;
-        MaterialState* displayedState = nullptr;
+            AppState* app = static_cast<AppState*>(state);
+
+            if (!app) {
+                app = new AppState();
+                state = app;
+            }
+
+            return app;
+        }
 
         AppState() {
-            loadDefaultModel();
+            createProject();
         }
 
         ~AppState() {
 
-            for (MaterialState* state : states) {
-                delete state;
+            for (Project* project : projects) {
+                delete project;
             }
 
-            states.clear();
+            projects.clear();
+            activeProject = nullptr;
         }
 
-        void loadDefaultModel() {
+        Project* createProject() {
 
-            for (MaterialState* state : states) {
-                delete state;
-            }
+            Project* project = new Project();
 
-            states.clear();
+            projects.push_back(project);
+            activeProject = project;
 
-            rootState = MaterialState::FromStep(file);
+            return project;
+        }
 
-            states.push_back(rootState);
+        bool setActiveProject(Project* project) {
 
-            latestCommittedState = rootState;
+            if (!project) { return false; }
 
-            workingState = MaterialState::FromPriorState(latestCommittedState);
-            states.push_back(workingState);
+            activeProject = project;
 
-            displayedState = workingState;
+            return true;
         }
 
         Model* getDisplayedModel() {
 
-            if (!displayedState) {
-                return nullptr;
-            }
+            if (!activeProject) { return nullptr; }
 
-            return &displayedState->model;
+            return activeProject->getDisplayedModel();
         }
 
-        void displayState(MaterialState* state) {
+        bool selectState(MaterialState* state) {
 
-            if (!state) {
-                return;
-            }
+            if (!activeProject) { return false; }
 
-            displayedState = state;
+            return activeProject->selectState(state);
+        }
+
+        bool deleteState(MaterialState* state) {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->deleteState(state);
         }
 
         bool defeatureSelected() {
 
-            if (!workingState) { return false; }
+            if (!activeProject) { return false; }
 
-            displayedState = workingState;
-
-            bool ok = workingState->model.defeatureSelected();
-
-            if (!ok) { return false; }
-
-            workingState->model.clearSelection();
-            workingState->computeDelta();
-
-            return true;
+            return activeProject->defeatureSelected();
         }
 
         bool commitWorkingState() {
 
-            if (!workingState) {
-                return false;
-            }
+            if (!activeProject) { return false; }
 
-            if (!workingState->model.changed) {
-                return false;
-            }
-
-            workingState->committed = true;
-            workingState->working = false;
-            workingState->model.clearSelection();
-            workingState->model.changed = false;
-
-            workingState->computeDelta();
-
-            workingState->name = "Material State " + std::to_string(committedCount());
-
-            latestCommittedState = workingState;
-
-            workingState = MaterialState::FromPriorState(latestCommittedState);
-            states.push_back(workingState);
-
-            displayedState = workingState;
-
-            return true;
-        }
-
-        bool removeState(MaterialState* state) {
-
-            if (!state) { return false; }
-            if (state == rootState) { return false; }
-
-            MaterialState* fallback = state->parent;
-
-            std::vector<MaterialState*> removed;
-            state->collectSubtree(removed);
-
-            auto willRemove = [&removed](MaterialState* p) {
-
-                return std::find(
-                    removed.begin(),
-                    removed.end(),
-                    p
-                ) != removed.end();
-            };
-
-            states.erase(
-                std::remove_if(
-                    states.begin(),
-                    states.end(),
-                    [&](MaterialState* p) {
-                        return willRemove(p);
-                    }
-                ),
-                states.end()
-            );
-
-            if (willRemove(latestCommittedState)) {
-                latestCommittedState = fallback ? fallback : rootState;
-            }
-
-            if (willRemove(displayedState)) {
-                displayedState = nullptr;
-            }
-
-            if (willRemove(workingState)) {
-                workingState = nullptr;
-            }
-
-            state->remove();
-
-            if (!latestCommittedState) {
-                latestCommittedState = rootState;
-            }
-
-            if (!workingState) {
-                workingState = MaterialState::FromPriorState(latestCommittedState);
-                states.push_back(workingState);
-            }
-
-            if (!displayedState) {
-                displayedState = workingState;
-            }
-
-            return true;
-        }
-
-        size_t committedCount() const {
-
-            size_t count = 0;
-
-            for (MaterialState* state : states) {
-                if (state && state->committed) {
-                    count += 1;
-                }
-            }
-
-            return count;
-        }
-
-        static AppState* Get(void* pState) {
-            return static_cast<AppState*>(pState);
+            return activeProject->commitWorkingState();
         }
     };
 }

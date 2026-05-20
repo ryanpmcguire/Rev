@@ -18,6 +18,7 @@ import Rev.Element.Text;
 import Rev.Element.Svg;
 
 import Cam.App;
+import Cam.App.Project;
 import Cam.App.MaterialState;
 
 export namespace Cam::Gui {
@@ -105,6 +106,8 @@ export namespace Cam::Gui {
         std::function<void(Event&, Cam::App::MaterialState*)> onDelete;
 
         // Create
+        //--------------------------------------------------
+
         MaterialState(Element* parent, StyleList styles = {}) : Box(parent, styles, "MaterialState") {
 
             app = Cam::App::AppState::Get(shared->state);
@@ -137,7 +140,30 @@ export namespace Cam::Gui {
             });
         }
 
+        // App/project access
+        //--------------------------------------------------
+
+        Cam::App::Project* activeProject() {
+
+            if (!app) { return nullptr; }
+
+            return app->activeProject;
+        }
+
+        Cam::App::MaterialState* displayedState() {
+
+            Cam::App::Project* project = activeProject();
+
+            if (!project) { return nullptr; }
+
+            return project->displayedState;
+        }
+
+        // State
+        //--------------------------------------------------
+
         void setState(Cam::App::MaterialState* state, size_t index) {
+
             this->state = state;
             this->index = index;
         }
@@ -147,12 +173,20 @@ export namespace Cam::Gui {
             if (!state) { return "Invalid State"; }
 
             if (!state->name.empty()) {
-                if (state->working && state->model.changed) { return state->name + " *"; }
+
+                if (state->working && state->model.changed) {
+                    return state->name + " *";
+                }
+
                 return state->name;
             }
 
             if (state->working) {
-                if (state->model.changed) { return "Working State *"; }
+
+                if (state->model.changed) {
+                    return "Working State *";
+                }
+
                 return "Working State";
             }
 
@@ -162,18 +196,36 @@ export namespace Cam::Gui {
         }
 
         bool canDelete() {
+
             if (!state) { return false; }
             if (!state->parent) { return false; }
+
             return true;
         }
 
+        // Compute
+        //--------------------------------------------------
+
         void computeChildren(Event& e) override {
 
-            bool selected = (app && state && app->displayedState == state);
-            bool working = (state && state->working);
-            bool changed = (state && state->working && state->model.changed);
+            bool selected = (
+                state &&
+                displayedState() == state
+            );
+
+            bool working = (
+                state &&
+                state->working
+            );
+
+            bool changed = (
+                state &&
+                state->working &&
+                state->model.changed
+            );
 
             if (label) {
+
                 label->content = stateName();
 
                 if (working) { label->styles.add(&Styles::LabelWorking); }
