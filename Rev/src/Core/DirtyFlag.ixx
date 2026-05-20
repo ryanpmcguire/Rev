@@ -55,7 +55,7 @@ export namespace Rev::Core {
         //----------------------------------------
 
         // Set source flag from which this flag draws its value
-        void drawsFrom(DirtyFlag* source) noexcept {
+        void subscribe(DirtyFlag* source) noexcept {
             if (source && source != this) { source->sendsTo(this); }
         }
     

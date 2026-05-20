@@ -167,6 +167,9 @@ if (WIN32)
       ${EXT_DIR}/freetype/bin/win/x64/freetype.lib
       OpenGL::GL
       ws2_32
+      Ole32
+      Shell32
+      Uuid
   )
 elseif (APPLE)
     target_link_libraries(Rev PUBLIC

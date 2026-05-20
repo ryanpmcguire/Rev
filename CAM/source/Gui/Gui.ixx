@@ -15,7 +15,7 @@ import Rev.Element.Box;
 import Cam.App;
 
 import Cam.Gui.TabView;
-import Cam.Gui.MaterialStates;
+import Cam.Gui.LeftPanel;
 import Cam.Gui.WorldView;
 
 export namespace Cam::Gui {
@@ -30,7 +30,7 @@ export namespace Cam::Gui {
         TabView* tabView = nullptr;
         Box* body = nullptr;
 
-        MaterialStates* materialStates = nullptr;
+        LeftPanel* leftPanel = nullptr;
         WorldView* worldView = nullptr;
 
         // Create
@@ -43,7 +43,7 @@ export namespace Cam::Gui {
             this->style->layout = { Axis::Vertical, Align::Start, Align::Start };
             this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
-            this->style->padding = { 10_px, 10_px, 10_px, 10_px };
+            //this->style->padding = { 10_px, 10_px, 10_px, 10_px };
 
             tabView = new TabView(this);
 
@@ -52,21 +52,38 @@ export namespace Cam::Gui {
             body->style->layout = { Axis::Horizontal, Align::Center, Align::Center };
             body->style->size = { .width = 100_pct, .height = Grow() };
 
-            materialStates = new MaterialStates(body);
+            leftPanel = new LeftPanel(body);
             worldView = new WorldView(body);
 
-            materialStates->onSelectState = [this](Event& e) {
+            tabView->onSelectProject = [this](Event& e) {
+
+                if (leftPanel) {
+                    leftPanel->refresh(e);
+                }
+
+                if (worldView) {
+                    worldView->sync(e);
+                }
+
+                refresh(e);
+            };
+
+            leftPanel->onSelectState = [this](Event& e) {
                 if (worldView) { worldView->sync(e); }
             };
 
-            materialStates->onDeleteState = [this](Event& e) {
+            leftPanel->onDeleteState = [this](Event& e) {
                 if (worldView) { worldView->sync(e); }
+            };
+
+            leftPanel->onSelectFile = [this](Event& e) {
+                dbg("[Gui] select/replace project file");
             };
 
             worldView->onStateChanged = [this](Event& e) {
 
-                if (materialStates) {
-                    materialStates->refresh(e);
+                if (leftPanel) {
+                    leftPanel->refresh(e);
                 }
 
                 refresh(e);

@@ -1141,7 +1141,7 @@ export namespace Rev::Element {
             // Create style if not yet initialized
             if (!pStyle) {
                 pStyle = Style::CreateNull();
-                dirty.drawsFrom(&(pStyle->dirty));
+                dirty.subscribe(&(pStyle->dirty));
             }
 
             return pStyle;

@@ -87,8 +87,8 @@ export namespace Rev::Element {
 
             if (parent && parent != this) { parent->addChild(this); }
 
-            dirty.style.drawsFrom(&(this->styles.dirty));
-            dirty.style.drawsFrom(&(this->style.dirty));
+            dirty.style.subscribe(&(this->styles.dirty));
+            dirty.style.subscribe(&(this->style.dirty));
 
             dirty.style.onDirty([this]() {
 

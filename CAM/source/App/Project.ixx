@@ -21,6 +21,8 @@ export namespace Cam::App {
             .pathname = ""
         });
 
+        bool loaded = false;
+
         std::vector<MaterialState*> states;
 
         MaterialState* rootState = nullptr;
@@ -49,6 +51,9 @@ export namespace Cam::App {
             });
         }
 
+        // State
+        //--------------------------------------------------
+
         void clear() {
 
             for (MaterialState* state : states) {
@@ -61,26 +66,55 @@ export namespace Cam::App {
             latestCommittedState = nullptr;
             workingState = nullptr;
             displayedState = nullptr;
+
+            loaded = false;
         }
 
         bool empty() const {
             return states.empty() || !rootState;
         }
 
-        bool hasModel() const {
-            return displayedState != nullptr;
+        bool hasFile() const {
+            return file.valid && !file.pathname.empty();
         }
 
-        void loadDefaultModel() {
+        bool hasModel() const {
+            return loaded && displayedState;
+        }
+
+        // File/model loading
+        //--------------------------------------------------
+
+        bool selectStepFile() {
+
+            if (!file.open(
+                "Select STEP File",
+                "STEP Files\0*.step;*.stp\0All Files\0*.*\0"
+            )) {
+                return false;
+            }
+
+            return loadStepFile();
+        }
+
+        bool loadStepFile() {
+
+            Rev::OS::File selected = file;
 
             clear();
 
-            name = "Nut Mount";
-            file = DefaultFile();
+            file = selected;
+
+            if (!file.name.empty()) {
+                name = file.name;
+            }
 
             rootState = MaterialState::FromStep(file);
 
-            if (!rootState) { return; }
+            if (!rootState) {
+                loaded = false;
+                return false;
+            }
 
             states.push_back(rootState);
 
@@ -93,7 +127,22 @@ export namespace Cam::App {
             }
 
             displayedState = workingState ? workingState : rootState;
+
+            loaded = true;
+
+            return true;
         }
+
+        void loadDefaultModel() {
+
+            file = DefaultFile();
+            name = "Nut Mount";
+
+            loadStepFile();
+        }
+
+        // Access
+        //--------------------------------------------------
 
         Model* getDisplayedModel() {
 
@@ -162,6 +211,8 @@ export namespace Cam::App {
                 displayedState = workingState ? workingState : latestCommittedState;
             }
 
+            loaded = rootState != nullptr;
+
             return true;
         }
 
@@ -203,6 +254,8 @@ export namespace Cam::App {
             }
 
             displayedState = workingState ? workingState : latestCommittedState;
+
+            loaded = rootState != nullptr;
 
             return true;
         }
