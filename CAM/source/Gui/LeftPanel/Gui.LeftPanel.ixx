@@ -96,6 +96,7 @@ export namespace Cam::Gui {
         MaterialStates* materialStates = nullptr;
 
         std::function<void(Event&)> onSelectFile;
+        std::function<void(Event&)> onBeforeSelectFile;
         std::function<void(Event&)> onSelectState;
         std::function<void(Event&)> onDeleteState;
 
@@ -208,8 +209,16 @@ export namespace Cam::Gui {
 
             if (!project) { return; }
 
+            if (onBeforeSelectFile) {
+                onBeforeSelectFile(e);
+            }
+
             if (!project->selectStepFile()) {
-                refresh(e);
+
+                if (onSelectFile) {
+                    onSelectFile(e);
+                }
+
                 return;
             }
 

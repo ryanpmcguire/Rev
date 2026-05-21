@@ -68,16 +68,38 @@ export namespace Cam::Gui {
                 refresh(e);
             };
 
+            leftPanel->onBeforeSelectFile = [this](Event& e) {
+
+                if (worldView) {
+                    worldView->clearMaterialViews();
+                }
+            };
+
+            leftPanel->onSelectFile = [this](Event& e) {
+
+                dbg("[Gui] selected/replaced project file");
+
+                if (tabView) {
+                    tabView->refresh(e);
+                }
+
+                if (leftPanel) {
+                    leftPanel->refresh(e);
+                }
+
+                if (worldView) {
+                    worldView->sync(e);
+                }
+
+                refresh(e);
+            };
+
             leftPanel->onSelectState = [this](Event& e) {
                 if (worldView) { worldView->sync(e); }
             };
 
             leftPanel->onDeleteState = [this](Event& e) {
                 if (worldView) { worldView->sync(e); }
-            };
-
-            leftPanel->onSelectFile = [this](Event& e) {
-                dbg("[Gui] select/replace project file");
             };
 
             worldView->onStateChanged = [this](Event& e) {

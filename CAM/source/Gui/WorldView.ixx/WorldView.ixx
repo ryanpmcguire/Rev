@@ -235,6 +235,35 @@ export namespace Cam::Gui {
         // Material-state world views
         //--------------------------------------------------
 
+        bool materialViewListMatchesProject(
+            Cam::App::Project* project
+        ) {
+            if (!project) {
+                return materialViews.empty();
+            }
+
+            if (materialViews.size() != project->states.size()) {
+                return false;
+            }
+
+            for (Cam::App::MaterialState* state : project->states) {
+                if (!viewForState(state)) {
+                    return false;
+                }
+            }
+
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
+
+                if (!view) { return false; }
+
+                if (!projectOwnsState(project, view->state)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         void clearMaterialViews() {
 
             for (Cam::Gui::World::MaterialState* view : materialViews) {
@@ -411,9 +440,7 @@ export namespace Cam::Gui {
                 return;
             }
 
-            bool stateListChanged = (
-                project->states.size() != representedStateCount
-            );
+            bool stateListChanged = !materialViewListMatchesProject(project);
 
             bool displayedChanged = (
                 project->displayedState != representedDisplayedState

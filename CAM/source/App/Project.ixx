@@ -87,21 +87,43 @@ export namespace Cam::App {
 
         bool selectStepFile() {
 
-            if (!file.open(
+            Rev::OS::File selected = file;
+
+            if (!selected.open(
                 "Select STEP File",
                 "STEP Files\0*.step;*.stp\0All Files\0*.*\0"
             )) {
                 return false;
             }
 
-            return loadStepFile();
+            return loadStepFile(selected);
         }
 
         bool loadStepFile() {
+            return loadStepFile(file);
+        }
 
-            Rev::OS::File selected = file;
+        bool loadStepFile(
+            Rev::OS::File& selected
+        ) {
+            if (!selected) {
+                return false;
+            }
 
-            clear();
+            // Build the replacement state tree before touching the current one.
+            MaterialState* newRoot = MaterialState::FromStep(selected);
+
+            if (!newRoot) {
+                return false;
+            }
+
+            MaterialState* newWorking = MaterialState::FromPriorState(newRoot);
+
+            // Only after successful construction do we preserve the old tree
+            // and swap the project over to the new tree.
+            std::vector<MaterialState*> oldStates = states;
+
+            states.clear();
 
             file = selected;
 
@@ -109,26 +131,23 @@ export namespace Cam::App {
                 name = file.name;
             }
 
-            rootState = MaterialState::FromStep(file);
-
-            if (!rootState) {
-                loaded = false;
-                return false;
-            }
+            rootState = newRoot;
+            latestCommittedState = newRoot;
+            workingState = newWorking;
+            displayedState = newWorking ? newWorking : newRoot;
 
             states.push_back(rootState);
-
-            latestCommittedState = rootState;
-
-            workingState = MaterialState::FromPriorState(rootState);
 
             if (workingState) {
                 states.push_back(workingState);
             }
 
-            displayedState = workingState ? workingState : rootState;
-
             loaded = true;
+
+            // Now it is safe to delete the old states.
+            for (MaterialState* state : oldStates) {
+                delete state;
+            }
 
             return true;
         }
@@ -138,7 +157,7 @@ export namespace Cam::App {
             file = DefaultFile();
             name = "Nut Mount";
 
-            loadStepFile();
+            loadStepFile(file);
         }
 
         // Access
