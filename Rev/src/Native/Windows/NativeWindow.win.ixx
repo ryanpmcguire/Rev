@@ -485,6 +485,11 @@ export namespace Rev {
             RECT rect = { 0, 0, size.w, size.h };
             AdjustWindowRectEx(&rect, style, FALSE, 0);
 
+            struct CreatingScope {
+                CreatingScope(NativeWindow* window) { creatingWindow() = window; }
+                ~CreatingScope() { creatingWindow() = nullptr; }
+            } creatingScope(this);
+
             handle = CreateWindowExW(
                 0, kClassName, L"Room360 UI",
                 style,
@@ -685,6 +690,25 @@ export namespace Rev {
             return reinterpret_cast<NativeWindow*>(GetWindowLongPtrW(h, GWLP_USERDATA));
         }
 
+        // WM_GETMINMAXINFO can arrive before WM_NCCREATE stores GWLP_USERDATA.
+        static NativeWindow*& creatingWindow() {
+            thread_local NativeWindow* pending = nullptr;
+            return pending;
+        }
+
+        static void applyClientTrackSize(HWND h, int clientW, int clientH, POINT& track) {
+            if (clientW <= 0 || clientH <= 0) { return; }
+
+            DWORD style = GetWindowLongW(h, GWL_STYLE);
+            DWORD exStyle = GetWindowLongW(h, GWL_EXSTYLE);
+            RECT rect = { 0, 0, clientW, clientH };
+
+            if (!AdjustWindowRectEx(&rect, style, FALSE, exStyle)) { return; }
+
+            track.x = rect.right - rect.left;
+            track.y = rect.bottom - rect.top;
+        }
+
         // Static event handler function passed to the Win32 api - captures and sends events back to self
         static LRESULT CALLBACK eventHandler(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 
@@ -752,6 +776,26 @@ export namespace Rev {
                         WinEvent::Type::Defocus
                     });
                     
+                    return 0;
+                }
+
+                case (WM_GETMINMAXINFO): {
+
+                    DefWindowProcW(h, msg, wp, lp);
+
+                    NativeWindow* win = self ? self : creatingWindow();
+                    if (!win) { return 0; }
+
+                    MINMAXINFO* mmi = reinterpret_cast<MINMAXINFO*>(lp);
+
+                    if (win->size.minW > 0 && win->size.minH > 0) {
+                        applyClientTrackSize(h, win->size.minW, win->size.minH, mmi->ptMinTrackSize);
+                    }
+
+                    if (win->size.maxW > 0 && win->size.maxH > 0) {
+                        applyClientTrackSize(h, win->size.maxW, win->size.maxH, mmi->ptMaxTrackSize);
+                    }
+
                     return 0;
                 }
 

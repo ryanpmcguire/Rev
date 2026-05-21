@@ -16,6 +16,7 @@ import Cam.App;
 
 import Cam.Gui.TabView;
 import Cam.Gui.LeftPanel;
+import Cam.Gui.RightPanel;
 import Cam.Gui.WorldView;
 
 export namespace Cam::Gui {
@@ -32,6 +33,7 @@ export namespace Cam::Gui {
 
         LeftPanel* leftPanel = nullptr;
         WorldView* worldView = nullptr;
+        RightPanel* rightPanel = nullptr;
 
         // Create
         //--------------------------------------------------
@@ -49,11 +51,12 @@ export namespace Cam::Gui {
 
             body = new Box(this, {}, "InterfaceBody");
 
-            body->style->layout = { Axis::Horizontal, Align::Center, Align::Center };
+            body->style->layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False };
             body->style->size = { .width = 100_pct, .height = Grow() };
 
             leftPanel = new LeftPanel(body);
             worldView = new WorldView(body);
+            rightPanel = new RightPanel(body);
 
             tabView->onSelectProject = [this](Event& e) {
 
@@ -134,6 +137,17 @@ export namespace Cam::Gui {
                     leftPanel->refresh(e);
                 }
 
+                refresh(e);
+            };
+
+            rightPanel->onSelectTool = [this](Event& e) {
+                refresh(e);
+            };
+
+            rightPanel->onSelectFolder = [this](Event& e) {
+                if (rightPanel) {
+                    rightPanel->refresh(e);
+                }
                 refresh(e);
             };
         }

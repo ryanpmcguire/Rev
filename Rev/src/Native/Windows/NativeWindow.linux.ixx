@@ -316,6 +316,25 @@ export namespace Rev {
                                 reinterpret_cast<unsigned char*>(&hints), 5);
             }
 
+            if (size.minW > 0 || size.minH > 0 || size.maxW > 0 || size.maxH > 0) {
+                XSizeHints sizeHints = {};
+                sizeHints.flags = 0;
+
+                if (size.minW > 0 || size.minH > 0) {
+                    sizeHints.flags |= PMinSize;
+                    sizeHints.min_width = size.minW;
+                    sizeHints.min_height = size.minH;
+                }
+
+                if (size.maxW > 0 || size.maxH > 0) {
+                    sizeHints.flags |= PMaxSize;
+                    sizeHints.max_width = size.maxW;
+                    sizeHints.max_height = size.maxH;
+                }
+
+                XSetWMNormalHints(xDisplay, handle, &sizeHints);
+            }
+
             XMapWindow(xDisplay, handle);
             XFlush(xDisplay);
 

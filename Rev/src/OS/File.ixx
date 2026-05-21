@@ -497,6 +497,28 @@ export namespace Rev::OS {
             );
         }
 
+        bool selectFolder(
+            std::string title = "Select Folder",
+            std::string initialDir = ""
+        ) {
+            std::string selected;
+
+            if (!pickFolderDialog(
+                selected,
+                title,
+                initialDir
+            )) {
+                return false;
+            }
+
+            path = selected;
+            valid = true;
+
+            refresh();
+
+            return true;
+        }
+
         bool save() {
 
             if (!valid) {
@@ -1079,6 +1101,74 @@ export namespace Rev::OS {
             applyInitialFileName(
                 dialog,
                 initialFileName
+            );
+
+            hr = dialog->Show(nullptr);
+
+            if (FAILED(hr)) {
+                dialog->Release();
+                return false;
+            }
+
+            bool ok = readDialogResult(
+                dialog,
+                out
+            );
+
+            dialog->Release();
+
+            return ok;
+        }
+
+        static bool pickFolderDialog(
+            std::string& out,
+            std::string title,
+            std::string initialDir = ""
+        ) {
+            out = "";
+
+            ComScope com;
+
+            IFileOpenDialog* dialog = nullptr;
+
+            HRESULT hr = CoCreateInstance(
+                CLSID_FileOpenDialog,
+                nullptr,
+                CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(&dialog)
+            );
+
+            if (FAILED(hr) || !dialog) {
+                return false;
+            }
+
+            std::vector<std::wstring> filterNames;
+            std::vector<std::wstring> filterPatterns;
+            std::vector<COMDLG_FILTERSPEC> filterSpecs;
+
+            applyDialogBasics(
+                dialog,
+                title,
+                "All Files\0*.*\0",
+                filterNames,
+                filterPatterns,
+                filterSpecs
+            );
+
+            DWORD options = 0;
+
+            if (SUCCEEDED(dialog->GetOptions(&options))) {
+                dialog->SetOptions(
+                    options |
+                    FOS_FORCEFILESYSTEM |
+                    FOS_PICKFOLDERS |
+                    FOS_PATHMUSTEXIST
+                );
+            }
+
+            applyInitialFolder(
+                dialog,
+                initialDir
             );
 
             hr = dialog->Show(nullptr);

@@ -15,6 +15,7 @@ import Cam.App.Project;
 import Cam.App.Persist;
 import Cam.App.MaterialState;
 import Cam.App.Model;
+import Cam.App.Tool;
 
 export namespace Cam::App {
 
@@ -22,6 +23,10 @@ export namespace Cam::App {
 
         std::vector<Project*> projects;
         Project* activeProject = nullptr;
+
+        std::vector<Tool> tools;
+        size_t selectedToolIndex = 0;
+        std::string toolFolderPath = "";
 
         static AppState* Get(void*& state) {
 
@@ -37,6 +42,7 @@ export namespace Cam::App {
 
         AppState() {
             loadSessionOrDefaults();
+            initDefaultTools();
         }
 
         ~AppState() {
@@ -71,6 +77,65 @@ export namespace Cam::App {
 
         bool saveSession() {
             return Persist::save(projects, activeProject);
+        }
+
+        // Tools
+        //--------------------------------------------------
+
+        void initDefaultTools() {
+
+            tools.clear();
+
+            tools.push_back(Tool::GodTool(1.0, 1));
+            tools.push_back(Tool::GodTool(3.0, 2));
+            tools.push_back(Tool::GodTool(10.0, 3));
+
+            selectedToolIndex = 0;
+            toolFolderPath = "";
+        }
+
+        size_t toolCount() const {
+            return tools.size();
+        }
+
+        Tool* toolAt(size_t index) {
+
+            if (index >= tools.size()) {
+                return nullptr;
+            }
+
+            return &tools[index];
+        }
+
+        Tool* selectedTool() {
+            return toolAt(selectedToolIndex);
+        }
+
+        bool selectTool(size_t index) {
+
+            if (index >= tools.size()) {
+                return false;
+            }
+
+            selectedToolIndex = index;
+
+            return true;
+        }
+
+        bool selectToolFolder() {
+
+            Rev::OS::File folder;
+
+            if (!folder.selectFolder(
+                "Select Tool Folder",
+                toolFolderPath
+            )) {
+                return false;
+            }
+
+            toolFolderPath = folder.pathname;
+
+            return true;
         }
 
         Project* createProject(

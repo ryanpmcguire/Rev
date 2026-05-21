@@ -22,15 +22,24 @@ export namespace Cam::App {
 
         Rev::Core::Pos3 axis = { 0.0f, 0.0f, 1.0f };
 
-        static Tool GodTool() {
+        static Tool GodTool(
+            double diameterMm = 1.0,
+            int index = 1
+        ) {
             Tool tool;
 
             tool.kind = Kind::Cylinder;
-            tool.name = "1mm x 100mm God Tool";
-            tool.diameter = 1.0;
-            tool.radius = 0.5;
+            tool.diameter = diameterMm;
+            tool.radius = diameterMm * 0.5;
             tool.length = 100.0;
             tool.axis = { 0.0f, 0.0f, 1.0f };
+
+            tool.name =
+                "God Tool " +
+                std::to_string(index) +
+                " (" +
+                std::to_string(static_cast<int>(diameterMm)) +
+                "mm)";
 
             return tool;
         }

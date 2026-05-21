@@ -47,12 +47,20 @@ export namespace Rev {
 
         // ctor / dtor
         NativeWindow(void* parent,
-                     Size size = {600, 400, 0, 0, 1000, 1000},
+                     Size size = { 600, 400, 0, 0, 1000, 1000 },
+                     bool borderless = false,
                      EventCallback callback = nullptr) {
 
-            handle = rev_mac_window_create(size.w, size.h, this, &this->handleEvent, parent);
-        
+            this->size = size;
             this->callback = callback;
+
+            handle = rev_mac_window_create(
+                size.w, size.h,
+                size.minW, size.minH,
+                size.maxW, size.maxH,
+                borderless,
+                this, &this->handleEvent, parent
+            );
         };
 
         ~NativeWindow() {

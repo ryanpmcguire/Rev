@@ -236,10 +236,15 @@
 // Window creation / management
 //--------------------------------------------------
 
-RevMacWindowHandle rev_mac_window_create(int width, int height,
-                                         void* userData,
-                                         RevMacEventAcceptor acceptor,
-                                         void* parent) {
+RevMacWindowHandle rev_mac_window_create(
+    int width, int height,
+    int minWidth, int minHeight,
+    int maxWidth, int maxHeight,
+    bool borderless,
+    void* userData,
+    RevMacEventAcceptor acceptor,
+    void* parent
+) {
     @autoreleasepool {
 
         NSRect frame = NSMakeRect(0, 0, width, height);
@@ -260,14 +265,28 @@ RevMacWindowHandle rev_mac_window_create(int width, int height,
         
         else {
 
+            NSWindowStyleMask styleMask = NSWindowStyleMaskTitled |
+                                          NSWindowStyleMaskClosable |
+                                          NSWindowStyleMaskResizable;
+
+            if (borderless) {
+                styleMask = NSWindowStyleMaskBorderless | NSWindowStyleMaskResizable;
+            }
+
             // No parent → create our own window and install RevView
             NSWindow* window = [[NSWindow alloc]
                 initWithContentRect:frame
-                          styleMask:(NSWindowStyleMaskTitled |
-                                     NSWindowStyleMaskClosable |
-                                     NSWindowStyleMaskResizable)
+                          styleMask:styleMask
                             backing:NSBackingStoreBuffered
                               defer:NO];
+
+            if (minWidth > 0 && minHeight > 0) {
+                [window setContentMinSize:NSMakeSize(minWidth, minHeight)];
+            }
+
+            if (maxWidth > 0 && maxHeight > 0) {
+                [window setContentMaxSize:NSMakeSize(maxWidth, maxHeight)];
+            }
 
             [window setContentView:view];
             [window makeKeyAndOrderFront:nil];

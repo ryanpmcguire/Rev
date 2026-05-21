@@ -30,18 +30,39 @@ export namespace Rev {
 
         struct Details {
 
+            struct Extent {
+                int width = 0;
+                int height = 0;
+            };
+
+            struct Size {
+                int width = 640;
+                int height = 480;
+                Extent min = { 0, 0 };
+                Extent max = { 1000, 1000 };
+            };
+
             std::string name = "Hello World";
-            
-            float scale = 1.0f;
-            int width = 640, height = 480;
+            Size size = {};
+
             int x = 0, y = 0;
+
+            float scale = 1.0f;
 
             bool decorated = true;
             bool resizable = true;
             bool borderless = false;
             bool fullscreen = false;
-            
+
             std::string display = "";
+
+            NativeWindow::Size nativeSize() const {
+                return {
+                    size.width, size.height,
+                    size.min.width, size.min.height,
+                    size.max.width, size.max.height
+                };
+            }
         };
 
         // Persistent event
@@ -64,7 +85,7 @@ export namespace Rev {
 
             window = new NativeWindow(
                 parent->window->handle,
-                { details.width, details.height },
+                details.nativeSize(),
                 details.borderless,
                 [this](WinEvent& event) { this->onEvent(event); }
             );
@@ -79,7 +100,7 @@ export namespace Rev {
 
             window = new NativeWindow(
                 parent,
-                { details.width, details.height },
+                details.nativeSize(),
                 details.borderless,
                 [this](WinEvent& event) { this->onEvent(event); }
             );
@@ -98,7 +119,7 @@ export namespace Rev {
             // Create native window
             window = new NativeWindow(
                 nullptr,
-                { details.width, details.height },
+                details.nativeSize(),
                 details.borderless,
                 [this](WinEvent& event) { this->onEvent(event); }
             );
@@ -315,7 +336,10 @@ export namespace Rev {
         //--------------------------------------------------
 
         void computeStyle(Event& e) override {
-            this->style->size = { .width = Px(details.width), .height = Px(details.height) };
+            this->style->size = {
+                .width = Px(details.size.width),
+                .height = Px(details.size.height)
+            };
             Element::computeStyle(e);
         }
 
@@ -472,8 +496,8 @@ export namespace Rev {
             details.x = x;
             details.y = y;
 
-            details.width = w;
-            details.height = h;
+            details.size.width = w;
+            details.size.height = h;
 
             window->setRect(x, y, w, h);
         }
@@ -579,8 +603,8 @@ export namespace Rev {
 
             //dbg("[Window] Resize: %i, %i", width, height);
 
-            details.width = width / window->scale;
-            details.height = height / window->scale;
+            details.size.width = width / window->scale;
+            details.size.height = height / window->scale;
 
             if (!shared) { return; }
             if (!shared->canvas) { return; }
@@ -596,8 +620,8 @@ export namespace Rev {
 
             details.scale = scale;
 
-            details.width = window->size.w / scale;
-            details.height = window->size.h / scale;
+            details.size.width = window->size.w / scale;
+            details.size.height = window->size.h / scale;
         }
 
         // Mouse/keyboard callbacks (window only)
