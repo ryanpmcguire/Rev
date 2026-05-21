@@ -77,7 +77,8 @@ export namespace Rev {
         int xPin = 0; int yPin = 0;
         Pos downPos = { 0, 0 };
 
-        // With other Rev window as parent
+        // Native child HWND under another Rev window. UI is part of the parent's
+        // element tree — not a separate top-level Rev window.
         Window(Window* parent, Details details) : Element(parent) {
             
             this->parent = parent;
@@ -110,8 +111,9 @@ export namespace Rev {
             this->unifiedConstructor();
         }
 
-        // With application as parent
-        Window(std::vector<Window*>& group, Details details) : Element() {
+        // Top-level window (same path as any other independent Rev window).
+        // Register in application->windows, build UI as children of this.
+        Window(std::vector<void*>& group, Details details) : Element() {
 
             this->parent = this;
             this->details = details;
@@ -124,9 +126,11 @@ export namespace Rev {
                 [this](WinEvent& event) { this->onEvent(event); }
             );
 
-            group.push_back(this);
-            
+            group.push_back(static_cast<void*>(this));
+
             this->unifiedConstructor();
+
+            shared->windowGroup = &group;
         }
 
         void unifiedConstructor() {
@@ -212,10 +216,35 @@ export namespace Rev {
                     break;
                 }
             }
+
+            if (window) {
+
+                details.scale = window->scale;
+                details.size.width = (int)(window->size.w / window->scale);
+                details.size.height = (int)(window->size.h / window->scale);
+
+                if (shared && shared->canvas) {
+                    shared->canvas->flags.resize = true;
+                }
+            }
         }
 
         // Destroy
         ~Window() {
+
+            if (shared && shared->windowGroup) {
+
+                std::vector<void*>& group = *shared->windowGroup;
+                void* handle = static_cast<void*>(this);
+
+                if (std::find(group.begin(), group.end(), handle) != group.end()) {
+
+                    group.erase(
+                        std::remove(group.begin(), group.end(), handle),
+                        group.end()
+                    );
+                }
+            }
 
             // Destroy the element subtree while shared is still valid.
             // ~Window runs before ~Element; without this, ~Element would
@@ -465,9 +494,13 @@ export namespace Rev {
         // Controlling window
         //--------------------------------------------------
 
-        // Show window and focus
-        void popUp() {
+        // Show and focus this top-level window.
+        void show() {
+            if (window) { window->show(); }
+        }
 
+        void popUp() {
+            show();
         }
 
         // Hide (iconify) window

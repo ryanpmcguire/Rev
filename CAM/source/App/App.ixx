@@ -176,6 +176,42 @@ export namespace Cam::App {
             return true;
         }
 
+        bool saveTool(
+            const std::string& name,
+            double diameter,
+            double length
+        ) {
+
+            if (!activeProject) {
+                return false;
+            }
+
+            Tool* tool = activeProject->toolLibrary.find(name);
+
+            if (!tool) {
+                return false;
+            }
+
+            tool->diameter = diameter;
+            tool->radius = diameter * 0.5;
+            tool->length = length;
+
+            if (activeProject->toolFolderPath.empty()) {
+                return false;
+            }
+
+            if (!ToolLibrary::saveToolFile(
+                activeProject->toolFolderPath,
+                *tool
+            )) {
+                return false;
+            }
+
+            activeProject->dirty = true;
+
+            return true;
+        }
+
         bool selectToolFolder() {
 
             Rev::OS::File folder;

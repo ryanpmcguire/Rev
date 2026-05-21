@@ -17,6 +17,9 @@ import Cam.App;
 import Cam.App.Tool;
 
 import Cam.Gui.Tool;
+import Cam.Gui.ToolSettingsWindow;
+
+import Rev.Window;
 
 export namespace Cam::Gui {
 
@@ -57,7 +60,10 @@ export namespace Cam::Gui {
 
         std::vector<ToolRow*> rows;
 
+        ToolSettingsWindow* settingsWindow = nullptr;
+
         std::function<void(Event&)> onSelectTool;
+        std::function<void(Event&)> onToolEdited;
 
         Tools(Element* parent, StyleList styles = {}) : Box(parent, styles, "Tools") {
 
@@ -67,6 +73,10 @@ export namespace Cam::Gui {
 
             title = new Text(this, "Tools", { &ToolsStyle::Title });
             list = new Box(this, { &ToolsStyle::List }, "ToolsList");
+        }
+
+        ~Tools() {
+            closeSettingsWindow();
         }
 
         void selectTool(size_t index, Event& e) {
@@ -83,7 +93,55 @@ export namespace Cam::Gui {
             }
         }
 
+        void closeSettingsWindow() {
+
+            if (!settingsWindow) {
+                return;
+            }
+
+            settingsWindow->shouldClose = true;
+            settingsWindow = nullptr;
+        }
+
+        void openSettings(size_t index, Event& e) {
+
+            if (!app) { return; }
+
+            Cam::App::Tool* tool = app->toolAt(index);
+
+            if (!tool) { return; }
+
+            Rev::Window* owner = ToolSettingsWindow::rootWindow(this);
+
+            if (!owner || !owner->shared) { return; }
+
+            std::vector<void*>* windowGroup = owner->shared->windowGroup;
+
+            if (!windowGroup) { return; }
+
+            closeSettingsWindow();
+
+            settingsWindow = new ToolSettingsWindow(
+                *windowGroup,
+                owner,
+                tool->name
+            );
+
+            settingsWindow->onSaved = [this](Event& savedEvent) {
+
+                if (onToolEdited) {
+                    onToolEdited(savedEvent);
+                }
+
+                refresh(savedEvent);
+            };
+        }
+
         void computeChildren(Event& e) override {
+
+            if (settingsWindow && settingsWindow->shouldClose) {
+                settingsWindow = nullptr;
+            }
 
             if (!app) {
                 Box::computeChildren(e);
@@ -105,6 +163,10 @@ export namespace Cam::Gui {
 
                 rows[i]->onSelect = [this](Event& ev, size_t index) {
                     this->selectTool(index, ev);
+                };
+
+                rows[i]->onOpenSettings = [this](Event& ev, size_t index) {
+                    this->openSettings(index, ev);
                 };
             }
 

@@ -46,6 +46,25 @@ export namespace Cam::Gui {
             .size = { .width = Grow() },
             .text = { .color = rgba(0, 0, 0, 0.85), .size = 14_px }
         };
+
+        Style SettingsButton = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .width = 28_px, .height = 28_px },
+            .margin = { 0_px, 0_px, 0_px, 4_px },
+            .padding = { 4_px, 4_px, 4_px, 4_px },
+            .background = { .color = rgba(255, 255, 255, 0.2), .transition = 100_ms },
+            .border = { .color = rgba(0, 0, 0, 0.15), .width = 1_px, .radius = 4_px },
+            .cursor = Cursor::Hand
+        };
+
+        Style SettingsButtonHover = {
+            .applies = { .hover = true, .focus = true },
+            .background = { .color = rgba(255, 255, 255, 0.55) }
+        };
+
+        Style SettingsButtonLabel = {
+            .text = { .color = rgba(0, 0, 0, 0.7), .size = 12_px }
+        };
     };
 
     using namespace ToolRowStyle;
@@ -56,8 +75,10 @@ export namespace Cam::Gui {
         size_t toolIndex = 0;
 
         Text* label = nullptr;
+        Box* settingsButton = nullptr;
 
         std::function<void(Event&, size_t)> onSelect;
+        std::function<void(Event&, size_t)> onOpenSettings;
 
         ToolRow(Element* parent, StyleList styles = {}) : Box(parent, styles, "ToolRow") {
 
@@ -68,8 +89,30 @@ export namespace Cam::Gui {
 
             label = new Text(this, "", { &Styles::Label });
 
-            this->onMouseDown([this](Event& e) {
+            label->onMouseDown([this](Event& e) {
                 if (onSelect) { onSelect(e, toolIndex); }
+            });
+
+            settingsButton = new Box(
+                this,
+                {
+                    &Styles::SettingsButton,
+                    &Styles::SettingsButtonHover
+                },
+                "ToolSettingsButton"
+            );
+
+            new Text(
+                settingsButton,
+                "3",
+                { &Styles::SettingsButtonLabel }
+            );
+
+            settingsButton->onClick([this](Event& e) {
+                if (onOpenSettings) {
+                    onOpenSettings(e, toolIndex);
+                }
+                e.propagate = false;
             });
         }
 

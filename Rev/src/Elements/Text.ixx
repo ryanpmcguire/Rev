@@ -478,6 +478,8 @@ export namespace Rev::Element {
             // Layout text
             //--------------------------------------------------
 
+            if (!font) { return; }
+
             text->lines.clear();
 
             size_t idx = 0;

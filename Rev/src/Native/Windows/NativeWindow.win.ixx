@@ -514,6 +514,15 @@ export namespace Rev {
             this->notifyEvent({ WinEvent::Type::Resize, 0, 0, size.w, size.h });
         }
 
+        void show() {
+
+            if (!handle) { return; }
+
+            ShowWindow(handle, SW_SHOW);
+            UpdateWindow(handle);
+            SetForegroundWindow(handle);
+        }
+
         ~NativeWindow() {
             //dbg("[NativeWindow] destroying");
         
@@ -1000,13 +1009,15 @@ export namespace Rev {
 
         void loadGlFunctions() {
 
-            // 2. Initialize GLEW
-            glewExperimental = GL_TRUE; // Enable core profiles
+            glewExperimental = GL_TRUE;
             GLenum glewStatus = glewInit();
 
             if (glewStatus != GLEW_OK) {
                 const GLubyte* errorStr = glewGetErrorString(glewStatus);
-                throw std::runtime_error(std::string("[Canvas] Glew init failed: ") + reinterpret_cast<const char*>(errorStr));
+                throw std::runtime_error(
+                    std::string("[Canvas] Glew init failed: ")
+                    + reinterpret_cast<const char*>(errorStr)
+                );
             }
 
             dbg("");

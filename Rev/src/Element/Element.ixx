@@ -51,6 +51,9 @@ export namespace Rev::Element {
             void* state = nullptr;
 
             Event* event = nullptr;
+
+            // Application-owned top-level Rev windows (for spawning more windows).
+            std::vector<void*>* windowGroup = nullptr;
         };
 
         struct Dirty {

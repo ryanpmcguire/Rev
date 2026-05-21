@@ -13,7 +13,7 @@ export namespace Cam {
     struct AppWindow : public Rev::Window {
 
         AppWindow(
-            std::vector<Rev::Window*>& group,
+            std::vector<void*>& group,
             Rev::Window::Details details = {}
         ) : Rev::Window(group, details) {}
 

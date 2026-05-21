@@ -13,7 +13,7 @@ export namespace Rev {
 
     struct Application {
 
-        std::vector<Window*> windows;
+        std::vector<void*> windows;
 
         // Create
         Application() {
@@ -35,8 +35,11 @@ export namespace Rev {
                 // Cleanup closed windows
                 for (auto it = windows.begin(); it != windows.end();) {
 
-                    if ((*it)->shouldClose) {
-                        delete *it; it = windows.erase(it);
+                    Window* w = static_cast<Window*>(*it);
+
+                    if (w->shouldClose) {
+                        it = windows.erase(it);
+                        delete w;
                     }
                     
                     else { ++it; }
@@ -47,11 +50,13 @@ export namespace Rev {
         // Remove window from our list
         void removeWindow(Window* target) {
 
-            auto it = std::find(windows.begin(), windows.end(), target);
+            void* handle = static_cast<void*>(target);
+
+            auto it = std::find(windows.begin(), windows.end(), handle);
             
             if (it != windows.end()) {
-                delete *it;
-                windows.erase(it);
+                it = windows.erase(it);
+                delete target;
             }
         }
     };

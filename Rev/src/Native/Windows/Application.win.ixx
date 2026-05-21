@@ -12,7 +12,7 @@ export namespace Rev {
 
     struct Application {
 
-        std::vector<Window*> windows;
+        std::vector<void*> windows;
 
         // Create
         Application() {
@@ -36,7 +36,9 @@ export namespace Rev {
                 if (!result) { break; }
 
                 if (msg.message == WM_QUIT) {
-                    for (Window* w : windows) { delete w; }
+                    for (void* handle : windows) {
+                        delete static_cast<Window*>(handle);
+                    }
                     windows.clear();
                     return;
                 }
@@ -44,9 +46,16 @@ export namespace Rev {
                 TranslateMessage(&msg);
                 DispatchMessage(&msg);
     
-                // Cleanup closed windows
+                // Cleanup closed windows (erase before delete so ~Window
+                // does not mutate the vector under this iterator).
                 for (auto it = windows.begin(); it != windows.end();) {
-                    if ((*it)->shouldClose) { delete *it; it = windows.erase(it); }
+                    Window* w = static_cast<Window*>(*it);
+
+                    if (w->shouldClose) {
+                        it = windows.erase(it);
+                        delete w;
+                    }
+
                     else { ++it; }
                 }
             }
@@ -55,11 +64,13 @@ export namespace Rev {
         // Remove window from our list
         void removeWindow(Window* target) {
 
-            auto it = std::find(windows.begin(), windows.end(), target);
+            void* handle = static_cast<void*>(target);
+
+            auto it = std::find(windows.begin(), windows.end(), handle);
             
             if (it != windows.end()) {
-                delete *it;
-                windows.erase(it);
+                it = windows.erase(it);
+                delete target;
             }
         }
     };

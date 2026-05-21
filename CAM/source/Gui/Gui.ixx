@@ -152,6 +152,15 @@ export namespace Cam::Gui {
                 refresh(e);
             };
 
+            if (rightPanel && rightPanel->tools) {
+                rightPanel->tools->onToolEdited = [this](Event& e) {
+                    if (rightPanel) {
+                        rightPanel->refresh(e);
+                    }
+                    refresh(e);
+                };
+            }
+
             rightPanel->onSelectFolder = [this](Event& e) {
                 if (rightPanel) {
                     rightPanel->refresh(e);
