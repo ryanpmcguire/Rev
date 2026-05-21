@@ -5,6 +5,9 @@ module;
 #include <stdexcept>
 #include <cstddef>
 
+#include <sstream>
+#include <string>
+
 #include <STEPControl_Reader.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 
@@ -22,6 +25,8 @@ module;
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepTools.hxx>
 
 #include <Poly_Triangulation.hxx>
 #include <Poly_Triangle.hxx>
@@ -68,6 +73,69 @@ export namespace Cam::App {
 
         bool loaded = false;
         bool changed = false;
+
+        // Serialization
+        //--------------------------------------------------
+
+        std::string getState() const {
+
+            if (shape.IsNull()) {
+                return "";
+            }
+
+            std::ostringstream stream;
+
+            BRepTools::Write(
+                shape,
+                stream
+            );
+
+            return stream.str();
+        }
+
+        bool setState(
+            const std::string& state
+        ) {
+            clear();
+
+            if (state.empty()) {
+                return false;
+            }
+
+            std::istringstream stream(state);
+
+            if (!stream.good()) {
+                return false;
+            }
+
+            BRep_Builder builder;
+
+            try {
+                BRepTools::Read(
+                    shape,
+                    stream,
+                    builder
+                );
+            }
+
+            catch (...) {
+                clear();
+                return false;
+            }
+
+            if (shape.IsNull()) {
+                clear();
+                return false;
+            }
+
+            collectFaces();
+            tessellate();
+
+            loaded = true;
+            changed = false;
+
+            return true;
+        }
 
         // Construction
         //--------------------------------------------------

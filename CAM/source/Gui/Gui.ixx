@@ -68,6 +68,32 @@ export namespace Cam::Gui {
                 refresh(e);
             };
 
+            tabView->onCloseProject = [this](Event& e) {
+
+                if (leftPanel) {
+                    leftPanel->refresh(e);
+                }
+
+                if (worldView) {
+                    worldView->sync(e);
+                }
+
+                refresh(e);
+            };
+
+            tabView->onNewProject = [this](Event& e) {
+
+                if (leftPanel) {
+                    leftPanel->refresh(e);
+                }
+
+                if (worldView) {
+                    worldView->sync(e);
+                }
+
+                refresh(e);
+            };
+
             leftPanel->onBeforeSelectFile = [this](Event& e) {
 
                 if (worldView) {
@@ -117,6 +143,29 @@ export namespace Cam::Gui {
 
         void keyDown(Event& e) override {
 
+            // Save
+            if (e.keyboard.ctrl && e.keyboard.key == "s") {
+
+                if (app) {
+                    app->saveProject();
+                }
+
+                e.propagate = false;
+                return;
+            }
+
+            // Save as
+            if (e.keyboard.ctrl && e.keyboard.shift && e.keyboard.key == "s") {
+
+                if (app) {
+                    app->saveProjectAs();
+                }
+
+                e.propagate = false;
+                return;
+            }
+
+            // Delete feature
             if (e.keyboard.key == "delete" || e.keyboard.del) {
 
                 if (worldView) {
@@ -127,6 +176,7 @@ export namespace Cam::Gui {
                 return;
             }
 
+            // Commit feature state
             if (e.keyboard.key == "enter" || e.keyboard.enter) {
 
                 if (worldView) {

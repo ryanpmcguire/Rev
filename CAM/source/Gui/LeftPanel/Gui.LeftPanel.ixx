@@ -36,9 +36,9 @@ export namespace Cam::Gui {
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 220_px, .height = Grow() },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
+            .margin = { 12_px, 12_px, 12_px, 12_px },
             .padding = { 8_px, 8_px, 8_px, 8_px },
-            .background = { .color = rgba(0, 0, 0, 0.10) },
+            //.background = { .color = rgba(0, 0, 0, 0.10) },
             .border = { .radius = 6_px },
             .shadow = subtleShadow,
             .zIndex = +1

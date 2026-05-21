@@ -25,20 +25,11 @@ export namespace Cam::Gui {
 
     namespace MaterialStatesStyle {
 
-        Shadow subtleShadow = {
-            .color = rgba(0, 0, 0, 0.35),
-            .size = Px(-8),
-            .blur = 16_px
-        };
-
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .height = Grow() },
             .margin = { 4_px, 4_px, 4_px, 4_px },
             .padding = { 8_px, 8_px, 8_px, 8_px },
-            .background = { .color = rgba(0, 0, 0, 0.1) },
-            .border = { .radius = 6_px },
-            .shadow = subtleShadow,
             .zIndex = +1
         };
 

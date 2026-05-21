@@ -8,6 +8,8 @@ module;
 
 export module Cam.App;
 
+import Rev.OS.File;
+
 import Cam.App.Project;
 import Cam.App.MaterialState;
 import Cam.App.Model;
@@ -53,16 +55,17 @@ export namespace Cam::App {
             projects.clear();
             activeProject = nullptr;
 
-            Project* loadedProject = createProject(true);
-            Project* emptyProject = createProject(false);
+            Project* loadedProject = createProject(true, "Nut Mount");
+            createProject(false, "Untitled Project");
 
             activeProject = loadedProject;
         }
 
         Project* createProject(
-            bool loadDefault = true
+            bool loadDefault = true,
+            std::string name = "Untitled Project"
         ) {
-            Project* project = new Project(loadDefault);
+            Project* project = new Project(loadDefault, name);
 
             projects.push_back(project);
 
@@ -73,8 +76,65 @@ export namespace Cam::App {
             return project;
         }
 
-        Project* createEmptyProject() {
-            return createProject(false);
+        Project* createEmptyProject(
+            std::string name = "Untitled Project"
+        ) {
+            return createProject(false, name);
+        }
+
+        Project* newProject() {
+
+            Project* project = createEmptyProject("Untitled Project");
+
+            activeProject = project;
+
+            return project;
+        }
+
+        bool closeProject(Project* project) {
+
+            if (!project) { return false; }
+
+            auto it = std::find(
+                projects.begin(),
+                projects.end(),
+                project
+            );
+
+            if (it == projects.end()) { return false; }
+
+            bool wasActive = (project == activeProject);
+
+            size_t index = static_cast<size_t>(
+                std::distance(projects.begin(), it)
+            );
+
+            projects.erase(it);
+
+            delete project;
+
+            if (projects.empty()) {
+                activeProject = createEmptyProject("Untitled Project");
+                return true;
+            }
+
+            if (wasActive) {
+
+                if (index >= projects.size()) {
+                    index = projects.size() - 1;
+                }
+
+                activeProject = projects[index];
+            }
+
+            return true;
+        }
+
+        bool closeProject(size_t index) {
+
+            if (index >= projects.size()) { return false; }
+
+            return closeProject(projects[index]);
         }
 
         bool setActiveProject(Project* project) {
@@ -110,6 +170,47 @@ export namespace Cam::App {
             }
 
             return 0;
+        }
+
+        // Project file commands
+        //--------------------------------------------------
+
+        bool saveProject() {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->save();
+        }
+
+        bool saveProjectAs() {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->saveAs();
+        }
+
+        bool openProject() {
+
+            Rev::OS::File selected;
+
+            if (!selected.open(
+                "Open CAM Project",
+                "CAM Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0"
+            )) {
+                return false;
+            }
+
+            Project* project = createEmptyProject("Untitled Project");
+
+            if (!project->loadProjectFile(selected)) {
+
+                closeProject(project);
+                return false;
+            }
+
+            activeProject = project;
+
+            return true;
         }
 
         // Active project forwarding
