@@ -196,10 +196,27 @@ export namespace Rev {
         // Destroy
         ~Window() {
 
-            delete shared->canvas;
-            delete shared;
+            // Destroy the element subtree while shared is still valid.
+            // ~Window runs before ~Element; without this, ~Element would
+            // touch shared->dirty after shared is deleted below.
+            std::vector<Element*> childrenCopy = children;
+
+            for (Element* child : childrenCopy) {
+                if (child) { delete child; }
+            }
+
+            children.clear();
+
+            if (shared) {
+                delete shared->canvas;
+                shared->canvas = nullptr;
+
+                delete shared;
+                shared = nullptr;
+            }
 
             delete window;
+            window = nullptr;
         }
 
         // Layout
@@ -517,11 +534,11 @@ export namespace Rev {
         // Overridable callbacks
         //--------------------------------------------------
 
-        void onOpen() {
+        virtual void onOpen() {
             //dbg("[Window] Open");
         }
 
-        void onClose(bool& rejectClose) {
+        virtual void onClose(bool& rejectClose) {
            // dbg("[Window] Close");
             rejectClose = false;
         }

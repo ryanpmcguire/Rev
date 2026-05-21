@@ -353,7 +353,7 @@ export namespace Cam::Gui {
                 { &TabViewStyle::OpenButtonLabel }
             );
 
-            openButton->onMouseDown([this](Event& e) {
+            openButton->onClick([this](Event& e) {
 
                 if (!app) { return; }
 
@@ -391,7 +391,7 @@ export namespace Cam::Gui {
                 "NewProjectIcon"
             );
 
-            newButton->onMouseDown([this](Event& e) {
+            newButton->onClick([this](Event& e) {
 
                 if (!app) { return; }
 
@@ -469,7 +469,7 @@ export namespace Cam::Gui {
                 "CloseProjectIcon"
             );
 
-            closeButton->onMouseDown([this, project](Event& e) {
+            closeButton->onClick([this, project](Event& e) {
 
                 if (!app || !project) { return; }
 

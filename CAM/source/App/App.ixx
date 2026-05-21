@@ -92,6 +92,49 @@ export namespace Cam::App {
             return project;
         }
 
+        // Save / discard / cancel for one dirty project.
+        // Returns false if the user cancelled or save failed.
+        bool tryResolveDirtyProject(Project* project) {
+
+            if (!project || !project->dirty) {
+                return true;
+            }
+
+            Rev::OS::UnsavedChangesResult result =
+                Rev::OS::Dialog::UnsavedChanges(project->name);
+
+            if (result == Rev::OS::UnsavedChangesResult::Cancel) {
+                return false;
+            }
+
+            if (result == Rev::OS::UnsavedChangesResult::Save) {
+                return project->save();
+            }
+
+            return true;
+        }
+
+        // Prompt for each dirty project in order; cancel aborts quit.
+        // On success, all projects are closed (app is shutting down).
+        bool confirmApplicationClose() {
+
+            for (Project* project : projects) {
+
+                if (!tryResolveDirtyProject(project)) {
+                    return false;
+                }
+            }
+
+            for (Project* project : projects) {
+                delete project;
+            }
+
+            projects.clear();
+            activeProject = nullptr;
+
+            return true;
+        }
+
         bool closeProject(Project* project) {
 
             if (!project) { return false; }
@@ -104,21 +147,8 @@ export namespace Cam::App {
 
             if (it == projects.end()) { return false; }
 
-            if (project->dirty) {
-
-                Rev::OS::UnsavedChangesResult result =
-                    Rev::OS::Dialog::UnsavedChanges(project->name);
-
-                if (result == Rev::OS::UnsavedChangesResult::Cancel) {
-                    return false;
-                }
-
-                if (result == Rev::OS::UnsavedChangesResult::Save) {
-
-                    if (!project->save()) {
-                        return false;
-                    }
-                }
+            if (!tryResolveDirtyProject(project)) {
+                return false;
             }
 
             bool wasActive = (project == activeProject);

@@ -125,7 +125,7 @@ export namespace Cam::Gui {
                 { &LeftPanelStyle::FileButtonLabel }
             );
 
-            fileButton->onMouseDown([this](Event& e) {
+            fileButton->onClick([this](Event& e) {
                 selectFile(e);
                 e.propagate = false;
             });

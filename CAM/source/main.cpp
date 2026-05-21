@@ -9,6 +9,7 @@ import Rev.Element.Event;
 
 import Cam.App;
 import Cam.Gui;
+import Cam.Window;
 
 using namespace Rev;
 
@@ -18,7 +19,7 @@ int main() {
 
     Cam::App::AppState* appState = new Cam::App::AppState();
 
-    Window* window = new Window(application->windows, {});
+    Cam::AppWindow* window = new Cam::AppWindow(application->windows, {});
     window->shared->state = static_cast<void*>(appState);
 
     Cam::Gui::Interface* interface = new Cam::Gui::Interface(window);
