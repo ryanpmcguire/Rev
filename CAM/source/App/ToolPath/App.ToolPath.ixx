@@ -1,5 +1,6 @@
 module;
 
+#include <string>
 #include <vector>
 #include <cstddef>
 #include <algorithm>
@@ -30,7 +31,9 @@ export namespace Cam::App {
     };
 
     struct ToolPath {
-        Tool tool = Tool::GodTool();
+
+        // Identity in the project tool library (name is the key).
+        std::string toolName = "";
 
         Slice2d::Strategy strategy = Slice2d::Strategy::Profile;
 
@@ -41,10 +44,15 @@ export namespace Cam::App {
 
         double stepDown = 1.0;
 
-        void clear() {
+        void clearPathData() {
             slices.clear();
             points.clear();
             computed = false;
+        }
+
+        void clear() {
+            toolName.clear();
+            clearPathData();
         }
 
         bool empty() const { return points.empty(); }
@@ -71,7 +79,12 @@ export namespace Cam::App {
             return valid;
         }
 
-        bool buildSlice(Model& model, float z, Slice2d& slice) const {
+        bool buildSlice(
+            Model& model,
+            float z,
+            Slice2d& slice,
+            const Tool& tool
+        ) const {
             slice = Slice2d::FromModel(model, z, strategy, tool);
             return !slice.empty();
         }
@@ -126,12 +139,12 @@ export namespace Cam::App {
             }
         }
 
-        bool compute(Model& toCarve, Tool& tool) {
-            clear();
+        bool compute(Model& toCarve, const Tool& tool) {
+            clearPathData();
 
-            this->tool = tool;
+            toolName = tool.name;
 
-            dbg("[ToolPath] Computing toolpath");
+            dbg("[ToolPath] Computing toolpath with tool \"%s\"", toolName.c_str());
 
             Pos3 min;
             Pos3 max;
@@ -158,7 +171,7 @@ export namespace Cam::App {
 
                 Slice2d slice;
 
-                if (!buildSlice(toCarve, z, slice)) {
+                if (!buildSlice(toCarve, z, slice, tool)) {
                     dbg("[ToolPath] z=%.3f: no slice path", z);
                     continue;
                 }
@@ -184,21 +197,23 @@ export namespace Cam::App {
         }
 
         bool compute(Model& toCarve) {
-            Tool tool = Tool::GodTool();
-            return compute(toCarve, tool);
+            return compute(toCarve, Tool::GodTool());
         }
 
-        bool compute(Model& toCarve, Model& toAvoid, Tool& tool) {
+        bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
             // toAvoid will come back once Slice2d owns protected/avoid classification.
             return compute(toCarve, tool);
         }
 
         bool compute(Model& toCarve, Model& toAvoid) {
-            Tool tool = Tool::GodTool();
-            return compute(toCarve, toAvoid, tool);
+            return compute(toCarve, Tool::GodTool());
         }
 
-        bool computeFromDelta(Model& deltaModel, Model& remainingModel, Tool tool = Tool::GodTool()) {
+        bool computeFromDelta(
+            Model& deltaModel,
+            Model& remainingModel,
+            const Tool& tool
+        ) {
             return compute(deltaModel, remainingModel, tool);
         }
 

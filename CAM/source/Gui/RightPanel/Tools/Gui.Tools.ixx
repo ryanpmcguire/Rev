@@ -91,7 +91,7 @@ export namespace Cam::Gui {
             }
 
             size_t oldSize = rows.size();
-            size_t newSize = app->tools.size();
+            size_t newSize = app->toolCount();
 
             for (size_t i = newSize; i < oldSize; i++) {
                 delete rows[i];

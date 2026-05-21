@@ -53,6 +53,8 @@ export namespace Cam::App {
                 entry["sourceFile"] = "";
             }
 
+            entry["toolFolderPath"] = project->toolFolderPath;
+
             return entry;
         }
 
@@ -142,6 +144,13 @@ export namespace Cam::App {
                         return project->loadStepFile(stepFile);
                     }
                 }
+            }
+
+            if (
+                entry.contains("toolFolderPath") &&
+                entry["toolFolderPath"].is_string()
+            ) {
+                project->toolFolderPath = entry["toolFolderPath"].get<std::string>();
             }
 
             return false;

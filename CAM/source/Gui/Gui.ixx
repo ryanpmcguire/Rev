@@ -60,8 +60,16 @@ export namespace Cam::Gui {
 
             tabView->onSelectProject = [this](Event& e) {
 
+                if (app) {
+                    app->loadTools();
+                }
+
                 if (leftPanel) {
                     leftPanel->refresh(e);
+                }
+
+                if (rightPanel) {
+                    rightPanel->refresh(e);
                 }
 
                 if (worldView) {
@@ -148,6 +156,11 @@ export namespace Cam::Gui {
                 if (rightPanel) {
                     rightPanel->refresh(e);
                 }
+
+                if (rightPanel && rightPanel->tools) {
+                    rightPanel->tools->refresh(e);
+                }
+
                 refresh(e);
             };
         }

@@ -12,6 +12,7 @@ import Rev.OS.File;
 
 import Cam.App.Model;
 import Cam.App.Tool;
+import Cam.App.ToolLibrary;
 import Cam.App.ToolPath;
 
 export namespace Cam::App {
@@ -215,7 +216,10 @@ export namespace Cam::App {
             clearToolPath();
         }
 
-        void computeDelta() {
+        void computeDelta(
+            const ToolLibrary& library,
+            const std::string& activeToolName
+        ) {
 
             clearDelta();
 
@@ -232,7 +236,7 @@ export namespace Cam::App {
             hasDelta = delta.loaded;
 
             if (hasDelta) {
-                computeToolPath();
+                computeToolPath(library, activeToolName);
             }
         }
 
@@ -245,20 +249,41 @@ export namespace Cam::App {
             hasToolPath = false;
         }
 
-        void computeToolPath() {
+        void computeToolPath(
+            const ToolLibrary& library,
+            const std::string& activeToolName
+        ) {
 
-            clearToolPath();
+            toolPath.clearPathData();
+            hasToolPath = false;
 
             if (!hasDelta) { return; }
             if (!delta.loaded) { return; }
             if (!parent->model.loaded) { return; }
 
-            Tool tool = Tool::GodTool();
+            if (toolPath.toolName.empty()) {
+                toolPath.toolName = activeToolName;
+            }
+
+            const Tool* tool = library.find(toolPath.toolName);
+
+            if (!tool && !activeToolName.empty()) {
+                toolPath.toolName = activeToolName;
+                tool = library.find(toolPath.toolName);
+            }
+
+            if (!tool) {
+                dbg(
+                    "[MaterialState] Tool \"%s\" not in library",
+                    toolPath.toolName.c_str()
+                );
+                return;
+            }
 
             hasToolPath = toolPath.compute(
                 delta,
                 parent->model,
-                tool
+                *tool
             );
         }
     };

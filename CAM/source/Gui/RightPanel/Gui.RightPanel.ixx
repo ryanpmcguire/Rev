@@ -164,12 +164,14 @@ export namespace Cam::Gui {
 
             if (!app) { return "Select Tool Folder"; }
 
-            if (app->toolFolderPath.empty()) {
-                return "Select Tool Folder";
+            std::string folder = app->toolFolderPath;
+
+            if (folder.empty()) {
+                return "General";
             }
 
             return truncate(
-                basename(app->toolFolderPath),
+                basename(folder),
                 20
             );
         }

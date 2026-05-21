@@ -16,6 +16,7 @@ import Cam.App.Persist;
 import Cam.App.MaterialState;
 import Cam.App.Model;
 import Cam.App.Tool;
+import Cam.App.ToolLibrary;
 
 export namespace Cam::App {
 
@@ -24,8 +25,6 @@ export namespace Cam::App {
         std::vector<Project*> projects;
         Project* activeProject = nullptr;
 
-        std::vector<Tool> tools;
-        size_t selectedToolIndex = 0;
         std::string toolFolderPath = "";
 
         static AppState* Get(void*& state) {
@@ -42,7 +41,7 @@ export namespace Cam::App {
 
         AppState() {
             loadSessionOrDefaults();
-            initDefaultTools();
+            loadTools();
         }
 
         ~AppState() {
@@ -82,42 +81,97 @@ export namespace Cam::App {
         // Tools
         //--------------------------------------------------
 
-        void initDefaultTools() {
+        ToolLibrary* toolLibrary() {
 
-            tools.clear();
+            if (!activeProject) {
+                return nullptr;
+            }
 
-            tools.push_back(Tool::GodTool(1.0, 1));
-            tools.push_back(Tool::GodTool(3.0, 2));
-            tools.push_back(Tool::GodTool(10.0, 3));
+            return &activeProject->toolLibrary;
+        }
 
-            selectedToolIndex = 0;
-            toolFolderPath = "";
+        const ToolLibrary* toolLibrary() const {
+
+            if (!activeProject) {
+                return nullptr;
+            }
+
+            return &activeProject->toolLibrary;
+        }
+
+        void loadTools() {
+
+            if (!activeProject) {
+                toolFolderPath = ToolLibrary::defaultToolFolderPath();
+                return;
+            }
+
+            activeProject->loadToolLibrary();
+
+            toolFolderPath = activeProject->toolFolderPath;
         }
 
         size_t toolCount() const {
-            return tools.size();
+
+            const ToolLibrary* library = toolLibrary();
+
+            if (!library) {
+                return 0;
+            }
+
+            return library->size();
         }
 
         Tool* toolAt(size_t index) {
 
-            if (index >= tools.size()) {
+            ToolLibrary* library = toolLibrary();
+
+            if (!library) {
                 return nullptr;
             }
 
-            return &tools[index];
+            return library->at(index);
         }
 
         Tool* selectedTool() {
-            return toolAt(selectedToolIndex);
+
+            if (!activeProject) {
+                return nullptr;
+            }
+
+            return activeProject->toolLibrary.find(
+                activeProject->selectedToolName
+            );
         }
 
         bool selectTool(size_t index) {
 
-            if (index >= tools.size()) {
+            if (!activeProject) {
                 return false;
             }
 
-            selectedToolIndex = index;
+            Tool* tool = activeProject->toolLibrary.at(index);
+
+            if (!tool) {
+                return false;
+            }
+
+            activeProject->selectedToolName = tool->name;
+
+            return true;
+        }
+
+        bool selectToolByName(const std::string& name) {
+
+            if (!activeProject) {
+                return false;
+            }
+
+            if (!activeProject->toolLibrary.find(name)) {
+                return false;
+            }
+
+            activeProject->selectedToolName = name;
 
             return true;
         }
@@ -133,7 +187,16 @@ export namespace Cam::App {
                 return false;
             }
 
+            if (!activeProject) {
+                return false;
+            }
+
+            activeProject->toolFolderPath = folder.pathname;
+            activeProject->dirty = true;
+
             toolFolderPath = folder.pathname;
+
+            loadTools();
 
             return true;
         }
@@ -165,6 +228,7 @@ export namespace Cam::App {
 
             activeProject = project;
 
+            loadTools();
             saveSession();
 
             return project;
@@ -327,6 +391,7 @@ export namespace Cam::App {
 
             activeProject = project;
 
+            loadTools();
             saveSession();
 
             return true;
@@ -346,6 +411,7 @@ export namespace Cam::App {
 
             activeProject = project;
 
+            loadTools();
             saveSession();
 
             return true;
@@ -357,6 +423,7 @@ export namespace Cam::App {
 
             activeProject = projects[index];
 
+            loadTools();
             saveSession();
 
             return true;

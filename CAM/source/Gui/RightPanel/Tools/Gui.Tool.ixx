@@ -86,9 +86,17 @@ export namespace Cam::Gui {
 
         bool isSelected() const {
 
-            if (!app) { return false; }
+            if (!app || !app->activeProject) {
+                return false;
+            }
 
-            return app->selectedToolIndex == toolIndex;
+            Cam::App::Tool* tool = app->toolAt(toolIndex);
+
+            if (!tool) {
+                return false;
+            }
+
+            return app->activeProject->selectedToolName == tool->name;
         }
 
         void computeChildren(Event& e) override {

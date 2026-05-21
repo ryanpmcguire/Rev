@@ -9,7 +9,7 @@ import Rev.Core.Pos3;
 export namespace Cam::App {
 
     struct Tool {
-        
+
         enum class Kind { Cylinder };
 
         Kind kind = Kind::Cylinder;
@@ -34,12 +34,7 @@ export namespace Cam::App {
             tool.length = 100.0;
             tool.axis = { 0.0f, 0.0f, 1.0f };
 
-            tool.name =
-                "God Tool " +
-                std::to_string(index) +
-                " (" +
-                std::to_string(static_cast<int>(diameterMm)) +
-                "mm)";
+            tool.name = "God Tool " + std::to_string(index);
 
             return tool;
         }

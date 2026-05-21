@@ -14,6 +14,7 @@ import Rev.OS.File;
 
 import Cam.App.Model;
 import Cam.App.MaterialState;
+import Cam.App.ToolLibrary;
 
 export namespace Cam::App {
 
@@ -32,6 +33,14 @@ export namespace Cam::App {
         Rev::OS::File file = Rev::OS::File({
             .pathname = ""
         });
+
+        // Folder containing tool JSON files (*.json). Empty uses app default.
+        std::string toolFolderPath = "";
+
+        ToolLibrary toolLibrary;
+
+        // Name of the tool used for new toolpath computation (library key).
+        std::string selectedToolName = "God Tool 1";
 
         bool loaded = false;
         bool dirty = false;
@@ -126,6 +135,24 @@ export namespace Cam::App {
             return states[index];
         }
 
+        void loadToolLibrary() {
+
+            ToolLibrary::assignDefaultToolFolderIfNeeded(toolFolderPath);
+
+            toolLibrary.loadOrCreateDefaults(toolFolderPath);
+
+            if (selectedToolName.empty() || !toolLibrary.find(selectedToolName)) {
+
+                if (!toolLibrary.order.empty()) {
+                    selectedToolName = toolLibrary.order.front();
+                }
+
+                else {
+                    selectedToolName = "God Tool 1";
+                }
+            }
+        }
+
         // Serialization
         //--------------------------------------------------
 
@@ -144,6 +171,8 @@ export namespace Cam::App {
                 { "name", file.name },
                 { "ext", file.ext }
             };
+
+            json["toolFolderPath"] = toolFolderPath;
 
             json["materialStates"] = Json::array();
 
@@ -181,6 +210,11 @@ export namespace Cam::App {
                     stateJson["delta"] = "";
                 }
 
+                stateJson["toolPath"] = {
+                    { "toolName", state->toolPath.toolName },
+                    { "hasToolPath", state->hasToolPath }
+                };
+
                 json["materialStates"].push_back(stateJson);
             }
 
@@ -216,6 +250,13 @@ export namespace Cam::App {
                     file = Rev::OS::File({
                         .pathname = json["sourceFile"]["pathname"].get<std::string>()
                     });
+                }
+
+                if (
+                    json.contains("toolFolderPath") &&
+                    json["toolFolderPath"].is_string()
+                ) {
+                    toolFolderPath = json["toolFolderPath"].get<std::string>();
                 }
 
                 if (
@@ -274,6 +315,29 @@ export namespace Cam::App {
                         state->delta.setState(
                             stateJson["delta"].get<std::string>()
                         );
+                    }
+
+                    if (
+                        stateJson.contains("toolPath") &&
+                        stateJson["toolPath"].is_object()
+                    ) {
+                        const Json& toolPathJson = stateJson["toolPath"];
+
+                        if (
+                            toolPathJson.contains("toolName") &&
+                            toolPathJson["toolName"].is_string()
+                        ) {
+                            state->toolPath.toolName =
+                                toolPathJson["toolName"].get<std::string>();
+                        }
+
+                        if (
+                            toolPathJson.contains("hasToolPath") &&
+                            toolPathJson["hasToolPath"].is_boolean()
+                        ) {
+                            state->hasToolPath =
+                                toolPathJson["hasToolPath"].get<bool>();
+                        }
                     }
 
                     newStates[index] = state;
@@ -352,6 +416,8 @@ export namespace Cam::App {
 
                 loaded = rootState != nullptr;
                 dirty = false;
+
+                loadToolLibrary();
 
                 for (MaterialState* oldState : oldStates) {
                     delete oldState;
@@ -626,7 +692,10 @@ export namespace Cam::App {
             if (!ok) { return false; }
 
             workingState->model.clearSelection();
-            workingState->computeDelta();
+            workingState->computeDelta(
+                toolLibrary,
+                selectedToolName
+            );
 
             dirty = true;
 
@@ -638,7 +707,10 @@ export namespace Cam::App {
             if (!workingState) { return false; }
             if (!workingState->model.changed && !workingState->hasDelta) { return false; }
 
-            workingState->computeDelta();
+            workingState->computeDelta(
+                toolLibrary,
+                selectedToolName
+            );
 
             workingState->committed = true;
             workingState->working = false;
