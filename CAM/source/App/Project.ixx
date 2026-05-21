@@ -455,13 +455,9 @@ export namespace Cam::App {
                 return false;
             }
 
-            std::ofstream stream(target.pathname);
-
-            if (!stream) {
+            if (!target.writeText(getState().dump(4))) {
                 return false;
             }
-
-            stream << getState().dump(4);
 
             dirty = false;
 

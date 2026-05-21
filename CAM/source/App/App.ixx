@@ -12,6 +12,7 @@ import Rev.OS.File;
 import Rev.OS.Dialog;
 
 import Cam.App.Project;
+import Cam.App.Persist;
 import Cam.App.MaterialState;
 import Cam.App.Model;
 
@@ -35,7 +36,7 @@ export namespace Cam::App {
         }
 
         AppState() {
-            createInitialProjects();
+            loadSessionOrDefaults();
         }
 
         ~AppState() {
@@ -51,19 +52,29 @@ export namespace Cam::App {
         // Projects
         //--------------------------------------------------
 
-        void createInitialProjects() {
+        void loadSessionOrDefaults() {
 
             projects.clear();
             activeProject = nullptr;
 
-            Project* loadedProject = createProject(true, "Nut Mount");
-            createProject(false, "Untitled Project");
+            Project* loadedActive = nullptr;
 
-            activeProject = loadedProject;
+            if (Persist::load(projects, loadedActive)) {
+                activeProject = loadedActive;
+                return;
+            }
+
+            // No persist (or empty session): start with no projects.
+            projects.clear();
+            activeProject = nullptr;
+        }
+
+        bool saveSession() {
+            return Persist::save(projects, activeProject);
         }
 
         Project* createProject(
-            bool loadDefault = true,
+            bool loadDefault = false,
             std::string name = "Untitled Project"
         ) {
             Project* project = new Project(loadDefault, name);
@@ -88,6 +99,8 @@ export namespace Cam::App {
             Project* project = createEmptyProject("Untitled Project");
 
             activeProject = project;
+
+            saveSession();
 
             return project;
         }
@@ -124,6 +137,8 @@ export namespace Cam::App {
                     return false;
                 }
             }
+
+            saveSession();
 
             for (Project* project : projects) {
                 delete project;
@@ -162,7 +177,8 @@ export namespace Cam::App {
             delete project;
 
             if (projects.empty()) {
-                activeProject = createEmptyProject("Untitled Project");
+                activeProject = nullptr;
+                saveSession();
                 return true;
             }
 
@@ -175,6 +191,8 @@ export namespace Cam::App {
                 activeProject = projects[index];
             }
 
+            saveSession();
+
             return true;
         }
 
@@ -183,32 +201,6 @@ export namespace Cam::App {
             if (index >= projects.size()) { return false; }
 
             return closeProject(projects[index]);
-        }
-
-        bool setActiveProject(Project* project) {
-
-            if (!project) { return false; }
-
-            auto it = std::find(
-                projects.begin(),
-                projects.end(),
-                project
-            );
-
-            if (it == projects.end()) { return false; }
-
-            activeProject = project;
-
-            return true;
-        }
-
-        bool setActiveProject(size_t index) {
-
-            if (index >= projects.size()) { return false; }
-
-            activeProject = projects[index];
-
-            return true;
         }
 
         size_t activeProjectIndex() const {
@@ -227,14 +219,26 @@ export namespace Cam::App {
 
             if (!activeProject) { return false; }
 
-            return activeProject->save();
+            if (!activeProject->save()) {
+                return false;
+            }
+
+            saveSession();
+
+            return true;
         }
 
         bool saveProjectAs() {
 
             if (!activeProject) { return false; }
 
-            return activeProject->saveAs();
+            if (!activeProject->saveAs()) {
+                return false;
+            }
+
+            saveSession();
+
+            return true;
         }
 
         bool openProject() {
@@ -257,6 +261,38 @@ export namespace Cam::App {
             }
 
             activeProject = project;
+
+            saveSession();
+
+            return true;
+        }
+
+        bool setActiveProject(Project* project) {
+
+            if (!project) { return false; }
+
+            auto it = std::find(
+                projects.begin(),
+                projects.end(),
+                project
+            );
+
+            if (it == projects.end()) { return false; }
+
+            activeProject = project;
+
+            saveSession();
+
+            return true;
+        }
+
+        bool setActiveProject(size_t index) {
+
+            if (index >= projects.size()) { return false; }
+
+            activeProject = projects[index];
+
+            saveSession();
 
             return true;
         }

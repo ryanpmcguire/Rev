@@ -8,8 +8,13 @@ module;
 #include <cstdint>
 #include <chrono>
 #include <cctype>
+#include <system_error>
+#include <variant>
+#include <initializer_list>
 
 #include <windows.h>
+#include <shlobj.h>
+#include <knownfolders.h>
 #include <shobjidl.h>
 #include <objbase.h>
 
@@ -18,6 +23,32 @@ export module Rev.OS.File;
 export namespace Rev::OS {
 
     struct File {
+
+        // Windows Shell "Known Folders" (SHGetKnownFolderPath / FOLDERID_*).
+        // Names follow Microsoft's terminology.
+        enum class KnownFolder {
+
+            // Per-user, roams with the profile (%APPDATA%).
+            RoamingAppData,
+
+            // Per-user, stays on this machine (%LOCALAPPDATA%).
+            LocalAppData,
+
+            // Machine-wide application data (%PROGRAMDATA%).
+            CommonAppData,
+
+            UserProfile,
+            Documents,
+            Desktop,
+            Downloads,
+
+            ProgramFiles,
+            ProgramFilesX86,
+        };
+
+        // One step in a logical path: a Known Folder root, or a relative/absolute
+        // path fragment (may contain separators, e.g. "CAM/persist.json").
+        using PathComponent = std::variant<KnownFolder, std::string>;
 
         inline static size_t maxBufferSize = 1024 * 1024;
 
@@ -47,7 +78,14 @@ export namespace Rev::OS {
         void* data = nullptr;
 
         struct ConstructParams {
+
+            // Legacy: single absolute or relative path (used when path is empty).
             std::string pathname = "";
+
+            // Composed path, applied in order, e.g.:
+            // { KnownFolder::RoamingAppData, "CAM", "persist.json" }
+            // { KnownFolder::Desktop, "./FolderOnDesktop", "Part.step" }
+            std::vector<PathComponent> path = {};
         };
 
         // Create
@@ -56,10 +94,22 @@ export namespace Rev::OS {
         File() {}
 
         File(ConstructParams p) {
-            path = std::filesystem::path(p.pathname);
-            valid = !p.pathname.empty();
+
+            if (!p.path.empty()) {
+                path = resolvePath(p.path);
+                valid = !path.empty();
+            }
+
+            else {
+                path = std::filesystem::path(p.pathname);
+                valid = !p.pathname.empty();
+            }
+
             refresh();
         }
+
+        File(std::initializer_list<PathComponent> pathComponents)
+            : File({ .path = std::vector<PathComponent>(pathComponents) }) {}
 
         // String conversion helpers
         //--------------------------------------------------
@@ -130,6 +180,193 @@ export namespace Rev::OS {
             return out;
         }
 
+        // Known folders
+        //--------------------------------------------------
+
+        static const KNOWNFOLDERID* knownFolderId(
+            KnownFolder folder
+        ) {
+            switch (folder) {
+
+                case KnownFolder::RoamingAppData:
+                    return &FOLDERID_RoamingAppData;
+
+                case KnownFolder::LocalAppData:
+                    return &FOLDERID_LocalAppData;
+
+                case KnownFolder::CommonAppData:
+                    return &FOLDERID_ProgramData;
+
+                case KnownFolder::UserProfile:
+                    return &FOLDERID_Profile;
+
+                case KnownFolder::Documents:
+                    return &FOLDERID_Documents;
+
+                case KnownFolder::Desktop:
+                    return &FOLDERID_Desktop;
+
+                case KnownFolder::Downloads:
+                    return &FOLDERID_Downloads;
+
+                case KnownFolder::ProgramFiles:
+                    return &FOLDERID_ProgramFiles;
+
+                case KnownFolder::ProgramFilesX86:
+                    return &FOLDERID_ProgramFilesX86;
+
+                default:
+                    return nullptr;
+            }
+        }
+
+        static std::filesystem::path knownFolderRoot(
+            KnownFolder folder
+        ) {
+            const KNOWNFOLDERID* id = knownFolderId(folder);
+
+            if (!id) {
+                return {};
+            }
+
+            PWSTR wide = nullptr;
+
+            HRESULT hr = SHGetKnownFolderPath(
+                *id,
+                KF_FLAG_DEFAULT,
+                nullptr,
+                &wide
+            );
+
+            if (FAILED(hr) || !wide) {
+                return {};
+            }
+
+            std::filesystem::path root = wide;
+            CoTaskMemFree(wide);
+
+            return root;
+        }
+
+        // Compose a filesystem path from ordered components.
+        // Typically the first component is a KnownFolder; later strings append.
+        // Only one KnownFolder is allowed (must be the first component).
+        static std::filesystem::path resolvePath(
+            const std::vector<PathComponent>& components
+        ) {
+            if (components.empty()) {
+                return {};
+            }
+
+            std::filesystem::path result;
+            bool hasKnownFolderRoot = false;
+
+            for (const PathComponent& component : components) {
+
+                if (std::holds_alternative<KnownFolder>(component)) {
+
+                    if (hasKnownFolderRoot) {
+                        return {};
+                    }
+
+                    KnownFolder folder = std::get<KnownFolder>(component);
+
+                    std::filesystem::path root = knownFolderRoot(folder);
+
+                    if (root.empty()) {
+                        return {};
+                    }
+
+                    result = root;
+                    hasKnownFolderRoot = true;
+                    continue;
+                }
+
+                const std::string& piece = std::get<std::string>(component);
+                std::filesystem::path rel = std::filesystem::path(piece);
+
+                if (result.empty()) {
+                    result = rel;
+                    continue;
+                }
+
+                result /= rel;
+            }
+
+            return result.lexically_normal();
+        }
+
+        static std::string resolvePathString(
+            const std::vector<PathComponent>& components
+        ) {
+            return resolvePath(components).string();
+        }
+
+        static std::filesystem::path pathInKnownFolder(
+            KnownFolder folder,
+            const std::string& relativePath = ""
+        ) {
+            std::vector<PathComponent> components;
+            components.push_back(folder);
+
+            if (!relativePath.empty()) {
+                components.push_back(relativePath);
+            }
+
+            return resolvePath(components);
+        }
+
+        static std::string pathInKnownFolderString(
+            KnownFolder folder,
+            const std::string& relativePath = ""
+        ) {
+            return pathInKnownFolder(folder, relativePath).string();
+        }
+
+        static std::string resolveInitialDir(
+            const std::string& initialDir,
+            const std::vector<PathComponent>& initialPath = {}
+        ) {
+            if (!initialPath.empty()) {
+                return resolvePathString(initialPath);
+            }
+
+            if (!initialDir.empty()) {
+                return initialDir;
+            }
+
+            return "";
+        }
+
+        static File FromPath(
+            std::initializer_list<PathComponent> pathComponents
+        ) {
+            return File(pathComponents);
+        }
+
+        static File FromKnownFolder(
+            KnownFolder folder,
+            const std::string& relativePath = ""
+        ) {
+            if (relativePath.empty()) {
+                return File({ .path = { folder } });
+            }
+
+            return File({ .path = { folder, relativePath } });
+        }
+
+        static File FromRoamingAppData(const std::string& relativePath = "") {
+            return FromKnownFolder(KnownFolder::RoamingAppData, relativePath);
+        }
+
+        static File FromLocalAppData(const std::string& relativePath = "") {
+            return FromKnownFolder(KnownFolder::LocalAppData, relativePath);
+        }
+
+        static File FromCommonAppData(const std::string& relativePath = "") {
+            return FromKnownFolder(KnownFolder::CommonAppData, relativePath);
+        }
+
         // Static constructors
         //--------------------------------------------------
 
@@ -159,9 +396,15 @@ export namespace Rev::OS {
         bool open(
             std::string title = "Open File",
             const char* filter = "All Files\0*.*\0",
-            std::string initialDir = ""
+            std::string initialDir = "",
+            const std::vector<PathComponent>& initialPath = {}
         ) {
             std::string selected;
+
+            initialDir = resolveInitialDir(
+                initialDir,
+                initialPath
+            );
 
             if (initialDir.empty()) {
                 initialDir = currentDir();
@@ -205,9 +448,15 @@ export namespace Rev::OS {
         bool saveAs(
             std::string title = "Save File",
             const char* filter = "All Files\0*.*\0",
-            std::string initialDir = ""
+            std::string initialDir = "",
+            const std::vector<PathComponent>& initialPath = {}
         ) {
             std::string selected;
+
+            initialDir = resolveInitialDir(
+                initialDir,
+                initialPath
+            );
 
             if (initialDir.empty()) {
                 initialDir = currentDir();
@@ -495,6 +744,82 @@ export namespace Rev::OS {
             }
 
             return parent.string();
+        }
+
+        // Ensure parent directories exist (e.g. before writing persist.json).
+        bool ensureParentDirectoryExists() const {
+
+            if (!valid || path.empty()) {
+                return false;
+            }
+
+            std::filesystem::path parent = path.parent_path();
+
+            if (parent.empty()) {
+                return true;
+            }
+
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
+
+            return !ec;
+        }
+
+        // Read entire file as UTF-8 text (file must exist).
+        bool readText(
+            std::string& out
+        ) const {
+            out.clear();
+
+            if (!valid || path.empty()) {
+                return false;
+            }
+
+            if (!std::filesystem::exists(path)) {
+                return false;
+            }
+
+            std::ifstream stream(
+                path,
+                std::ios::binary
+            );
+
+            if (!stream) {
+                return false;
+            }
+
+            out.assign(
+                std::istreambuf_iterator<char>(stream),
+                std::istreambuf_iterator<char>()
+            );
+
+            return true;
+        }
+
+        // Write UTF-8 text, creating the parent directory tree if needed.
+        bool writeText(
+            const std::string& content
+        ) const {
+            if (!valid || path.empty()) {
+                return false;
+            }
+
+            if (!ensureParentDirectoryExists()) {
+                return false;
+            }
+
+            std::ofstream stream(
+                path,
+                std::ios::binary | std::ios::trunc
+            );
+
+            if (!stream) {
+                return false;
+            }
+
+            stream << content;
+
+            return stream.good();
         }
 
         operator bool() const {
