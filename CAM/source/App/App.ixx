@@ -9,6 +9,7 @@ module;
 export module Cam.App;
 
 import Rev.OS.File;
+import Rev.OS.Dialog;
 
 import Cam.App.Project;
 import Cam.App.MaterialState;
@@ -102,6 +103,23 @@ export namespace Cam::App {
             );
 
             if (it == projects.end()) { return false; }
+
+            if (project->dirty) {
+
+                Rev::OS::UnsavedChangesResult result =
+                    Rev::OS::Dialog::UnsavedChanges(project->name);
+
+                if (result == Rev::OS::UnsavedChangesResult::Cancel) {
+                    return false;
+                }
+
+                if (result == Rev::OS::UnsavedChangesResult::Save) {
+
+                    if (!project->save()) {
+                        return false;
+                    }
+                }
+            }
 
             bool wasActive = (project == activeProject);
 

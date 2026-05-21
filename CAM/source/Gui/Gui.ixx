@@ -40,7 +40,7 @@ export namespace Cam::Gui {
 
             app = Cam::App::AppState::Get(shared->state);
 
-            this->style->layout = { Axis::Vertical, Align::Start, Align::Start };
+            this->style->layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
             this->style->background.color = rgba(0, 0, 0, 0.0);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             //this->style->padding = { 10_px, 10_px, 10_px, 10_px };

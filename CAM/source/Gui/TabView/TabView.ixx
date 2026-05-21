@@ -179,6 +179,52 @@ export namespace Cam::Gui {
         };
     }
 
+    struct ProjectTab : public Box {
+
+        Cam::App::AppState* app = nullptr;
+        Cam::App::Project* project = nullptr;
+
+        std::function<void(Event&)> onSelectProject;
+
+        ProjectTab(
+            Element* parent,
+            Cam::App::AppState* app,
+            Cam::App::Project* project
+        ) : Box(
+            parent,
+            { &TabViewStyle::Tab, &TabViewStyle::TabHover },
+            "ProjectTab"
+        ) {
+            this->app = app;
+            this->project = project;
+        }
+
+        void mouseDown(Event& e) override {
+
+            // Children get the first chance to consume the event.
+            Box::mouseDown(e);
+
+            if (!e.propagate) {
+                return;
+            }
+
+            if (!app || !project) {
+                return;
+            }
+
+            if (app->setActiveProject(project)) {
+
+                if (onSelectProject) {
+                    onSelectProject(e);
+                }
+
+                refresh(e);
+            }
+
+            e.propagate = false;
+        }
+    };
+
     struct TabView : public Box {
 
         Cam::App::AppState* app = nullptr;
@@ -188,7 +234,8 @@ export namespace Cam::Gui {
 
         Box* tabsHost = nullptr;
 
-        std::vector<Box*> tabs;
+        std::vector<ProjectTab*> tabs;
+        std::vector<Cam::App::Project*> tabProjects;
         std::vector<Box*> labelBoxes;
         std::vector<Text*> labels;
         std::vector<Box*> closeButtons;
@@ -238,9 +285,7 @@ export namespace Cam::Gui {
             return app->projects[i];
         }
 
-        bool projectIsActive(size_t i) const {
-
-            Cam::App::Project* project = projectAt(i);
+        bool projectIsActive(Cam::App::Project* project) const {
 
             return (
                 app &&
@@ -249,19 +294,46 @@ export namespace Cam::Gui {
             );
         }
 
-        std::string projectName(size_t i) const {
-
-            Cam::App::Project* project = projectAt(i);
+        std::string projectName(Cam::App::Project* project, size_t fallbackIndex) const {
 
             if (!project) {
                 return "Invalid Project";
             }
 
+            std::string label;
+
             if (!project->name.empty()) {
-                return project->name;
+                label = project->name;
             }
 
-            return "Project " + std::to_string(i + 1);
+            else {
+                label = "Project " + std::to_string(fallbackIndex + 1);
+            }
+
+            if (project->dirty) {
+                label += " *";
+            }
+
+            return label;
+        }
+
+        bool tabListMatchesProjects() const {
+
+            if (!app) {
+                return tabs.empty();
+            }
+
+            if (tabProjects.size() != app->projects.size()) {
+                return false;
+            }
+
+            for (size_t i = 0; i < app->projects.size(); i++) {
+                if (tabProjects[i] != app->projects[i]) {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         // Buttons
@@ -338,15 +410,39 @@ export namespace Cam::Gui {
         // Tabs
         //--------------------------------------------------
 
-        void createTab(size_t i) {
+        void clearTabs() {
 
+            for (ProjectTab* tab : tabs) {
+                delete tab;
+            }
+
+            tabs.clear();
+            tabProjects.clear();
+            labelBoxes.clear();
+            labels.clear();
+            closeButtons.clear();
+            closeIcons.clear();
+        }
+
+        void createTab(
+            Cam::App::Project* project,
+            size_t i
+        ) {
             if (!tabsHost) { return; }
+            if (!project) { return; }
 
-            Box* tab = new Box(
+            ProjectTab* tab = new ProjectTab(
                 tabsHost,
-                { &TabViewStyle::Tab, &TabViewStyle::TabHover },
-                "ProjectTab"
+                app,
+                project
             );
+
+            tab->onSelectProject = [this](Event& e) {
+
+                if (onSelectProject) {
+                    onSelectProject(e);
+                }
+            };
 
             Box* labelBox = new Box(
                 tab,
@@ -356,7 +452,7 @@ export namespace Cam::Gui {
 
             Text* label = new Text(
                 labelBox,
-                projectName(i),
+                projectName(project, i),
                 { &TabViewStyle::Label }
             );
 
@@ -373,27 +469,11 @@ export namespace Cam::Gui {
                 "CloseProjectIcon"
             );
 
-            tab->onMouseDown([this, i](Event& e) {
+            closeButton->onMouseDown([this, project](Event& e) {
 
-                if (!app) { return; }
+                if (!app || !project) { return; }
 
-                if (app->setActiveProject(i)) {
-
-                    if (onSelectProject) {
-                        onSelectProject(e);
-                    }
-
-                    refresh(e);
-                }
-
-                e.propagate = false;
-            });
-
-            closeButton->onMouseDown([this, i](Event& e) {
-
-                if (!app) { return; }
-
-                if (app->closeProject(i)) {
+                if (app->closeProject(project)) {
 
                     if (onCloseProject) {
                         onCloseProject(e);
@@ -406,36 +486,36 @@ export namespace Cam::Gui {
             });
 
             tabs.push_back(tab);
+            tabProjects.push_back(project);
             labelBoxes.push_back(labelBox);
             labels.push_back(label);
             closeButtons.push_back(closeButton);
             closeIcons.push_back(closeIcon);
         }
 
+        void rebuildTabs() {
+
+            clearTabs();
+
+            if (!app) { return; }
+
+            for (size_t i = 0; i < app->projects.size(); i++) {
+                createTab(app->projects[i], i);
+            }
+        }
+
         void syncTabs() {
 
-            size_t newSize = projectCount();
-
-            while (tabs.size() > newSize) {
-
-                Box* tab = tabs.back();
-
-                tabs.pop_back();
-                labelBoxes.pop_back();
-                labels.pop_back();
-                closeButtons.pop_back();
-                closeIcons.pop_back();
-
-                delete tab;
+            if (!tabListMatchesProjects()) {
+                rebuildTabs();
             }
 
-            while (tabs.size() < newSize) {
-                createTab(tabs.size());
-            }
+            for (size_t i = 0; i < tabProjects.size(); i++) {
 
-            for (size_t i = 0; i < newSize; i++) {
+                Cam::App::Project* project = tabProjects[i];
+
                 if (labels[i]) {
-                    labels[i]->content = projectName(i);
+                    labels[i]->content = projectName(project, i);
                 }
             }
         }
@@ -449,7 +529,7 @@ export namespace Cam::Gui {
 
             for (size_t i = 0; i < tabs.size(); i++) {
 
-                bool isActive = projectIsActive(i);
+                bool isActive = projectIsActive(tabProjects[i]);
 
                 if (isActive) { tabs[i]->styles.add(&TabViewStyle::TabActive); }
                 else { tabs[i]->styles.remove(&TabViewStyle::TabActive); }
