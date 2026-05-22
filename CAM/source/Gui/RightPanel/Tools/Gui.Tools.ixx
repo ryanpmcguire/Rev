@@ -36,22 +36,22 @@ export namespace Cam::Gui {
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .height = Grow() },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
-            .padding = { 8_px, 8_px, 8_px, 8_px },
+            .margin = { 2_px, 2_px, 2_px, 2_px },
+            .padding = { 4_px, 6_px, 4_px, 6_px },
             .zIndex = +1
         };
 
         Style Title = {
             .size = { 100_pct },
-            .margin = { .bottom = 8_px },
-            .text = { .color = rgba(0, 0, 0, 0.65), .size = 13_px }
+            .margin = { .bottom = 4_px },
+            .text = { .color = rgba(0, 0, 0, 0.65), .size = 12_px }
         };
 
         Style NewToolButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 100_pct, .height = 34_px },
-            .margin = { 0_px, 0_px, 0_px, 8_px },
-            .padding = { 10_px, 10_px, 3_px, 2_px },
+            .size = { .width = 100_pct },
+            .margin = { 0_px, 0_px, 0_px, 4_px },
+            .padding = { 6_px, 10_px, 6_px, 10_px },
             .background = { .color = rgba(255, 255, 255, 0.24), .transition = 100_ms },
             .border = {
                 .color = rgba(0, 0, 0, 0.22),
@@ -80,13 +80,13 @@ export namespace Cam::Gui {
         Style NewToolButtonLabel = {
             .text = {
                 .color = rgba(0, 0, 0, 0.74),
-                .size = 13_px
+                .size = 12_px
             }
         };
 
         Style NewToolButtonIcon = {
-            .size = { 14_px, 14_px },
-            .margin = { 0_px, 6_px, 0_px, 0_px },
+            .size = { 13_px, 13_px },
+            .margin = { 0_px, 5_px, 0_px, 0_px },
             .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
         };
 

@@ -12,7 +12,6 @@ import Rev.Core.Resource;
 import Rev.Element;
 import Rev.Element.Event;
 import Rev.Element.Style;
-import Rev.Element.ControlTheme;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
@@ -26,67 +25,35 @@ export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
-    using namespace ControlTheme;
 
     namespace MaterialStateStyle::Styles {
 
         Style Self = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
-            .margin = { 0_px, 0_px, 0_px, 5_px },
-            .padding = { 8_px, 10_px, 8_px, 10_px },
-            .background = { .color = rgba(255, 255, 255, 0.0), .transition = 120_ms },
-            .border = {
-                .color = rgba(226, 232, 240, 0.0),
-                .width = 1_px,
-                .radius = 8_px
-            },
+            .margin = { .bottom = 2_px },
+            .padding = { 4_px, 8_px, 4_px, 8_px },
+            .background = { .color = rgba(255, 255, 255, 0.0), .transition = 100_ms },
+            .border = { .radius = 6_px },
             .cursor = Cursor::Hand
         };
 
         Style Hover = {
             .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(241, 245, 249, 1.0) },
-            .border = { .color = rgba(226, 232, 240, 1.0), .width = 1_px }
+            .background = { .color = rgba(241, 245, 249, 1.0) }
         };
 
         Style Selected = {
-            .background = { .color = rgba(79, 99, 255, 0.08) },
-            .border = { .color = rgba(79, 99, 255, 1.0), .width = 1_px },
-            .shadow = subtleShadow
+            .background = { .color = rgba(79, 99, 255, 0.08) }
         };
 
-        Style Working = {
-            .border = { .color = rgba(148, 163, 184, 1.0), .width = 1_px }
+        Style IndexLabel = {
+            .margin = { 0_px, 8_px, 0_px, 0_px },
+            .text = { .color = rgba(148, 163, 184, 1.0), .size = 11_px }
         };
 
-        Style Changed = {
-            .border = { .color = rgba(245, 158, 11, 1.0), .width = 1_px }
-        };
-
-        Style IndexBadge = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { 26_px, 26_px },
-            .margin = { 0_px, 10_px, 0_px, 0_px },
-            .background = { .color = rgba(241, 245, 249, 1.0), .transition = 120_ms },
-            .border = {
-                .color = rgba(226, 232, 240, 1.0),
-                .width = 1_px,
-                .radius = 8_px
-            }
-        };
-
-        Style IndexBadgeSelected = {
-            .background = { .color = rgba(79, 99, 255, 1.0) },
-            .border = { .color = rgba(79, 99, 255, 1.0), .width = 1_px }
-        };
-
-        Style IndexBadgeLabel = {
-            .text = { .color = rgba(100, 116, 139, 1.0), .size = 12_px }
-        };
-
-        Style IndexBadgeLabelSelected = {
-            .text = { .color = rgba(255, 255, 255, 1.0), .size = 12_px }
+        Style IndexLabelSelected = {
+            .text = { .color = rgba(79, 99, 255, 1.0), .size = 11_px }
         };
 
         Style Content = {
@@ -96,50 +63,32 @@ export namespace Cam::Gui {
 
         Style Label = {
             .size = { .width = Grow() },
-            .text = { .color = rgba(30, 41, 59, 1.0), .size = 14_px }
+            .text = { .color = rgba(30, 41, 59, 1.0), .size = 13_px }
         };
 
         Style Subtitle = {
-            .margin = { 2_px, 0_px, 0_px, 0_px },
-            .text = { .color = rgba(100, 116, 139, 1.0), .size = 11_px }
+            .margin = { 1_px, 0_px, 0_px, 0_px },
+            .text = { .color = rgba(100, 116, 139, 1.0), .size = 10_px }
         };
 
         Style SubtitleWorking = {
-            .text = { .color = rgba(148, 163, 184, 1.0), .size = 11_px }
+            .text = { .color = rgba(148, 163, 184, 1.0), .size = 10_px }
         };
 
         Style SubtitleChanged = {
-            .text = { .color = rgba(245, 158, 11, 1.0), .size = 11_px }
+            .text = { .color = rgba(245, 158, 11, 1.0), .size = 10_px }
         };
 
         Style IconButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { 28_px, 28_px },
-            .margin = { 0_px, 0_px, 0_px, 4_px },
-            .padding = { 4_px, 4_px, 4_px, 4_px },
-            .background = { .color = rgba(255, 255, 255, 1.0), .transition = 120_ms },
-            .border = {
-                .color = rgba(226, 232, 240, 1.0),
-                .width = 1_px,
-                .radius = 6_px
-            },
+            .margin = { 0_px, 0_px, 0_px, 2_px },
+            .padding = { 3_px, 4_px, 3_px, 4_px },
             .cursor = Cursor::Hand
         };
 
-        Style IconButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(241, 245, 249, 1.0) },
-            .border = { .color = rgba(148, 163, 184, 1.0) }
-        };
-
-        Style IconButtonSelected = {
-            .background = { .color = rgba(255, 255, 255, 0.85) },
-            .border = { .color = rgba(79, 99, 255, 0.35), .width = 1_px }
-        };
-
         Style SettingsIcon = {
-            .size = { 16_px, 16_px },
-            .text = { .color = rgba(100, 116, 139, 1.0), .transition = 120_ms }
+            .size = { 15_px, 15_px },
+            .text = { .color = rgba(148, 163, 184, 1.0), .transition = 100_ms }
         };
 
         Style SettingsIconHover = {
@@ -154,8 +103,8 @@ export namespace Cam::Gui {
         };
 
         Style DeleteIcon = {
-            .size = { 16_px, 16_px },
-            .text = { .color = rgba(148, 163, 184, 1.0), .transition = 120_ms }
+            .size = { 15_px, 15_px },
+            .text = { .color = rgba(148, 163, 184, 1.0), .transition = 100_ms }
         };
 
         Style DeleteIconHover = {
@@ -179,7 +128,6 @@ export namespace Cam::Gui {
 
         size_t index = 0;
 
-        Box* indexBadge = nullptr;
         Text* indexLabel = nullptr;
         Box* content = nullptr;
         Text* label = nullptr;
@@ -200,8 +148,7 @@ export namespace Cam::Gui {
             this->styles.add(&Styles::Self);
             this->styles.add(&Styles::Hover);
 
-            indexBadge = new Box(this, { &Styles::IndexBadge }, "MaterialStateIndex");
-            indexLabel = new Text(indexBadge, "0", { &Styles::IndexBadgeLabel });
+            indexLabel = new Text(this, "0", { &Styles::IndexLabel });
 
             content = new Box(this, { &Styles::Content }, "MaterialStateContent");
 
@@ -210,7 +157,7 @@ export namespace Cam::Gui {
 
             settingsButton = new Box(
                 this,
-                { &Styles::IconButton, &Styles::IconButtonHover },
+                { &Styles::IconButton },
                 "ToolPathSettingsButton"
             );
 
@@ -227,7 +174,7 @@ export namespace Cam::Gui {
 
             deleteButton = new Box(
                 this,
-                { &Styles::IconButton, &Styles::IconButtonHover },
+                { &Styles::IconButton },
                 "DeleteMaterialStateButton"
             );
 
@@ -367,20 +314,9 @@ export namespace Cam::Gui {
             if (selected) { styles.add(&Styles::Selected); }
             else { styles.remove(&Styles::Selected); }
 
-            if (working && !selected) { styles.add(&Styles::Working); }
-            else { styles.remove(&Styles::Working); }
-
-            if (changed) { styles.add(&Styles::Changed); }
-            else { styles.remove(&Styles::Changed); }
-
-            if (indexBadge) {
-                if (selected) { indexBadge->styles.add(&Styles::IndexBadgeSelected); }
-                else { indexBadge->styles.remove(&Styles::IndexBadgeSelected); }
-            }
-
             if (indexLabel) {
-                if (selected) { indexLabel->styles.add(&Styles::IndexBadgeLabelSelected); }
-                else { indexLabel->styles.remove(&Styles::IndexBadgeLabelSelected); }
+                if (selected) { indexLabel->styles.add(&Styles::IndexLabelSelected); }
+                else { indexLabel->styles.remove(&Styles::IndexLabelSelected); }
             }
 
             if (subtitle) {
@@ -392,16 +328,6 @@ export namespace Cam::Gui {
                 } else if (working) {
                     subtitle->styles.add(&Styles::SubtitleWorking);
                 }
-            }
-
-            if (settingsButton) {
-                if (selected) { settingsButton->styles.add(&Styles::IconButtonSelected); }
-                else { settingsButton->styles.remove(&Styles::IconButtonSelected); }
-            }
-
-            if (deleteButton) {
-                if (selected) { deleteButton->styles.add(&Styles::IconButtonSelected); }
-                else { deleteButton->styles.remove(&Styles::IconButtonSelected); }
             }
 
             Box::computeChildren(e);

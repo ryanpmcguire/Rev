@@ -9,7 +9,6 @@ export module Cam.Gui.MaterialStates;
 import Rev.Element;
 import Rev.Element.Event;
 import Rev.Element.Style;
-import Rev.Element.ControlTheme;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
@@ -26,49 +25,21 @@ export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
-    using namespace ControlTheme;
 
     namespace MaterialStatesStyle {
-
-        Shadow cardShadow = {
-            .color = rgba(15, 23, 42, 0.08),
-            .size = Px(-4),
-            .blur = 16_px,
-            .y = 4_px
-        };
 
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .height = Grow() },
+            .margin = { 2_px, 2_px, 2_px, 2_px },
+            .padding = { 4_px, 6_px, 4_px, 6_px },
             .zIndex = +1
         };
 
-        Style Header = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+        Style Title = {
             .size = { 100_pct },
-            .margin = { 0_px, 0_px, 0_px, 14_px }
-        };
-
-        Style HeaderEyebrow = {
-            .text = { .color = rgba(100, 116, 139, 1.0), .size = 11_px }
-        };
-
-        Style HeaderTitle = {
-            .margin = { 4_px, 0_px, 0_px, 0_px },
-            .text = { .color = rgba(30, 41, 59, 1.0), .size = 18_px }
-        };
-
-        Style ListCard = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { 100_pct },
-            .padding = { 6_px, 6_px, 6_px, 6_px },
-            .background = { .color = rgba(255, 255, 255, 0.92) },
-            .border = {
-                .color = rgba(226, 232, 240, 1.0),
-                .width = 1_px,
-                .radius = 10_px
-            },
-            .shadow = cardShadow
+            .margin = { .bottom = 4_px },
+            .text = { .color = rgba(100, 116, 139, 1.0), .size = 12_px }
         };
 
         Style List = {
@@ -85,7 +56,6 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
 
         Text* title = nullptr;
-        Box* listCard = nullptr;
         Box* list = nullptr;
 
         std::vector<MaterialState*> rows;
@@ -102,32 +72,14 @@ export namespace Cam::Gui {
 
             this->styles.add(&MaterialStatesStyle::Self);
 
-            Box* header = new Box(
-                this,
-                { &MaterialStatesStyle::Header },
-                "MaterialStatesHeader"
-            );
-
-            new Text(
-                header,
-                "MATERIAL",
-                { &MaterialStatesStyle::HeaderEyebrow }
-            );
-
             title = new Text(
-                header,
-                "States",
-                { &MaterialStatesStyle::HeaderTitle }
-            );
-
-            listCard = new Box(
                 this,
-                { &MaterialStatesStyle::ListCard },
-                "MaterialStatesListCard"
+                "Material States",
+                { &MaterialStatesStyle::Title }
             );
 
             list = new Box(
-                listCard,
+                this,
                 { &MaterialStatesStyle::List },
                 "MaterialStatesList"
             );

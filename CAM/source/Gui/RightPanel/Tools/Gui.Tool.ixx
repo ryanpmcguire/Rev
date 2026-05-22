@@ -25,8 +25,8 @@ export namespace Cam::Gui {
         Style Self = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
-            .margin = { .bottom = 4_px },
-            .padding = { 7_px, 8_px, 7_px, 8_px },
+            .margin = { .bottom = 2_px },
+            .padding = { 4_px, 8_px, 4_px, 8_px },
             .background = { .color = rgba(203, 213, 223, 0.0), .transition = 100_ms },
             .border = { .radius = 4_px },
             .cursor = Cursor::Hand
@@ -44,14 +44,13 @@ export namespace Cam::Gui {
 
         Style Label = {
             .size = { .width = Grow() },
-            .text = { .color = rgba(0, 0, 0, 0.85), .size = 14_px }
+            .text = { .color = rgba(0, 0, 0, 0.85), .size = 13_px }
         };
 
         Style SettingsButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 28_px, .height = 28_px },
-            .margin = { 0_px, 0_px, 0_px, 4_px },
-            .padding = { 4_px, 4_px, 4_px, 4_px },
+            .margin = { 0_px, 0_px, 0_px, 2_px },
+            .padding = { 3_px, 5_px, 3_px, 5_px },
             .background = { .color = rgba(255, 255, 255, 0.2), .transition = 100_ms },
             .border = { .color = rgba(0, 0, 0, 0.15), .width = 1_px, .radius = 4_px },
             .cursor = Cursor::Hand
@@ -63,7 +62,7 @@ export namespace Cam::Gui {
         };
 
         Style SettingsButtonLabel = {
-            .text = { .color = rgba(0, 0, 0, 0.7), .size = 12_px }
+            .text = { .color = rgba(0, 0, 0, 0.7), .size = 11_px }
         };
     };
 

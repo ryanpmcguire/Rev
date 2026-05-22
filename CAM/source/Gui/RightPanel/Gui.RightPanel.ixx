@@ -48,9 +48,9 @@ export namespace Cam::Gui {
 
         Style FolderButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 100_pct, .height = 34_px },
-            .margin = { 0_px, 0_px, 0_px, 8_px },
-            .padding = { 10_px, 10_px, 3_px, 2_px },
+            .size = { .width = 100_pct },
+            .margin = { 0_px, 0_px, 0_px, 4_px },
+            .padding = { 6_px, 10_px, 6_px, 10_px },
             .background = { .color = rgba(255, 255, 255, 0.24), .transition = 100_ms },
             .border = {
                 .color = rgba(0, 0, 0, 0.22),
@@ -79,13 +79,13 @@ export namespace Cam::Gui {
         Style FolderButtonLabel = {
             .text = {
                 .color = rgba(0, 0, 0, 0.74),
-                .size = 13_px
+                .size = 12_px
             }
         };
 
         Style FolderButtonIcon = {
-            .size = { 14_px, 14_px },
-            .margin = { 0_px, 6_px, 0_px, 0_px },
+            .size = { 13_px, 13_px },
+            .margin = { 0_px, 5_px, 0_px, 0_px },
             .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
         };
 
