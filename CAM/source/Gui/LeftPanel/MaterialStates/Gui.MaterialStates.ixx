@@ -9,6 +9,7 @@ export module Cam.Gui.MaterialStates;
 import Rev.Element;
 import Rev.Element.Event;
 import Rev.Element.Style;
+import Rev.Element.ControlTheme;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
@@ -17,26 +18,57 @@ import Cam.App;
 import Cam.App.Project;
 import Cam.App.MaterialState;
 import Cam.Gui.MaterialState;
+import Cam.Gui.ToolPathSettingsWindow;
+
+import Rev.Window;
 
 export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
+    using namespace ControlTheme;
 
     namespace MaterialStatesStyle {
+
+        Shadow cardShadow = {
+            .color = rgba(15, 23, 42, 0.08),
+            .size = Px(-4),
+            .blur = 16_px,
+            .y = 4_px
+        };
 
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .height = Grow() },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
-            .padding = { 8_px, 8_px, 8_px, 8_px },
             .zIndex = +1
         };
 
-        Style Title = {
+        Style Header = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct },
-            .margin = { .bottom = 8_px },
-            .text = { .color = rgba(0, 0, 0, 0.65), .size = 13_px }
+            .margin = { 0_px, 0_px, 0_px, 14_px }
+        };
+
+        Style HeaderEyebrow = {
+            .text = { .color = rgba(100, 116, 139, 1.0), .size = 11_px }
+        };
+
+        Style HeaderTitle = {
+            .margin = { 4_px, 0_px, 0_px, 0_px },
+            .text = { .color = rgba(30, 41, 59, 1.0), .size = 18_px }
+        };
+
+        Style ListCard = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { 100_pct },
+            .padding = { 6_px, 6_px, 6_px, 6_px },
+            .background = { .color = rgba(255, 255, 255, 0.92) },
+            .border = {
+                .color = rgba(226, 232, 240, 1.0),
+                .width = 1_px,
+                .radius = 10_px
+            },
+            .shadow = cardShadow
         };
 
         Style List = {
@@ -53,15 +85,16 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
 
         Text* title = nullptr;
+        Box* listCard = nullptr;
         Box* list = nullptr;
 
         std::vector<MaterialState*> rows;
 
+        ToolPathSettingsWindow* settingsWindow = nullptr;
+
         std::function<void(Event&)> onSelectState;
         std::function<void(Event&)> onDeleteState;
-
-        // Create
-        //--------------------------------------------------
+        std::function<void(Event&)> onToolPathEdited;
 
         MaterialStates(Element* parent, StyleList styles = {}) : Box(parent, styles, "MaterialStates") {
 
@@ -69,12 +102,40 @@ export namespace Cam::Gui {
 
             this->styles.add(&MaterialStatesStyle::Self);
 
-            title = new Text(this, "Material States", { &MaterialStatesStyle::Title });
-            list = new Box(this, { &MaterialStatesStyle::List }, "MaterialStatesList");
+            Box* header = new Box(
+                this,
+                { &MaterialStatesStyle::Header },
+                "MaterialStatesHeader"
+            );
+
+            new Text(
+                header,
+                "MATERIAL",
+                { &MaterialStatesStyle::HeaderEyebrow }
+            );
+
+            title = new Text(
+                header,
+                "States",
+                { &MaterialStatesStyle::HeaderTitle }
+            );
+
+            listCard = new Box(
+                this,
+                { &MaterialStatesStyle::ListCard },
+                "MaterialStatesListCard"
+            );
+
+            list = new Box(
+                listCard,
+                { &MaterialStatesStyle::List },
+                "MaterialStatesList"
+            );
         }
 
-        // App/project access
-        //--------------------------------------------------
+        ~MaterialStates() {
+            closeSettingsWindow();
+        }
 
         Cam::App::Project* activeProject() {
 
@@ -82,9 +143,6 @@ export namespace Cam::Gui {
 
             return app->activeProject;
         }
-
-        // Actions
-        //--------------------------------------------------
 
         void selectState(Cam::App::MaterialState* state, Event& e) {
 
@@ -110,10 +168,81 @@ export namespace Cam::Gui {
             }
         }
 
-        // Compute
-        //--------------------------------------------------
+        void closeSettingsWindow() {
+
+            if (!settingsWindow) {
+                return;
+            }
+
+            settingsWindow->shouldClose = true;
+            settingsWindow = nullptr;
+        }
+
+        static std::string settingsTitleFor(Cam::App::MaterialState* state, size_t index) {
+
+            if (!state) { return "Material State"; }
+
+            if (!state->name.empty()) {
+                return state->name;
+            }
+
+            if (state->working) {
+                return "Working State";
+            }
+
+            if (index == 0) { return "Final State"; }
+
+            return "Material State " + std::to_string(index);
+        }
+
+        void openToolPathSettings(Cam::App::MaterialState* state, Event& e) {
+
+            if (!state || !state->parent) { return; }
+
+            Cam::App::Project* project = activeProject();
+            if (!project) { return; }
+
+            size_t index = project->indexOf(state);
+
+            Rev::Window* owner = ToolPathSettingsWindow::rootWindow(this);
+            if (!owner || !owner->shared) { return; }
+
+            std::vector<void*>* windowGroup = owner->shared->windowGroup;
+            if (!windowGroup) { return; }
+
+            closeSettingsWindow();
+
+            settingsWindow = new ToolPathSettingsWindow(
+                *windowGroup,
+                owner,
+                state,
+                settingsTitleFor(state, index)
+            );
+
+            settingsWindow->onSaved = [this](Event& savedEvent) {
+
+                if (onToolPathEdited) {
+                    onToolPathEdited(savedEvent);
+                }
+
+                refresh(savedEvent);
+            };
+
+            settingsWindow->onClosed = [this](Event& closedEvent) {
+
+                if (onToolPathEdited) {
+                    onToolPathEdited(closedEvent);
+                }
+
+                refresh(closedEvent);
+            };
+        }
 
         void computeChildren(Event& e) override {
+
+            if (settingsWindow && settingsWindow->shouldClose) {
+                settingsWindow = nullptr;
+            }
 
             Cam::App::Project* project = activeProject();
 
@@ -135,12 +264,16 @@ export namespace Cam::Gui {
 
                 rows[i] = new MaterialState(list);
 
-                rows[i]->onSelect = [this](Event& e, Cam::App::MaterialState* state) {
-                    this->selectState(state, e);
+                rows[i]->onSelect = [this](Event& ev, Cam::App::MaterialState* state) {
+                    this->selectState(state, ev);
                 };
 
-                rows[i]->onDelete = [this](Event& e, Cam::App::MaterialState* state) {
-                    this->deleteState(state, e);
+                rows[i]->onDelete = [this](Event& ev, Cam::App::MaterialState* state) {
+                    this->deleteState(state, ev);
+                };
+
+                rows[i]->onOpenToolPathSettings = [this](Event& ev, Cam::App::MaterialState* state) {
+                    this->openToolPathSettings(state, ev);
                 };
             }
 

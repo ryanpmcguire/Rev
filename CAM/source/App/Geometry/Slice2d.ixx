@@ -44,6 +44,43 @@ export namespace Cam::App {
             Profile
         };
 
+        static std::string strategyToString(Strategy strategy) {
+
+            switch (strategy) {
+
+                case Strategy::Hatch:
+                    return "Hatch";
+
+                case Strategy::Profile:
+                    return "Profile";
+            }
+
+            return "Profile";
+        }
+
+        static Strategy strategyFromString(const std::string& value) {
+
+            if (value == "Hatch") {
+                return Strategy::Hatch;
+            }
+
+            return Strategy::Profile;
+        }
+
+        static std::string strategyDisplayName(Strategy strategy) {
+
+            switch (strategy) {
+
+                case Strategy::Hatch:
+                    return "Hatch";
+
+                case Strategy::Profile:
+                    return "Profile";
+            }
+
+            return "Profile";
+        }
+
         float z = 0.0f;
 
         Pos min = {};

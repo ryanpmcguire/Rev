@@ -16,6 +16,7 @@ import Cam.App.Project;
 import Cam.App.Persist;
 import Cam.App.MaterialState;
 import Cam.App.Model;
+import Cam.App.Slice2d;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
 
@@ -630,6 +631,45 @@ export namespace Cam::App {
             if (!activeProject) { return false; }
 
             return activeProject->commitWorkingState();
+        }
+
+        bool saveToolPathSettings(
+            MaterialState* state,
+            Slice2d::Strategy strategy,
+            const std::string& toolName,
+            double stepDown,
+            double feedRate
+        ) {
+
+            if (!activeProject || !state || toolName.empty()) {
+                return false;
+            }
+
+            auto it = std::find(
+                activeProject->states.begin(),
+                activeProject->states.end(),
+                state
+            );
+
+            if (it == activeProject->states.end()) {
+                return false;
+            }
+
+            state->toolPath.strategy = strategy;
+            state->toolPath.toolName = toolName;
+            state->toolPath.stepDown = stepDown;
+            state->toolPath.feedRate = feedRate;
+
+            if (state->hasDelta) {
+                state->computeToolPath(
+                    activeProject->toolLibrary,
+                    activeProject->selectedToolName
+                );
+            }
+
+            activeProject->dirty = true;
+
+            return true;
         }
     };
 }

@@ -99,6 +99,7 @@ export namespace Cam::Gui {
         std::function<void(Event&)> onBeforeSelectFile;
         std::function<void(Event&)> onSelectState;
         std::function<void(Event&)> onDeleteState;
+        std::function<void(Event&)> onToolPathEdited;
 
         // Create
         //--------------------------------------------------
@@ -141,6 +142,10 @@ export namespace Cam::Gui {
 
             materialStates->onDeleteState = [this](Event& e) {
                 if (onDeleteState) { onDeleteState(e); }
+            };
+
+            materialStates->onToolPathEdited = [this](Event& e) {
+                if (onToolPathEdited) { onToolPathEdited(e); }
             };
         }
 

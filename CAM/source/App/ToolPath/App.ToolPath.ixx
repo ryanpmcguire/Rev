@@ -43,6 +43,7 @@ export namespace Cam::App {
         bool computed = false;
 
         double stepDown = 1.0;
+        double feedRate = 1000.0;
 
         void clearPathData() {
             slices.clear();

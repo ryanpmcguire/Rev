@@ -15,6 +15,7 @@ import Rev.OS.File;
 import Cam.App.Model;
 import Cam.App.MaterialState;
 import Cam.App.ToolLibrary;
+import Cam.App.Slice2d;
 
 export namespace Cam::App {
 
@@ -212,6 +213,9 @@ export namespace Cam::App {
 
                 stateJson["toolPath"] = {
                     { "toolName", state->toolPath.toolName },
+                    { "strategy", Slice2d::strategyToString(state->toolPath.strategy) },
+                    { "stepDown", state->toolPath.stepDown },
+                    { "feedRate", state->toolPath.feedRate },
                     { "hasToolPath", state->hasToolPath }
                 };
 
@@ -337,6 +341,31 @@ export namespace Cam::App {
                         ) {
                             state->hasToolPath =
                                 toolPathJson["hasToolPath"].get<bool>();
+                        }
+
+                        if (
+                            toolPathJson.contains("strategy") &&
+                            toolPathJson["strategy"].is_string()
+                        ) {
+                            state->toolPath.strategy = Slice2d::strategyFromString(
+                                toolPathJson["strategy"].get<std::string>()
+                            );
+                        }
+
+                        if (
+                            toolPathJson.contains("stepDown") &&
+                            toolPathJson["stepDown"].is_number()
+                        ) {
+                            state->toolPath.stepDown =
+                                toolPathJson["stepDown"].get<double>();
+                        }
+
+                        if (
+                            toolPathJson.contains("feedRate") &&
+                            toolPathJson["feedRate"].is_number()
+                        ) {
+                            state->toolPath.feedRate =
+                                toolPathJson["feedRate"].get<double>();
                         }
                     }
 

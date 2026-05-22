@@ -139,6 +139,11 @@ export namespace Cam::Gui {
                 if (worldView) { worldView->sync(e); }
             };
 
+            leftPanel->onToolPathEdited = [this](Event& e) {
+                if (worldView) { worldView->sync(e); }
+                refresh(e);
+            };
+
             worldView->onStateChanged = [this](Event& e) {
 
                 if (leftPanel) {
