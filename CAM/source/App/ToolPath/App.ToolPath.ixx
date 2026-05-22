@@ -4,7 +4,6 @@ module;
 #include <vector>
 #include <memory>
 #include <cstddef>
-#include <algorithm>
 
 #include <dbg.hpp>
 
@@ -17,7 +16,6 @@ import Rev.Core.Pos3;
 
 import Cam.App.Model;
 import Cam.App.Tool;
-import Cam.App.Slice2d;
 import Cam.App.Slicer.Strategy.Slice.Segment2;
 
 import Cam.App.Slicer.Strategy.Strategy;
@@ -56,11 +54,7 @@ export namespace Cam::App {
         ToolPath(ToolPath&&) = default;
         ToolPath& operator=(ToolPath&&) = default;
 
-        // Legacy Slice2d storage — retained, not used by compute().
-        std::vector<Slice2d> legacySlices;
-
         void clearPathData() {
-            legacySlices.clear();
             points.clear();
             computed = false;
             ownedStrategy.reset();
@@ -76,27 +70,6 @@ export namespace Cam::App {
 
         const Slicer::Strategy::Strategy* strategyResult() const {
             return ownedStrategy.get();
-        }
-
-        bool boundsFromModel(const Model& model, Pos3& min, Pos3& max) const {
-            if (!model.loaded) { return false; }
-            if (model.render.triangles.empty()) { return false; }
-
-            bool valid = false;
-
-            for (const Vertex3& v : model.render.triangles) {
-                if (!valid) {
-                    min = v;
-                    max = v;
-                    valid = true;
-                    continue;
-                }
-
-                min = Pos3::min(min, v);
-                max = Pos3::max(max, v);
-            }
-
-            return valid;
         }
 
         void addPoint(const Pos& p, float z, double& t, bool rapid = false, bool cutting = true) {
@@ -156,86 +129,6 @@ export namespace Cam::App {
                 }
             }
         }
-
-        // Legacy Slice2d path — retained, not used by compute().
-        //--------------------------------------------------
-
-        bool buildLegacySlice(
-            Model& model,
-            float z,
-            Slice2d& slice,
-            const Tool& tool
-        ) const {
-            const Slice2d::Strategy legacyStrategy = (
-                strategy == Slicer::Strategy::StrategyType::Hatch
-                ? Slice2d::Strategy::Hatch
-                : Slice2d::Strategy::Profile
-            );
-
-            slice = Slice2d::FromModel(model, z, legacyStrategy, tool);
-            return !slice.empty();
-        }
-
-        void buildPointsFromLegacySlices() {
-            points.clear();
-
-            double t = 0.0;
-
-            for (const Slice2d& slice : legacySlices) {
-                if (slice.hasPointPath()) {
-                    for (const Pos& p : slice.points) {
-                        addPoint(p, slice.z, t);
-                    }
-
-                    continue;
-                }
-
-                for (const Segment& segment : slice.paths) {
-                    addSegmentPoints(segment, slice.z, t);
-                }
-            }
-        }
-
-        bool computeLegacy(Model& toCarve, const Tool& tool) {
-            legacySlices.clear();
-            points.clear();
-            computed = false;
-            ownedStrategy.reset();
-
-            toolName = tool.name;
-
-            dbg("[ToolPath] Computing legacy toolpath with tool \"%s\"", toolName.c_str());
-
-            Pos3 min;
-            Pos3 max;
-
-            if (!boundsFromModel(toCarve, min, max)) {
-                dbg("[ToolPath] Legacy failed: no carve bounds");
-                return false;
-            }
-
-            float dz = static_cast<float>(stepDown);
-            if (dz <= 0.0f) { dz = 1.0f; }
-
-            for (float z = min.z; z <= max.z + 1e-4f; z += dz) {
-                Slice2d slice;
-
-                if (!buildLegacySlice(toCarve, z, slice, tool)) {
-                    continue;
-                }
-
-                legacySlices.push_back(slice);
-            }
-
-            buildPointsFromLegacySlices();
-
-            computed = !points.empty();
-
-            return computed;
-        }
-
-        // Strategy path
-        //--------------------------------------------------
 
         bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
             clearPathData();
