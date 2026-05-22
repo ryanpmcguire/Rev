@@ -633,6 +633,13 @@ export namespace Cam::App {
             return activeProject->commitWorkingState();
         }
 
+        bool recalculateToolPath() {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->recalculateDisplayedToolPath();
+        }
+
         bool saveToolPathSettings(
             MaterialState* state,
             Slice2d::Strategy strategy,

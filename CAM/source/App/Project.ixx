@@ -762,5 +762,20 @@ export namespace Cam::App {
 
             return true;
         }
+
+        bool recalculateDisplayedToolPath() {
+
+            if (!displayedState) { return false; }
+            if (!displayedState->parent) { return false; }
+
+            displayedState->computeDelta(
+                toolLibrary,
+                selectedToolName
+            );
+
+            dirty = true;
+
+            return displayedState->hasToolPath;
+        }
     };
 }

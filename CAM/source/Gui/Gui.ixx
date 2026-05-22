@@ -228,6 +228,17 @@ export namespace Cam::Gui {
                 return;
             }
 
+            // Recalculate toolpath
+            if (e.keyboard.key == "r") {
+
+                if (worldView) {
+                    worldView->recalculateToolPath(e);
+                }
+
+                e.propagate = false;
+                return;
+            }
+
             Box::keyDown(e);
         }
     };

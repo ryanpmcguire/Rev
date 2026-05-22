@@ -561,6 +561,22 @@ export namespace Cam::Gui {
             return true;
         }
 
+        bool recalculateToolPath(Event& e) {
+
+            if (!app || !app->recalculateToolPath()) {
+                dbg("toolpath recalculate failed or nothing to compute");
+                return false;
+            }
+
+            sync(e);
+
+            dbg("recalculated toolpath");
+
+            notifyStateChanged(e);
+
+            return true;
+        }
+
         // Computing
         //--------------------------------------------------
 

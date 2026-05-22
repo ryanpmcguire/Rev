@@ -180,7 +180,7 @@ export namespace Cam::Gui {
 
             deleteIcon = new Svg(
                 deleteButton,
-                File("./delete.svg"),
+                File("./Close.svg"),
                 {
                     &Styles::DeleteIcon,
                     &Styles::DeleteIconHover,

@@ -3,7 +3,11 @@ module;
 #include <string>
 #include <functional>
 
+#include <managed.hpp>
+
 export module Cam.Gui.Tool;
+
+import Rev.Core.Resource;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -11,6 +15,7 @@ import Rev.Element.Style;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
+import Rev.Element.Svg;
 
 import Cam.App;
 import Cam.App.Tool;
@@ -50,19 +55,18 @@ export namespace Cam::Gui {
         Style SettingsButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .margin = { 0_px, 0_px, 0_px, 2_px },
-            .padding = { 3_px, 5_px, 3_px, 5_px },
-            .background = { .color = rgba(255, 255, 255, 0.2), .transition = 100_ms },
-            .border = { .color = rgba(0, 0, 0, 0.15), .width = 1_px, .radius = 4_px },
+            .padding = { 3_px, 4_px, 3_px, 4_px },
             .cursor = Cursor::Hand
         };
 
-        Style SettingsButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(255, 255, 255, 0.55) }
+        Style SettingsIcon = {
+            .size = { 15_px, 15_px },
+            .text = { .color = rgba(148, 163, 184, 1.0), .transition = 100_ms }
         };
 
-        Style SettingsButtonLabel = {
-            .text = { .color = rgba(0, 0, 0, 0.7), .size = 11_px }
+        Style SettingsIconHover = {
+            .applies = { .hover = true, .focus = true },
+            .text = { .color = rgba(79, 99, 255, 1.0) }
         };
     };
 
@@ -94,17 +98,18 @@ export namespace Cam::Gui {
 
             settingsButton = new Box(
                 this,
-                {
-                    &Styles::SettingsButton,
-                    &Styles::SettingsButtonHover
-                },
+                { &Styles::SettingsButton },
                 "ToolSettingsButton"
             );
 
-            new Text(
+            new Svg(
                 settingsButton,
-                "3",
-                { &Styles::SettingsButtonLabel }
+                File("./Settings.svg"),
+                {
+                    &Styles::SettingsIcon,
+                    &Styles::SettingsIconHover
+                },
+                "ToolSettingsIcon"
             );
 
             settingsButton->onClick([this](Event& e) {
