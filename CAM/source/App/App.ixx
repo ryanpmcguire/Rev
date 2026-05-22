@@ -177,6 +177,76 @@ export namespace Cam::App {
             return true;
         }
 
+        bool createNewTool(std::string& outName) {
+
+            if (!activeProject) {
+                return false;
+            }
+
+            ToolLibrary& library = activeProject->toolLibrary;
+
+            Tool tool;
+            tool.name = ToolLibrary::uniqueToolName(library);
+            tool.type = Tool::Type::EndMill;
+            tool.diameter = 1.0;
+            tool.radius = 0.5;
+            tool.length = 100.0;
+
+            if (!library.insertTool(tool)) {
+                return false;
+            }
+
+            activeProject->selectedToolName = tool.name;
+            outName = tool.name;
+
+            return true;
+        }
+
+        bool isUnsavedTool(const std::string& name) const {
+
+            const ToolLibrary* library = toolLibrary();
+
+            if (!library) {
+                return false;
+            }
+
+            const Tool* tool = library->find(name);
+
+            if (!tool) {
+                return false;
+            }
+
+            return tool->filePath.empty();
+        }
+
+        bool removeTool(const std::string& name) {
+
+            if (!activeProject) {
+                return false;
+            }
+
+            ToolLibrary& library = activeProject->toolLibrary;
+
+            if (!library.removeTool(name)) {
+                return false;
+            }
+
+            if (activeProject->selectedToolName == name) {
+
+                if (!library.empty()) {
+                    activeProject->selectedToolName = library.order.front();
+                }
+
+                else {
+                    activeProject->selectedToolName.clear();
+                }
+            }
+
+            activeProject->dirty = true;
+
+            return true;
+        }
+
         bool saveTool(
             const std::string& originalName,
             const std::string& newName,
@@ -195,10 +265,6 @@ export namespace Cam::App {
                 return false;
             }
 
-            if (activeProject->toolFolderPath.empty()) {
-                return false;
-            }
-
             Tool updated = *tool;
             updated.name = newName;
             updated.type = type;
@@ -206,28 +272,67 @@ export namespace Cam::App {
             updated.radius = diameter * 0.5;
             updated.length = length;
 
+            std::string targetPath = tool->filePath;
+
+            if (targetPath.empty()) {
+
+                std::string initialDir = activeProject->toolFolderPath;
+
+                if (initialDir.empty()) {
+                    initialDir = ToolLibrary::defaultToolFolderPath();
+                }
+
+                std::filesystem::path suggested(initialDir);
+                suggested /= ToolLibrary::toolFileName(updated);
+
+                Rev::OS::File file({
+                    .pathname = suggested.string()
+                });
+
+                if (!file.saveAs(
+                    "Save Tool",
+                    "CAM Tool\0*.json\0All Files\0*.*\0",
+                    initialDir
+                )) {
+                    return false;
+                }
+
+                targetPath = file.pathname;
+                updated.filePath = targetPath;
+            }
+
+            else if (newName != originalName) {
+
+                std::filesystem::path oldPath(targetPath);
+                std::filesystem::path newPath =
+                    oldPath.parent_path() / ToolLibrary::toolFileName(updated);
+
+                std::error_code ec;
+                std::filesystem::rename(oldPath, newPath, ec);
+
+                if (!ec) {
+                    targetPath = newPath.string();
+                }
+
+                else {
+                    std::filesystem::remove(oldPath, ec);
+                    targetPath = newPath.string();
+                }
+
+                updated.filePath = targetPath;
+            }
+
             if (!activeProject->toolLibrary.replaceTool(originalName, updated)) {
                 return false;
             }
 
-            if (newName != originalName) {
-
-                std::filesystem::path dir(activeProject->toolFolderPath);
-                std::filesystem::path oldFile =
-                    dir / (originalName + ".json");
-
-                std::error_code ec;
-                std::filesystem::remove(oldFile, ec);
-
-                if (activeProject->selectedToolName == originalName) {
-                    activeProject->selectedToolName = newName;
-                }
+            if (newName != originalName &&
+                activeProject->selectedToolName == originalName
+            ) {
+                activeProject->selectedToolName = newName;
             }
 
-            if (!ToolLibrary::saveToolFile(
-                activeProject->toolFolderPath,
-                updated
-            )) {
+            if (!ToolLibrary::saveToolFileAtPath(targetPath, updated)) {
                 return false;
             }
 

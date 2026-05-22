@@ -42,6 +42,43 @@ export namespace Cam::Gui {
             .text = { .color = rgba(0, 0, 0, 0.65), .size = 13_px }
         };
 
+        Style NewToolButton = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .width = 100_pct, .height = 34_px },
+            .margin = { 0_px, 0_px, 0_px, 8_px },
+            .padding = { 10_px, 10_px, 3_px, 2_px },
+            .background = { .color = rgba(255, 255, 255, 0.24), .transition = 100_ms },
+            .border = {
+                .color = rgba(0, 0, 0, 0.22),
+                .width = 1_px,
+                .radius = 5_px
+            },
+            .cursor = Cursor::Hand
+        };
+
+        Style NewToolButtonHover = {
+            .applies = { .hover = true, .focus = true },
+            .background = { .color = rgba(255, 255, 255, 0.42) },
+            .border = {
+                .color = rgba(0, 0, 0, 0.32)
+            }
+        };
+
+        Style NewToolButtonPress = {
+            .applies = { .press = true },
+            .background = { .color = rgba(255, 255, 255, 0.56) },
+            .border = {
+                .color = rgba(0, 0, 0, 0.42)
+            }
+        };
+
+        Style NewToolButtonLabel = {
+            .text = {
+                .color = rgba(0, 0, 0, 0.74),
+                .size = 13_px
+            }
+        };
+
         Style List = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct },
@@ -56,6 +93,7 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
 
         Text* title = nullptr;
+        Box* newToolButton = nullptr;
         Box* list = nullptr;
 
         std::vector<ToolRow*> rows;
@@ -72,6 +110,28 @@ export namespace Cam::Gui {
             this->styles.add(&ToolsStyle::Self);
 
             title = new Text(this, "Tools", { &ToolsStyle::Title });
+
+            newToolButton = new Box(
+                this,
+                {
+                    &ToolsStyle::NewToolButton,
+                    &ToolsStyle::NewToolButtonHover,
+                    &ToolsStyle::NewToolButtonPress
+                },
+                "NewToolButton"
+            );
+
+            new Text(
+                newToolButton,
+                "New Tool",
+                { &ToolsStyle::NewToolButtonLabel }
+            );
+
+            newToolButton->onClick([this](Event& e) {
+                openNewToolSettings(e);
+                e.propagate = false;
+            });
+
             list = new Box(this, { &ToolsStyle::List }, "ToolsList");
         }
 
@@ -103,13 +163,7 @@ export namespace Cam::Gui {
             settingsWindow = nullptr;
         }
 
-        void openSettings(size_t index, Event& e) {
-
-            if (!app) { return; }
-
-            Cam::App::Tool* tool = app->toolAt(index);
-
-            if (!tool) { return; }
+        void openSettingsWindow(const std::string& name, Event& e) {
 
             Rev::Window* owner = ToolSettingsWindow::rootWindow(this);
 
@@ -124,7 +178,7 @@ export namespace Cam::Gui {
             settingsWindow = new ToolSettingsWindow(
                 *windowGroup,
                 owner,
-                tool->name
+                name
             );
 
             settingsWindow->onSaved = [this](Event& savedEvent) {
@@ -135,6 +189,45 @@ export namespace Cam::Gui {
 
                 refresh(savedEvent);
             };
+
+            settingsWindow->onClosed = [this](Event& closedEvent) {
+
+                if (onToolEdited) {
+                    onToolEdited(closedEvent);
+                }
+
+                refresh(closedEvent);
+            };
+        }
+
+        void openSettings(size_t index, Event& e) {
+
+            if (!app) { return; }
+
+            Cam::App::Tool* tool = app->toolAt(index);
+
+            if (!tool) { return; }
+
+            openSettingsWindow(tool->name, e);
+        }
+
+        void openNewToolSettings(Event& e) {
+
+            if (!app) { return; }
+
+            std::string toolName;
+
+            if (!app->createNewTool(toolName)) {
+                return;
+            }
+
+            if (onSelectTool) {
+                onSelectTool(e);
+            }
+
+            refresh(e);
+
+            openSettingsWindow(toolName, e);
         }
 
         void computeChildren(Event& e) override {

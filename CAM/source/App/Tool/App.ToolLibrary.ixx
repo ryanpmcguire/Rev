@@ -102,6 +102,49 @@ export namespace Cam::App {
             return true;
         }
 
+        bool removeTool(const std::string& name) {
+
+            if (name.empty()) {
+                return false;
+            }
+
+            auto it = byName.find(name);
+
+            if (it == byName.end()) {
+                return false;
+            }
+
+            byName.erase(it);
+
+            order.erase(
+                std::remove(order.begin(), order.end(), name),
+                order.end()
+            );
+
+            return true;
+        }
+
+        static std::string uniqueToolName(
+            const ToolLibrary& library,
+            const std::string& base = "New Tool"
+        ) {
+
+            if (!library.find(base)) {
+                return base;
+            }
+
+            for (int i = 2; i < 1000; i++) {
+
+                std::string candidate = base + " " + std::to_string(i);
+
+                if (!library.find(candidate)) {
+                    return candidate;
+                }
+            }
+
+            return base + " " + std::to_string(library.size() + 1);
+        }
+
         bool replaceTool(const std::string& keyName, const Tool& updated) {
 
             if (updated.name.empty()) {
@@ -262,20 +305,20 @@ export namespace Cam::App {
             return true;
         }
 
-        static bool saveToolFile(
-            const std::string& folderPath,
+        static bool saveToolFileAtPath(
+            const std::string& filePath,
             const Tool& tool
         ) {
-            if (folderPath.empty()) {
+            if (filePath.empty()) {
                 return false;
             }
 
-            std::filesystem::path dir(folderPath);
+            std::filesystem::path path(filePath);
             std::error_code ec;
-            std::filesystem::create_directories(dir, ec);
+            std::filesystem::create_directories(path.parent_path(), ec);
 
             Rev::OS::File file({
-                .pathname = (dir / toolFileName(tool)).string()
+                .pathname = filePath
             });
 
             if (!file) {
@@ -285,6 +328,22 @@ export namespace Cam::App {
             Json json = toolToJson(tool);
 
             return file.writeText(json.dump(4));
+        }
+
+        static bool saveToolFile(
+            const std::string& folderPath,
+            const Tool& tool
+        ) {
+            if (folderPath.empty()) {
+                return false;
+            }
+
+            std::filesystem::path dir(folderPath);
+
+            return saveToolFileAtPath(
+                (dir / toolFileName(tool)).string(),
+                tool
+            );
         }
 
         static bool loadToolFile(
@@ -369,6 +428,26 @@ export namespace Cam::App {
             insertTool(Tool::GodTool(10.0, 3));
         }
 
+        void assignFilePathsFromFolder(const std::string& folderPath) {
+
+            if (folderPath.empty()) {
+                return;
+            }
+
+            std::filesystem::path dir(folderPath);
+
+            for (const std::string& name : order) {
+
+                Tool* tool = find(name);
+
+                if (!tool) {
+                    continue;
+                }
+
+                tool->filePath = (dir / toolFileName(*tool)).string();
+            }
+        }
+
         bool saveAllTools(const std::string& folderPath) const {
 
             bool ok = true;
@@ -413,7 +492,13 @@ export namespace Cam::App {
                     folderPath.c_str()
                 );
 
-                return saveAllTools(folderPath);
+                if (!saveAllTools(folderPath)) {
+                    return false;
+                }
+
+                assignFilePathsFromFolder(folderPath);
+
+                return true;
             }
 
             for (const std::filesystem::path& filePath : files) {
@@ -428,12 +513,21 @@ export namespace Cam::App {
                     continue;
                 }
 
+                tool.filePath = filePath.string();
+
                 insertTool(tool);
             }
 
             if (empty()) {
                 createDefaultTools();
-                return saveAllTools(folderPath);
+
+                if (!saveAllTools(folderPath)) {
+                    return false;
+                }
+
+                assignFilePathsFromFolder(folderPath);
+
+                return true;
             }
 
             dbg(

@@ -20,6 +20,9 @@ export namespace Cam::App {
 
         std::string name = "1mm x 100mm God Tool";
 
+        // Full path to the tool JSON file. Empty until first save.
+        std::string filePath = "";
+
         double diameter = 1.0;
         double radius = 0.5;
         double length = 100.0;

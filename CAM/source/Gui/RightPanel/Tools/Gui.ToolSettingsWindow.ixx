@@ -101,6 +101,7 @@ export namespace Cam::Gui {
 
         Cam::App::AppState* app = nullptr;
         std::string toolName;
+        bool isUnsavedNewTool = false;
 
         Text* headerEyebrow = nullptr;
         Text* headerTitle = nullptr;
@@ -110,6 +111,7 @@ export namespace Cam::Gui {
         NumberInput* lengthInput = nullptr;
 
         std::function<void(Event&)> onSaved;
+        std::function<void(Event&)> onClosed;
 
          static std::string windowTitleFor(const std::string& toolName) {
             return toolName + " - Settings";
@@ -164,6 +166,8 @@ export namespace Cam::Gui {
             }
 
             app = Cam::App::AppState::Get(shared->state);
+
+            isUnsavedNewTool = app && app->isUnsavedTool(toolName);
 
             style->layout = {
                 Axis::Vertical, Align::Start, Align::Start, Wrap::False
@@ -303,6 +307,12 @@ export namespace Cam::Gui {
                 lengthInput->setValue(tool->length);
             }
 
+            else if (isUnsavedNewTool) {
+                nameInput->text->content = toolName;
+                diameterInput->setValue(1.0);
+                lengthInput->setValue(100.0);
+            }
+
             Box* footer = new Box(
                 this,
                 { &ToolSettingsStyle::Footer },
@@ -319,13 +329,16 @@ export namespace Cam::Gui {
             );
 
             cancelButton->onClick([this](Event& e) {
-                close();
+                discardIfUnsaved();
+                close(&e);
                 e.propagate = false;
             });
 
             Button* saveButton = new Button(
                 footer,
-                Button::Params::Primary("Save changes"),
+                Button::Params::Primary(
+                    isUnsavedNewTool ? "Save tool" : "Save changes"
+                ),
                 {
                     &ToolSettingsStyle::FooterButton,
                     &ToolSettingsStyle::FooterButtonPrimary
@@ -377,6 +390,7 @@ export namespace Cam::Gui {
             }
 
             toolName = newName;
+            isUnsavedNewTool = false;
             headerTitle->content = newName;
             headerEyebrow->content = Cam::App::Tool::typeEyebrow(type);
             setTitle(toolName + " - Settings");
@@ -390,13 +404,36 @@ export namespace Cam::Gui {
             refresh(e);
         }
 
-        void close() {
+        void discardIfUnsaved() {
+
+            if (!app || !isUnsavedNewTool) {
+                return;
+            }
+
+            app->removeTool(toolName);
+            isUnsavedNewTool = false;
+        }
+
+        void notifyClosed(Event& e) {
+
+            if (onClosed) {
+                onClosed(e);
+            }
+        }
+
+        void close(Event* event = nullptr) {
             shouldClose = true;
+
+            if (event) {
+                notifyClosed(*event);
+            }
         }
 
         void onClose(bool& rejectClose) override {
+            discardIfUnsaved();
             rejectClose = false;
             shouldClose = true;
+            notifyClosed(event);
         }
     };
 }
