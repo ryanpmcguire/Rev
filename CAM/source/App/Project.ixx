@@ -448,6 +448,8 @@ export namespace Cam::App {
 
                 loadToolLibrary();
 
+                ensureToolPathComputed(displayedState);
+
                 for (MaterialState* oldState : oldStates) {
                     delete oldState;
                 }
@@ -644,11 +646,21 @@ export namespace Cam::App {
             return &displayedState->model;
         }
 
+        void ensureToolPathComputed(MaterialState* state) {
+
+            if (!state || !state->needsToolPathComputation()) {
+                return;
+            }
+
+            state->computeToolPath(toolLibrary, selectedToolName);
+        }
+
         bool selectState(MaterialState* state) {
 
             if (!state) { return false; }
 
             displayedState = state;
+            ensureToolPathComputed(state);
 
             return true;
         }

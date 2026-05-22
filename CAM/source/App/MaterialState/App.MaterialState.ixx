@@ -286,5 +286,18 @@ export namespace Cam::App {
                 *tool
             );
         }
+
+        bool needsToolPathComputation() const {
+
+            if (!hasDelta || !delta.loaded || !parent) {
+                return false;
+            }
+
+            return (
+                !hasToolPath ||
+                !toolPath.computed ||
+                toolPath.points.empty()
+            );
+        }
     };
 }
