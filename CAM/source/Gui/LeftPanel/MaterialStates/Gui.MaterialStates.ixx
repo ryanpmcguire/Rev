@@ -112,6 +112,9 @@ export namespace Cam::Gui {
 
             if (!app || !state) { return; }
 
+            closeSettingsWindowForState(state);
+            clearRowsForState(state);
+
             if (app->deleteState(state)) {
 
                 if (onDeleteState) { onDeleteState(e); }
@@ -127,7 +130,33 @@ export namespace Cam::Gui {
             }
 
             settingsWindow->shouldClose = true;
+            settingsWindow->state = nullptr;
+            settingsWindow->onSaved = nullptr;
+            settingsWindow->onClosed = nullptr;
             settingsWindow = nullptr;
+        }
+
+        void closeSettingsWindowForState(Cam::App::MaterialState* state) {
+
+            if (!settingsWindow || !state) { return; }
+
+            if (settingsWindow->state && state->contains(settingsWindow->state)) {
+                closeSettingsWindow();
+            }
+        }
+
+        void clearRowsForState(Cam::App::MaterialState* state) {
+
+            if (!state) { return; }
+
+            for (MaterialState* row : rows) {
+
+                if (!row || !row->state) { continue; }
+
+                if (state->contains(row->state)) {
+                    row->setState(nullptr, row->index);
+                }
+            }
         }
 
         static std::string settingsTitleFor(Cam::App::MaterialState* state, size_t index) {
