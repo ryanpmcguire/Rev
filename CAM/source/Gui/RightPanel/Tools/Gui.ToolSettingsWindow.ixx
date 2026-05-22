@@ -211,7 +211,8 @@ export namespace Cam::Gui {
                 {
                     .label = "Diameter (mm)",
                     .placeholder = "1.0",
-                    .maxLength = 32
+                    .maxLength = 32,
+                    .selectAllOnFocus = true
                 }
             );
 
@@ -220,7 +221,8 @@ export namespace Cam::Gui {
                 {
                     .label = "Length (mm)",
                     .placeholder = "100",
-                    .maxLength = 32
+                    .maxLength = 32,
+                    .selectAllOnFocus = true
                 }
             );
 

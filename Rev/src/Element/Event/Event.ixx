@@ -55,7 +55,7 @@ export namespace Rev::Element {
                 id = -1 * abs(id);
             }
 
-            // Return whether this is a double click (must be within length / time window)
+            // Rev's cross-platform double-click (time + distance since last press).
             bool isDoubleClick(float timeThresh = 200, float lenThresh = 10) {
                 return (
                     pressTimeDiff < timeThresh &&

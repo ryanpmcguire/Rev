@@ -61,7 +61,7 @@ void main() {
     // Choose side and corner
     //--------------------------------------------------
 
-    vec4 mCorner = softMax(cornerMask, 4.0f);
+    vec4 mCorner = softMax(cornerMask, 1.0f);
     vec4 mSide   = hardMax4(sideMask);
 
     // Choose corner radius, border width, and color

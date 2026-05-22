@@ -964,10 +964,11 @@ export namespace Rev {
                 case (WM_RBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
                 case (WM_MBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
         
-                // Mouse double click
-                case (WM_LBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 0, 2, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_RBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 2, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_MBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 2, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
+                // Win32 double-click: treat as a normal press so Rev detects it via
+                // Event::Button::isDoubleClick() (not ButtonAction::DoubleClick).
+                case (WM_LBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 0, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
+                case (WM_RBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
+                case (WM_MBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
       
                 // Keyboard
                 case (WM_KEYDOWN): { self->notifyEvent({ WinEvent::Type::Keyboard, (uint64_t)self->getKey(wp), 1 }); return 0; }

@@ -2,6 +2,7 @@ module;
 
 #include <cmath>
 #include <cstdio>
+#include <cctype>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -46,6 +47,9 @@ export namespace Rev::Element {
         Observable<std::string> content;
         Observable<bool> editable;
         Observable<bool> selectable;
+
+        // On first focus, select all (runs after mouseDown on the same click and overrides it).
+        bool selectAllOnFocus = false;
 
         std::string strContent;
         float fontSize = 12.0f;
@@ -213,48 +217,186 @@ export namespace Rev::Element {
             cursor = std::clamp(newCursor, 0, (int)strContent.size() + 1);
         }
 
+        void selectAll() {
+
+            int len = (int)content.get().size();
+
+            selectAnchor = 0;
+            selectEnd = len;
+
+            if (editable) {
+                cursor = len;
+            }
+        }
+
+        int getCursorPosOnLine(Primitives::Text::Line& line, float x) {
+
+            if (!font) {
+                return line.start;
+            }
+
+            float left = line.rect.x;
+
+            if (x <= left) {
+                return line.start;
+            }
+
+            int idx = line.start;
+
+            for (char c : line.content) {
+
+                float right = left + font->glyphs[c].advance;
+
+                if (x <= right) {
+
+                    float distLeft = x - left;
+                    float distRight = right - x;
+
+                    return distLeft < distRight ? idx : idx + 1;
+                }
+
+                left = right;
+                idx += 1;
+            }
+
+            return line.end + 1;
+        }
+
+        Primitives::Text::Line* nearestLineByY(float y) {
+
+            if (text->lines.empty()) {
+                return nullptr;
+            }
+
+            Primitives::Text::Line* nearest = &text->lines.front();
+            float best = std::abs(
+                y - (nearest->rect.y + nearest->rect.h * 0.5f)
+            );
+
+            for (Primitives::Text::Line& line : text->lines) {
+
+                float mid = line.rect.y + line.rect.h * 0.5f;
+                float dist = std::abs(y - mid);
+
+                if (dist < best) {
+                    best = dist;
+                    nearest = &line;
+                }
+            }
+
+            return nearest;
+        }
+
         int getCursorPos(Core::Pos pos) {
 
-            // Find intersecting line
+            int len = (int)strContent.size();
+
+            if (text->lines.empty()) {
+                return std::clamp(0, 0, len);
+            }
+
+            Primitives::Text::Line& first = text->lines.front();
+            Primitives::Text::Line& last = text->lines.back();
+
+            float top = first.rect.y;
+            float bottom = last.rect.y + last.rect.h;
+
+            if (pos.y < top) {
+                return std::clamp(getCursorPosOnLine(first, pos.x), 0, len);
+            }
+
+            if (pos.y >= bottom) {
+                return std::clamp(getCursorPosOnLine(last, pos.x), 0, len);
+            }
+
             for (Primitives::Text::Line& line : text->lines) {
 
                 if (line.rect.y > pos.y) { continue; }
                 if (line.rect.y + line.rect.h < pos.y) { continue; }
 
-                int idx = line.start;
-                float left = line.rect.x;
-
-                // Get char at x position
-                for (char c : line.content) {
-
-                    float right = left + font->glyphs[c].advance;
-
-                    // Find intersecting glyph
-                    if (pos.x >= left && pos.x <= right) {
-
-                        float distLeft = pos.x - left;
-                        float distRight = right - pos.x;
-
-                        // Return left or right depending on which is closest
-                        return distLeft < distRight ? idx : idx + 1;
-                    }
-
-                    left = right;
-                    idx += 1;
-                }
-
-                // Return end of line if we did not reach a char
-                return line.end + 1;
+                return std::clamp(getCursorPosOnLine(line, pos.x), 0, len);
             }
 
-            // Return start of content
-            return 0;
+            Primitives::Text::Line* nearest = nearestLineByY(pos.y);
+
+            if (!nearest) {
+                return 0;
+            }
+
+            return std::clamp(getCursorPosOnLine(*nearest, pos.x), 0, len);
+        }
+
+        static bool isWordChar(unsigned char c) {
+            return std::isalnum(c) != 0 || c == '_';
+        }
+
+        void selectWordAt(Pos pos) {
+
+            std::string str = content;
+            int len = (int)str.size();
+            int idx = getCursorPos(pos);
+
+            idx = std::clamp(idx, 0, len);
+
+            int start = idx;
+            int end = idx;
+
+            auto expandFrom = [&](int at) {
+
+                int s = at;
+                int e = at;
+
+                if (at < len && isWordChar((unsigned char)str[at])) {
+                    while (s > 0 && isWordChar((unsigned char)str[s - 1])) { s--; }
+                    while (e < len && isWordChar((unsigned char)str[e])) { e++; }
+                }
+
+                return std::pair<int, int>{ s, e };
+            };
+
+            if (idx < len && isWordChar((unsigned char)str[idx])) {
+                auto range = expandFrom(idx);
+                start = range.first;
+                end = range.second;
+            }
+
+            else if (idx > 0 && isWordChar((unsigned char)str[idx - 1])) {
+                auto range = expandFrom(idx - 1);
+                start = range.first;
+                end = range.second;
+            }
+
+            selectAnchor = start;
+            selectEnd = end;
+
+            if (editable) {
+                cursor = end;
+            }
+        }
+
+        void gainFocus(Event& e) override {
+
+            bool wasFocused = targetFlags.focus;
+
+            Box::gainFocus(e);
+
+            if (selectAllOnFocus && !wasFocused) {
+                selectAll();
+                refresh(e);
+            }
         }
 
         void mouseDown(Event& e) override {
 
             // If none apply, skip
             if (!(editable || selectable)) { return Box::mouseDown(e); }
+
+            if (e.mouse.lb.isDoubleClick()) {
+                selectWordAt(e.mouse.pos);
+                this->refresh(e);
+                Box::mouseDown(e);
+                return;
+            }
 
             // If we can select (or edit), modify select region
             if (selectable || editable) {
