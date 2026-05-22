@@ -4,7 +4,11 @@ module;
 #include <vector>
 #include <functional>
 
+#include <managed.hpp>
+
 export module Cam.Gui.Tools;
+
+import Rev.Core.Resource;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -12,6 +16,7 @@ import Rev.Element.Style;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
+import Rev.Element.Svg;
 
 import Cam.App;
 import Cam.App.Tool;
@@ -79,6 +84,17 @@ export namespace Cam::Gui {
             }
         };
 
+        Style NewToolButtonIcon = {
+            .size = { 14_px, 14_px },
+            .margin = { 0_px, 6_px, 0_px, 0_px },
+            .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
+        };
+
+        Style NewToolButtonIconHover = {
+            .applies = { .hover = true, .focus = true },
+            .text = { .color = rgba(0, 0, 0, 0.90) }
+        };
+
         Style List = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct },
@@ -94,6 +110,8 @@ export namespace Cam::Gui {
 
         Text* title = nullptr;
         Box* newToolButton = nullptr;
+        Svg* newToolButtonIcon = nullptr;
+        Text* newToolButtonLabel = nullptr;
         Box* list = nullptr;
 
         std::vector<ToolRow*> rows;
@@ -121,11 +139,23 @@ export namespace Cam::Gui {
                 "NewToolButton"
             );
 
-            new Text(
+            newToolButtonLabel = new Text(
                 newToolButton,
                 "New Tool",
                 { &ToolsStyle::NewToolButtonLabel }
             );
+
+            newToolButtonIcon = new Svg(
+                newToolButton,
+                File("./New-Tool.svg"),
+                {
+                    &ToolsStyle::NewToolButtonIcon,
+                    &ToolsStyle::NewToolButtonIconHover
+                },
+                "NewToolButtonIcon"
+            );
+
+            newToolButton->moveChild(newToolButtonIcon, newToolButtonLabel, true);
 
             newToolButton->onClick([this](Event& e) {
                 openNewToolSettings(e);

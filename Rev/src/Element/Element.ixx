@@ -173,6 +173,56 @@ export namespace Rev::Element {
             if (it != children.end()) { children.erase(it); }
         }
 
+        void moveChild(
+            Element* child,
+            Element* target,
+            bool before
+        ) {
+
+            if (!child || !target || child == target) {
+                return;
+            }
+
+            if (child->parent != this) {
+                return;
+            }
+
+            auto childIt = std::find(
+                children.begin(),
+                children.end(),
+                child
+            );
+
+            if (childIt == children.end()) {
+                return;
+            }
+
+            children.erase(childIt);
+
+            auto targetIt = std::find(
+                children.begin(),
+                children.end(),
+                target
+            );
+
+            if (targetIt == children.end()) {
+                children.push_back(child);
+                return;
+            }
+
+            if (before) {
+                children.insert(targetIt, child);
+            }
+
+            else {
+                children.insert(targetIt + 1, child);
+            }
+
+            if (shared && shared->event) {
+                child->refresh(*shared->event);
+            }
+        }
+
         void cascadeStyle() {
 
             // Set hidden state

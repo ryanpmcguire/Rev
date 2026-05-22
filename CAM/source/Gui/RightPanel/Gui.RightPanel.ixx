@@ -3,9 +3,13 @@ module;
 #include <string>
 #include <functional>
 
+#include <managed.hpp>
+
 #include <dbg.hpp>
 
 export module Cam.Gui.RightPanel;
+
+import Rev.Core.Resource;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -13,6 +17,7 @@ import Rev.Element.Style;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
+import Rev.Element.Svg;
 
 import Cam.App;
 
@@ -78,6 +83,17 @@ export namespace Cam::Gui {
             }
         };
 
+        Style FolderButtonIcon = {
+            .size = { 14_px, 14_px },
+            .margin = { 0_px, 6_px, 0_px, 0_px },
+            .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
+        };
+
+        Style FolderButtonIconHover = {
+            .applies = { .hover = true, .focus = true },
+            .text = { .color = rgba(0, 0, 0, 0.90) }
+        };
+
         Style ToolsHost = {
             .size = { .width = 100_pct, .height = Grow() }
         };
@@ -88,6 +104,7 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
 
         Box* folderButton = nullptr;
+        Svg* folderButtonIcon = nullptr;
         Text* folderButtonLabel = nullptr;
 
         Tools* tools = nullptr;
@@ -115,6 +132,22 @@ export namespace Cam::Gui {
                 folderButton,
                 "Select Tool Folder",
                 { &RightPanelStyle::FolderButtonLabel }
+            );
+
+            folderButtonIcon = new Svg(
+                folderButton,
+                File("./Choose-Folder.svg"),
+                {
+                    &RightPanelStyle::FolderButtonIcon,
+                    &RightPanelStyle::FolderButtonIconHover
+                },
+                "ToolFolderButtonIcon"
+            );
+
+            folderButton->moveChild(
+                folderButtonIcon,
+                folderButtonLabel,
+                true
             );
 
             folderButton->onClick([this](Event& e) {
