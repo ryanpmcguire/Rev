@@ -4,7 +4,7 @@ module;
 #include <memory>
 #include <cstddef>
 
-export module Cam.App.ToolPath.Slicer.Strategy;
+export module Cam.App.Slicer.Strategy;
 
 import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
@@ -12,10 +12,10 @@ import Rev.Core.Vertex3;
 import Cam.App.Model;
 import Cam.App.Tool;
 
-import Cam.App.ToolPath.Slicer.StrategyType;
-import Cam.App.ToolPath.Slicer.Slice;
+import Cam.App.Slicer.StrategyType;
+import Cam.App.Slicer.Slice;
 
-export namespace Cam::App::ToolPath::Slicer {
+export namespace Cam::App::Slicer {
 
     using namespace Rev::Core;
 

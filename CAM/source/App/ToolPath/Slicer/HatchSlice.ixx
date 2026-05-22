@@ -2,13 +2,13 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.ToolPath.Slicer.HatchSlice;
+export module Cam.App.Slicer.HatchSlice;
 
 import Cam.App.Geometry.Profile;
 
-import Cam.App.ToolPath.Slicer.Slice;
+import Cam.App.Slicer.Slice;
 
-export namespace Cam::App::ToolPath::Slicer {
+export namespace Cam::App::Slicer {
 
     using namespace Cam::App::Geometry;
 

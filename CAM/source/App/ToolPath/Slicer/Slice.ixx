@@ -2,7 +2,7 @@ module;
 
 #include <vector>
 
-export module Cam.App.ToolPath.Slicer.Slice;
+export module Cam.App.Slicer.Slice;
 
 import Rev.Core.Pos;
 
@@ -10,7 +10,7 @@ import Cam.App.Geometry.Segment;
 import Cam.App.Geometry.Chain;
 import Cam.App.Geometry.Profile;
 
-export namespace Cam::App::ToolPath::Slicer {
+export namespace Cam::App::Slicer {
 
     using namespace Rev::Core;
     using namespace Cam::App::Geometry;

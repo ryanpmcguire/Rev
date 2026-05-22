@@ -20,16 +20,16 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.ToolPath.Slicer.SliceSource;
+export module Cam.App.Slicer.SliceSource;
 
 import Rev.Core.Pos;
 
 import Cam.App.Model;
 import Cam.App.Geometry.Segment;
 
-import Cam.App.ToolPath.Slicer.Slice;
+import Cam.App.Slicer.Slice;
 
-export namespace Cam::App::ToolPath::Slicer {
+export namespace Cam::App::Slicer {
 
     using namespace Rev::Core;
     using namespace Cam::App::Geometry;

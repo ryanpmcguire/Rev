@@ -19,6 +19,9 @@ import Cam.App.Tool;
 import Cam.App.Slice2d;
 import Cam.App.Geometry.Segment;
 
+import Cam.App.Slicer.Strategy;
+import Cam.App.Slicer.HatchStrategy;
+
 export namespace Cam::App {
 
     using namespace Rev::Core;
@@ -140,6 +143,29 @@ export namespace Cam::App {
             }
         }
 
+        static void runSlicerStrategyTest(
+            Model& positive,
+            Model& negative,
+            const Tool& tool,
+            float stepDown
+        ) {
+            Slicer::HatchStrategy strategy;
+
+            Slicer::StrategyContext ctx {
+                .positive = &positive,
+                .negative = &negative,
+                .tool = &tool,
+                .stepDown = stepDown
+            };
+
+            strategy.execute(ctx);
+
+            dbg(
+                "[ToolPath] Slicer strategy test done. slices=%zu",
+                strategy.slices().size()
+            );
+        }
+
         bool compute(Model& toCarve, const Tool& tool) {
             clearPathData();
 
@@ -202,8 +228,18 @@ export namespace Cam::App {
         }
 
         bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
-            // toAvoid will come back once Slice2d owns protected/avoid classification.
-            return compute(toCarve, tool);
+            const bool computed = compute(toCarve, tool);
+
+            if (strategy == Slice2d::Strategy::Hatch) {
+                runSlicerStrategyTest(
+                    toCarve,
+                    toAvoid,
+                    tool,
+                    static_cast<float>(stepDown)
+                );
+            }
+
+            return computed;
         }
 
         bool compute(Model& toCarve, Model& toAvoid) {

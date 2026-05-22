@@ -6,20 +6,20 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.ToolPath.Slicer.HatchStrategy;
+export module Cam.App.Slicer.HatchStrategy;
 
 import Rev.Core.Pos3;
 
 import Cam.App.Model;
 import Cam.App.Tool;
 
-import Cam.App.ToolPath.Slicer.Strategy;
-import Cam.App.ToolPath.Slicer.StrategyType;
-import Cam.App.ToolPath.Slicer.Slice;
-import Cam.App.ToolPath.Slicer.HatchSlice;
-import Cam.App.ToolPath.Slicer.SliceSource;
+import Cam.App.Slicer.Strategy;
+import Cam.App.Slicer.StrategyType;
+import Cam.App.Slicer.Slice;
+import Cam.App.Slicer.HatchSlice;
+import Cam.App.Slicer.SliceSource;
 
-export namespace Cam::App::ToolPath::Slicer {
+export namespace Cam::App::Slicer {
 
     using namespace Rev::Core;
 
