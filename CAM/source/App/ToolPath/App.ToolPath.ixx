@@ -41,7 +41,7 @@ export namespace Cam::App {
         std::string toolName = "";
 
         Slicer::Strategy::StrategyType strategy =
-            Slicer::Strategy::StrategyType::Profile;
+            Slicer::Strategy::StrategyType::Hatch;
 
         std::vector<ToolPathPoint> points;
 

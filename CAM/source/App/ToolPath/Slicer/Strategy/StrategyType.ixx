@@ -22,16 +22,16 @@ export namespace Cam::App::Slicer::Strategy {
                 return "Profile";
         }
 
-        return "Profile";
+        return "Hatch";
     }
 
     inline StrategyType strategyTypeFromString(const std::string& value) {
 
-        if (value == "Hatch") {
-            return StrategyType::Hatch;
+        if (value == "Profile") {
+            return StrategyType::Profile;
         }
 
-        return StrategyType::Profile;
+        return StrategyType::Hatch;
     }
 
     inline std::string strategyTypeDisplayName(StrategyType type) {
@@ -45,6 +45,6 @@ export namespace Cam::App::Slicer::Strategy {
                 return "Profile";
         }
 
-        return "Profile";
+        return "Hatch";
     }
 }

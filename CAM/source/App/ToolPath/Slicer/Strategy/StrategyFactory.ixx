@@ -22,6 +22,6 @@ export namespace Cam::App::Slicer::Strategy {
                 return std::make_unique<ProfileStrategy>();
         }
 
-        return std::make_unique<ProfileStrategy>();
+        return std::make_unique<HatchStrategy>();
     }
 }

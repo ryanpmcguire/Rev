@@ -55,16 +55,16 @@ export namespace Cam::App {
                     return "Profile";
             }
 
-            return "Profile";
+            return "Hatch";
         }
 
         static Strategy strategyFromString(const std::string& value) {
 
-            if (value == "Hatch") {
-                return Strategy::Hatch;
+            if (value == "Profile") {
+                return Strategy::Profile;
             }
 
-            return Strategy::Profile;
+            return Strategy::Hatch;
         }
 
         static std::string strategyDisplayName(Strategy strategy) {
@@ -78,7 +78,7 @@ export namespace Cam::App {
                     return "Profile";
             }
 
-            return "Profile";
+            return "Hatch";
         }
 
         float z = 0.0f;
@@ -87,7 +87,7 @@ export namespace Cam::App {
         Pos max = {};
         bool valid = false;
 
-        Strategy strategy = Strategy::Profile;
+        Strategy strategy = Strategy::Hatch;
         Tool tool = Tool::GodTool();
 
         std::vector<Segment> source;
