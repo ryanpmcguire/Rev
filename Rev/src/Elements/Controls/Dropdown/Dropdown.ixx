@@ -76,7 +76,6 @@ export namespace Rev::Element {
 
             name = "Dropdown";
             params = p;
-            tabFocusable = true;
 
             this->styles.add(&Control);
 
@@ -111,10 +110,6 @@ export namespace Rev::Element {
 
             if (!e.propagate) {
                 return;
-            }
-
-            if (isActiveTabStop()) {
-                handleMenuKeyDown(e);
             }
         }
 
@@ -203,10 +198,6 @@ export namespace Rev::Element {
         }
 
         void handleMenuKeyDown(Event& e) {
-
-            if (!isActiveTabStop()) {
-                return;
-            }
 
             bool up = e.keyboard.arrows.up;
             bool down = e.keyboard.arrows.down;
@@ -401,18 +392,6 @@ export namespace Rev::Element {
         }
 
         void computeStyle(Event& e) override {
-
-            if (open && !isActiveTabStop()) {
-                closeMenu(&e);
-            }
-
-            bool showFieldFocus = isActiveTabStop();
-
-            if (dropdown->targetFlags.focus != showFieldFocus) {
-                dropdown->targetFlags.focus = showFieldFocus;
-                dropdown->dirty.style = true;
-            }
-
             Element::computeStyle(e);
         }
     };
