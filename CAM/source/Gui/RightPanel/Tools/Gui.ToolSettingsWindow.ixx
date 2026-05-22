@@ -2,7 +2,6 @@ module;
 
 #include <string>
 #include <vector>
-#include <cstdio>
 #include <functional>
 
 #include <dbg.hpp>
@@ -112,7 +111,7 @@ export namespace Cam::Gui {
 
         std::function<void(Event&)> onSaved;
 
-        static std::string windowTitleFor(const std::string& toolName) {
+         static std::string windowTitleFor(const std::string& toolName) {
             return toolName + " - Settings";
         }
 
@@ -150,15 +149,15 @@ export namespace Cam::Gui {
         ToolSettingsWindow(
             std::vector<void*>& windowGroup,
             Rev::Window* owner,
-            const std::string& toolName
+            const std::string& initialToolName
         ) : Rev::Window(
             windowGroup,
             {
-                .name = windowTitleFor(toolName),
+                .name = initialToolName + " - Settings",
                 .size = { .width = 400, .height = 480 }
             }
         ) {
-            this->toolName = toolName;
+            toolName = initialToolName;
 
             if (owner && owner->shared) {
                 shared->state = owner->shared->state;
@@ -166,23 +165,19 @@ export namespace Cam::Gui {
 
             app = Cam::App::AppState::Get(shared->state);
 
-            this->style->layout = {
+            style->layout = {
                 Axis::Vertical, Align::Start, Align::Start, Wrap::False
             };
-            this->style->size = { .width = 100_pct, .height = 100_pct };
-            this->styles.add(&ToolSettingsStyle::Root);
+            style->size = { .width = 100_pct, .height = 100_pct };
+            styles.add(&ToolSettingsStyle::Root);
 
             buildUi();
-            applyWindowTitle();
+
+            setTitle(toolName + " - Settings");
 
             if (owner) {
-                setPos(
-                    owner->details.x + 280,
-                    owner->details.y + 96
-                );
-            }
-
-            else {
+                setPos(owner->details.x + 280, owner->details.y + 96);
+            } else {
                 setPos(280, 96);
             }
 
@@ -191,26 +186,24 @@ export namespace Cam::Gui {
         }
 
         void buildUi() {
+            Cam::App::Tool* tool = app
+                ? app->toolLibrary()->find(toolName)
+                : nullptr;
 
-            Cam::App::Tool* tool = nullptr;
+            std::string displayName = tool ? tool->name : toolName;
+            Cam::App::Tool::Type selectedType = tool
+                ? tool->type
+                : Cam::App::Tool::Type::EndMill;
 
-            if (app) {
-                tool = app->toolLibrary()->find(toolName);
-            }
-
-            std::string displayName = toolName;
-            Cam::App::Tool::Type toolType = Cam::App::Tool::Type::EndMill;
-
-            if (tool) {
-                displayName = tool->name;
-                toolType = tool->type;
-            }
-
-            Box* header = new Box(this, { &ToolSettingsStyle::Header }, "Header");
+            Box* header = new Box(
+                this,
+                { &ToolSettingsStyle::Header },
+                "Header"
+            );
 
             headerEyebrow = new Text(
                 header,
-                Cam::App::Tool::typeEyebrow(toolType),
+                Cam::App::Tool::typeEyebrow(selectedType),
                 { &ToolSettingsStyle::HeaderEyebrow }
             );
 
@@ -220,7 +213,11 @@ export namespace Cam::Gui {
                 { &ToolSettingsStyle::HeaderTitle }
             );
 
-            Box* body = new Box(this, { &ToolSettingsStyle::Body }, "Body");
+            Box* body = new Box(
+                this,
+                { &ToolSettingsStyle::Body },
+                "Body"
+            );
 
             nameInput = new TextInput(
                 body,
@@ -257,19 +254,24 @@ export namespace Cam::Gui {
                         }
                     },
                     .placeholder = "Select type",
-                    .value = Cam::App::Tool::typeToKindString(toolType)
+                    .value = Cam::App::Tool::typeToKindString(selectedType)
                 }
             );
 
             typeDropdown->onChange = [this](Event& e) {
-                Cam::App::Tool::Type type = typeFromDropdownValue(
+                const auto type = Cam::App::Tool::typeFromKindString(
                     typeDropdown->params.value
                 );
-                updateHeaderEyebrow(type);
+
+                headerEyebrow->content = Cam::App::Tool::typeEyebrow(type);
                 refresh(e);
             };
 
-            new Text(body, "GEOMETRY", { &ToolSettingsStyle::SectionLabel });
+            new Text(
+                body,
+                "GEOMETRY",
+                { &ToolSettingsStyle::SectionLabel }
+            );
 
             NumberInput::Params diameterParams;
             diameterParams.label = "Diameter";
@@ -317,7 +319,7 @@ export namespace Cam::Gui {
             );
 
             cancelButton->onClick([this](Event& e) {
-                this->close();
+                close();
                 e.propagate = false;
             });
 
@@ -331,25 +333,23 @@ export namespace Cam::Gui {
             );
 
             saveButton->onClick([this](Event& e) {
-                this->save(e);
+                save(e);
                 e.propagate = false;
             });
         }
 
         void save(Event& e) {
+            if (!app) {
+                dbg("[ToolSettings] Missing app state");
+                return;
+            }
 
-            if (!app) { return; }
-
-            std::string newName = nameInput->text->content.get();
+            const std::string newName = nameInput->text->content.get();
 
             if (newName.empty()) {
                 dbg("[ToolSettings] Name is required");
                 return;
             }
-
-            Cam::App::Tool::Type type = typeFromDropdownValue(
-                typeDropdown->params.value
-            );
 
             diameterInput->commit(e);
             lengthInput->commit(e);
@@ -367,25 +367,19 @@ export namespace Cam::Gui {
                 return;
             }
 
-            if (!app->saveTool(
-                toolName,
-                newName,
-                type,
-                diameter,
-                length
-            )) {
+            const auto type = Cam::App::Tool::typeFromKindString(
+                typeDropdown->params.value
+            );
+
+            if (!app->saveTool(toolName, newName, type, diameter, length)) {
                 dbg("[ToolSettings] Failed to save tool");
                 return;
             }
 
             toolName = newName;
-
-            if (headerTitle) {
-                headerTitle->content = newName;
-            }
-
-            updateHeaderEyebrow(type);
-            applyWindowTitle();
+            headerTitle->content = newName;
+            headerEyebrow->content = Cam::App::Tool::typeEyebrow(type);
+            setTitle(toolName + " - Settings");
 
             dbg("[ToolSettings] Saved \"%s\"", toolName.c_str());
 

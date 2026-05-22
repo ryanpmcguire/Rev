@@ -1338,6 +1338,7 @@ export namespace Rev::Element {
         };
 
         TargetFlags targetFlags;
+        bool tabStop = false;
 
         // Default behavior is to ask our rect if it contains a position
         virtual bool contains(Pos& pos) {

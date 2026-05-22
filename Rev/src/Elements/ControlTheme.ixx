@@ -113,7 +113,7 @@ export namespace Rev::Element::ControlTheme {
     };
 
     Style OptionHover = {
-        .applies = { .hover = true, .focus = true },
+        .applies = { .hover = true },
         .background = { .color = rgba(241, 245, 249, 1.0) }
     };
 

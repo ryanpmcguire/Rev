@@ -98,7 +98,8 @@ export namespace Rev::Element {
                 closeMenu(&e);
             });
 
-            dropdown->onMouseDown([this](Event& e) {
+            dropdown->onClick([this](Event& e) {
+                if (optionsContainer->targetFlags.hit) { return; }
                 if (open) { closeMenu(&e); }
                 else { openMenu(); }
             });
@@ -111,6 +112,8 @@ export namespace Rev::Element {
             if (!e.propagate) {
                 return;
             }
+
+            handleMenuKeyDown(e);
         }
 
         bool isSelectable(const Item& item) const {
@@ -165,17 +168,6 @@ export namespace Rev::Element {
         void setMenuHighlight(int index, Event& e) {
 
             menuHighlight = index;
-
-            for (size_t i = 0; i < options.size(); i++) {
-
-                bool highlighted = open && (int)i == menuHighlight;
-
-                if (options[i]->targetFlags.hover != highlighted) {
-                    options[i]->targetFlags.hover = highlighted;
-                    options[i]->dirty.style = true;
-                }
-            }
-
             refresh(e);
         }
 
@@ -214,6 +206,10 @@ export namespace Rev::Element {
 
                 if (up || down) {
                     openMenu();
+                    setMenuHighlight(
+                        nextSelectableIndex(-1, up ? -1 : +1),
+                        e
+                    );
                     e.propagate = false;
                     return;
                 }
@@ -297,17 +293,10 @@ export namespace Rev::Element {
 
             optionsContainer->style->visibility = Visibility::Visible;
             open = true;
-
-            int index = indexOfValue(params.value);
-
-            if (index < 0 || !isSelectable(params.options[index])) {
-                index = firstSelectableIndex();
-            }
-
-            menuHighlight = index;
+            menuHighlight = -1;
 
             if (shared && shared->event) {
-                setMenuHighlight(menuHighlight, *shared->event);
+                refresh(*shared->event);
             }
         }
 
@@ -366,7 +355,7 @@ export namespace Rev::Element {
                     { &Option, &OptionHover, &OptionDisabled }
                 );
 
-                options[i]->onMouseDown([this, item](Event& ev) {
+                options[i]->onClick([this, item](Event& ev) {
                     if (item.disabled) { return; }
                     select(item, &ev);
                 });
@@ -376,13 +365,6 @@ export namespace Rev::Element {
 
                 Item& item = params.options[i];
                 options[i]->content = item.name;
-
-                bool highlighted = open && (int)i == menuHighlight;
-
-                if (options[i]->targetFlags.hover != highlighted) {
-                    options[i]->targetFlags.hover = highlighted;
-                    options[i]->dirty.style = true;
-                }
 
                 if (options[i]->resolved.disabled != item.disabled) {
                     options[i]->resolved.disabled = item.disabled;

@@ -20,6 +20,16 @@ import Rev.Element.ControlTheme;
 export namespace Rev::Element {
     using namespace ControlTheme;
 
+    // Decorative only — visible but never hit-tested or focused.
+    struct PlaceholderText : public Text {
+        PlaceholderText(Element* parent, std::string content, StyleList styles = {})
+            : Text(parent, content, styles) {}
+
+        bool contains(Pos& pos) override {
+            return false;
+        }
+    };
+
     struct TextInput : public Element {
         struct Params {
             std::string label;
@@ -43,7 +53,7 @@ export namespace Rev::Element {
         Text* label = nullptr;
         Box* container = nullptr;
         Box* field = nullptr;
-        Text* placeholderText = nullptr;
+        PlaceholderText* placeholderText = nullptr;
         Text* text = nullptr;
 
         TextInput(Element* parent, Params p = Params::Default(), StyleList styles = {}) : Element(parent, styles) {
@@ -54,19 +64,12 @@ export namespace Rev::Element {
             label = new Text(this, params.label, { &Label });
             container = new Box(this, { &Field, &FieldFocus });
             field = new Box(container, { &FieldInner });
-            placeholderText = new Text(field, params.placeholder, { &Placeholder });
+            placeholderText = new PlaceholderText(field, params.placeholder, { &Placeholder });
             text = new Text(field, "", { &FieldText });
+
             text->editable = true;
             text->selectable = true;
             text->selectAllOnFocus = params.selectAllOnFocus;
-
-            installInputFilter();
-
-            onKeyDown([this](Event& e) {
-                if (text->targetFlags.focus) text->loseFocus(e);
-                else text->gainFocus(e);
-                e.propagate = false;
-            });
         }
 
         void keyDown(Event& e) override {
@@ -77,8 +80,15 @@ export namespace Rev::Element {
 
         void textInput(Event& e) override {
             tell(&Element::textInput, e);
-            if (!e.propagate) return;
-            if (text->targetFlags.focus) text->textInput(e);
+            if (!e.propagate || !text->targetFlags.focus) {
+                return;
+            }
+
+            if (!acceptProposedContent(previewAfterInput(text, e.keyboard.input))) {
+                return;
+            }
+
+            text->textInput(e);
         }
 
         static std::string previewAfterInput(Text* text, const std::string& input) {
@@ -98,19 +108,11 @@ export namespace Rev::Element {
         }
 
         virtual bool acceptProposedContent(const std::string& proposed) const {
+            if (proposed.find_first_of("\r\n") != std::string::npos) {
+                return false;
+            }
+
             return !(params.maxLength > 0 && proposed.size() > params.maxLength);
-        }
-
-        void installInputFilter() {
-            text->onTextInput([this](Event& e) {
-                if (e.keyboard.input == "\r" || e.keyboard.input == "\n") {
-                    e.propagate = false;
-                    return;
-                }
-
-                std::string proposed = previewAfterInput(text, e.keyboard.input);
-                if (!acceptProposedContent(proposed)) e.propagate = false;
-            });
         }
 
         void computeStyle(Event& e) override {
