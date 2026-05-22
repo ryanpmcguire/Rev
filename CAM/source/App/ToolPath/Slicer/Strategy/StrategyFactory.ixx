@@ -8,6 +8,7 @@ import Cam.App.Slicer.Strategy.Strategy;
 import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Slicer.Strategy.HatchStrategy;
 import Cam.App.Slicer.Strategy.ProfileStrategy;
+import Cam.App.Slicer.Strategy.BoreStrategy;
 
 export namespace Cam::App::Slicer::Strategy {
 
@@ -20,6 +21,9 @@ export namespace Cam::App::Slicer::Strategy {
 
             case StrategyType::Profile:
                 return std::make_unique<ProfileStrategy>();
+
+            case StrategyType::Bore:
+                return std::make_unique<BoreStrategy>();
         }
 
         return std::make_unique<HatchStrategy>();

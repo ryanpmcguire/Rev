@@ -229,15 +229,21 @@ export namespace Cam::Gui {
                     .options = {
                         {
                             Cam::App::Slicer::Strategy::strategyTypeDisplayName(
+                                Cam::App::Slicer::Strategy::StrategyType::Hatch
+                            ),
+                            "Hatch"
+                        },
+                        {
+                            Cam::App::Slicer::Strategy::strategyTypeDisplayName(
                                 Cam::App::Slicer::Strategy::StrategyType::Profile
                             ),
                             "Profile"
                         },
                         {
                             Cam::App::Slicer::Strategy::strategyTypeDisplayName(
-                                Cam::App::Slicer::Strategy::StrategyType::Hatch
+                                Cam::App::Slicer::Strategy::StrategyType::Bore
                             ),
-                            "Hatch"
+                            "Bore"
                         }
                     },
                     .placeholder = "Select strategy",

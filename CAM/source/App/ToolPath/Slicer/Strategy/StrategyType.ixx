@@ -8,7 +8,8 @@ export namespace Cam::App::Slicer::Strategy {
 
     enum class StrategyType {
         Hatch,
-        Profile
+        Profile,
+        Bore
     };
 
     inline std::string strategyTypeToString(StrategyType type) {
@@ -20,6 +21,9 @@ export namespace Cam::App::Slicer::Strategy {
 
             case StrategyType::Profile:
                 return "Profile";
+
+            case StrategyType::Bore:
+                return "Bore";
         }
 
         return "Hatch";
@@ -29,6 +33,10 @@ export namespace Cam::App::Slicer::Strategy {
 
         if (value == "Profile") {
             return StrategyType::Profile;
+        }
+
+        if (value == "Bore") {
+            return StrategyType::Bore;
         }
 
         return StrategyType::Hatch;
@@ -43,6 +51,9 @@ export namespace Cam::App::Slicer::Strategy {
 
             case StrategyType::Profile:
                 return "Profile";
+
+            case StrategyType::Bore:
+                return "Bore";
         }
 
         return "Hatch";

@@ -21,6 +21,7 @@ import Cam.App.Slicer.Strategy.Slice.Segment2;
 import Cam.App.Slicer.Strategy.Strategy;
 import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Slicer.Strategy.StrategyFactory;
+import Cam.App.Slicer.Strategy.StrategyDetect;
 
 export namespace Cam::App {
 
@@ -40,6 +41,11 @@ export namespace Cam::App {
 
         Slicer::Strategy::StrategyType strategy =
             Slicer::Strategy::StrategyType::Hatch;
+
+        // When true, compute() will overwrite `strategy` based on geometry
+        // analysis of the carve model. Set to false once the user explicitly
+        // chooses a strategy in the settings UI.
+        bool strategyAuto = true;
 
         std::vector<ToolPathPoint> points;
 
@@ -135,10 +141,27 @@ export namespace Cam::App {
 
             toolName = tool.name;
 
+            if (strategyAuto) {
+
+                const Slicer::Strategy::StrategyType detected =
+                    Slicer::Strategy::detectStrategy(toCarve);
+
+                if (detected != strategy) {
+                    dbg(
+                        "[ToolPath] Auto-detected strategy: %s -> %s",
+                        Slicer::Strategy::strategyTypeToString(strategy).c_str(),
+                        Slicer::Strategy::strategyTypeToString(detected).c_str()
+                    );
+
+                    strategy = detected;
+                }
+            }
+
             dbg(
-                "[ToolPath] Computing toolpath with tool \"%s\" strategy=%s",
+                "[ToolPath] Computing toolpath with tool \"%s\" strategy=%s (auto=%i)",
                 toolName.c_str(),
-                Slicer::Strategy::strategyTypeToString(strategy).c_str()
+                Slicer::Strategy::strategyTypeToString(strategy).c_str(),
+                int(strategyAuto)
             );
 
             auto strategyImpl = Slicer::Strategy::createStrategy(strategy);

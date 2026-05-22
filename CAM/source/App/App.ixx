@@ -663,6 +663,7 @@ export namespace Cam::App {
             }
 
             state->toolPath.strategy = strategy;
+            state->toolPath.strategyAuto = false;
             state->toolPath.toolName = toolName;
             state->toolPath.stepDown = stepDown;
             state->toolPath.feedRate = feedRate;

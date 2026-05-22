@@ -214,6 +214,7 @@ export namespace Cam::App {
                 stateJson["toolPath"] = {
                     { "toolName", state->toolPath.toolName },
                     { "strategy", Slicer::Strategy::strategyTypeToString(state->toolPath.strategy) },
+                    { "strategyAuto", state->toolPath.strategyAuto },
                     { "stepDown", state->toolPath.stepDown },
                     { "feedRate", state->toolPath.feedRate },
                     { "hasToolPath", state->hasToolPath }
@@ -350,6 +351,21 @@ export namespace Cam::App {
                             state->toolPath.strategy = Slicer::Strategy::strategyTypeFromString(
                                 toolPathJson["strategy"].get<std::string>()
                             );
+                        }
+
+                        if (
+                            toolPathJson.contains("strategyAuto") &&
+                            toolPathJson["strategyAuto"].is_boolean()
+                        ) {
+                            state->toolPath.strategyAuto =
+                                toolPathJson["strategyAuto"].get<bool>();
+                        }
+
+                        else if (toolPathJson.contains("strategy")) {
+                            // Legacy project files: an explicit strategy field
+                            // means the user committed to that strategy. Lock
+                            // it in so we don't override it via auto-detection.
+                            state->toolPath.strategyAuto = false;
                         }
 
                         if (
