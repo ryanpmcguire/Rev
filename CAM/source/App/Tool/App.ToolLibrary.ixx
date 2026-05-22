@@ -102,6 +102,46 @@ export namespace Cam::App {
             return true;
         }
 
+        bool replaceTool(const std::string& keyName, const Tool& updated) {
+
+            if (updated.name.empty()) {
+                return false;
+            }
+
+            auto it = byName.find(keyName);
+
+            if (it == byName.end()) {
+                return false;
+            }
+
+            const std::string& newName = updated.name;
+
+            if (newName != keyName) {
+
+                if (byName.contains(newName)) {
+                    return false;
+                }
+
+                Tool tool = updated;
+                byName.erase(it);
+                byName.emplace(newName, std::move(tool));
+
+                for (std::string& entry : order) {
+
+                    if (entry == keyName) {
+                        entry = newName;
+                        break;
+                    }
+                }
+            }
+
+            else {
+                it->second = updated;
+            }
+
+            return true;
+        }
+
         static std::string defaultToolFolderPath() {
 
             Rev::OS::File folder = Rev::OS::File::FromPath({
@@ -140,7 +180,7 @@ export namespace Cam::App {
             json["type"] = "Cam.Tool";
             json["version"] = 1;
             json["name"] = tool.name;
-            json["kind"] = "Cylinder";
+            json["kind"] = Tool::typeToKindString(tool.type);
             json["diameter"] = tool.diameter;
             json["radius"] = tool.radius;
             json["length"] = tool.length;
@@ -176,17 +216,22 @@ export namespace Cam::App {
             out = Tool();
             out.name = json["name"].get<std::string>();
 
-            std::string kind = "Cylinder";
+            std::string kind = "EndMill";
 
             if (json.contains("kind") && json["kind"].is_string()) {
                 kind = json["kind"].get<std::string>();
             }
 
-            if (kind != "Cylinder") {
+            if (
+                kind != "EndMill" &&
+                kind != "ThreadMill" &&
+                kind != "Chamfer" &&
+                kind != "Cylinder"
+            ) {
                 return false;
             }
 
-            out.kind = Tool::Kind::Cylinder;
+            out.type = Tool::typeFromKindString(kind);
 
             if (json.contains("diameter") && json["diameter"].is_number()) {
                 out.diameter = json["diameter"].get<double>();

@@ -14,79 +14,41 @@ import Rev.Element.Style;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
+import Rev.Element.ControlTheme;
 
 export namespace Rev::Element {
 
-    namespace Styles {
+    using namespace ControlTheme;
 
-        Shadow subtleShadow = {
-            .color = rgba(0, 0, 0, 0.5),
-            .size = Px(-10), .blur = 20_px
-        };
-        
+    namespace SliderStyle {
+
         Style Self = {
             .size = { .width = Grow(), .min = { .width = 100_px } },
-            .margin = { 4_px, 4_px, 4_px, 4_px },
+            .margin = { 0_px, 0_px, 12_px, 0_px }
         };
 
-            Style TextContainer = {
-                .size = { 100_pct },
-                .margin = { .bottom = 4_px }
-            };
+        Style TextRow = {
+            .layout = { Axis::Horizontal, Align::SpaceBetween, Align::Center },
+            .size = { 100_pct },
+            .margin = { 0_px, 0_px, 6_px, 0_px }
+        };
 
-                Style LabelText = {
-                    .text = { .color = rgba(0, 0, 0, 0.6), .size = 12_px }
-                };
+        Style ValueText = {
+            .text = { .color = rgba(30, 41, 59, 1.0), .size = 12_px }
+        };
 
-                Style ValueText = {
-                    .text = { .color = rgba(0, 0, 0, 0.6), .size = 12_px }
-                };
-
-            Style Slider = {
-                .layout = { Axis::Horizontal, Align::Start, Align::Center },
-                .size = { .width = Grow() },
-                .padding = { 6_px, 6_px, 6_px, 6_px },
-                .background = { .color = rgb(225, 228, 238), .transition = 0.1_sec },
-                .border = { .radius = 4_px },
-                .shadow = subtleShadow
-            };
-
-                Style SliderHover = {
-                    .applies = { .hover = true, .drag = true },
-                    .background = { .color = rgba(203, 213, 223, 1.0) },
-                    .border = { .color = rgba(255, 0, 0, 1.0), .width = 2_px, .transition = 0.5_sec }
-                };
-
-                Style Track = {
-                    .layout = { Axis::Horizontal, Align::Start, Align::Center },
-                    .size = { .width = 100_pct, .height = 2_px },
-                    .background = { .color = rgba(0, 0, 0, 0.25) },
-                };
-
-                    Style ThumbContainer = {
-                        .layout = { Axis::Horizontal, Align::Center, Align::Center },
-                        .size = { .width = 0_px, .height = 0_px }
-                    };
-
-                        Style Thumb = {
-                            .size = { .width = 4_px, .height = 8_px, .transition = 100 },
-                            .background = { .color = rgba(0, 0, 0, 0.5) },
-                        };
-
-                        Style ThumbHover = {
-                            .applies = { .hover = true, .drag = true },
-                            .size = { .width = 8_px, .height = 16_px }
-                        };
-    };
+        Style SliderHover = {
+            .applies = { .hover = true, .drag = true },
+            .border = { .color = rgba(79, 99, 255, 0.35), .width = 1_px }
+        };
+    }
 
     struct Slider : public Box {
 
-        // Text
         Element* textContainer = nullptr;
             Text* labelText = nullptr;
             Text* valueText = nullptr;
 
-        // Slider per-se
         Box* sliderContainer = nullptr;
             Box* track = nullptr;
             Element* thumbContainer = nullptr;
@@ -104,42 +66,41 @@ export namespace Rev::Element {
 
         SliderData data;
 
-        // Create
-        Slider(Element* parent, SliderData sliderData = SliderData(), StyleList styles = {}, std::string name = "Slider") : Box(parent, styles, name) {
+        Slider(
+            Element* parent,
+            SliderData sliderData = SliderData(),
+            StyleList styles = {},
+            std::string name = "Slider"
+        ) : Box(parent, styles, name) {
 
-
-            // Structure
-
-            // Self
             this->data = sliderData;
-            this->styles = { &Styles::Self };
+            this->styles.add(&SliderStyle::Self);
 
-                // Label Container
-                textContainer = new Element(this, { &Styles::TextContainer });
+            textContainer = new Element(this, { &SliderStyle::TextRow });
                 
-                    // Label and value text
-                    labelText = new Text(textContainer, "Value: ", { &Styles::LabelText });
-                    valueText = new Text(textContainer, "", { &Styles::ValueText });
-                    valueText->setContent(data.val);
+                labelText = new Text(textContainer, "Value: ", { &Label });
+                valueText = new Text(textContainer, "", { &SliderStyle::ValueText });
+                valueText->setContent(data.val);
                     
-                // SliderContainer
-                sliderContainer = new Box(this, { &Styles::Slider, &Styles::SliderHover }, "SliderContainer");
+            sliderContainer = new Box(
+                this,
+                { &Field, &FieldFocus, &SliderStyle::SliderHover },
+                "SliderContainer"
+            );
 
-                    // Track
-                    track = new Box(sliderContainer, { &Styles::Track }, "Track");
-                        thumbContainer = new Element(track, { &Styles::ThumbContainer}, "Container");
-                            thumb = new Box(thumbContainer, { &Styles::Thumb, &Styles::ThumbHover }, "Thumb");
+            track = new Box(sliderContainer, { &SliderTrack }, "Track");
+                thumbContainer = new Element(track, { &FieldInner }, "Container");
+                    thumb = new Box(
+                        thumbContainer,
+                        { &SliderThumb, &SliderThumbHover },
+                        "Thumb"
+                    );
 
-            // Handle dragging
-            //--------------------------------------------------
-
-            // Set new value on click
             sliderContainer->onMouseDown([this] (Event& e) {
                 float newVal = posToVal(e.mouse.pos);
                 if (setVal(newVal)) { refresh(e); }
             });
 
-            // Set value on drag
             sliderContainer->onDrag([this] (Event& e) {
                 float newVal = posToVal(e.mouse.pos);
                 if (setVal(newVal)) { refresh(e); }
@@ -148,7 +109,6 @@ export namespace Rev::Element {
 
         bool setVal(float newVal) {
 
-            // Calc clamped value, check if anything changed
             float clamped = std::clamp(newVal, data.min, data.max);
             if (clamped == data.val) { return false; }
             else { data.val = clamped; valueText->setContent(data.val); return true; }

@@ -203,6 +203,35 @@ export namespace Rev {
             bool primary = false;
         };
 
+        static std::wstring widen(const std::string& utf8) {
+
+            if (utf8.empty()) {
+                return L"";
+            }
+
+            int size = MultiByteToWideChar(
+                CP_UTF8,
+                0,
+                utf8.c_str(),
+                (int)utf8.size(),
+                nullptr,
+                0
+            );
+
+            std::wstring result(size, 0);
+
+            MultiByteToWideChar(
+                CP_UTF8,
+                0,
+                utf8.c_str(),
+                (int)utf8.size(),
+                result.data(),
+                size
+            );
+
+            return result;
+        }
+
         static std::string narrow(const std::wstring& wide) {
 
             if (wide.empty()) {
@@ -567,6 +596,15 @@ export namespace Rev {
                 SWP_NOACTIVATE |
                 SWP_NOSIZE
             );
+        }
+
+        void setTitle(const std::string& title) {
+
+            if (!handle) {
+                return;
+            }
+
+            SetWindowTextW(handle, widen(title).c_str());
         }
 
         void setRect(int x, int y, int w, int h) {

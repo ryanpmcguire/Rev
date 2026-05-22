@@ -20,60 +20,14 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Svg;
+import Rev.Element.ControlTheme;
 
 export namespace Rev::Element {
 
-    namespace CheckboxStyle::Styles {
-
-        Shadow subtleShadow = {
-            .color = rgba(0, 0, 0, 0.5),
-            .size = Px(-10), .blur = 20_px
-        };
-        
-        Style Self = {
-            .layout = { Axis::Vertical, Align::Start, Align::Center, Wrap::False },
-            .margin = { 4_px, 4_px, 4_px, 4_px }
-        };
-
-            Style Label = {
-                .margin = { .bottom = 4_px },
-                .text = { .color = rgba(0, 0, 0, 0.6), .size = 12_px }
-            };
-
-            Style Checkbox {
-                .layout = { Axis::Horizontal, Align::Center, Align::Center },
-                .size = { },
-                .padding = { 2_px, 2_px, 2_px, 2_px },
-                .background = { rgb(225, 228, 238 )},
-                .border = { .radius = 2_px },
-                .shadow = subtleShadow
-            };
-
-                Style CheckboxFocus {
-                    .applies = { .focus = true },
-                    .border = { .color = rgb(0, 0, 0), .width = 1_px }
-                };
-
-                Style CheckboxChecked {
-                    .background = { .color = rgb(43, 91, 224) }
-                };
-
-                Style CheckboxPress {
-                    .applies = { .press = true },
-                    .background = { .color = rgb(31, 65, 160) }
-                };
-
-                Style Check = {
-                    .size = { 14_px, 14_px },
-                    .text = { .color = rgba(255, 255, 255, 1.0 ) }
-                };
-    };
-
-    using namespace CheckboxStyle;
+    using namespace ControlTheme;
 
     struct Checkbox : public Element {
 
-        // Label text
         Text* label = nullptr;
 
         Box* checkbox = nullptr;
@@ -95,27 +49,18 @@ export namespace Rev::Element {
         Params params;
         Observable<bool> value;
 
-        // Create
         Checkbox(Element* parent, Params p = Params::Default(), StyleList styles = {}) : Element(parent, styles) {
 
-            // Self
             this->name = "Checkbox";
-            this->styles.add(&Styles::Self);
+            this->styles.add(&Control);
             
             this->params = p;
             this->value = params.def;
 
-            // Label
-            label = new Text(this, params.label, { &Styles::Label });
+            label = new Text(this, params.label, { &Label });
 
-            // Dropdown per-se
-            //--------------------------------------------------
-
-            checkbox = new Box(this, { &Styles::Checkbox, &Styles::CheckboxFocus });
-                check = new Svg(checkbox, File("./check.svg"), { &Styles::Check });
-
-            // Events
-            //--------------------------------------------------
+            checkbox = new Box(this, { &CheckboxBox, &CheckboxFocus });
+                check = new Svg(checkbox, File("./check.svg"), { &CheckboxMark });
 
             checkbox->onClick([this](Event& e) {
 
@@ -132,16 +77,16 @@ export namespace Rev::Element {
                 
                 if (value) {
 
-                    checkbox->styles.add(&Styles::CheckboxChecked);
-                    checkbox->styles.add(&Styles::CheckboxPress);
+                    checkbox->styles.add(&CheckboxChecked);
+                    checkbox->styles.add(&CheckboxPress);
                     
                     check->opacity = 1.0f;
                 }
 
                 else {
 
-                    checkbox->styles.remove(&Styles::CheckboxChecked);
-                    checkbox->styles.remove(&Styles::CheckboxPress);
+                    checkbox->styles.remove(&CheckboxChecked);
+                    checkbox->styles.remove(&CheckboxPress);
 
                     check->opacity = 0.0f;
                 }

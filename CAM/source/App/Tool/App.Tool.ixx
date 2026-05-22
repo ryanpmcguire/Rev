@@ -10,9 +10,13 @@ export namespace Cam::App {
 
     struct Tool {
 
-        enum class Kind { Cylinder };
+        enum class Type {
+            EndMill,
+            ThreadMill,
+            Chamfer
+        };
 
-        Kind kind = Kind::Cylinder;
+        Type type = Type::EndMill;
 
         std::string name = "1mm x 100mm God Tool";
 
@@ -22,13 +26,78 @@ export namespace Cam::App {
 
         Rev::Core::Pos3 axis = { 0.0f, 0.0f, 1.0f };
 
+        static std::string typeToKindString(Type type) {
+
+            switch (type) {
+
+                case Type::EndMill:
+                    return "EndMill";
+
+                case Type::ThreadMill:
+                    return "ThreadMill";
+
+                case Type::Chamfer:
+                    return "Chamfer";
+            }
+
+            return "EndMill";
+        }
+
+        static Type typeFromKindString(const std::string& kind) {
+
+            if (kind == "ThreadMill") {
+                return Type::ThreadMill;
+            }
+
+            if (kind == "Chamfer") {
+                return Type::Chamfer;
+            }
+
+            // EndMill and legacy "Cylinder"
+            return Type::EndMill;
+        }
+
+        static std::string typeDisplayName(Type type) {
+
+            switch (type) {
+
+                case Type::EndMill:
+                    return "End mill";
+
+                case Type::ThreadMill:
+                    return "Thread mill";
+
+                case Type::Chamfer:
+                    return "Chamfer";
+            }
+
+            return "End mill";
+        }
+
+        static std::string typeEyebrow(Type type) {
+
+            switch (type) {
+
+                case Type::EndMill:
+                    return "END MILL";
+
+                case Type::ThreadMill:
+                    return "THREAD MILL";
+
+                case Type::Chamfer:
+                    return "CHAMFER";
+            }
+
+            return "END MILL";
+        }
+
         static Tool GodTool(
             double diameterMm = 1.0,
             int index = 1
         ) {
             Tool tool;
 
-            tool.kind = Kind::Cylinder;
+            tool.type = Type::EndMill;
             tool.diameter = diameterMm;
             tool.radius = diameterMm * 0.5;
             tool.length = 100.0;

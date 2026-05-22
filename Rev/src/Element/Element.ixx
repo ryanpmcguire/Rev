@@ -52,7 +52,7 @@ export namespace Rev::Element {
 
             Event* event = nullptr;
 
-            // Application-owned top-level Rev windows (for spawning more windows).
+            // Top-level windows registered by the application (e.g. tool settings popups).
             std::vector<void*>* windowGroup = nullptr;
         };
 
@@ -71,7 +71,7 @@ export namespace Rev::Element {
         Element* last = nullptr;
 
         std::string name = "Element";
-        
+
         // Style
         StylePtr style;
         StyleList styles;

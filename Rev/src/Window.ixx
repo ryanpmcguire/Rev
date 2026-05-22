@@ -524,6 +524,15 @@ export namespace Rev {
             window->setPos(x, y);
         }
 
+        void setTitle(const std::string& title) {
+
+            details.name = title;
+
+            if (window) {
+                window->setTitle(title);
+            }
+        }
+
         void setRect(int x, int y, int w, int h) {
 
             details.x = x;
@@ -681,7 +690,10 @@ export namespace Rev {
             }
 
             switch (action) {
-                case (NativeWindow::ButtonAction::Press): { this->mouseDown(event); break; }
+                case (NativeWindow::ButtonAction::Press): {
+                    this->mouseDown(event);
+                    break;
+                }
                 case (NativeWindow::ButtonAction::Release): { this->mouseUp(event); break; }
             }
 
@@ -757,7 +769,7 @@ export namespace Rev {
                 case (NativeWindow::Key::Delete): { event.keyboard.del.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Escape): { event.keyboard.escape.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Tab): { event.keyboard.tab.set(action, event.mouse.pos); break; }
-                
+
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.enter.set(action, event.mouse.pos); break; }
             }
 
@@ -781,6 +793,7 @@ export namespace Rev {
                 case (NativeWindow::Key::Escape): { event.keyboard.key = "escape"; break; }
                 case (NativeWindow::Key::Tab): { event.keyboard.key = "tab"; break; }
 
+                case (NativeWindow::Key::Enter):
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.key = "enter"; break; }
 
                 case (NativeWindow::Key::A): { event.keyboard.key = "a"; break; }

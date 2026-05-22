@@ -4,7 +4,6 @@ module;
 #include <vector>
 #include <cstdio>
 #include <functional>
-#include <stdexcept>
 
 #include <dbg.hpp>
 
@@ -18,6 +17,9 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.TextInput;
+import Rev.Element.NumberInput;
+import Rev.Element.Dropdown;
+import Rev.Element.Button;
 
 import Cam.App;
 import Cam.App.Tool;
@@ -30,59 +32,69 @@ export namespace Cam::Gui {
     namespace ToolSettingsStyle {
 
         Shadow panelShadow = {
-            .color = rgba(0, 0, 0, 0.4),
-            .size = Px(-6),
-            .blur = 14_px
+            .color = rgba(15, 23, 42, 0.14),
+            .size = Px(-8),
+            .blur = 28_px
         };
 
         Style Root = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct, 100_pct },
-            .padding = { 12_px, 12_px, 12_px, 12_px },
-            .background = { .color = rgba(240, 242, 248, 1.0) },
-            .border = { .radius = 8_px },
+            .background = { .color = rgba(246, 247, 251, 1.0) },
+            .border = { .radius = 10_px },
             .shadow = panelShadow
         };
 
-        Style Title = {
+        Style Header = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct },
-            .margin = { .bottom = 10_px },
-            .text = { .color = rgba(0, 0, 0, 0.85), .size = 16_px }
+            .padding = { 22_px, 22_px, 18_px, 18_px },
+            .background = { .color = rgba(28, 34, 48, 1.0) }
         };
 
-        Style FieldLabel = {
-            .margin = { .bottom = 4_px },
-            .text = { .color = rgba(0, 0, 0, 0.6), .size = 12_px }
+        Style HeaderEyebrow = {
+            .text = { .color = rgba(148, 163, 184, 1.0), .size = 11_px }
         };
 
-        Style Actions = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+        Style HeaderTitle = {
+            .margin = { 6_px, 0_px, 0_px, 0_px },
+            .text = { .color = rgba(248, 250, 252, 1.0), .size = 21_px }
+        };
+
+        Style Body = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { Grow() },
+            .padding = { 20_px, 22_px, 8_px, 22_px }
+        };
+
+        Style SectionLabel = {
+            .margin = { 4_px, 0_px, 10_px, 0_px },
+            .text = { .color = rgba(100, 116, 139, 1.0), .size = 11_px }
+        };
+
+        Style Footer = {
+            .layout = { Axis::Horizontal, Align::End, Align::Center, Wrap::False },
             .size = { 100_pct },
-            .margin = { 12_px, 0_px, 0_px, 0_px }
+            .padding = { 14_px, 22_px, 20_px, 22_px },
+            .background = { .color = rgba(255, 255, 255, 1.0) },
+            .border = {
+                .top = {
+                    .color = rgba(226, 232, 240, 1.0),
+                    .width = 1_px
+                }
+            }
         };
 
-        Style Button = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = Grow(), .height = 34_px },
-            .margin = { 0_px, 0_px, 0_px, 6_px },
-            .padding = { 10_px, 10_px, 3_px, 2_px },
-            .background = { .color = rgba(255, 255, 255, 0.5), .transition = 100_ms },
-            .border = { .color = rgba(0, 0, 0, 0.18), .width = 1_px, .radius = 5_px },
-            .cursor = Cursor::Hand
+        Style FooterButton = {
+            .margin = { 0_px, 0_px, 0_px, 10_px }
         };
 
-        Style ButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(255, 255, 255, 0.85) }
+        Style FooterButtonPrimary = {
+            .size = { .width = 128_px, .height = 40_px }
         };
 
-        Style ButtonPrimary = {
-            .background = { .color = rgba(109, 119, 255, 0.35) },
-            .border = { .color = rgba(109, 119, 255, 0.9) }
-        };
-
-        Style ButtonLabel = {
-            .text = { .color = rgba(0, 0, 0, 0.8), .size = 13_px }
+        Style FooterButtonSecondary = {
+            .size = { .width = 96_px, .height = 40_px }
         };
     }
 
@@ -91,11 +103,18 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
         std::string toolName;
 
-        Text* titleText = nullptr;
-        TextInput* diameterInput = nullptr;
-        TextInput* lengthInput = nullptr;
+        Text* headerEyebrow = nullptr;
+        Text* headerTitle = nullptr;
+        TextInput* nameInput = nullptr;
+        Dropdown* typeDropdown = nullptr;
+        NumberInput* diameterInput = nullptr;
+        NumberInput* lengthInput = nullptr;
 
         std::function<void(Event&)> onSaved;
+
+        static std::string windowTitleFor(const std::string& toolName) {
+            return toolName + " - Settings";
+        }
 
         static Rev::Window* rootWindow(Element* from) {
 
@@ -108,43 +127,24 @@ export namespace Cam::Gui {
             return static_cast<Rev::Window*>(node);
         }
 
-        static std::string formatNumber(double value) {
-            char buffer[64];
-            std::snprintf(buffer, sizeof(buffer), "%.4f", value);
-
-            std::string result = buffer;
-
-            while (!result.empty() && result.back() == '0') {
-                result.pop_back();
-            }
-
-            if (!result.empty() && result.back() == '.') {
-                result.pop_back();
-            }
-
-            if (result.empty()) {
-                return "0";
-            }
-
-            return result;
+        static Cam::App::Tool::Type typeFromDropdownValue(
+            const std::string& value
+        ) {
+            return Cam::App::Tool::typeFromKindString(value);
         }
 
-        static bool parseNumber(
-            const std::string& text,
-            double& out
-        ) {
-            if (text.empty()) {
-                return false;
-            }
+        void updateHeaderEyebrow(Cam::App::Tool::Type type) {
 
-            try {
-                out = std::stod(text);
-                return true;
-            }
+            if (!headerEyebrow) { return; }
 
-            catch (...) {
-                return false;
-            }
+            headerEyebrow->content =
+                Cam::App::Tool::typeEyebrow(type);
+        }
+
+        void applyWindowTitle() {
+
+            std::string title = windowTitleFor(toolName);
+            setTitle(title);
         }
 
         ToolSettingsWindow(
@@ -154,9 +154,8 @@ export namespace Cam::Gui {
         ) : Rev::Window(
             windowGroup,
             {
-                .name = "Tool Settings",
-                .size = { .width = 340, .height = 300 },
-                //.borderless = true
+                .name = windowTitleFor(toolName),
+                .size = { .width = 400, .height = 480 }
             }
         ) {
             this->toolName = toolName;
@@ -174,6 +173,7 @@ export namespace Cam::Gui {
             this->styles.add(&ToolSettingsStyle::Root);
 
             buildUi();
+            applyWindowTitle();
 
             if (owner) {
                 setPos(
@@ -198,85 +198,140 @@ export namespace Cam::Gui {
                 tool = app->toolLibrary()->find(toolName);
             }
 
-            std::string title = "Tool Settings";
+            std::string displayName = toolName;
+            Cam::App::Tool::Type toolType = Cam::App::Tool::Type::EndMill;
 
             if (tool) {
-                title = tool->name;
+                displayName = tool->name;
+                toolType = tool->type;
             }
 
-            titleText = new Text(this, title, { &ToolSettingsStyle::Title });
+            Box* header = new Box(this, { &ToolSettingsStyle::Header }, "Header");
 
-            diameterInput = new TextInput(
-                this,
+            headerEyebrow = new Text(
+                header,
+                Cam::App::Tool::typeEyebrow(toolType),
+                { &ToolSettingsStyle::HeaderEyebrow }
+            );
+
+            headerTitle = new Text(
+                header,
+                displayName,
+                { &ToolSettingsStyle::HeaderTitle }
+            );
+
+            Box* body = new Box(this, { &ToolSettingsStyle::Body }, "Body");
+
+            nameInput = new TextInput(
+                body,
                 {
-                    .label = "Diameter (mm)",
-                    .placeholder = "1.0",
-                    .maxLength = 32,
+                    .label = "Name",
+                    .placeholder = "Tool name",
+                    .maxLength = 64,
                     .selectAllOnFocus = true
                 }
             );
 
-            lengthInput = new TextInput(
-                this,
+            typeDropdown = new Dropdown(
+                body,
                 {
-                    .label = "Length (mm)",
-                    .placeholder = "100",
-                    .maxLength = 32,
-                    .selectAllOnFocus = true
+                    .label = "Type",
+                    .options = {
+                        {
+                            Cam::App::Tool::typeDisplayName(
+                                Cam::App::Tool::Type::EndMill
+                            ),
+                            "EndMill"
+                        },
+                        {
+                            Cam::App::Tool::typeDisplayName(
+                                Cam::App::Tool::Type::ThreadMill
+                            ),
+                            "ThreadMill"
+                        },
+                        {
+                            Cam::App::Tool::typeDisplayName(
+                                Cam::App::Tool::Type::Chamfer
+                            ),
+                            "Chamfer"
+                        }
+                    },
+                    .placeholder = "Select type",
+                    .value = Cam::App::Tool::typeToKindString(toolType)
                 }
             );
 
+            typeDropdown->onChange = [this](Event& e) {
+                Cam::App::Tool::Type type = typeFromDropdownValue(
+                    typeDropdown->params.value
+                );
+                updateHeaderEyebrow(type);
+                refresh(e);
+            };
+
+            new Text(body, "GEOMETRY", { &ToolSettingsStyle::SectionLabel });
+
+            NumberInput::Params diameterParams;
+            diameterParams.label = "Diameter";
+            diameterParams.placeholder = "1.0";
+            diameterParams.maxLength = 32;
+            diameterParams.selectAllOnFocus = true;
+            diameterParams.allowNegative = false;
+            diameterParams.allowDecimal = true;
+            diameterParams.allowEmpty = false;
+            diameterParams.maxDecimalPlaces = 4;
+
+            diameterInput = new NumberInput(body, diameterParams);
+
+            NumberInput::Params lengthParams;
+            lengthParams.label = "Stickout length";
+            lengthParams.placeholder = "100";
+            lengthParams.maxLength = 32;
+            lengthParams.selectAllOnFocus = true;
+            lengthParams.allowNegative = false;
+            lengthParams.allowDecimal = true;
+            lengthParams.allowEmpty = false;
+            lengthParams.maxDecimalPlaces = 4;
+
+            lengthInput = new NumberInput(body, lengthParams);
+
             if (tool) {
-                diameterInput->text->content =
-                    formatNumber(tool->diameter);
-                lengthInput->text->content =
-                    formatNumber(tool->length);
+                nameInput->text->content = tool->name;
+                diameterInput->setValue(tool->diameter);
+                lengthInput->setValue(tool->length);
             }
 
-            Box* actions = new Box(
+            Box* footer = new Box(
                 this,
-                { &ToolSettingsStyle::Actions },
-                "ToolSettingsActions"
+                { &ToolSettingsStyle::Footer },
+                "Footer"
             );
 
-            Box* saveButton = new Box(
-                actions,
+            Button* cancelButton = new Button(
+                footer,
+                Button::Params::Secondary("Cancel"),
                 {
-                    &ToolSettingsStyle::Button,
-                    &ToolSettingsStyle::ButtonHover,
-                    &ToolSettingsStyle::ButtonPrimary
-                },
-                "ToolSettingsSave"
+                    &ToolSettingsStyle::FooterButton,
+                    &ToolSettingsStyle::FooterButtonSecondary
+                }
             );
 
-            new Text(
-                saveButton,
-                "Save",
-                { &ToolSettingsStyle::ButtonLabel }
+            cancelButton->onClick([this](Event& e) {
+                this->close();
+                e.propagate = false;
+            });
+
+            Button* saveButton = new Button(
+                footer,
+                Button::Params::Primary("Save changes"),
+                {
+                    &ToolSettingsStyle::FooterButton,
+                    &ToolSettingsStyle::FooterButtonPrimary
+                }
             );
 
             saveButton->onClick([this](Event& e) {
                 this->save(e);
-                e.propagate = false;
-            });
-
-            Box* closeButton = new Box(
-                actions,
-                {
-                    &ToolSettingsStyle::Button,
-                    &ToolSettingsStyle::ButtonHover
-                },
-                "ToolSettingsClose"
-            );
-
-            new Text(
-                closeButton,
-                "Close",
-                { &ToolSettingsStyle::ButtonLabel }
-            );
-
-            closeButton->onClick([this](Event& e) {
-                this->close();
                 e.propagate = false;
             });
         }
@@ -285,28 +340,52 @@ export namespace Cam::Gui {
 
             if (!app) { return; }
 
+            std::string newName = nameInput->text->content.get();
+
+            if (newName.empty()) {
+                dbg("[ToolSettings] Name is required");
+                return;
+            }
+
+            Cam::App::Tool::Type type = typeFromDropdownValue(
+                typeDropdown->params.value
+            );
+
+            diameterInput->commit(e);
+            lengthInput->commit(e);
+
             double diameter = 0.0;
             double length = 0.0;
 
-            if (!parseNumber(diameterInput->text->content.get(), diameter)) {
+            if (!diameterInput->tryGetValue(diameter) || diameter <= 0.0) {
                 dbg("[ToolSettings] Invalid diameter");
                 return;
             }
 
-            if (!parseNumber(lengthInput->text->content.get(), length)) {
+            if (!lengthInput->tryGetValue(length) || length <= 0.0) {
                 dbg("[ToolSettings] Invalid length");
                 return;
             }
 
-            if (diameter <= 0.0 || length <= 0.0) {
-                dbg("[ToolSettings] Diameter and length must be positive");
-                return;
-            }
-
-            if (!app->saveTool(toolName, diameter, length)) {
+            if (!app->saveTool(
+                toolName,
+                newName,
+                type,
+                diameter,
+                length
+            )) {
                 dbg("[ToolSettings] Failed to save tool");
                 return;
             }
+
+            toolName = newName;
+
+            if (headerTitle) {
+                headerTitle->content = newName;
+            }
+
+            updateHeaderEyebrow(type);
+            applyWindowTitle();
 
             dbg("[ToolSettings] Saved \"%s\"", toolName.c_str());
 

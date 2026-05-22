@@ -3,6 +3,7 @@ module;
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <filesystem>
 
 #include <managed.hpp>
 
@@ -177,32 +178,55 @@ export namespace Cam::App {
         }
 
         bool saveTool(
-            const std::string& name,
+            const std::string& originalName,
+            const std::string& newName,
+            Tool::Type type,
             double diameter,
             double length
         ) {
 
-            if (!activeProject) {
+            if (!activeProject || newName.empty()) {
                 return false;
             }
 
-            Tool* tool = activeProject->toolLibrary.find(name);
+            Tool* tool = activeProject->toolLibrary.find(originalName);
 
             if (!tool) {
                 return false;
             }
 
-            tool->diameter = diameter;
-            tool->radius = diameter * 0.5;
-            tool->length = length;
-
             if (activeProject->toolFolderPath.empty()) {
                 return false;
             }
 
+            Tool updated = *tool;
+            updated.name = newName;
+            updated.type = type;
+            updated.diameter = diameter;
+            updated.radius = diameter * 0.5;
+            updated.length = length;
+
+            if (!activeProject->toolLibrary.replaceTool(originalName, updated)) {
+                return false;
+            }
+
+            if (newName != originalName) {
+
+                std::filesystem::path dir(activeProject->toolFolderPath);
+                std::filesystem::path oldFile =
+                    dir / (originalName + ".json");
+
+                std::error_code ec;
+                std::filesystem::remove(oldFile, ec);
+
+                if (activeProject->selectedToolName == originalName) {
+                    activeProject->selectedToolName = newName;
+                }
+            }
+
             if (!ToolLibrary::saveToolFile(
                 activeProject->toolFolderPath,
-                *tool
+                updated
             )) {
                 return false;
             }
