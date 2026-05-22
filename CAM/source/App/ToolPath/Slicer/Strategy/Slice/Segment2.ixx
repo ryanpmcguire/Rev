@@ -4,11 +4,11 @@ module;
 #include <algorithm>
 #include <cmath>
 
-export module Cam.App.Geometry.Segment;
+export module Cam.App.Slicer.Strategy.Slice.Segment2;
 
 import Rev.Core.Pos;
 
-export namespace Cam::App::Geometry {
+export namespace Cam::App::Slicer::Strategy::Slice {
 
     using namespace Rev::Core;
 

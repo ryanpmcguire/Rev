@@ -20,19 +20,21 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.Slicer.SliceSource;
+export module Cam.App.Slicer.Strategy.SliceSource;
 
 import Rev.Core.Pos;
 
 import Cam.App.Model;
-import Cam.App.Geometry.Segment;
+import Cam.App.Slicer.Strategy.Slice.Segment2;
 
-import Cam.App.Slicer.Slice;
+import Cam.App.Slicer.Strategy.Slice.Slice;
 
-export namespace Cam::App::Slicer {
+export namespace Cam::App::Slicer::Strategy {
 
     using namespace Rev::Core;
-    using namespace Cam::App::Geometry;
+
+    using SliceLayer = Slice::Slice;
+    using SliceSegment = Slice::Segment;
 
     struct SliceSource {
 
@@ -45,7 +47,7 @@ export namespace Cam::App::Slicer {
         }
 
         static bool addOccLine(
-            Slice& slice,
+            SliceLayer& slice,
             BRepAdaptor_Curve& curve,
             double first,
             double last
@@ -59,7 +61,7 @@ export namespace Cam::App::Slicer {
         }
 
         static bool addOccCircle(
-            Slice& slice,
+            SliceLayer& slice,
             BRepAdaptor_Curve& curve,
             double first,
             double last
@@ -83,7 +85,7 @@ export namespace Cam::App::Slicer {
             double mid = first + span * 0.5;
 
             slice.addSegment(
-                Segment::Arc(
+                SliceSegment::Arc(
                     center,
                     radius,
                     static_cast<float>(first),
@@ -92,7 +94,7 @@ export namespace Cam::App::Slicer {
             );
 
             slice.addSegment(
-                Segment::Arc(
+                SliceSegment::Arc(
                     center,
                     radius,
                     static_cast<float>(mid),
@@ -104,7 +106,7 @@ export namespace Cam::App::Slicer {
         }
 
         static bool addAnalytic(
-            Slice& slice,
+            SliceLayer& slice,
             BRepAdaptor_Curve& curve,
             double first,
             double last
@@ -126,7 +128,7 @@ export namespace Cam::App::Slicer {
         }
 
         static void addSampled(
-            Slice& slice,
+            SliceLayer& slice,
             BRepAdaptor_Curve& curve,
             double first,
             double last
@@ -192,7 +194,7 @@ export namespace Cam::App::Slicer {
         static bool build(
             const Model& model,
             float z,
-            Slice& slice
+            SliceLayer& slice
         ) {
             slice.z = z;
 

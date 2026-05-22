@@ -6,32 +6,34 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.Slicer.HatchStrategy;
+export module Cam.App.Slicer.Strategy.HatchStrategy;
 
 import Rev.Core.Pos3;
 
 import Cam.App.Model;
 import Cam.App.Tool;
 
-import Cam.App.Slicer.Strategy;
-import Cam.App.Slicer.StrategyType;
-import Cam.App.Slicer.Slice;
-import Cam.App.Slicer.HatchSlice;
-import Cam.App.Slicer.SliceSource;
+import Cam.App.Slicer.Strategy.Strategy;
+import Cam.App.Slicer.Strategy.StrategyType;
+import Cam.App.Slicer.Strategy.Slice.Slice;
+import Cam.App.Slicer.Strategy.HatchSlice;
+import Cam.App.Slicer.Strategy.SliceSource;
 
-export namespace Cam::App::Slicer {
+export namespace Cam::App::Slicer::Strategy {
 
     using namespace Rev::Core;
 
+    using SliceLayer = Slice::Slice;
+
     struct HatchStrategy : Strategy {
 
-        std::vector<std::unique_ptr<Slice>> slices_;
+        std::vector<std::unique_ptr<SliceLayer>> slices_;
 
         StrategyType type() const override {
             return StrategyType::Hatch;
         }
 
-        const std::vector<std::unique_ptr<Slice>>& slices() const override {
+        const std::vector<std::unique_ptr<SliceLayer>>& slices() const override {
             return slices_;
         }
 

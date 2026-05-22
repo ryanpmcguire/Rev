@@ -4,7 +4,7 @@ module;
 #include <memory>
 #include <cstddef>
 
-export module Cam.App.Slicer.Strategy;
+export module Cam.App.Slicer.Strategy.Strategy;
 
 import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
@@ -12,12 +12,14 @@ import Rev.Core.Vertex3;
 import Cam.App.Model;
 import Cam.App.Tool;
 
-import Cam.App.Slicer.StrategyType;
-import Cam.App.Slicer.Slice;
+import Cam.App.Slicer.Strategy.StrategyType;
+import Cam.App.Slicer.Strategy.Slice.Slice;
 
-export namespace Cam::App::Slicer {
+export namespace Cam::App::Slicer::Strategy {
 
     using namespace Rev::Core;
+
+    using SliceLayer = Slice::Slice;
 
     struct StrategyContext {
 
@@ -36,7 +38,7 @@ export namespace Cam::App::Slicer {
 
         virtual void execute(const StrategyContext& ctx) = 0;
 
-        virtual const std::vector<std::unique_ptr<Slice>>& slices() const = 0;
+        virtual const std::vector<std::unique_ptr<SliceLayer>>& slices() const = 0;
 
         static bool boundsFromModel(
             const Model& model,

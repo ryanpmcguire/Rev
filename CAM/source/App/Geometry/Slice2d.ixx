@@ -28,14 +28,14 @@ import Rev.Core.Pos;
 import Cam.App.Model;
 import Cam.App.Tool;
 
-import Cam.App.Geometry.Segment;
-import Cam.App.Geometry.Chain;
-import Cam.App.Geometry.Profile;
+import Cam.App.Slicer.Strategy.Slice.Segment2;
+import Cam.App.Slicer.Strategy.Slice.Chain;
+import Cam.App.Slicer.Strategy.Slice.Profile;
 
 export namespace Cam::App {
 
     using namespace Rev::Core;
-    using namespace Cam::App::Geometry;
+    using namespace Slicer::Strategy::Slice;
 
     struct Slice2d {
 

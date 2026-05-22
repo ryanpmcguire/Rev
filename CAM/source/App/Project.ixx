@@ -15,7 +15,7 @@ import Rev.OS.File;
 import Cam.App.Model;
 import Cam.App.MaterialState;
 import Cam.App.ToolLibrary;
-import Cam.App.Slice2d;
+import Cam.App.Slicer.Strategy.StrategyType;
 
 export namespace Cam::App {
 
@@ -213,7 +213,7 @@ export namespace Cam::App {
 
                 stateJson["toolPath"] = {
                     { "toolName", state->toolPath.toolName },
-                    { "strategy", Slice2d::strategyToString(state->toolPath.strategy) },
+                    { "strategy", Slicer::Strategy::strategyTypeToString(state->toolPath.strategy) },
                     { "stepDown", state->toolPath.stepDown },
                     { "feedRate", state->toolPath.feedRate },
                     { "hasToolPath", state->hasToolPath }
@@ -347,7 +347,7 @@ export namespace Cam::App {
                             toolPathJson.contains("strategy") &&
                             toolPathJson["strategy"].is_string()
                         ) {
-                            state->toolPath.strategy = Slice2d::strategyFromString(
+                            state->toolPath.strategy = Slicer::Strategy::strategyTypeFromString(
                                 toolPathJson["strategy"].get<std::string>()
                             );
                         }

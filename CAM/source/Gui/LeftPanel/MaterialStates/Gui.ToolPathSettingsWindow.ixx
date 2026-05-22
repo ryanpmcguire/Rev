@@ -21,7 +21,7 @@ import Rev.Element.Button;
 
 import Cam.App;
 import Cam.App.MaterialState;
-import Cam.App.Slice2d;
+import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Tool;
 import Cam.App.ToolPath;
 
@@ -192,9 +192,11 @@ export namespace Cam::Gui {
 
         void buildUi() {
 
+            static const Cam::App::ToolPath emptyToolPath;
+
             const Cam::App::ToolPath& toolPath = state
                 ? state->toolPath
-                : Cam::App::ToolPath();
+                : emptyToolPath;
 
             Box* header = new Box(
                 this,
@@ -226,20 +228,20 @@ export namespace Cam::Gui {
                     .label = "Strategy",
                     .options = {
                         {
-                            Cam::App::Slice2d::strategyDisplayName(
-                                Cam::App::Slice2d::Strategy::Profile
+                            Cam::App::Slicer::Strategy::strategyTypeDisplayName(
+                                Cam::App::Slicer::Strategy::StrategyType::Profile
                             ),
                             "Profile"
                         },
                         {
-                            Cam::App::Slice2d::strategyDisplayName(
-                                Cam::App::Slice2d::Strategy::Hatch
+                            Cam::App::Slicer::Strategy::strategyTypeDisplayName(
+                                Cam::App::Slicer::Strategy::StrategyType::Hatch
                             ),
                             "Hatch"
                         }
                     },
                     .placeholder = "Select strategy",
-                    .value = Cam::App::Slice2d::strategyToString(toolPath.strategy)
+                    .value = Cam::App::Slicer::Strategy::strategyTypeToString(toolPath.strategy)
                 }
             );
 
@@ -351,7 +353,7 @@ export namespace Cam::Gui {
                 return;
             }
 
-            const auto strategy = Cam::App::Slice2d::strategyFromString(
+            const auto strategy = Cam::App::Slicer::Strategy::strategyTypeFromString(
                 strategyDropdown->params.value
             );
 

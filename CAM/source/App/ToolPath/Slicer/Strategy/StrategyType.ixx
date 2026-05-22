@@ -2,9 +2,9 @@ module;
 
 #include <string>
 
-export module Cam.App.Slicer.StrategyType;
+export module Cam.App.Slicer.Strategy.StrategyType;
 
-export namespace Cam::App::Slicer {
+export namespace Cam::App::Slicer::Strategy {
 
     enum class StrategyType {
         Hatch,

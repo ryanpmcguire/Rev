@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <vector>
+#include <memory>
 #include <cstddef>
 #include <algorithm>
 
@@ -17,14 +18,16 @@ import Rev.Core.Pos3;
 import Cam.App.Model;
 import Cam.App.Tool;
 import Cam.App.Slice2d;
-import Cam.App.Geometry.Segment;
+import Cam.App.Slicer.Strategy.Slice.Segment2;
 
-import Cam.App.Slicer.Strategy;
-import Cam.App.Slicer.HatchStrategy;
+import Cam.App.Slicer.Strategy.Strategy;
+import Cam.App.Slicer.Strategy.StrategyType;
+import Cam.App.Slicer.Strategy.StrategyFactory;
 
 export namespace Cam::App {
 
     using namespace Rev::Core;
+    using Segment = Slicer::Strategy::Slice::Segment;
 
     struct ToolPathPoint {
         Pos3 position = {};
@@ -35,12 +38,11 @@ export namespace Cam::App {
 
     struct ToolPath {
 
-        // Identity in the project tool library (name is the key).
         std::string toolName = "";
 
-        Slice2d::Strategy strategy = Slice2d::Strategy::Profile;
+        Slicer::Strategy::StrategyType strategy =
+            Slicer::Strategy::StrategyType::Profile;
 
-        std::vector<Slice2d> slices;
         std::vector<ToolPathPoint> points;
 
         bool computed = false;
@@ -48,10 +50,20 @@ export namespace Cam::App {
         double stepDown = 1.0;
         double feedRate = 1000.0;
 
+        ToolPath() = default;
+        ToolPath(const ToolPath&) = delete;
+        ToolPath& operator=(const ToolPath&) = delete;
+        ToolPath(ToolPath&&) = default;
+        ToolPath& operator=(ToolPath&&) = default;
+
+        // Legacy Slice2d storage — retained, not used by compute().
+        std::vector<Slice2d> legacySlices;
+
         void clearPathData() {
-            slices.clear();
+            legacySlices.clear();
             points.clear();
             computed = false;
+            ownedStrategy.reset();
         }
 
         void clear() {
@@ -61,6 +73,10 @@ export namespace Cam::App {
 
         bool empty() const { return points.empty(); }
         size_t size() const { return points.size(); }
+
+        const Slicer::Strategy::Strategy* strategyResult() const {
+            return ownedStrategy.get();
+        }
 
         bool boundsFromModel(const Model& model, Pos3& min, Pos3& max) const {
             if (!model.loaded) { return false; }
@@ -81,16 +97,6 @@ export namespace Cam::App {
             }
 
             return valid;
-        }
-
-        bool buildSlice(
-            Model& model,
-            float z,
-            Slice2d& slice,
-            const Tool& tool
-        ) const {
-            slice = Slice2d::FromModel(model, z, strategy, tool);
-            return !slice.empty();
         }
 
         void addPoint(const Pos& p, float z, double& t, bool rapid = false, bool cutting = true) {
@@ -123,12 +129,20 @@ export namespace Cam::App {
             }
         }
 
-        void buildPointsFromSlices() {
+        void buildPointsFromStrategy(
+            const Slicer::Strategy::Strategy& strategyImpl
+        ) {
             points.clear();
 
             double t = 0.0;
 
-            for (const Slice2d& slice : slices) {
+            for (const std::unique_ptr<Slicer::Strategy::SliceLayer>& slicePtr :
+                strategyImpl.slices()
+            ) {
+                if (!slicePtr) { continue; }
+
+                const Slicer::Strategy::SliceLayer& slice = *slicePtr;
+
                 if (slice.hasPointPath()) {
                     for (const Pos& p : slice.points) {
                         addPoint(p, slice.z, t);
@@ -143,79 +157,117 @@ export namespace Cam::App {
             }
         }
 
-        static void runSlicerStrategyTest(
-            Model& positive,
-            Model& negative,
-            const Tool& tool,
-            float stepDown
-        ) {
-            Slicer::HatchStrategy strategy;
+        // Legacy Slice2d path — retained, not used by compute().
+        //--------------------------------------------------
 
-            Slicer::StrategyContext ctx {
-                .positive = &positive,
-                .negative = &negative,
-                .tool = &tool,
-                .stepDown = stepDown
-            };
-
-            strategy.execute(ctx);
-
-            dbg(
-                "[ToolPath] Slicer strategy test done. slices=%zu",
-                strategy.slices().size()
+        bool buildLegacySlice(
+            Model& model,
+            float z,
+            Slice2d& slice,
+            const Tool& tool
+        ) const {
+            const Slice2d::Strategy legacyStrategy = (
+                strategy == Slicer::Strategy::StrategyType::Hatch
+                ? Slice2d::Strategy::Hatch
+                : Slice2d::Strategy::Profile
             );
+
+            slice = Slice2d::FromModel(model, z, legacyStrategy, tool);
+            return !slice.empty();
         }
 
-        bool compute(Model& toCarve, const Tool& tool) {
-            clearPathData();
+        void buildPointsFromLegacySlices() {
+            points.clear();
+
+            double t = 0.0;
+
+            for (const Slice2d& slice : legacySlices) {
+                if (slice.hasPointPath()) {
+                    for (const Pos& p : slice.points) {
+                        addPoint(p, slice.z, t);
+                    }
+
+                    continue;
+                }
+
+                for (const Segment& segment : slice.paths) {
+                    addSegmentPoints(segment, slice.z, t);
+                }
+            }
+        }
+
+        bool computeLegacy(Model& toCarve, const Tool& tool) {
+            legacySlices.clear();
+            points.clear();
+            computed = false;
+            ownedStrategy.reset();
 
             toolName = tool.name;
 
-            dbg("[ToolPath] Computing toolpath with tool \"%s\"", toolName.c_str());
+            dbg("[ToolPath] Computing legacy toolpath with tool \"%s\"", toolName.c_str());
 
             Pos3 min;
             Pos3 max;
 
             if (!boundsFromModel(toCarve, min, max)) {
-                dbg("[ToolPath] Failed: no carve bounds");
+                dbg("[ToolPath] Legacy failed: no carve bounds");
                 return false;
             }
-
-            dbg(
-                "[ToolPath] Carve bounds min=(%.3f %.3f %.3f), max=(%.3f %.3f %.3f)",
-                min.x, min.y, min.z,
-                max.x, max.y, max.z
-            );
 
             float dz = static_cast<float>(stepDown);
             if (dz <= 0.0f) { dz = 1.0f; }
 
-            size_t attempted = 0;
-            size_t solved = 0;
-
             for (float z = min.z; z <= max.z + 1e-4f; z += dz) {
-                attempted += 1;
-
                 Slice2d slice;
 
-                if (!buildSlice(toCarve, z, slice, tool)) {
-                    dbg("[ToolPath] z=%.3f: no slice path", z);
+                if (!buildLegacySlice(toCarve, z, slice, tool)) {
                     continue;
                 }
 
-                slices.push_back(slice);
-                solved += 1;
+                legacySlices.push_back(slice);
             }
 
-            buildPointsFromSlices();
+            buildPointsFromLegacySlices();
 
             computed = !points.empty();
 
+            return computed;
+        }
+
+        // Strategy path
+        //--------------------------------------------------
+
+        bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
+            clearPathData();
+
+            toolName = tool.name;
+
             dbg(
-                "[ToolPath] Done. attempted=%zu solved=%zu slices=%zu points=%zu computed=%i",
-                attempted,
-                solved,
-                slices.size(),
+                "[ToolPath] Computing toolpath with tool \"%s\" strategy=%s",
+                toolName.c_str(),
+                Slicer::Strategy::strategyTypeToString(strategy).c_str()
+            );
+
+            auto strategyImpl = Slicer::Strategy::createStrategy(strategy);
+
+            Slicer::Strategy::StrategyContext ctx {
+                .positive = &toCarve,
+                .negative = &toAvoid,
+                .tool = &tool,
+                .stepDown = static_cast<float>(stepDown)
+            };
+
+            strategyImpl->execute(ctx);
+
+            buildPointsFromStrategy(*strategyImpl);
+
+            computed = !points.empty();
+
+            ownedStrategy = std::move(strategyImpl);
+
+            dbg(
+                "[ToolPath] Done. slices=%zu points=%zu computed=%i",
+                ownedStrategy ? ownedStrategy->slices().size() : 0,
                 points.size(),
                 int(computed)
             );
@@ -223,27 +275,16 @@ export namespace Cam::App {
             return computed;
         }
 
+        bool compute(Model& toCarve, const Tool& tool) {
+            return compute(toCarve, toCarve, tool);
+        }
+
         bool compute(Model& toCarve) {
             return compute(toCarve, Tool::GodTool());
         }
 
-        bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
-            const bool computed = compute(toCarve, tool);
-
-            if (strategy == Slice2d::Strategy::Hatch) {
-                runSlicerStrategyTest(
-                    toCarve,
-                    toAvoid,
-                    tool,
-                    static_cast<float>(stepDown)
-                );
-            }
-
-            return computed;
-        }
-
         bool compute(Model& toCarve, Model& toAvoid) {
-            return compute(toCarve, Tool::GodTool());
+            return compute(toCarve, toAvoid, Tool::GodTool());
         }
 
         bool computeFromDelta(
@@ -272,5 +313,9 @@ export namespace Cam::App {
                 lines.push_back({ b.x, b.y, b.z, color });
             }
         }
+
+    private:
+
+        std::unique_ptr<Slicer::Strategy::Strategy> ownedStrategy;
     };
 }

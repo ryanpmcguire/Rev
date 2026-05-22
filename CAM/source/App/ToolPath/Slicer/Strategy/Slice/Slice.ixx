@@ -2,18 +2,18 @@ module;
 
 #include <vector>
 
-export module Cam.App.Slicer.Slice;
+export module Cam.App.Slicer.Strategy.Slice.Slice;
 
 import Rev.Core.Pos;
 
-import Cam.App.Geometry.Segment;
-import Cam.App.Geometry.Chain;
-import Cam.App.Geometry.Profile;
+import Cam.App.Slicer.Strategy.Slice.Segment2;
+import Cam.App.Slicer.Strategy.Slice.Chain;
+import Cam.App.Slicer.Strategy.Slice.Profile;
 
-export namespace Cam::App::Slicer {
+export namespace Cam::App::Slicer::Strategy::Slice {
 
     using namespace Rev::Core;
-    using namespace Cam::App::Geometry;
+
 
     struct Slice {
 

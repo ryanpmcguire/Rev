@@ -2,17 +2,18 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.Slicer.HatchSlice;
+export module Cam.App.Slicer.Strategy.HatchSlice;
 
-import Cam.App.Geometry.Profile;
+import Cam.App.Slicer.Strategy.Slice.Profile;
 
-import Cam.App.Slicer.Slice;
+import Cam.App.Slicer.Strategy.Slice.Slice;
 
-export namespace Cam::App::Slicer {
+export namespace Cam::App::Slicer::Strategy {
 
-    using namespace Cam::App::Geometry;
+    using SliceLayer = Slice::Slice;
+    using SliceProfile = Slice::Profile;
 
-    struct HatchSlice : Slice {
+    struct HatchSlice : SliceLayer {
 
         void solve() override {
             buildHatch();
@@ -24,7 +25,7 @@ export namespace Cam::App::Slicer {
             paths.clear();
             profiles.clear();
 
-            Profile profile = makeProfile();
+            SliceProfile profile = makeProfile();
 
             if (!profile.empty()) {
                 profiles.push_back(profile);

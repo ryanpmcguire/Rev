@@ -7,13 +7,13 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.Geometry.Chain;
+export module Cam.App.Slicer.Strategy.Slice.Chain;
 
 import Rev.Core.Pos;
 
-import Cam.App.Geometry.Segment;
+import Cam.App.Slicer.Strategy.Slice.Segment2;
 
-export namespace Cam::App::Geometry {
+export namespace Cam::App::Slicer::Strategy::Slice {
 
     using namespace Rev::Core;
 
