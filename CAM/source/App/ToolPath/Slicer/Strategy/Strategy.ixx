@@ -28,6 +28,7 @@ export namespace Cam::App::Slicer::Strategy {
         const Tool* tool = nullptr;
 
         float stepDown = 1.0f;
+        float stepover = 0.25f;
     };
 
     struct Strategy {

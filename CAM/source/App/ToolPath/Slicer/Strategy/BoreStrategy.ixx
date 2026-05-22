@@ -16,7 +16,7 @@ import Cam.App.Tool;
 import Cam.App.Slicer.Strategy.Strategy;
 import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Slicer.Strategy.Slice.Slice;
-import Cam.App.Slicer.Strategy.ProfileSlice;
+import Cam.App.Slicer.Strategy.BoreSlice;
 import Cam.App.Slicer.Strategy.SliceSource;
 
 export namespace Cam::App::Slicer::Strategy {
@@ -30,7 +30,7 @@ export namespace Cam::App::Slicer::Strategy {
         std::vector<std::unique_ptr<SliceLayer>> slices_;
 
         StrategyType type() const override {
-            return StrategyType::Profile;
+            return StrategyType::Bore;
         }
 
         const std::vector<std::unique_ptr<SliceLayer>>& slices() const override {
@@ -69,7 +69,12 @@ export namespace Cam::App::Slicer::Strategy {
 
             if (dz <= 0.0f) { dz = 1.0f; }
 
-            const float insetAmount = static_cast<float>(ctx.tool->radius);
+            const float toolRadius = static_cast<float>(ctx.tool->radius);
+            float stepover = static_cast<float>(ctx.tool->diameter) * ctx.stepover;
+
+            if (stepover <= 0.0f) {
+                stepover = static_cast<float>(ctx.tool->diameter) * 0.25f;
+            }
 
             size_t attempted = 0;
             size_t solved = 0;
@@ -77,10 +82,11 @@ export namespace Cam::App::Slicer::Strategy {
             for (float z = min.z; z <= max.z + 1e-4f; z += dz) {
                 attempted += 1;
 
-                auto slice = std::make_unique<ProfileSlice>();
+                auto slice = std::make_unique<BoreSlice>();
 
                 slice->z = z;
-                slice->insetAmount = insetAmount;
+                slice->toolRadius = toolRadius;
+                slice->stepover = stepover;
 
                 if (!SliceSource::build(*ctx.positive, z, *slice)) {
                     dbg("[BoreStrategy] z=%.3f: no slice source", z);

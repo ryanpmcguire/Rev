@@ -15,7 +15,8 @@ export namespace Cam::App::Slicer::Strategy {
 
     struct ProfileSlice : SliceLayer {
 
-        float insetAmount = 0.0f;
+        float toolRadius = 0.0f;
+        float stepover = 0.0f;
 
         void solve() override {
             buildProfile();
@@ -43,21 +44,25 @@ export namespace Cam::App::Slicer::Strategy {
             profiles.push_back(profile);
 
             dbg(
-                "[ProfileSlice] z=%.3f profile start source=%zu entries=%zu outer=%zu holes=%zu radius=%.3f",
+                "[ProfileSlice] z=%.3f profile start source=%zu entries=%zu outer=%zu holes=%zu radius=%.3f stepover=%.3f",
                 z,
                 source.size(),
                 profile.size(),
                 profile.outerCount(),
                 profile.holeCount(),
-                insetAmount
+                toolRadius,
+                stepover
             );
 
             collectProfile(profile);
 
-            // Temporary rough spiral/profile test.
+            // First inset is the tool-center path. Additional insets are
+            // roughing passes spaced by stepover.
             //
             // Profile::inset() means "toward material":
             // outer loops inset, hole loops outset.
+            float insetAmount = toolRadius;
+
             for (int i = 0; i < 24; i++) {
 
                 SliceProfile next = profile.inset(insetAmount);
@@ -76,6 +81,7 @@ export namespace Cam::App::Slicer::Strategy {
                 );
 
                 profile = next;
+                insetAmount = stepover;
             }
 
             dbg(

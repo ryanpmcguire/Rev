@@ -397,6 +397,90 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
+        Segment offsetSegmentNormal(
+            const Segment& s,
+            float amount,
+            bool towardInterior
+        ) const {
+            switch (s.kind) {
+
+                case Segment::Kind::Arc: {
+                    Pos n = towardInterior
+                        ? interiorNormalAtSegment(s)
+                        : exteriorNormalAtSegment(s);
+
+                    Pos radial = s.pointAt(0.5f) - s.p0;
+                    float radialLength = radial.pythag();
+
+                    if (radialLength <= 1e-8f) {
+                        return s;
+                    }
+
+                    radial = radial * (1.0f / radialLength);
+
+                    float radius = s.f0 + amount * (
+                        n.dot(radial) >= 0.0f
+                            ? 1.0f
+                            : -1.0f
+                    );
+
+                    if (radius <= 1e-6f) {
+                        return Segment::Line(
+                            s.p0,
+                            s.p0
+                        );
+                    }
+
+                    return Segment::Arc(
+                        s.p0,
+                        radius,
+                        s.f1,
+                        s.f2
+                    );
+                }
+
+                default: {
+                    Pos n = towardInterior
+                        ? interiorNormalAtSegment(s)
+                        : exteriorNormalAtSegment(s);
+
+                    return translatedSegment(
+                        s,
+                        n * amount
+                    );
+                }
+            }
+        }
+
+        Pos interiorNormalAtSegment(
+            const Segment& s,
+            float t = 0.5f
+        ) const {
+            Pos tangent = s.tangentAt(t);
+
+            Pos left = {
+                -tangent.y,
+                tangent.x
+            };
+
+            if (counterClockwise()) {
+                return left;
+            }
+
+            if (clockwise()) {
+                return left * -1.0f;
+            }
+
+            return { 0.0f, 0.0f };
+        }
+
+        Pos exteriorNormalAtSegment(
+            const Segment& s,
+            float t = 0.5f
+        ) const {
+            return interiorNormalAtSegment(s, t) * -1.0f;
+        }
+
         Chain offsetInterior(float amount) const {
 
             Chain out;
@@ -405,12 +489,11 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (size_t i = 0; i < segments.size(); i++) {
 
-                Pos n = interiorNormalAt(i);
-
                 out.push(
-                    translatedSegment(
+                    offsetSegmentNormal(
                         segments[i],
-                        n * amount
+                        amount,
+                        true
                     )
                 );
             }
@@ -428,12 +511,11 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (size_t i = 0; i < segments.size(); i++) {
 
-                Pos n = exteriorNormalAt(i);
-
                 out.push(
-                    translatedSegment(
+                    offsetSegmentNormal(
                         segments[i],
-                        n * amount
+                        amount,
+                        false
                     )
                 );
             }

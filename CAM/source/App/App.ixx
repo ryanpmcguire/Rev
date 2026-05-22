@@ -645,10 +645,11 @@ export namespace Cam::App {
             Slicer::Strategy::StrategyType strategy,
             const std::string& toolName,
             double stepDown,
+            double stepover,
             double feedRate
         ) {
 
-            if (!activeProject || !state || toolName.empty()) {
+            if (!activeProject || !state || toolName.empty() || stepover <= 0.0) {
                 return false;
             }
 
@@ -666,6 +667,7 @@ export namespace Cam::App {
             state->toolPath.strategyAuto = false;
             state->toolPath.toolName = toolName;
             state->toolPath.stepDown = stepDown;
+            state->toolPath.stepover = stepover;
             state->toolPath.feedRate = feedRate;
 
             if (state->hasDelta) {

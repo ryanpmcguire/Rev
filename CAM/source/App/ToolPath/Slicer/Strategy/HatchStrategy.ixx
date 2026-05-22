@@ -69,6 +69,13 @@ export namespace Cam::App::Slicer::Strategy {
 
             if (dz <= 0.0f) { dz = 1.0f; }
 
+            const float toolRadius = static_cast<float>(ctx.tool->radius);
+            float stepover = static_cast<float>(ctx.tool->diameter) * ctx.stepover;
+
+            if (stepover <= 0.0f) {
+                stepover = static_cast<float>(ctx.tool->diameter) * 0.25f;
+            }
+
             size_t attempted = 0;
             size_t solved = 0;
 
@@ -78,6 +85,8 @@ export namespace Cam::App::Slicer::Strategy {
                 auto slice = std::make_unique<HatchSlice>();
 
                 slice->z = z;
+                slice->toolRadius = toolRadius;
+                slice->stepover = stepover;
 
                 if (!SliceSource::build(*ctx.positive, z, *slice)) {
                     dbg("[HatchStrategy] z=%.3f: no slice source", z);

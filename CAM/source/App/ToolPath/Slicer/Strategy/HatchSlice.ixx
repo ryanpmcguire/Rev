@@ -15,6 +15,9 @@ export namespace Cam::App::Slicer::Strategy {
 
     struct HatchSlice : SliceLayer {
 
+        float toolRadius = 0.0f;
+        float stepover = 0.0f;
+
         void solve() override {
             buildHatch();
         }
@@ -27,19 +30,25 @@ export namespace Cam::App::Slicer::Strategy {
 
             SliceProfile profile = makeProfile();
 
-            if (!profile.empty()) {
-                profiles.push_back(profile);
+            if (profile.empty()) {
+                return;
             }
 
-            // Placeholder: keep source visible until hatch is migrated to Profile.
-            paths = source;
+            profiles.push_back(profile);
+
+            SliceProfile toolCenterProfile = profile.inset(toolRadius);
+
+            profiles.push_back(toolCenterProfile);
+            collectProfile(toolCenterProfile);
 
             dbg(
-                "[HatchSlice] z=%.3f hatch placeholder source=%zu paths=%zu entries=%zu",
+                "[HatchSlice] z=%.3f hatch placeholder source=%zu paths=%zu entries=%zu radius=%.3f stepover=%.3f",
                 z,
                 source.size(),
                 paths.size(),
-                profile.size()
+                profile.size(),
+                toolRadius,
+                stepover
             );
         }
     };

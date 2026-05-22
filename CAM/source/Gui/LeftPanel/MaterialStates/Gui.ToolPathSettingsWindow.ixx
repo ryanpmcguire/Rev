@@ -109,6 +109,7 @@ export namespace Cam::Gui {
         Dropdown* strategyDropdown = nullptr;
         Dropdown* toolDropdown = nullptr;
         NumberInput* stepDownInput = nullptr;
+        NumberInput* stepoverInput = nullptr;
         NumberInput* feedRateInput = nullptr;
 
         std::function<void(Event&)> onSaved;
@@ -158,7 +159,7 @@ export namespace Cam::Gui {
             windowGroup,
             {
                 .name = title + " - Toolpath Settings",
-                .size = { .width = 400, .height = 460 }
+                .size = { .width = 400, .height = 520 }
             }
         ) {
             state = materialState;
@@ -280,6 +281,19 @@ export namespace Cam::Gui {
             stepDownInput = new NumberInput(body, stepDownParams);
 
             NumberInput::Params feedRateParams;
+            NumberInput::Params stepoverParams;
+
+            stepoverParams.label = "Stepover (% diameter)";
+            stepoverParams.placeholder = "25";
+            stepoverParams.maxLength = 32;
+            stepoverParams.selectAllOnFocus = true;
+            stepoverParams.allowNegative = false;
+            stepoverParams.allowDecimal = true;
+            stepoverParams.allowEmpty = false;
+            stepoverParams.maxDecimalPlaces = 4;
+
+            stepoverInput = new NumberInput(body, stepoverParams);
+
             feedRateParams.label = "Feed rate";
             feedRateParams.placeholder = "1000";
             feedRateParams.maxLength = 32;
@@ -292,6 +306,7 @@ export namespace Cam::Gui {
             feedRateInput = new NumberInput(body, feedRateParams);
 
             stepDownInput->setValue(toolPath.stepDown);
+            stepoverInput->setValue(toolPath.stepover * 100.0);
             feedRateInput->setValue(toolPath.feedRate);
 
             Box* footer = new Box(
@@ -344,13 +359,20 @@ export namespace Cam::Gui {
             }
 
             stepDownInput->commit(e);
+            stepoverInput->commit(e);
             feedRateInput->commit(e);
 
             double stepDown = 0.0;
+            double stepoverPercent = 0.0;
             double feedRate = 0.0;
 
             if (!stepDownInput->tryGetValue(stepDown) || stepDown <= 0.0) {
                 dbg("[ToolPathSettings] Invalid stepdown");
+                return;
+            }
+
+            if (!stepoverInput->tryGetValue(stepoverPercent) || stepoverPercent <= 0.0) {
+                dbg("[ToolPathSettings] Invalid stepover");
                 return;
             }
 
@@ -368,6 +390,7 @@ export namespace Cam::Gui {
                 strategy,
                 toolName,
                 stepDown,
+                stepoverPercent / 100.0,
                 feedRate
             )) {
                 dbg("[ToolPathSettings] Failed to save toolpath settings");

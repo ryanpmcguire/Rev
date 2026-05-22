@@ -216,6 +216,7 @@ export namespace Cam::App {
                     { "strategy", Slicer::Strategy::strategyTypeToString(state->toolPath.strategy) },
                     { "strategyAuto", state->toolPath.strategyAuto },
                     { "stepDown", state->toolPath.stepDown },
+                    { "stepover", state->toolPath.stepover },
                     { "feedRate", state->toolPath.feedRate },
                     { "hasToolPath", state->hasToolPath }
                 };
@@ -382,6 +383,14 @@ export namespace Cam::App {
                         ) {
                             state->toolPath.feedRate =
                                 toolPathJson["feedRate"].get<double>();
+                        }
+
+                        if (
+                            toolPathJson.contains("stepover") &&
+                            toolPathJson["stepover"].is_number()
+                        ) {
+                            state->toolPath.stepover =
+                                toolPathJson["stepover"].get<double>();
                         }
                     }
 

@@ -53,6 +53,7 @@ export namespace Cam::App {
 
         double stepDown = 1.0;
         double feedRate = 1000.0;
+        double stepover = 0.25;
 
         ToolPath() = default;
         ToolPath(const ToolPath&) = delete;
@@ -170,7 +171,8 @@ export namespace Cam::App {
                 .positive = &toCarve,
                 .negative = &toAvoid,
                 .tool = &tool,
-                .stepDown = static_cast<float>(stepDown)
+                .stepDown = static_cast<float>(stepDown),
+                .stepover = static_cast<float>(stepover)
             };
 
             strategyImpl->execute(ctx);
