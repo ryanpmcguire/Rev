@@ -53,6 +53,7 @@ export namespace Rev {
             bool resizable = true;
             bool borderless = false;
             bool fullscreen = false;
+            bool embedded = false;
 
             std::string display = "";
 
@@ -77,33 +78,84 @@ export namespace Rev {
         int xPin = 0; int yPin = 0;
         Pos downPos = { 0, 0 };
 
-        // Native child HWND under another Rev window. UI is part of the parent's
-        // element tree — not a separate top-level Rev window.
-        Window(Window* parent, Details details) : Element(parent) {
+        static NativeWindow::Relationship relationshipFor(
+            Window* owner,
+            const Details& details
+        ) {
+            if (!owner) {
+                return NativeWindow::Relationship::Independent;
+            }
+
+            return details.embedded
+                ? NativeWindow::Relationship::EmbeddedChild
+                : NativeWindow::Relationship::OwnedTopLevel;
+        }
+
+        static void* nativeHandleFor(Window* owner) {
+            return (
+                owner && owner->window
+                ? owner->window->handle
+                : nullptr
+            );
+        }
+
+        static std::vector<void*>* windowGroupFor(Window* owner) {
+            return (
+                owner && owner->shared
+                ? owner->shared->windowGroup
+                : nullptr
+            );
+        }
+
+        void joinWindowGroup(std::vector<void*>* group) {
+
+            if (!group) { return; }
+
+            group->push_back(static_cast<void*>(this));
+
+            if (shared) {
+                shared->windowGroup = group;
+            }
+        }
+
+        // A child of another Rev window is an owned top-level window by default.
+        // Set Details::embedded=true when an actual WS_CHILD HWND is desired.
+        Window(Window* owner, Details details) : Element(details.embedded ? owner : nullptr) {
             
-            this->parent = parent;
+            this->parent = details.embedded && owner
+                ? owner
+                : this;
             this->details = details;
 
             window = new NativeWindow(
-                parent->window->handle,
+                nativeHandleFor(owner),
                 details.nativeSize(),
                 details.borderless,
-                [this](WinEvent& event) { this->onEvent(event); }
+                [this](WinEvent& event) { this->onEvent(event); },
+                relationshipFor(owner, details)
             );
 
             this->unifiedConstructor();
+
+            if (!details.embedded) {
+                joinWindowGroup(windowGroupFor(owner));
+            }
         }
 
-        // With native window as parent
-        Window(void* parent, Details details) : Element() {
+        // With native window owner/parent. Uses Details::embedded to distinguish
+        // an owned top-level window from a WS_CHILD window.
+        Window(void* ownerOrParent, Details details) : Element() {
 
             this->details = details;
 
             window = new NativeWindow(
-                parent,
+                ownerOrParent,
                 details.nativeSize(),
                 details.borderless,
-                [this](WinEvent& event) { this->onEvent(event); }
+                [this](WinEvent& event) { this->onEvent(event); },
+                details.embedded
+                    ? NativeWindow::Relationship::EmbeddedChild
+                    : NativeWindow::Relationship::OwnedTopLevel
             );
 
             this->parent = this;
@@ -123,14 +175,37 @@ export namespace Rev {
                 nullptr,
                 details.nativeSize(),
                 details.borderless,
-                [this](WinEvent& event) { this->onEvent(event); }
+                [this](WinEvent& event) { this->onEvent(event); },
+                NativeWindow::Relationship::Independent
             );
-
-            group.push_back(static_cast<void*>(this));
 
             this->unifiedConstructor();
 
-            shared->windowGroup = &group;
+            joinWindowGroup(&group);
+        }
+
+        // Registered child of another top-level window. Owned top-level by
+        // default; set Details::embedded=true for an actual WS_CHILD window.
+        Window(std::vector<void*>& group, Window* owner, Details details) : Element() {
+
+            this->parent = details.embedded && owner
+                ? owner
+                : this;
+            this->details = details;
+
+            window = new NativeWindow(
+                nativeHandleFor(owner),
+                details.nativeSize(),
+                details.borderless,
+                [this](WinEvent& event) { this->onEvent(event); },
+                relationshipFor(owner, details)
+            );
+
+            this->unifiedConstructor();
+
+            if (!details.embedded) {
+                joinWindowGroup(&group);
+            }
         }
 
         void unifiedConstructor() {
@@ -573,7 +648,7 @@ export namespace Rev {
             switch (event.type) {
 
                 case (WinEvent::Create): { this->onOpen(); break; }
-                case (WinEvent::Destroy): { break; }
+                case (WinEvent::Destroy): { this->shouldClose = true; break; }
                 case (WinEvent::Close): { this->onClose(event.rejected); break; }
 
                 case (WinEvent::Focus): { this->onFocus(); break; }

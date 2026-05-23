@@ -199,14 +199,9 @@ export namespace Cam::Gui {
 
             if (!owner || !owner->shared) { return; }
 
-            std::vector<void*>* windowGroup = owner->shared->windowGroup;
-
-            if (!windowGroup) { return; }
-
             closeSettingsWindow();
 
             settingsWindow = new ToolSettingsWindow(
-                *windowGroup,
                 owner,
                 name
             );

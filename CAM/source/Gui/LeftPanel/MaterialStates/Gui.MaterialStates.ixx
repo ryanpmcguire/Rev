@@ -188,13 +188,9 @@ export namespace Cam::Gui {
             Rev::Window* owner = ToolPathSettingsWindow::rootWindow(this);
             if (!owner || !owner->shared) { return; }
 
-            std::vector<void*>* windowGroup = owner->shared->windowGroup;
-            if (!windowGroup) { return; }
-
             closeSettingsWindow();
 
             settingsWindow = new ToolPathSettingsWindow(
-                *windowGroup,
                 owner,
                 state,
                 settingsTitleFor(state, index)

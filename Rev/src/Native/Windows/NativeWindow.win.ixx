@@ -434,6 +434,12 @@ export namespace Rev {
             int w, h, minW, minH, maxW, maxH;
         };
 
+        enum class Relationship {
+            Independent,
+            OwnedTopLevel,
+            EmbeddedChild
+        };
+
         int posX, posY;
 
         using EventCallback = std::function<void(WinEvent&)>;
@@ -450,8 +456,15 @@ export namespace Rev {
         Element::Cursor cursor;
 
         bool dirty = false;
+        bool destroyed = false;
 
-        NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, bool borderless = false, EventCallback callback = nullptr) {
+        NativeWindow(
+            void* ownerOrParent,
+            Size size = { 640, 480, 0, 0, 1000, 1000 },
+            bool borderless = false,
+            EventCallback callback = nullptr,
+            Relationship relationship = Relationship::EmbeddedChild
+        ) {
             
             this->size = size;
             this->callback = callback;
@@ -501,18 +514,29 @@ export namespace Rev {
             // Register window
             //--------------------------------------------------
             
-            HWND parentHwnd = static_cast<HWND>(parent);
-
-            // Determine style based off of parent HWDN, if present
+            HWND relatedHwnd = static_cast<HWND>(ownerOrParent);
+            HWND createParent = nullptr;
+            DWORD exStyle = 0;
             DWORD style = WS_VISIBLE;
-            if (parentHwnd) { style |= WS_CHILD; }
-            else if (borderless) { style = WS_POPUP | WS_VISIBLE; }
-            else { style |= WS_OVERLAPPEDWINDOW; }
+
+            if (relationship == Relationship::EmbeddedChild && relatedHwnd) {
+                createParent = relatedHwnd;
+                style |= WS_CHILD;
+            }
+
+            else {
+                if (relationship == Relationship::OwnedTopLevel) {
+                    createParent = relatedHwnd;
+                }
+
+                if (borderless) { style = WS_POPUP | WS_VISIBLE; }
+                else { style |= WS_OVERLAPPEDWINDOW; }
+            }
 
             // When we ask for a size, the resulting window size includes the top bar, etc.
             // We don't want that
             RECT rect = { 0, 0, size.w, size.h };
-            AdjustWindowRectEx(&rect, style, FALSE, 0);
+            AdjustWindowRectEx(&rect, style, FALSE, exStyle);
 
             struct CreatingScope {
                 CreatingScope(NativeWindow* window) { creatingWindow() = window; }
@@ -520,12 +544,12 @@ export namespace Rev {
             } creatingScope(this);
 
             handle = CreateWindowExW(
-                0, kClassName, L"Room360 UI",
+                exStyle, kClassName, L"Room360 UI",
                 style,
                 CW_USEDEFAULT, CW_USEDEFAULT,
                 rect.right - rect.left,
                 rect.bottom - rect.top,
-                parentHwnd, nullptr, GetModuleHandle(nullptr),
+                createParent, nullptr, GetModuleHandle(nullptr),
                 this
             );
 
@@ -567,7 +591,10 @@ export namespace Rev {
             }
         
             if (handle) {
-                DestroyWindow(handle);
+                if (!destroyed) {
+                    DestroyWindow(handle);
+                }
+
                 handle = nullptr;
             }
         }
@@ -798,6 +825,8 @@ export namespace Rev {
 
                 // When the window is destroyed
                 case (WM_DESTROY): {
+
+                    self->destroyed = true;
                     
                     self->notifyEvent({
                         WinEvent::Type::Destroy

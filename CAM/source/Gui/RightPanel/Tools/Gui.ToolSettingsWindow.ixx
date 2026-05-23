@@ -149,11 +149,10 @@ export namespace Cam::Gui {
         }
 
         ToolSettingsWindow(
-            std::vector<void*>& windowGroup,
             Rev::Window* owner,
             const std::string& initialToolName
         ) : Rev::Window(
-            windowGroup,
+            owner,
             {
                 .name = initialToolName + " - Settings",
                 .size = { .width = 400, .height = 480 }

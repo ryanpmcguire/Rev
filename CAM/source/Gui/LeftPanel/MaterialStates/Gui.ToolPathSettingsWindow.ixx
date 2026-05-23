@@ -151,12 +151,11 @@ export namespace Cam::Gui {
         }
 
         ToolPathSettingsWindow(
-            std::vector<void*>& windowGroup,
             Rev::Window* owner,
             Cam::App::MaterialState* materialState,
             const std::string& title
         ) : Rev::Window(
-            windowGroup,
+            owner,
             {
                 .name = title + " - Toolpath Settings",
                 .size = { .width = 400, .height = 520 }
