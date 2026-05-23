@@ -11,6 +11,8 @@ module;
 #include <gp_Cylinder.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Lin.hxx>
+#include <gp_Pln.hxx>
 
 #include <dbg.hpp>
 
@@ -22,39 +24,78 @@ import Cam.App.Slicer.Strategy.StrategyType;
 export namespace Cam::App::Slicer::Strategy {
 
     struct DetectedCylinder {
-        gp_Dir axis;
+        gp_Ax1 axis;
         double radius = 0.0;
     };
 
-    // Returns true if every cylindrical face in the model shares the same
-    // radius and a parallel axis, and at least one such face exists. Other
-    // (non-cylindrical) faces are permitted so that simple drilled-hole
-    // deltas — which have planar caps in addition to the cylindrical wall —
-    // still register as bores.
+    enum class BoreCapKind {
+        Through,
+        Pocket,
+        Capped
+    };
+
+    inline const char* boreCapKindName(BoreCapKind kind) {
+
+        switch (kind) {
+
+            case BoreCapKind::Through: { return "through"; }
+            case BoreCapKind::Pocket: { return "pocket"; }
+            case BoreCapKind::Capped: { return "capped"; }
+        }
+
+        return "unknown";
+    }
+
+    inline bool axesCoaxial(
+        const gp_Ax1& a,
+        const gp_Ax1& b,
+        double distanceTolerance,
+        double angularTolerance
+    ) {
+        if (!a.Direction().IsParallel(b.Direction(), angularTolerance)) {
+            return false;
+        }
+
+        return gp_Lin(a).Distance(gp_Lin(b)) <= distanceTolerance;
+    }
+
+    // Returns true if the model contains one cylindrical bore volume. Through
+    // bores may have no planar cap, pocket bores have one, and capped cylinder
+    // deltas may have two. Any cylindrical face must be coaxial with the first
+    // one and have the same radius.
     inline bool isCylindricalBore(
         const Model& model,
         double radiusTolerance = 1e-3,
+        double axisDistanceTolerance = 1e-3,
         double angularTolerance = 1e-2
     ) {
         if (!model.loaded) { return false; }
         if (model.faces.empty()) { return false; }
 
         std::vector<DetectedCylinder> cylinders;
+        size_t planarCapFaces = 0;
 
         for (const TopoDS_Face& face : model.faces) {
 
             BRepAdaptor_Surface surf(face);
 
-            if (surf.GetType() != GeomAbs_Cylinder) {
+            if (surf.GetType() == GeomAbs_Cylinder) {
+                gp_Cylinder cyl = surf.Cylinder();
+
+                cylinders.push_back({
+                    cyl.Axis(),
+                    cyl.Radius()
+                });
+
                 continue;
             }
 
-            gp_Cylinder cyl = surf.Cylinder();
+            if (surf.GetType() == GeomAbs_Plane) {
+                planarCapFaces += 1;
+                continue;
+            }
 
-            cylinders.push_back({
-                cyl.Axis().Direction(),
-                cyl.Radius()
-            });
+            return false;
         }
 
         if (cylinders.empty()) { return false; }
@@ -67,14 +108,31 @@ export namespace Cam::App::Slicer::Strategy {
                 return false;
             }
 
-            if (!c.axis.IsParallel(first.axis, angularTolerance)) {
+            if (!axesCoaxial(
+                c.axis,
+                first.axis,
+                axisDistanceTolerance,
+                angularTolerance
+            )) {
                 return false;
             }
         }
 
+        BoreCapKind capKind = BoreCapKind::Capped;
+
+        if (planarCapFaces == 0) {
+            capKind = BoreCapKind::Through;
+        }
+
+        else if (planarCapFaces == 1) {
+            capKind = BoreCapKind::Pocket;
+        }
+
         dbg(
-            "[StrategyDetect] Bore detected: %zu cylindrical face(s), r=%.4f",
+            "[StrategyDetect] Bore detected: %s, %zu cylindrical face(s), %zu planar face(s), r=%.4f",
+            boreCapKindName(capKind),
             cylinders.size(),
+            planarCapFaces,
             first.radius
         );
 
