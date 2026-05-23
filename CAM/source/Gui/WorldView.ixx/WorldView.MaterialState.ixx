@@ -275,13 +275,12 @@ export namespace Cam::Gui::World {
             }
 
             partActor->mesh->pTriangles = &model->render.triangles;
+            partActor->mesh->dirty = true;
             partActor->visible = true;
             partActor->selectable = false;
             partActor->includeInFit = includeInFit;
 
             applyFaceColors();
-
-            partActor->mesh->compute();
         }
 
         void syncDelta() {
@@ -296,11 +295,10 @@ export namespace Cam::Gui::World {
             }
 
             deltaActor->mesh->pTriangles = &state->delta.render.triangles;
+            deltaActor->mesh->dirty = true;
             deltaActor->visible = true;
             deltaActor->selectable = false;
             deltaActor->includeInFit = false;
-
-            deltaActor->mesh->compute();
         }
 
         void syncPick() {
@@ -317,11 +315,10 @@ export namespace Cam::Gui::World {
             }
 
             pickActor->mesh->pTriangles = &model->render.triangles;
+            pickActor->mesh->dirty = true;
             pickActor->visible = false;
             pickActor->selectable = selectable;
             pickActor->includeInFit = false;
-
-            pickActor->mesh->compute();
         }
 
         void syncToolPath() {
@@ -384,7 +381,7 @@ export namespace Cam::Gui::World {
                 triangles[tri * 3 + 2].color = color;
             }
 
-            partActor->mesh->compute();
+            partActor->mesh->dirty = true;
         }
     };
 }

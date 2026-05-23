@@ -2,9 +2,13 @@ module;
 
 #include <glew/glew.h>
 #include <cstring>
+#include <stdexcept>
+#include <string>
 #include <dbg.hpp>
 
 export module Rev.Graphics.UniformBuffer;
+
+import Rev.NativeWindow;
 
 export namespace Rev::Graphics {
 
@@ -19,6 +23,7 @@ export namespace Rev::Graphics {
 
             this->context = context;
             this->size = size;
+            NativeWindow::requireContext(context, "UniformBuffer construct");
 
             glGenBuffers(1, &bufferID);
             glBindBuffer(GL_UNIFORM_BUFFER, bufferID);
@@ -41,6 +46,7 @@ export namespace Rev::Graphics {
         ~UniformBuffer() {
 
             //dbg("[UniformBuffer] destroying");
+            NativeWindow::requireContext(context, "UniformBuffer destroy");
 
             if (data) {
                 glBindBuffer(GL_UNIFORM_BUFFER, bufferID);

@@ -11,6 +11,7 @@ export module Rev.Graphics.Pipeline;
 
 import Rev.Core.Resource;
 import Rev.Graphics.Shader;
+import Rev.NativeWindow;
 
 export namespace Rev::Graphics {
 
@@ -29,6 +30,7 @@ export namespace Rev::Graphics {
 
         Shader* vert = nullptr;
         Shader* frag = nullptr;
+        void* context = nullptr;
 
         struct Params {
 
@@ -47,6 +49,9 @@ export namespace Rev::Graphics {
 
         // Create
         Pipeline(void* context, Params params) {
+
+            this->context = context;
+            NativeWindow::requireContext(context, "Pipeline construct");
             
             vert = new Shader(params.openGlVert, Shader::Stage::Vertex, params.definitions);
             frag = new Shader(params.openGlFrag, Shader::Stage::Fragment, params.definitions);
@@ -71,6 +76,8 @@ export namespace Rev::Graphics {
 
         // Destroy
         ~Pipeline() {
+
+            NativeWindow::requireContext(context, "Pipeline destroy");
 
             delete vert;
             delete frag;

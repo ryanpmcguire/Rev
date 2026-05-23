@@ -1,12 +1,14 @@
 module;
 
 #include <stdexcept>
+#include <string>
 
 #include <glew/glew.h>
 
 export module Rev.Graphics.FrameBuffer;
 
 import Rev.Graphics.Texture;
+import Rev.NativeWindow;
 
 export namespace Rev::Graphics {
 
@@ -32,7 +34,9 @@ export namespace Rev::Graphics {
         // Create
         FrameBuffer(void* context, Params params) {
 
+            this->context = context;
             this->params = params;
+            NativeWindow::requireContext(context, "FrameBuffer construct");
             glGenFramebuffers(1, &buffer);
 
             this->resize(params.width, params.height);
@@ -41,6 +45,8 @@ export namespace Rev::Graphics {
         // Destroy
         ~FrameBuffer() {
 
+            NativeWindow::requireContext(context, "FrameBuffer destroy");
+
             if (stencil) { glDeleteRenderbuffers(1, &stencil); }
             if (buffer) { glDeleteFramebuffers(1, &buffer); }
 
@@ -48,6 +54,8 @@ export namespace Rev::Graphics {
         }
 
         void resize(size_t width, size_t height) {
+
+            NativeWindow::requireContext(context, "FrameBuffer resize");
 
             // Reject invalid size
             if (!width) { width = 1; }

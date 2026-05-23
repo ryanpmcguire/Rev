@@ -1,8 +1,12 @@
 module;
 
 #include <glew/glew.h>
+#include <stdexcept>
+#include <string>
 
 export module Rev.Graphics.Texture;
+
+import Rev.NativeWindow;
 
 export namespace Rev::Graphics {
 
@@ -26,6 +30,7 @@ export namespace Rev::Graphics {
         Filter filter;
 
         GLuint id = 0;
+        void* context = nullptr;
 
         struct Params {
             
@@ -39,6 +44,9 @@ export namespace Rev::Graphics {
 
         // Create
         Texture(void* context, Params params) {
+
+            this->context = context;
+            NativeWindow::requireContext(context, "Texture construct");
 
             data = params.data;
             width = params.width; height = params.height;
@@ -81,6 +89,7 @@ export namespace Rev::Graphics {
         // Destroy
         ~Texture() {
 
+            NativeWindow::requireContext(context, "Texture destroy");
             if (id) { glDeleteTextures(1, &id); }
         }
 

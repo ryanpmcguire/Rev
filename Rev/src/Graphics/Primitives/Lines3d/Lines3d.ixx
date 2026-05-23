@@ -119,6 +119,10 @@ export namespace Rev::Primitives {
 
         void compute() override {
 
+            if (!dirty) { return; }
+
+            dirty = false;
+
             data->color = color;
             data->depth = 0.5f;
 

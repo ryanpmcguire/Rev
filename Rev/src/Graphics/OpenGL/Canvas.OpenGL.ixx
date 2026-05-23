@@ -47,6 +47,7 @@ export namespace Rev::Graphics {
         Canvas(NativeWindow* window = nullptr) {
 
             this->window = window;
+            context = window;
 
             window->createContext();
             window->makeContextCurrent();
@@ -58,6 +59,18 @@ export namespace Rev::Graphics {
 
             transform = new UniformBuffer(context, sizeof(glm::mat4));
             frameBuffer = new FrameBuffer(context, { .width = 1, .height = 1 });
+        }
+
+        bool isCurrent() const {
+
+            return window && window->isContextCurrent();
+        }
+
+        void requireCurrent(const char* operation) const {
+
+            if (isCurrent()) { return; }
+
+            NativeWindow::requireContext(window, operation);
         }
 
         // Destroy

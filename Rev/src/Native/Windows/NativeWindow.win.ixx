@@ -470,6 +470,66 @@ export namespace Rev {
 
         bool dirty = false;
         bool destroyed = false;
+        Relationship relationship = Relationship::EmbeddedChild;
+
+        inline static NativeWindow* currentWindow = nullptr;
+        inline static NativeWindow* resourceRoot = nullptr;
+
+        bool isEphemeral() const {
+            return relationship == Relationship::OwnedTopLevel;
+        }
+
+        struct ResourceContextGuard {
+
+            NativeWindow* owner = nullptr;
+            NativeWindow* previousWindow = nullptr;
+            bool switched = false;
+
+            ResourceContextGuard(NativeWindow* resourceOwner)
+                : owner(resourceOwner)
+                , previousWindow(currentWindow)
+            {
+                if (owner && !owner->isContextCurrent()) {
+                    switched = owner->tryMakeContextCurrent();
+                }
+            }
+
+            ~ResourceContextGuard() {
+
+                if (!switched) {
+                    return;
+                }
+
+                if (previousWindow) {
+                    previousWindow->tryMakeContextCurrent();
+                    return;
+                }
+
+                wglMakeCurrent(nullptr, nullptr);
+                currentWindow = nullptr;
+            }
+        };
+
+        static void requireContext(void* ownerContext, const char* operation) {
+
+            NativeWindow* owner = static_cast<NativeWindow*>(ownerContext);
+            if (!owner) {
+                return;
+            }
+
+            if (owner->isContextCurrent()) {
+                return;
+            }
+
+            if (owner->tryMakeContextCurrent()) {
+                return;
+            }
+
+            throw std::runtime_error(
+                std::string("[GL] Failed to make resource context current before ")
+                + operation
+            );
+        }
 
         NativeWindow(
             void* ownerOrParent,
@@ -480,6 +540,7 @@ export namespace Rev {
             
             this->size = details.size;
             this->callback = callback;
+            this->relationship = relationship;
 
             // --------------------------------------------------
             // Enable Per-Monitor DPI Awareness once per process
@@ -853,7 +914,11 @@ export namespace Rev {
                         return 0;
                     }
 
-                    DestroyWindow(h);
+                    // Do not DestroyWindow here. GL resources must be deleted
+                    // from ~Window while this HWND and HDC are still valid.
+                    // Application::run deletes the Window when shouldClose is set;
+                    // ~NativeWindow destroys the HWND after GL teardown.
+                    return 0;
                 }
 
                 // When the window is destroyed
@@ -1134,6 +1199,10 @@ export namespace Rev {
 
         void createContext() {
 
+            if (hglrc) {
+                return;
+            }
+
             if (!handle) { throw std::runtime_error("[NativeWindow] No window handle available"); }
 
             HINSTANCE hinst = GetModuleHandleW(nullptr);
@@ -1283,6 +1352,7 @@ export namespace Rev {
 
                 if (realRC && !sharedRoot) {
                     sharedRoot = realRC;
+                    resourceRoot = this;
                 }
 
                 if (realRC) { break; }
@@ -1327,6 +1397,53 @@ export namespace Rev {
             if (!wglMakeCurrent(hdc, hglrc)) {
                 throw std::runtime_error("[NativeWindow] wglMakeCurrent failed");
             }
+
+            currentWindow = this;
+        }
+
+        bool tryMakeContextCurrent() {
+
+            if (!hglrc || !handle) {
+                return false;
+            }
+
+            if (!hdc) {
+                hdc = GetDC(handle);
+            }
+
+            if (!hdc) {
+                return false;
+            }
+
+            if (wglMakeCurrent(hdc, hglrc)) {
+                currentWindow = this;
+                return true;
+            }
+
+            // The cached DC can go stale; re-acquire once and retry.
+            ReleaseDC(handle, hdc);
+            hdc = GetDC(handle);
+
+            if (!hdc) {
+                return false;
+            }
+
+            if (!wglMakeCurrent(hdc, hglrc)) {
+                return false;
+            }
+
+            currentWindow = this;
+            return true;
+        }
+
+        bool isContextCurrent() const {
+
+            return (
+                hdc &&
+                hglrc &&
+                wglGetCurrentDC() == hdc &&
+                wglGetCurrentContext() == hglrc
+            );
         }
         
         void swapBuffers() {

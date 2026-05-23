@@ -56,6 +56,8 @@ export namespace Cam::Gui {
         std::vector<Rev::Core::Vertex3> testLines;
 
         bool partInView = false;
+        bool representationDirty = true;
+        bool clearMaterialViewsRequested = false;
 
         std::function<void(Event&)> onStateChanged;
 
@@ -276,6 +278,14 @@ export namespace Cam::Gui {
             representedDisplayedState = nullptr;
             representedWorkingState = nullptr;
             representedStateCount = 0;
+            representationDirty = true;
+        }
+
+        void requestClearMaterialViews(Event& e) {
+
+            clearMaterialViewsRequested = true;
+            representationDirty = true;
+            refresh(e);
         }
 
         Cam::Gui::World::MaterialState* viewForState(
@@ -469,7 +479,7 @@ export namespace Cam::Gui {
 
         void sync(Event& e) {
 
-            syncRepresentation();
+            representationDirty = true;
 
             if (view3d) {
                 view3d->refresh(e);
@@ -516,9 +526,7 @@ export namespace Cam::Gui {
 
             editable->toggleFace(faceId);
 
-            worldState->applyFaceColors();
-
-            view3d->refresh(e);
+            sync(e);
         }
 
         // App operations
@@ -577,7 +585,15 @@ export namespace Cam::Gui {
 
         void computeChildren(Event& e) override {
 
-            syncRepresentation();
+            if (clearMaterialViewsRequested) {
+                clearMaterialViewsRequested = false;
+                clearMaterialViews();
+            }
+
+            if (representationDirty) {
+                representationDirty = false;
+                syncRepresentation();
+            }
 
             Box::computeChildren(e);
         }

@@ -69,7 +69,7 @@ export namespace Cam::Gui {
             if (!actor || !actor->lines) { return; }
 
             actor->visible = false;
-            actor->lines->compute();
+            actor->lines->dirty = true;
         }
 
         void sync(Cam::App::MaterialState* state) {
@@ -80,14 +80,14 @@ export namespace Cam::Gui {
 
             if (!state || !state->hasToolPath) {
                 actor->visible = false;
-                actor->lines->compute();
+                actor->lines->dirty = true;
                 return;
             }
 
             state->toolPath.buildLineSegments(lines);
 
             actor->visible = !lines.empty();
-            actor->lines->compute();
+            actor->lines->dirty = true;
         }
     };
 }

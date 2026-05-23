@@ -320,6 +320,10 @@ export namespace Rev {
         // Destroy
         ~Window() {
 
+            if (window) {
+                window->tryMakeContextCurrent();
+            }
+
             if (shared && shared->windowGroup) {
 
                 std::vector<void*>& group = *shared->windowGroup;
@@ -695,6 +699,10 @@ export namespace Rev {
         virtual void onClose(bool& rejectClose) {
            // dbg("[Window] Close");
             rejectClose = false;
+
+            if (!rejectClose) {
+                shouldClose = true;
+            }
         }
 
         virtual void onMaximize() {

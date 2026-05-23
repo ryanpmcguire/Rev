@@ -110,9 +110,6 @@ export namespace Cam::Gui {
         NumberInput* diameterInput = nullptr;
         NumberInput* lengthInput = nullptr;
 
-        std::function<void(Event&)> onSaved;
-        std::function<void(Event&)> onClosed;
-
          static std::string windowTitleFor(const std::string& toolName) {
             return toolName + " - Settings";
         }
@@ -381,60 +378,18 @@ export namespace Cam::Gui {
                 return;
             }
 
-            const auto type = Cam::App::Tool::typeFromKindString(
-                typeDropdown->params.value
-            );
-
-            if (!app->saveTool(toolName, newName, type, diameter, length)) {
-                dbg("[ToolSettings] Failed to save tool");
-                return;
-            }
-
-            toolName = newName;
-            isUnsavedNewTool = false;
-            headerTitle->content = newName;
-            headerEyebrow->content = Cam::App::Tool::typeEyebrow(type);
-            setTitle(toolName + " - Settings");
-
-            dbg("[ToolSettings] Saved \"%s\"", toolName.c_str());
-
-            if (onSaved) {
-                onSaved(e);
-            }
-
+            dbg("[ToolSettings] Save ignored during isolated window test");
             refresh(e);
         }
 
         void discardIfUnsaved() {
 
-            if (!app || !isUnsavedNewTool) {
-                return;
-            }
-
-            app->removeTool(toolName);
             isUnsavedNewTool = false;
-        }
-
-        void notifyClosed(Event& e) {
-
-            if (onClosed) {
-                onClosed(e);
-            }
         }
 
         void close(Event* event = nullptr) {
             shouldClose = true;
-
-            if (event) {
-                notifyClosed(*event);
-            }
         }
 
-        void onClose(bool& rejectClose) override {
-            discardIfUnsaved();
-            rejectClose = false;
-            shouldClose = true;
-            notifyClosed(event);
-        }
     };
 }

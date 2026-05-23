@@ -422,10 +422,5 @@ export namespace Cam::Gui {
             }
         }
 
-        void onClose(bool& rejectClose) override {
-            rejectClose = false;
-            shouldClose = true;
-            notifyClosed(event);
-        }
     };
 }

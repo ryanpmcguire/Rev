@@ -108,7 +108,7 @@ export namespace Cam::Gui {
             leftPanel->onBeforeSelectFile = [this](Event& e) {
 
                 if (worldView) {
-                    worldView->clearMaterialViews();
+                    worldView->requestClearMaterialViews(e);
                 }
             };
 

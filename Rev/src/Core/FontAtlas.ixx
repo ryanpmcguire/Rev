@@ -7,6 +7,7 @@ export module Rev.Core.FontAtlas;
 import Rev.Core.Font;
 import Rev.Core.Resource;
 import Rev.Graphics.Canvas;
+import Rev.NativeWindow;
 
 export namespace Rev::Core {
 
@@ -28,16 +29,19 @@ export namespace Rev::Core {
         };
 
         Graphics::Canvas* canvas = nullptr;
+        NativeWindow* resourceWindow = nullptr;
         std::map<FontKey, Font*> fonts;
 
         FontAtlas(Graphics::Canvas* canvas) {
 
             this->canvas = canvas;
+            resourceWindow = canvas ? canvas->window : nullptr;
         }
 
         ~FontAtlas() {
 
-            // Delete all on destruction
+            NativeWindow::ResourceContextGuard guard(resourceWindow);
+
             for (auto& [key, font] : fonts) {
                 delete font;
             }
@@ -45,14 +49,13 @@ export namespace Rev::Core {
 
         Font* get(Resource& resource, float fontSize, float scale) {
 
-            // Make font key
             FontKey key { resource.data, resource.size, fontSize, scale };
 
-            // Return font if it already exists
             auto it = fonts.find(key);
             if (it != fonts.end()) { return it->second; }
 
-            // Create and add font if needed
+            NativeWindow::ResourceContextGuard guard(resourceWindow);
+
             Font* font = new Font(canvas, resource, fontSize, scale);
             fonts[key] = font;
             

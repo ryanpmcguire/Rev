@@ -205,24 +205,6 @@ export namespace Cam::Gui {
                 owner,
                 name
             );
-
-            settingsWindow->onSaved = [this](Event& savedEvent) {
-
-                if (onToolEdited) {
-                    onToolEdited(savedEvent);
-                }
-
-                refresh(savedEvent);
-            };
-
-            settingsWindow->onClosed = [this](Event& closedEvent) {
-
-                if (onToolEdited) {
-                    onToolEdited(closedEvent);
-                }
-
-                refresh(closedEvent);
-            };
         }
 
         void openSettings(size_t index, Event& e) {

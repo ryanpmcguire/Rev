@@ -2,12 +2,15 @@ module;
 
 #include <vector>
 #include <numeric>
+#include <stdexcept>
+#include <string>
 #include <glew/glew.h>
 
 export module Rev.Graphics.VertexBuffer;
 
 import Rev.Core.Vertex;
 import Rev.Core.Vertex3;
+import Rev.NativeWindow;
 
 export namespace Rev::Graphics {
 
@@ -28,11 +31,14 @@ export namespace Rev::Graphics {
         GLuint bufferID = 0;
 
         // Buffer data and size
+        void* context = nullptr;
         void* data = nullptr;
         size_t size = 0;
 
         VertexBuffer(void* context, Params params) {
 
+            this->context = context;
+            NativeWindow::requireContext(context, "VertexBuffer construct");
             this->params = params;
 
             glGenVertexArrays(1, &vaoID);
@@ -43,6 +49,8 @@ export namespace Rev::Graphics {
         }
 
         ~VertexBuffer() {
+
+            NativeWindow::requireContext(context, "VertexBuffer destroy");
 
             if (data) {
                 glBindBuffer(GL_ARRAY_BUFFER, bufferID);
@@ -75,6 +83,8 @@ export namespace Rev::Graphics {
         }
 
         void resize(size_t newNum) {
+
+            NativeWindow::requireContext(context, "VertexBuffer resize");
 
             // If no change, do nothing
             if (newNum == params.num) { return; }
