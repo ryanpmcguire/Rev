@@ -212,7 +212,7 @@ export namespace Cam::Gui {
 
         Cam::App::Model* selectionModel() {
 
-            Cam::App::MaterialState* state = workingState();
+            Cam::App::MaterialState* state = displayedState();
 
             if (!state) { return nullptr; }
 
@@ -398,8 +398,6 @@ export namespace Cam::Gui {
         void applyDefaultVisibilityPolicy() {
 
             Cam::App::MaterialState* displayed = displayedState();
-            Cam::App::MaterialState* working = workingState();
-
             for (Cam::Gui::World::MaterialState* view : materialViews) {
 
                 if (!view) { continue; }
@@ -410,10 +408,7 @@ export namespace Cam::Gui {
                     view->showDisplayed();
                 }
 
-                if (
-                    view->state == working &&
-                    displayed == working
-                ) {
+                if (view->state == displayed) {
                     view->enablePicking();
                 }
             }
@@ -500,7 +495,7 @@ export namespace Cam::Gui {
                 return;
             }
 
-            Cam::Gui::World::MaterialState* worldState = workingMaterialView();
+            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
 
             if (!worldState || !worldState->pickActor) { return; }
 
