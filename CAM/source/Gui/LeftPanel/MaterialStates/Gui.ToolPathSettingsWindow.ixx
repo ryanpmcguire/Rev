@@ -158,7 +158,9 @@ export namespace Cam::Gui {
             owner,
             {
                 .name = title + " - Toolpath Settings",
-                .size = { .width = 400, .height = 520 }
+                .size = { .width = 400, .height = 520 },
+                .minimizeButton = false,
+                .maximizeButton = false
             }
         ) {
             state = materialState;

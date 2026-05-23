@@ -434,6 +434,19 @@ export namespace Rev {
             int w, h, minW, minH, maxW, maxH;
         };
 
+        struct Details {
+            Size size = { 640, 480, 0, 0, 1000, 1000 };
+
+            bool decorated = true;
+            bool resizable = true;
+            bool borderless = false;
+            bool fullscreen = false;
+
+            bool closeButton = true;
+            bool minimizeButton = true;
+            bool maximizeButton = true;
+        };
+
         enum class Relationship {
             Independent,
             OwnedTopLevel,
@@ -460,13 +473,12 @@ export namespace Rev {
 
         NativeWindow(
             void* ownerOrParent,
-            Size size = { 640, 480, 0, 0, 1000, 1000 },
-            bool borderless = false,
+            Details details,
             EventCallback callback = nullptr,
             Relationship relationship = Relationship::EmbeddedChild
         ) {
             
-            this->size = size;
+            this->size = details.size;
             this->callback = callback;
 
             // --------------------------------------------------
@@ -529,13 +541,34 @@ export namespace Rev {
                     createParent = relatedHwnd;
                 }
 
-                if (borderless) { style = WS_POPUP | WS_VISIBLE; }
-                else { style |= WS_OVERLAPPEDWINDOW; }
+                if (details.borderless || !details.decorated) {
+                    style = WS_POPUP | WS_VISIBLE;
+                }
+
+                else {
+                    style |= WS_OVERLAPPEDWINDOW;
+
+                    if (!details.resizable) {
+                        style &= ~WS_THICKFRAME;
+                    }
+
+                    if (!details.closeButton) {
+                        style &= ~WS_SYSMENU;
+                    }
+
+                    if (!details.minimizeButton) {
+                        style &= ~WS_MINIMIZEBOX;
+                    }
+
+                    if (!details.maximizeButton) {
+                        style &= ~WS_MAXIMIZEBOX;
+                    }
+                }
             }
 
             // When we ask for a size, the resulting window size includes the top bar, etc.
             // We don't want that
-            RECT rect = { 0, 0, size.w, size.h };
+            RECT rect = { 0, 0, details.size.w, details.size.h };
             AdjustWindowRectEx(&rect, style, FALSE, exStyle);
 
             struct CreatingScope {
@@ -564,7 +597,7 @@ export namespace Rev {
             scale = dpi / 96.0f; // 96 DPI = 100% scaling
 
             this->notifyEvent({ WinEvent::Type::Scale });
-            this->notifyEvent({ WinEvent::Type::Resize, 0, 0, size.w, size.h });
+            this->notifyEvent({ WinEvent::Type::Resize, 0, 0, details.size.w, details.size.h });
         }
 
         void show() {

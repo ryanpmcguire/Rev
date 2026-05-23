@@ -55,6 +55,10 @@ export namespace Rev {
             bool fullscreen = false;
             bool embedded = false;
 
+            bool closeButton = true;
+            bool minimizeButton = true;
+            bool maximizeButton = true;
+
             std::string display = "";
 
             NativeWindow::Size nativeSize() const {
@@ -62,6 +66,19 @@ export namespace Rev {
                     size.width, size.height,
                     size.min.width, size.min.height,
                     size.max.width, size.max.height
+                };
+            }
+
+            NativeWindow::Details nativeDetails() const {
+                return {
+                    .size = nativeSize(),
+                    .decorated = decorated,
+                    .resizable = resizable,
+                    .borderless = borderless,
+                    .fullscreen = fullscreen,
+                    .closeButton = closeButton,
+                    .minimizeButton = minimizeButton,
+                    .maximizeButton = maximizeButton
                 };
             }
         };
@@ -129,8 +146,7 @@ export namespace Rev {
 
             window = new NativeWindow(
                 nativeHandleFor(owner),
-                details.nativeSize(),
-                details.borderless,
+                details.nativeDetails(),
                 [this](WinEvent& event) { this->onEvent(event); },
                 relationshipFor(owner, details)
             );
@@ -150,8 +166,7 @@ export namespace Rev {
 
             window = new NativeWindow(
                 ownerOrParent,
-                details.nativeSize(),
-                details.borderless,
+                details.nativeDetails(),
                 [this](WinEvent& event) { this->onEvent(event); },
                 details.embedded
                     ? NativeWindow::Relationship::EmbeddedChild
@@ -173,8 +188,7 @@ export namespace Rev {
             // Create native window
             window = new NativeWindow(
                 nullptr,
-                details.nativeSize(),
-                details.borderless,
+                details.nativeDetails(),
                 [this](WinEvent& event) { this->onEvent(event); },
                 NativeWindow::Relationship::Independent
             );
@@ -195,8 +209,7 @@ export namespace Rev {
 
             window = new NativeWindow(
                 nativeHandleFor(owner),
-                details.nativeSize(),
-                details.borderless,
+                details.nativeDetails(),
                 [this](WinEvent& event) { this->onEvent(event); },
                 relationshipFor(owner, details)
             );

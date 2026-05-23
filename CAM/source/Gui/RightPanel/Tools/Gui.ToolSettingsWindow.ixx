@@ -155,7 +155,9 @@ export namespace Cam::Gui {
             owner,
             {
                 .name = initialToolName + " - Settings",
-                .size = { .width = 400, .height = 480 }
+                .size = { .width = 400, .height = 480 },
+                .minimizeButton = false,
+                .maximizeButton = false
             }
         ) {
             toolName = initialToolName;
