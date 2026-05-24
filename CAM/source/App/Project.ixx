@@ -655,6 +655,24 @@ export namespace Cam::App {
             return true;
         }
 
+        bool extendSelected(double distance = 0.05) {
+
+            if (!workingState) { return false; }
+
+            displayedState = workingState;
+
+            bool ok = workingState->model.extendSelected(distance);
+
+            if (!ok) { return false; }
+
+            workingState->model.clearSelection();
+            workingState->computeDelta(toolLibrary, selectedToolName);
+
+            dirty = true;
+
+            return true;
+        }
+
         bool commitWorkingState() {
 
             if (!workingState) { return false; }

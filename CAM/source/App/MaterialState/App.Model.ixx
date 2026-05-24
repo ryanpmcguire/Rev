@@ -23,6 +23,12 @@ module;
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRep_Builder.hxx>
@@ -420,6 +426,172 @@ export namespace Cam::App {
             changed = true;
 
             return true;
+        }
+
+        // Pull selected faces outward and fuse the added volume (inverse of defeature).
+        // Defeature removes material by deleting faces; extend adds material by
+        // extruding each face into free space on its outer side.
+        bool extendSelected(double distance = 0.05) {
+
+            if (shape.IsNull()) { return false; }
+            if (selectedFaceIds.empty()) { return false; }
+            if (distance <= 0.0) { return false; }
+
+            std::vector<TopoDS_Face> selectedFaces;
+
+            for (size_t faceId : selectedFaceIds) {
+
+                if (faceId >= faces.size()) { continue; }
+
+                selectedFaces.push_back(faces[faceId]);
+            }
+
+            if (selectedFaces.empty()) { return false; }
+
+            TopoDS_Shape result = shape;
+            bool any = false;
+
+            for (const TopoDS_Face& face : selectedFaces) {
+
+                if (pullFaceOut(result, face, distance)) {
+                    any = true;
+                }
+            }
+
+            if (!any) { return false; }
+
+            shape = healShape(result);
+
+            collectFaces();
+            tessellate();
+            clearSelection();
+
+            loaded = true;
+            changed = true;
+
+            return true;
+        }
+
+    private:
+
+        static double solidVolume(const TopoDS_Shape& solid) {
+
+            GProp_GProps props;
+
+            BRepGProp::VolumeProperties(solid, props);
+
+            return props.Mass();
+        }
+
+        static bool faceCenterAndNormal(const TopoDS_Face& face, gp_Pnt& center, gp_Vec& normal) {
+
+            BRepAdaptor_Surface surf(face);
+
+            Standard_Real uMid = (surf.FirstUParameter() + surf.LastUParameter()) * 0.5;
+            Standard_Real vMid = (surf.FirstVParameter() + surf.LastVParameter()) * 0.5;
+
+            gp_Vec du;
+            gp_Vec dv;
+
+            surf.D1(uMid, vMid, center, du, dv);
+
+            normal = du ^ dv;
+
+            if (normal.Magnitude() <= 1e-12) {
+                return false;
+            }
+
+            normal.Normalize();
+
+            if (face.Orientation() == TopAbs_REVERSED) {
+                normal.Reverse();
+            }
+
+            return true;
+        }
+
+        // Pull direction = into free space (outside the solid), never into the bulk.
+        static bool pullOutExtrusion(
+            const TopoDS_Shape& solid,
+            const TopoDS_Face& face,
+            gp_Vec& extrude,
+            double distance
+        ) {
+            gp_Pnt center;
+            gp_Vec normal;
+
+            if (!faceCenterAndNormal(face, center, normal)) {
+                return false;
+            }
+
+            const double probe = std::max(distance * 0.5, 1e-4);
+
+            BRepClass3d_SolidClassifier classifier(solid);
+
+            classifier.Perform(center.Translated(normal * probe), 1e-6);
+
+            if (classifier.State() == TopAbs_OUT) {
+                extrude = normal * distance;
+                return true;
+            }
+
+            classifier.Perform(center.Translated(normal * -probe), 1e-6);
+
+            if (classifier.State() == TopAbs_OUT) {
+                extrude = normal * -distance;
+                return true;
+            }
+
+            return false;
+        }
+
+        static bool fuseWithPrism(
+            TopoDS_Shape& solid,
+            const TopoDS_Face& face,
+            const gp_Vec& extrude
+        ) {
+            BRepPrimAPI_MakePrism prism(face, extrude);
+
+            if (!prism.IsDone()) { return false; }
+
+            TopoDS_Shape prismShape = prism.Shape();
+
+            if (prismShape.IsNull()) { return false; }
+
+            const double volumeBefore = solidVolume(solid);
+
+            BRepAlgoAPI_Fuse fuse(solid, prismShape);
+
+            fuse.SetFuzzyValue(1e-6);
+            fuse.Build();
+
+            if (!fuse.IsDone()) { return false; }
+
+            TopoDS_Shape fused = fuse.Shape();
+
+            if (fused.IsNull()) { return false; }
+
+            if (solidVolume(fused) <= volumeBefore + 1e-9) {
+                return false;
+            }
+
+            solid = fused;
+
+            return true;
+        }
+
+        static bool pullFaceOut(
+            TopoDS_Shape& solid,
+            const TopoDS_Face& face,
+            double distance
+        ) {
+            gp_Vec extrude;
+
+            if (!pullOutExtrusion(solid, face, extrude, distance)) {
+                return false;
+            }
+
+            return fuseWithPrism(solid, face, extrude);
         }
     };
 }

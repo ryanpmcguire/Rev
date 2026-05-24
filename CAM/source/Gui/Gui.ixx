@@ -9,6 +9,7 @@ export module Cam.Gui;
 import Rev.Element;
 import Rev.Element.Style;
 import Rev.Element.Event;
+import Rev.Element.Event.GestureTracker;
 
 import Rev.Element.Box;
 
@@ -24,6 +25,12 @@ export namespace Cam::Gui {
     using namespace Rev;
     using namespace Rev::Element;
 
+    enum class Command {
+        Defeature,
+        ExtendFaces,
+        AddTab
+    };
+
     struct Interface : public Box {
 
         Cam::App::AppState* app = nullptr;
@@ -34,6 +41,11 @@ export namespace Cam::Gui {
         LeftPanel* leftPanel = nullptr;
         WorldView* worldView = nullptr;
         RightPanel* rightPanel = nullptr;
+
+        GestureTracker<Command> gestures = {
+            { "df", Command::Defeature },
+            { "ef", Command::ExtendFaces },
+        };
 
         // Create
         //--------------------------------------------------
@@ -177,6 +189,29 @@ export namespace Cam::Gui {
 
                 refresh(e);
             };
+
+            gestures.onGesture = [this](Command command, Event& e) {
+
+                switch (command) {
+
+                    case Command::Defeature: {
+                        if (worldView) { worldView->defeatureSelected(e); }
+                        break;
+                    }
+
+                    case Command::ExtendFaces: {
+                        if (worldView) { worldView->extendSelectedFaces(e); }
+                        break;
+                    }
+
+                    case Command::AddTab: {
+                        dbg("[Gui] AddTab gesture (not implemented)");
+                        break;
+                    }
+                }
+
+                refresh(e);
+            };
         }
 
         // Events
@@ -202,6 +237,12 @@ export namespace Cam::Gui {
                     app->saveProjectAs();
                 }
 
+                e.propagate = false;
+                return;
+            }
+
+            // Key gestures (e.g. d then f -> defeature)
+            if (gestures.track(e)) {
                 e.propagate = false;
                 return;
             }

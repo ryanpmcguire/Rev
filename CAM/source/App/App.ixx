@@ -546,6 +546,13 @@ export namespace Cam::App {
             return activeProject->defeatureSelected();
         }
 
+        bool extendSelected(double distance = 0.05) {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->extendSelected(distance);
+        }
+
         bool commitWorkingState() {
 
             if (!activeProject) { return false; }

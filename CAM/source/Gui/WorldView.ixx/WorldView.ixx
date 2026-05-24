@@ -548,6 +548,22 @@ export namespace Cam::Gui {
             return true;
         }
 
+        bool extendSelectedFaces(Event& e, double distance = 1) {
+
+            if (!app || !app->extendSelected(distance)) {
+                dbg("extend faces failed or no selected faces");
+                return false;
+            }
+
+            sync(e);
+
+            dbg("extended selected faces");
+
+            notifyStateChanged(e);
+
+            return true;
+        }
+
         bool commitWorkingState(Event& e) {
 
             if (!app || !app->commitWorkingState()) {
