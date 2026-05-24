@@ -551,7 +551,7 @@ export namespace Cam::Gui {
         bool extendSelectedFaces(Event& e, double distance = 1) {
 
             if (!app || !app->extendSelected(distance)) {
-                dbg("extend faces failed or no selected faces");
+                dbg("extend faces failed — see [Extend] logs above");
                 return false;
             }
 

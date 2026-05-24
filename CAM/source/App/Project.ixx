@@ -7,6 +7,7 @@ module;
 #include <cstddef>
 
 #include <nlohmann/json.hpp>
+#include <dbg.hpp>
 
 export module Cam.App.Project;
 
@@ -657,7 +658,10 @@ export namespace Cam::App {
 
         bool extendSelected(double distance = 0.05) {
 
-            if (!workingState) { return false; }
+            if (!workingState) {
+                dbg("[Extend] failed: no working material state");
+                return false;
+            }
 
             displayedState = workingState;
 
