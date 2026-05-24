@@ -27,7 +27,6 @@ export namespace Cam {
             }
 
             rejectClose = false;
-            shouldClose = true;
         }
     };
 }

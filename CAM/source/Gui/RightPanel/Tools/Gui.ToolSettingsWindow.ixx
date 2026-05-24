@@ -9,6 +9,7 @@ module;
 export module Cam.Gui.ToolSettingsWindow;
 
 import Rev.Window;
+import Rev.OS.Dialog;
 import Rev.Element;
 import Rev.Element.Event;
 import Rev.Element.Style;
@@ -99,9 +100,20 @@ export namespace Cam::Gui {
 
     struct ToolSettingsWindow : public Rev::Window {
 
+        struct SavedFields {
+            std::string name;
+            Cam::App::Tool::Type type = Cam::App::Tool::Type::EndMill;
+            double diameter = 0.0;
+            double length = 0.0;
+        };
+
         Cam::App::AppState* app = nullptr;
         std::string toolName;
+        SavedFields savedFields;
         bool isUnsavedNewTool = false;
+
+        std::function<void(Event&)> onSaved;
+        std::function<void(Event&)> onClosed;
 
         Text* headerEyebrow = nullptr;
         Text* headerTitle = nullptr;
@@ -174,6 +186,7 @@ export namespace Cam::Gui {
             styles.add(&ToolSettingsStyle::Root);
 
             buildUi();
+            captureSavedFields();
 
             setTitle(toolName + " - Settings");
 
@@ -327,8 +340,7 @@ export namespace Cam::Gui {
             );
 
             cancelButton->onClick([this](Event& e) {
-                discardIfUnsaved();
-                close(&e);
+                requestClose(&e);
                 e.propagate = false;
             });
 
@@ -349,46 +361,225 @@ export namespace Cam::Gui {
             });
         }
 
-        void save(Event& e) {
-            if (!app) {
-                dbg("[ToolSettings] Missing app state");
+        void captureSavedFields() {
+
+            Cam::App::Tool* tool = app
+                ? app->toolLibrary()->find(toolName)
+                : nullptr;
+
+            if (tool) {
+                savedFields = {
+                    .name = tool->name,
+                    .type = tool->type,
+                    .diameter = tool->diameter,
+                    .length = tool->length
+                };
                 return;
             }
 
-            const std::string newName = nameInput->text->content.get();
+            savedFields = {
+                .name = toolName,
+                .type = Cam::App::Tool::Type::EndMill,
+                .diameter = 1.0,
+                .length = 100.0
+            };
+        }
 
-            if (newName.empty()) {
-                dbg("[ToolSettings] Name is required");
-                return;
+        Cam::App::Tool::Type currentType() const {
+            return typeFromDropdownValue(typeDropdown->params.value);
+        }
+
+        bool readForm(
+            std::string& outName,
+            Cam::App::Tool::Type& outType,
+            double& outDiameter,
+            double& outLength,
+            Event& e,
+            bool commitInputs
+        ) {
+
+            outName = nameInput->text->content.get();
+
+            if (outName.empty()) {
+                return false;
             }
 
-            diameterInput->commit(e);
-            lengthInput->commit(e);
+            if (commitInputs) {
+                diameterInput->commit(e);
+                lengthInput->commit(e);
+            }
 
+            outType = currentType();
+
+            if (!diameterInput->tryGetValue(outDiameter) || outDiameter <= 0.0) {
+                return false;
+            }
+
+            if (!lengthInput->tryGetValue(outLength) || outLength <= 0.0) {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool hasUnsavedChanges(Event& e) {
+
+            if (isUnsavedNewTool) {
+                return true;
+            }
+
+            std::string name;
+            Cam::App::Tool::Type type;
             double diameter = 0.0;
             double length = 0.0;
 
-            if (!diameterInput->tryGetValue(diameter) || diameter <= 0.0) {
-                dbg("[ToolSettings] Invalid diameter");
-                return;
+            if (!readForm(name, type, diameter, length, e, true)) {
+                return true;
             }
 
-            if (!lengthInput->tryGetValue(length) || length <= 0.0) {
-                dbg("[ToolSettings] Invalid length");
-                return;
+            return (
+                name != savedFields.name ||
+                type != savedFields.type ||
+                diameter != savedFields.diameter ||
+                length != savedFields.length
+            );
+        }
+
+        bool save(Event& e) {
+
+            if (!app) {
+                dbg("[ToolSettings] Missing app state");
+                return false;
             }
 
-            dbg("[ToolSettings] Save ignored during isolated window test");
+            std::string newName;
+            Cam::App::Tool::Type type;
+            double diameter = 0.0;
+            double length = 0.0;
+
+            if (!readForm(newName, type, diameter, length, e, true)) {
+                dbg("[ToolSettings] Invalid tool settings");
+                Rev::OS::Dialog::Warning(
+                    "Tool Settings",
+                    "Enter a valid name, diameter, and stickout length before saving."
+                );
+                return false;
+            }
+
+            if (!app->saveTool(toolName, newName, type, diameter, length)) {
+                dbg("[ToolSettings] Failed to save tool \"%s\"", toolName.c_str());
+                Rev::OS::Dialog::Error(
+                    "Tool Settings",
+                    "Could not save the tool. Check the name and try again."
+                );
+                return false;
+            }
+
+            toolName = newName;
+            isUnsavedNewTool = false;
+            captureSavedFields();
+
+            if (headerTitle) {
+                headerTitle->content = toolName;
+            }
+
+            updateHeaderEyebrow(type);
+            applyWindowTitle();
+
+            if (onSaved) {
+                onSaved(e);
+            }
+
             refresh(e);
+            return true;
         }
 
         void discardIfUnsaved() {
 
+            if (!app || !isUnsavedNewTool) {
+                return;
+            }
+
+            app->removeTool(toolName);
             isUnsavedNewTool = false;
         }
 
         void close(Event* event = nullptr) {
+
             shouldClose = true;
+
+            if (event && onClosed) {
+                onClosed(*event);
+            }
+        }
+
+        void requestClose(Event* event = nullptr) {
+
+            Event& e = event ? *event : this->event;
+            void* owner = window
+                ? static_cast<void*>(window->handle)
+                : nullptr;
+
+            if (!hasUnsavedChanges(e)) {
+                close(event);
+                return;
+            }
+
+            Rev::OS::UnsavedChangesResult result =
+                Rev::OS::Dialog::UnsavedChanges(windowTitleFor(toolName), owner);
+
+            if (result == Rev::OS::UnsavedChangesResult::Cancel) {
+                return;
+            }
+
+            if (result == Rev::OS::UnsavedChangesResult::Save) {
+                if (!save(e)) {
+                    return;
+                }
+
+                close(event);
+                return;
+            }
+
+            discardIfUnsaved();
+            close(event);
+        }
+
+        void onClose(bool& rejectClose) override {
+
+            Event& e = this->event;
+            void* owner = window
+                ? static_cast<void*>(window->handle)
+                : nullptr;
+
+            if (!hasUnsavedChanges(e)) {
+                if (onClosed) { onClosed(e); }
+                rejectClose = false;
+                return;
+            }
+
+            rejectClose = true;
+
+            Rev::OS::UnsavedChangesResult result =
+                Rev::OS::Dialog::UnsavedChanges(windowTitleFor(toolName), owner);
+
+            if (result == Rev::OS::UnsavedChangesResult::Cancel) {
+                return;
+            }
+
+            if (result == Rev::OS::UnsavedChangesResult::Save) {
+                if (!save(e)) {
+                    return;
+                }
+
+                if (onClosed) { onClosed(e); }
+                rejectClose = false;
+                return;
+            }
+
+            discardIfUnsaved();
+            if (onClosed) { onClosed(e); }
+            rejectClose = false;
         }
 
     };

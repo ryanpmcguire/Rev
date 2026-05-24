@@ -60,6 +60,14 @@ target_include_directories(CAMDemo PRIVATE
 
 target_link_libraries(CAMDemo PRIVATE Rev ${OpenCASCADE_LIBRARIES})
 
+if(WIN32)
+  set(CAM_APP_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest")
+  target_link_options(CAMDemo PRIVATE
+    "LINKER:/manifest:embed"
+    "LINKER:/manifestinput:${CAM_APP_MANIFEST}"
+  )
+endif()
+
 target_compile_definitions(CAMDemo PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
 )

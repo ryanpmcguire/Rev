@@ -666,7 +666,15 @@ export namespace Rev {
 
                 case (WinEvent::Create): { this->onOpen(); break; }
                 case (WinEvent::Destroy): { this->shouldClose = true; break; }
-                case (WinEvent::Close): { this->onClose(event.rejected); break; }
+                case (WinEvent::Close): {
+                    this->onClose(event.rejected);
+
+                    if (!event.rejected) {
+                        this->shouldClose = true;
+                    }
+
+                    break;
+                }
 
                 case (WinEvent::Focus): { this->onFocus(); break; }
                 case (WinEvent::Defocus): { this->onDefocus(); break; }
@@ -697,12 +705,7 @@ export namespace Rev {
         }
 
         virtual void onClose(bool& rejectClose) {
-           // dbg("[Window] Close");
             rejectClose = false;
-
-            if (!rejectClose) {
-                shouldClose = true;
-            }
         }
 
         virtual void onMaximize() {
