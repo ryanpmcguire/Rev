@@ -16,10 +16,16 @@ export namespace Rev::Core {
         Type kind = Type::None;
         Pos3 a = {}, b = {}, c = {}, d = {};
 
+        // Create
+        //--------------------------------------------------
+
         static Segment3 Line(const Pos3& a, const Pos3& b) { return { Type::Line, a, b }; }
         static Segment3 Arc(const Pos3& a, const Pos3& b, const Pos3& c, const Pos3& d) { return { Type::Arc, a, b, c, d }; }
         static Segment3 Bezier(const Pos3& a, const Pos3& b, const Pos3& c, const Pos3& d) { return { Type::Bezier, a, b, c, d }; }
         static Segment3 Parabola(const Pos3& a, const Pos3& b, const Pos3& c, const Pos3& d) { return { Type::Parabola, a, b, c, d }; }
+
+        // Dispatch
+        //--------------------------------------------------
 
         Pos3 at(float t) const {
             switch (kind) {
@@ -82,6 +88,9 @@ export namespace Rev::Core {
 
             return false;
         }
+
+        // Helpers
+        //--------------------------------------------------
 
         Pos3 delta() const { return b - a; }
         float chordLength() const { return (b - a).pythag(); }

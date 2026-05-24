@@ -20,10 +20,10 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             return false;
         }
 
-        void processSlice(
-            SliceLayer& slice,
-            const StrategyContext& ctx
-        ) {
+        // Profiles
+        //--------------------------------------------------
+
+        void processSlice(SliceLayer& slice, const StrategyContext& ctx) {
 
             slice.resetProfiles();
             slice.geometricProfile = SliceProfile(slice.source);
@@ -50,9 +50,10 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             }
         }
 
-        void buildPaths(
-            const StrategyContext&
-        ) {
+        // Paths
+        //--------------------------------------------------
+
+        void buildPaths(const StrategyContext&) {
 
             paths_.clear();
 

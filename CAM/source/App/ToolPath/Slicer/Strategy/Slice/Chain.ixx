@@ -21,6 +21,9 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
         std::vector<Segment> segments;
 
+        // Create
+        //--------------------------------------------------
+
         Chain() {}
 
         Chain(const std::vector<Segment>& source) {
@@ -31,10 +34,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return Chain(source);
         }
 
-        static std::vector<Chain> BuildAll(
-            const std::vector<Segment>& source,
-            float eps = 1e-4f
-        ) {
+        static std::vector<Chain> BuildAll(const std::vector<Segment>& source, float eps = 1e-4f) {
             std::vector<Segment> remaining = source;
             std::vector<Chain> out;
 
@@ -42,10 +42,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                 Chain chain;
 
-                chain.buildOneFromRemaining(
-                    remaining,
-                    eps
-                );
+                chain.buildOneFromRemaining(remaining, eps);
 
                 if (chain.empty()) { break; }
 
@@ -77,24 +74,15 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Build
         //--------------------------------------------------
 
-        void build(
-            const std::vector<Segment>& source,
-            float eps = 1e-4f
-        ) {
+        void build(const std::vector<Segment>& source, float eps = 1e-4f) {
             clear();
 
             std::vector<Segment> remaining = source;
 
-            buildOneFromRemaining(
-                remaining,
-                eps
-            );
+            buildOneFromRemaining(remaining, eps);
         }
 
-        void buildOneFromRemaining(
-            std::vector<Segment>& remaining,
-            float eps = 1e-4f
-        ) {
+        void buildOneFromRemaining(std::vector<Segment>& remaining, float eps = 1e-4f) {
             clear();
 
             if (remaining.empty()) { return; }
@@ -115,13 +103,8 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                 for (size_t i = 0; i < remaining.size(); i++) {
 
-                    float dStart = current.distanceTo(
-                        remaining[i].start()
-                    );
-
-                    float dEnd = current.distanceTo(
-                        remaining[i].end()
-                    );
+                    float dStart = current.distanceTo(remaining[i].start());
+                    float dEnd = current.distanceTo(remaining[i].end());
 
                     if (!found || dStart < bestDistance) {
                         best = i;
@@ -141,11 +124,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                 if (!found) { break; }
                 if (bestDistance > eps) { break; }
 
-                Segment next = (
-                    reverseSegment
-                    ? remaining[best].reversed()
-                    : remaining[best]
-                );
+                Segment next = reverseSegment ? remaining[best].reversed() : remaining[best];
 
                 push(next);
                 remaining.erase(remaining.begin() + best);
@@ -225,26 +204,18 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             Pos mn = min();
             Pos mx = max();
 
-            return std::abs(
-                (mx.x - mn.x) *
-                (mx.y - mn.y)
-            );
+            return std::abs((mx.x - mn.x) * (mx.y - mn.y));
         }
 
         // Winding
         //--------------------------------------------------
 
-        float signedArea(
-            int samplesPerSegment = 8
-        ) const {
+        float signedArea(int samplesPerSegment = 8) const {
             if (segments.empty()) { return 0.0f; }
 
             std::vector<Pos> pts;
 
-            sample(
-                pts,
-                samplesPerSegment
-            );
+            sample(pts, samplesPerSegment);
 
             if (pts.size() < 3) { return 0.0f; }
 
@@ -255,10 +226,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                 const Pos& a = pts[i];
                 const Pos& b = pts[(i + 1) % pts.size()];
 
-                area += (
-                    a.x * b.y -
-                    b.x * a.y
-                );
+                area += (a.x * b.y - b.x * a.y);
             }
 
             return area * 0.5f;
@@ -291,9 +259,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             std::vector<Segment> out;
 
             for (size_t i = segments.size(); i > 0; i--) {
-                out.push_back(
-                    segments[i - 1].reversed()
-                );
+                out.push_back(segments[i - 1].reversed());
             }
 
             segments = out;
@@ -310,10 +276,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Directional normals
         //--------------------------------------------------
 
-        Pos leftNormalAt(
-            size_t segmentIndex,
-            float t = 0.5f
-        ) const {
+        Pos leftNormalAt(size_t segmentIndex, float t = 0.5f) const {
             if (segmentIndex >= segments.size()) {
                 return { 0.0f, 0.0f };
             }
@@ -326,17 +289,11 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             };
         }
 
-        Pos rightNormalAt(
-            size_t segmentIndex,
-            float t = 0.5f
-        ) const {
+        Pos rightNormalAt(size_t segmentIndex, float t = 0.5f) const {
             return leftNormalAt(segmentIndex, t) * -1.0f;
         }
 
-        Pos interiorNormalAt(
-            size_t segmentIndex,
-            float t = 0.5f
-        ) const {
+        Pos interiorNormalAt(size_t segmentIndex, float t = 0.5f) const {
             // For a CCW closed chain, interior is left.
             // For a CW closed chain, interior is right.
             if (counterClockwise()) {
@@ -350,45 +307,26 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return { 0.0f, 0.0f };
         }
 
-        Pos exteriorNormalAt(
-            size_t segmentIndex,
-            float t = 0.5f
-        ) const {
+        Pos exteriorNormalAt(size_t segmentIndex, float t = 0.5f) const {
             return interiorNormalAt(segmentIndex, t) * -1.0f;
         }
 
         // Offsetting
         //--------------------------------------------------
 
-        Segment translatedSegment(
-            const Segment& s,
-            const Pos& offset
-        ) const {
+        Segment translatedSegment(const Segment& s, const Pos& offset) const {
             switch (s.kind) {
 
                 case Segment::Kind::Line: {
-                    return Segment::Line(
-                        s.p0 + offset,
-                        s.p1 + offset
-                    );
+                    return Segment::Line(s.p0 + offset, s.p1 + offset);
                 }
 
                 case Segment::Kind::Arc: {
-                    return Segment::Arc(
-                        s.p0 + offset,
-                        s.f0,
-                        s.f1,
-                        s.f2
-                    );
+                    return Segment::Arc(s.p0 + offset, s.f0, s.f1, s.f2);
                 }
 
                 case Segment::Kind::Bezier: {
-                    return Segment::Bezier(
-                        s.p0 + offset,
-                        s.p1 + offset,
-                        s.p2 + offset,
-                        s.p3 + offset
-                    );
+                    return Segment::Bezier(s.p0 + offset, s.p1 + offset, s.p2 + offset, s.p3 + offset);
                 }
 
                 default: {
@@ -397,11 +335,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
-        Segment offsetSegmentNormal(
-            const Segment& s,
-            float amount,
-            bool towardInterior
-        ) const {
+        Segment offsetSegmentNormal(const Segment& s, float amount, bool towardInterior) const {
             switch (s.kind) {
 
                 case Segment::Kind::Arc: {
@@ -425,18 +359,10 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                     );
 
                     if (radius <= 1e-6f) {
-                        return Segment::Line(
-                            s.p0,
-                            s.p0
-                        );
+                        return Segment::Line(s.p0, s.p0);
                     }
 
-                    return Segment::Arc(
-                        s.p0,
-                        radius,
-                        s.f1,
-                        s.f2
-                    );
+                    return Segment::Arc(s.p0, radius, s.f1, s.f2);
                 }
 
                 default: {
@@ -444,18 +370,12 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                         ? interiorNormalAtSegment(s)
                         : exteriorNormalAtSegment(s);
 
-                    return translatedSegment(
-                        s,
-                        n * amount
-                    );
+                    return translatedSegment(s, n * amount);
                 }
             }
         }
 
-        Pos interiorNormalAtSegment(
-            const Segment& s,
-            float t = 0.5f
-        ) const {
+        Pos interiorNormalAtSegment(const Segment& s, float t = 0.5f) const {
             Pos tangent = s.tangentAt(t);
 
             Pos left = {
@@ -474,10 +394,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return { 0.0f, 0.0f };
         }
 
-        Pos exteriorNormalAtSegment(
-            const Segment& s,
-            float t = 0.5f
-        ) const {
+        Pos exteriorNormalAtSegment(const Segment& s, float t = 0.5f) const {
             return interiorNormalAtSegment(s, t) * -1.0f;
         }
 
@@ -489,13 +406,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (size_t i = 0; i < segments.size(); i++) {
 
-                out.push(
-                    offsetSegmentNormal(
-                        segments[i],
-                        amount,
-                        true
-                    )
-                );
+                out.push(offsetSegmentNormal(segments[i], amount, true));
             }
 
             out.relinkNeighbors();
@@ -511,13 +422,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (size_t i = 0; i < segments.size(); i++) {
 
-                out.push(
-                    offsetSegmentNormal(
-                        segments[i],
-                        amount,
-                        false
-                    )
-                );
+                out.push(offsetSegmentNormal(segments[i], amount, false));
             }
 
             out.relinkNeighbors();
@@ -538,14 +443,8 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Relinking
         //--------------------------------------------------
 
-        bool alreadyLinked(
-            size_t i,
-            size_t j,
-            float eps = 1e-4f
-        ) const {
-            return segments[i].end().distanceTo(
-                segments[j].start()
-            ) <= eps;
+        bool alreadyLinked(size_t i, size_t j, float eps = 1e-4f) const {
+            return segments[i].end().distanceTo(segments[j].start()) <= eps;
         }
 
         void relinkNeighbors(float eps = 1e-4f) {
@@ -560,10 +459,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                     continue;
                 }
 
-                Pos p = segments[i].generalizedIntersection(
-                    segments[j],
-                    eps
-                );
+                Pos p = segments[i].generalizedIntersection(segments[j], eps);
 
                 if (!p) { continue; }
 
@@ -582,9 +478,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                     if (adjacent(i, j)) { continue; }
 
-                    Pos p = segments[i].intersection(
-                        segments[j]
-                    );
+                    Pos p = segments[i].intersection(segments[j]);
 
                     if (!p) { continue; }
 
@@ -597,10 +491,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Sampling
         //--------------------------------------------------
 
-        void sample(
-            std::vector<Pos>& out,
-            int samplesPerSegment = 8
-        ) const {
+        void sample(std::vector<Pos>& out, int samplesPerSegment = 8) const {
             out.clear();
 
             if (samplesPerSegment < 1) {
@@ -619,9 +510,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                     float t = float(j) / float(samplesPerSegment);
 
-                    out.push_back(
-                        s.pointAt(t)
-                    );
+                    out.push_back(s.pointAt(t));
                 }
             }
         }

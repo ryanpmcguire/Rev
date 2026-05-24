@@ -30,6 +30,9 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
         static constexpr const char* name() { return "Bore"; }
 
+        // Detection
+        //--------------------------------------------------
+
         static bool detect(const Model& model) {
 
             if (!model.loaded) { return false; }
@@ -40,16 +43,8 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                 double radius = 0.0;
             };
 
-            auto axesCoaxial = [](
-                const gp_Ax1& a,
-                const gp_Ax1& b,
-                double distanceTolerance,
-                double angularTolerance
-            ) {
-                if (!a.Direction().IsParallel(b.Direction(), angularTolerance)) {
-                    return false;
-                }
-
+            auto axesCoaxial = [](const gp_Ax1& a, const gp_Ax1& b, double distanceTolerance, double angularTolerance) {
+                if (!a.Direction().IsParallel(b.Direction(), angularTolerance)) { return false; }
                 return gp_Lin(a).Distance(gp_Lin(b)) <= distanceTolerance;
             };
 
@@ -63,10 +58,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                 if (surf.GetType() == GeomAbs_Cylinder) {
                     gp_Cylinder cyl = surf.Cylinder();
 
-                    cylinders.push_back({
-                        cyl.Axis(),
-                        cyl.Radius()
-                    });
+                    cylinders.push_back({ cyl.Axis(), cyl.Radius() });
 
                     continue;
                 }
@@ -108,10 +100,10 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             return true;
         }
 
-        void processSlice(
-            SliceLayer& slice,
-            const StrategyContext& ctx
-        ) {
+        // Profiles
+        //--------------------------------------------------
+
+        void processSlice(SliceLayer& slice, const StrategyContext& ctx) {
 
             slice.resetProfiles();
             slice.geometricProfile = SliceProfile(slice.source);
@@ -136,9 +128,10 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             }
         }
 
-        void buildPaths(
-            const StrategyContext&
-        ) {
+        // Paths
+        //--------------------------------------------------
+
+        void buildPaths(const StrategyContext&) {
 
             paths_.clear();
 

@@ -55,10 +55,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Create
         //--------------------------------------------------
 
-        static Segment Line(
-            const Pos& a,
-            const Pos& b
-        ) {
+        static Segment Line(const Pos& a, const Pos& b) {
             Segment s;
 
             s.kind = Kind::Line;
@@ -68,12 +65,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return s;
         }
 
-        static Segment Arc(
-            const Pos& center,
-            float radius,
-            float a0,
-            float a1
-        ) {
+        static Segment Arc(const Pos& center, float radius, float a0, float a1) {
             Segment s;
 
             s.kind = Kind::Arc;
@@ -85,12 +77,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return s;
         }
 
-        static Segment Bezier(
-            const Pos& p0,
-            const Pos& p1,
-            const Pos& p2,
-            const Pos& p3
-        ) {
+        static Segment Bezier(const Pos& p0, const Pos& p1, const Pos& p2, const Pos& p3) {
             Segment s;
 
             s.kind = Kind::Bezier;
@@ -155,9 +142,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
-        void setStart(
-            const Pos& p
-        ) {
+        void setStart(const Pos& p) {
             switch (kind) {
 
                 case Kind::Line: {
@@ -176,9 +161,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
-        void setEnd(
-            const Pos& p
-        ) {
+        void setEnd(const Pos& p) {
             switch (kind) {
 
                 case Kind::Line: {
@@ -202,28 +185,15 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             switch (kind) {
 
                 case Kind::Line: {
-                    return Segment::Line(
-                        p1,
-                        p0
-                    );
+                    return Segment::Line(p1, p0);
                 }
 
                 case Kind::Arc: {
-                    return Segment::Arc(
-                        p0,
-                        f0,
-                        f2,
-                        f1
-                    );
+                    return Segment::Arc(p0, f0, f2, f1);
                 }
 
                 case Kind::Bezier: {
-                    return Segment::Bezier(
-                        p3,
-                        p2,
-                        p1,
-                        p0
-                    );
+                    return Segment::Bezier(p3, p2, p1, p0);
                 }
 
                 default: {
@@ -235,15 +205,8 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Evaluation
         //--------------------------------------------------
 
-        Pos at(
-            float t
-        ) const {
-            return pointAt(t);
-        }
-
-        Pos pointAt(
-            float t
-        ) const {
+        Pos at(float t) const { return pointAt(t); }
+        Pos pointAt(float t) const {
             t = std::clamp(t, 0.0f, 1.0f);
 
             switch (kind) {
@@ -280,9 +243,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
-        Pos tangentAt(
-            float t
-        ) const {
+        Pos tangentAt(float t) const {
             t = std::clamp(t, 0.0f, 1.0f);
 
             Pos d = { 1.0f, 0.0f };
@@ -342,9 +303,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return tangentAt(1.0f);
         }
 
-        Pos normalAt(
-            float t
-        ) const {
+        Pos normalAt(float t) const {
             Pos tangent = tangentAt(t);
 
             return {
@@ -361,9 +320,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Bounds / measures
         //--------------------------------------------------
 
-        Pos min(
-            int samples = 32
-        ) const {
+        Pos min(int samples = 32) const {
             if (kind == Kind::Line) {
                 return Pos::min(p0, p1);
             }
@@ -373,18 +330,13 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             if (samples < 1) { samples = 1; }
 
             for (int i = 1; i <= samples; i++) {
-                out = Pos::min(
-                    out,
-                    pointAt(float(i) / float(samples))
-                );
+                out = Pos::min(out, pointAt(float(i) / float(samples)));
             }
 
             return out;
         }
 
-        Pos max(
-            int samples = 32
-        ) const {
+        Pos max(int samples = 32) const {
             if (kind == Kind::Line) {
                 return Pos::max(p0, p1);
             }
@@ -394,18 +346,13 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             if (samples < 1) { samples = 1; }
 
             for (int i = 1; i <= samples; i++) {
-                out = Pos::max(
-                    out,
-                    pointAt(float(i) / float(samples))
-                );
+                out = Pos::max(out, pointAt(float(i) / float(samples)));
             }
 
             return out;
         }
 
-        float length(
-            int samples = 32
-        ) const {
+        float length(int samples = 32) const {
             if (kind == Kind::Line) {
                 return (p1 - p0).pythag();
             }
@@ -417,9 +364,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (int i = 1; i <= samples; i++) {
 
-                Pos p = pointAt(
-                    float(i) / float(samples)
-                );
+                Pos p = pointAt(float(i) / float(samples));
 
                 total += (p - prev).pythag();
                 prev = p;
@@ -435,11 +380,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Distances
         //--------------------------------------------------
 
-        static float pointLineDistance(
-            const Pos& p,
-            const Pos& a,
-            const Pos& b
-        ) {
+        static float pointLineDistance(const Pos& p, const Pos& a, const Pos& b) {
             Pos ab = b - a;
 
             float len2 = ab.dot(ab);
@@ -456,33 +397,18 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return p.distanceTo(q);
         }
 
-        static float orient(
-            const Pos& a,
-            const Pos& b,
-            const Pos& c
-        ) {
+        static float orient(const Pos& a, const Pos& b, const Pos& c) {
             return (b - a).cross(c - a);
         }
 
-        static bool rangesOverlap(
-            float a0,
-            float a1,
-            float b0,
-            float b1
-        ) {
+        static bool rangesOverlap(float a0, float a1, float b0, float b1) {
             if (a0 > a1) { std::swap(a0, a1); }
             if (b0 > b1) { std::swap(b0, b1); }
 
             return std::max(a0, b0) <= std::min(a1, b1);
         }
 
-        static bool lineLineSegmentsIntersect(
-            const Pos& a0,
-            const Pos& a1,
-            const Pos& b0,
-            const Pos& b1,
-            float eps = 1e-6f
-        ) {
+        static bool lineLineSegmentsIntersect(const Pos& a0, const Pos& a1, const Pos& b0, const Pos& b1, float eps = 1e-6f) {
             float o1 = orient(a0, a1, b0);
             float o2 = orient(a0, a1, b1);
             float o3 = orient(b0, b1, a0);
@@ -510,12 +436,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return false;
         }
 
-        static float lineLineDistance(
-            const Pos& a0,
-            const Pos& a1,
-            const Pos& b0,
-            const Pos& b1
-        ) {
+        static float lineLineDistance(const Pos& a0, const Pos& a1, const Pos& b0, const Pos& b1) {
             if (lineLineSegmentsIntersect(a0, a1, b0, b1)) {
                 return 0.0f;
             }
@@ -525,23 +446,11 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             float d2 = pointLineDistance(b0, a0, a1);
             float d3 = pointLineDistance(b1, a0, a1);
 
-            return std::min(
-                std::min(d0, d1),
-                std::min(d2, d3)
-            );
+            return std::min(std::min(d0, d1), std::min(d2, d3));
         }
 
-        float distanceTo(
-            const Pos& p,
-            int samples = 64
-        ) const {
-            if (kind == Kind::Line) {
-                return pointLineDistance(
-                    p,
-                    p0,
-                    p1
-                );
-            }
+        float distanceTo(const Pos& p, int samples = 64) const {
+            if (kind == Kind::Line) { return pointLineDistance(p, p0, p1); }
 
             float best = 1e30f;
 
@@ -549,33 +458,17 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (int i = 0; i <= samples; i++) {
 
-                Pos q = pointAt(
-                    float(i) / float(samples)
-                );
+                Pos q = pointAt(float(i) / float(samples));
 
-                best = std::min(
-                    best,
-                    p.distanceTo(q)
-                );
+                best = std::min(best, p.distanceTo(q));
             }
 
             return best;
         }
 
-        float distanceTo(
-            const Segment& other,
-            int samples = 32
-        ) const {
-            if (
-                kind == Kind::Line &&
-                other.kind == Kind::Line
-            ) {
-                return lineLineDistance(
-                    p0,
-                    p1,
-                    other.p0,
-                    other.p1
-                );
+        float distanceTo(const Segment& other, int samples = 32) const {
+            if (kind == Kind::Line && other.kind == Kind::Line) {
+                return lineLineDistance(p0, p1, other.p0, other.p1);
             }
 
             float best = 1e30f;
@@ -584,26 +477,16 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (int i = 0; i <= samples; i++) {
 
-                Pos p = pointAt(
-                    float(i) / float(samples)
-                );
+                Pos p = pointAt(float(i) / float(samples));
 
-                best = std::min(
-                    best,
-                    other.distanceTo(p, samples)
-                );
+                best = std::min(best, other.distanceTo(p, samples));
             }
 
             for (int i = 0; i <= samples; i++) {
 
-                Pos p = other.pointAt(
-                    float(i) / float(samples)
-                );
+                Pos p = other.pointAt(float(i) / float(samples));
 
-                best = std::min(
-                    best,
-                    distanceTo(p, samples)
-                );
+                best = std::min(best, distanceTo(p, samples));
             }
 
             return best;
@@ -612,47 +495,23 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Intersections
         //--------------------------------------------------
 
-        bool intersection(
-            const Segment& other,
-            Pos& out,
-            float eps = 1e-6f
-        ) const {
-            if (
-                kind == Kind::Line &&
-                other.kind == Kind::Line
-            ) {
-                return lineLineIntersection(
-                    *this,
-                    other,
-                    out,
-                    eps
-                );
+        bool intersection(const Segment& other, Pos& out, float eps = 1e-6f) const {
+            if (kind == Kind::Line && other.kind == Kind::Line) {
+                return lineLineIntersection(*this, other, out, eps);
             }
 
             return false;
         }
 
-        Pos intersection(
-            const Segment& other,
-            float eps = 1e-6f
-        ) const {
+        Pos intersection(const Segment& other, float eps = 1e-6f) const {
             Pos out;
-
-            if (!intersection(other, out, eps)) {
-                return Pos::Invalid();
-            }
+            if (!intersection(other, out, eps)) { return Pos::Invalid(); }
 
             return out;
         }
 
-        Pos generalizedIntersection(
-            const Segment& other,
-            float eps = 1e-6f
-        ) const {
-            Pos p = intersection(
-                other,
-                eps
-            );
+        Pos generalizedIntersection(const Segment& other, float eps = 1e-6f) const {
+            Pos p = intersection(other, eps);
 
             if (p) {
                 return p;
@@ -669,18 +528,8 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return Pos::Invalid();
         }
 
-        static bool lineLineIntersection(
-            const Segment& a,
-            const Segment& b,
-            Pos& out,
-            float eps = 1e-6f
-        ) {
-            if (
-                a.kind != Kind::Line ||
-                b.kind != Kind::Line
-            ) {
-                return false;
-            }
+        static bool lineLineIntersection(const Segment& a, const Segment& b, Pos& out, float eps = 1e-6f) {
+            if (a.kind != Kind::Line || b.kind != Kind::Line) { return false; }
 
             Pos p = a.p0;
             Pos r = a.p1 - a.p0;
@@ -716,10 +565,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Scanline hits
         //--------------------------------------------------
 
-        void hitsAtY(
-            float y,
-            std::vector<YHit>& out
-        ) const {
+        void hitsAtY(float y, std::vector<YHit>& out) const {
             switch (kind) {
 
                 case Kind::Line: {
@@ -734,10 +580,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
-        void lineHitsAtY(
-            float y,
-            std::vector<YHit>& out
-        ) const {
+        void lineHitsAtY(float y, std::vector<YHit>& out) const {
             if (kind != Kind::Line) { return; }
 
             if (std::abs(p0.y - p1.y) <= 1e-6f) {
@@ -761,11 +604,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             });
         }
 
-        void sampledHitsAtY(
-            float y,
-            std::vector<YHit>& out,
-            int samples = 64
-        ) const {
+        void sampledHitsAtY(float y, std::vector<YHit>& out, int samples = 64) const {
             if (samples < 1) { samples = 1; }
 
             Pos prev = pointAt(0.0f);
@@ -806,17 +645,9 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Sampling
         //--------------------------------------------------
 
-        void sample(
-            std::vector<Pos>& out,
-            int samples = 16
-        ) const {
+        void sample(std::vector<Pos>& out, int samples = 16) const {
             if (samples < 1) { samples = 1; }
-
-            for (int i = 0; i <= samples; i++) {
-                out.push_back(
-                    pointAt(float(i) / float(samples))
-                );
-            }
+            for (int i = 0; i <= samples; i++) { out.push_back(pointAt(float(i) / float(samples))); }
         }
     };
 }

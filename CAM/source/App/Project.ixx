@@ -21,7 +21,14 @@ export namespace Cam::App {
 
     struct Project {
 
+        // Identity
         std::string name = "Untitled Project";
+
+        bool loaded = false;
+        bool dirty = false;
+
+        // Files
+        //--------------------------------------------------
 
         // The project file: *.cam
         Rev::OS::File projectFile = Rev::OS::File({
@@ -36,13 +43,16 @@ export namespace Cam::App {
         // Folder containing tool JSON files (*.json). Empty uses app default.
         std::string toolFolderPath = "";
 
+        // Tools
+        //--------------------------------------------------
+
         ToolLibrary toolLibrary;
 
         // Name of the tool used for new toolpath computation (library key).
         std::string selectedToolName = "God Tool 1";
 
-        bool loaded = false;
-        bool dirty = false;
+        // Material states
+        //--------------------------------------------------
 
         std::vector<MaterialState*> states;
 
@@ -51,16 +61,19 @@ export namespace Cam::App {
         MaterialState* workingState = nullptr;
         MaterialState* displayedState = nullptr;
 
-        Project(
-            bool loadDefault = true,
-            std::string name = "Untitled Project"
-        ) {
+        // Create
+        //--------------------------------------------------
+
+        Project(bool loadDefault = true, std::string name = "Untitled Project") {
             this->name = name;
 
             if (loadDefault) {
                 loadDefaultModel();
             }
         }
+
+        // Destroy
+        //--------------------------------------------------
 
         ~Project() {
             clear();
@@ -127,12 +140,13 @@ export namespace Cam::App {
 
         MaterialState* stateAt(size_t index) const {
 
-            if (index >= states.size()) {
-                return nullptr;
-            }
+            if (index >= states.size()) { return nullptr; }
 
             return states[index];
         }
+
+        // Tools
+        //--------------------------------------------------
 
         void loadToolLibrary() {
 
@@ -142,13 +156,8 @@ export namespace Cam::App {
 
             if (selectedToolName.empty() || !toolLibrary.find(selectedToolName)) {
 
-                if (!toolLibrary.order.empty()) {
-                    selectedToolName = toolLibrary.order.front();
-                }
-
-                else {
-                    selectedToolName = "God Tool 1";
-                }
+                if (!toolLibrary.order.empty()) { selectedToolName = toolLibrary.order.front(); }
+                else { selectedToolName = "God Tool 1"; }
             }
         }
 
@@ -191,23 +200,13 @@ export namespace Cam::App {
 
                 size_t parentIndex = indexOf(state->parent);
 
-                if (parentIndex != static_cast<size_t>(-1)) {
-                    stateJson["parent"] = parentIndex;
-                }
-
-                else {
-                    stateJson["parent"] = nullptr;
-                }
+                if (parentIndex != static_cast<size_t>(-1)) { stateJson["parent"] = parentIndex; }
+                else { stateJson["parent"] = nullptr; }
 
                 stateJson["model"] = state->model.getState();
 
-                if (state->hasDelta) {
-                    stateJson["delta"] = state->delta.getState();
-                }
-
-                else {
-                    stateJson["delta"] = "";
-                }
+                if (state->hasDelta) { stateJson["delta"] = state->delta.getState(); }
+                else { stateJson["delta"] = ""; }
 
                 stateJson["toolPath"] = {
                     { "toolName", state->toolPath.toolName },
@@ -230,12 +229,8 @@ export namespace Cam::App {
             return json;
         }
 
-        bool setState(
-            const Json& json
-        ) {
-            if (!json.is_object()) {
-                return false;
-            }
+        bool setState(const Json& json) {
+            if (!json.is_object()) { return false; }
 
             std::vector<MaterialState*> newStates;
 
@@ -245,28 +240,17 @@ export namespace Cam::App {
                     name = json["name"].get<std::string>();
                 }
 
-                if (
-                    json.contains("sourceFile") &&
-                    json["sourceFile"].is_object() &&
-                    json["sourceFile"].contains("pathname") &&
-                    json["sourceFile"]["pathname"].is_string()
-                ) {
+                if (json.contains("sourceFile") && json["sourceFile"].is_object() && json["sourceFile"].contains("pathname") && json["sourceFile"]["pathname"].is_string()) {
                     file = Rev::OS::File({
                         .pathname = json["sourceFile"]["pathname"].get<std::string>()
                     });
                 }
 
-                if (
-                    json.contains("toolFolderPath") &&
-                    json["toolFolderPath"].is_string()
-                ) {
+                if (json.contains("toolFolderPath") && json["toolFolderPath"].is_string()) {
                     toolFolderPath = json["toolFolderPath"].get<std::string>();
                 }
 
-                if (
-                    !json.contains("materialStates") ||
-                    !json["materialStates"].is_array()
-                ) {
+                if (!json.contains("materialStates") || !json["materialStates"].is_array()) {
                     return false;
                 }
 
@@ -306,59 +290,31 @@ export namespace Cam::App {
                     }
 
                     if (stateJson.contains("model") && stateJson["model"].is_string()) {
-                        state->model.setState(
-                            stateJson["model"].get<std::string>()
-                        );
+                        state->model.setState(stateJson["model"].get<std::string>());
                     }
 
-                    if (
-                        state->hasDelta &&
-                        stateJson.contains("delta") &&
-                        stateJson["delta"].is_string()
-                    ) {
-                        state->delta.setState(
-                            stateJson["delta"].get<std::string>()
-                        );
+                    if (state->hasDelta && stateJson.contains("delta") && stateJson["delta"].is_string()) {
+                        state->delta.setState(stateJson["delta"].get<std::string>());
                     }
 
-                    if (
-                        stateJson.contains("toolPath") &&
-                        stateJson["toolPath"].is_object()
-                    ) {
+                    if (stateJson.contains("toolPath") && stateJson["toolPath"].is_object()) {
                         const Json& toolPathJson = stateJson["toolPath"];
 
-                        if (
-                            toolPathJson.contains("toolName") &&
-                            toolPathJson["toolName"].is_string()
-                        ) {
-                            state->toolPath.toolName =
-                                toolPathJson["toolName"].get<std::string>();
+                        if (toolPathJson.contains("toolName") && toolPathJson["toolName"].is_string()) {
+                            state->toolPath.toolName = toolPathJson["toolName"].get<std::string>();
                         }
 
-                        if (
-                            toolPathJson.contains("hasToolPath") &&
-                            toolPathJson["hasToolPath"].is_boolean()
-                        ) {
-                            state->hasToolPath =
-                                toolPathJson["hasToolPath"].get<bool>();
+                        if (toolPathJson.contains("hasToolPath") && toolPathJson["hasToolPath"].is_boolean()) {
+                            state->hasToolPath = toolPathJson["hasToolPath"].get<bool>();
                         }
 
-                        if (
-                            toolPathJson.contains("strategy") &&
-                            toolPathJson["strategy"].is_string()
-                        ) {
-                            state->toolPath.strategy =
-                                toolPathJson["strategy"].get<std::string>();
+                        if (toolPathJson.contains("strategy") && toolPathJson["strategy"].is_string()) {
+                            state->toolPath.strategy = toolPathJson["strategy"].get<std::string>();
                         }
 
-                        if (
-                            toolPathJson.contains("strategyAuto") &&
-                            toolPathJson["strategyAuto"].is_boolean()
-                        ) {
-                            state->toolPath.strategyAuto =
-                                toolPathJson["strategyAuto"].get<bool>();
+                        if (toolPathJson.contains("strategyAuto") && toolPathJson["strategyAuto"].is_boolean()) {
+                            state->toolPath.strategyAuto = toolPathJson["strategyAuto"].get<bool>();
                         }
-
                         else if (toolPathJson.contains("strategy")) {
                             // Legacy project files: an explicit strategy field
                             // means the user committed to that strategy. Lock
@@ -366,28 +322,16 @@ export namespace Cam::App {
                             state->toolPath.strategyAuto = false;
                         }
 
-                        if (
-                            toolPathJson.contains("stepDown") &&
-                            toolPathJson["stepDown"].is_number()
-                        ) {
-                            state->toolPath.stepDown =
-                                toolPathJson["stepDown"].get<double>();
+                        if (toolPathJson.contains("stepDown") && toolPathJson["stepDown"].is_number()) {
+                            state->toolPath.stepDown = toolPathJson["stepDown"].get<double>();
                         }
 
-                        if (
-                            toolPathJson.contains("feedRate") &&
-                            toolPathJson["feedRate"].is_number()
-                        ) {
-                            state->toolPath.feedRate =
-                                toolPathJson["feedRate"].get<double>();
+                        if (toolPathJson.contains("feedRate") && toolPathJson["feedRate"].is_number()) {
+                            state->toolPath.feedRate = toolPathJson["feedRate"].get<double>();
                         }
 
-                        if (
-                            toolPathJson.contains("stepover") &&
-                            toolPathJson["stepover"].is_number()
-                        ) {
-                            state->toolPath.stepover =
-                                toolPathJson["stepover"].get<double>();
+                        if (toolPathJson.contains("stepover") && toolPathJson["stepover"].is_number()) {
+                            state->toolPath.stepover = toolPathJson["stepover"].get<double>();
                         }
                     }
 
@@ -411,10 +355,7 @@ export namespace Cam::App {
 
                     if (!state) { continue; }
 
-                    if (
-                        stateJson.contains("parent") &&
-                        stateJson["parent"].is_number_unsigned()
-                    ) {
+                    if (stateJson.contains("parent") && stateJson["parent"].is_number_unsigned()) {
                         size_t parentIndex = stateJson["parent"].get<size_t>();
 
                         if (parentIndex < newStates.size()) {
@@ -489,19 +430,12 @@ export namespace Cam::App {
             }
         }
 
-        static MaterialState* stateAtJsonIndex(
-            const std::vector<MaterialState*>& list,
-            const Json& indexJson
-        ) {
-            if (!indexJson.is_number_unsigned()) {
-                return nullptr;
-            }
+        static MaterialState* stateAtJsonIndex(const std::vector<MaterialState*>& list, const Json& indexJson) {
+            if (!indexJson.is_number_unsigned()) { return nullptr; }
 
             size_t index = indexJson.get<size_t>();
 
-            if (index >= list.size()) {
-                return nullptr;
-            }
+            if (index >= list.size()) { return nullptr; }
 
             return list[index];
         }
@@ -511,9 +445,7 @@ export namespace Cam::App {
 
         bool save() {
 
-            if (!hasProjectFile()) {
-                return saveAs();
-            }
+            if (!hasProjectFile()) { return saveAs(); }
 
             return writeProjectFile(projectFile);
         }
@@ -522,30 +454,19 @@ export namespace Cam::App {
 
             Rev::OS::File selected = projectFile;
 
-            if (!selected.saveAs(
-                "Save CAM Project",
-                "CAM Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0"
-            )) {
-                return false;
-            }
+            if (!selected.saveAs("Save CAM Project", "CAM Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0")) { return false; }
 
             projectFile = selected;
 
             return writeProjectFile(projectFile);
         }
 
-        bool loadProjectFile(
-            Rev::OS::File selected
-        ) {
-            if (!selected || selected.pathname.empty()) {
-                return false;
-            }
+        bool loadProjectFile(Rev::OS::File selected) {
+            if (!selected || selected.pathname.empty()) { return false; }
 
             std::ifstream stream(selected.pathname);
 
-            if (!stream) {
-                return false;
-            }
+            if (!stream) { return false; }
 
             Json json;
 
@@ -557,9 +478,7 @@ export namespace Cam::App {
                 return false;
             }
 
-            if (!setState(json)) {
-                return false;
-            }
+            if (!setState(json)) { return false; }
 
             projectFile = selected;
             dirty = false;
@@ -567,16 +486,9 @@ export namespace Cam::App {
             return true;
         }
 
-        bool writeProjectFile(
-            Rev::OS::File& target
-        ) {
-            if (!target || target.pathname.empty()) {
-                return false;
-            }
-
-            if (!target.writeText(getState().dump(4))) {
-                return false;
-            }
+        bool writeProjectFile(Rev::OS::File& target) {
+            if (!target || target.pathname.empty()) { return false; }
+            if (!target.writeText(getState().dump(4))) { return false; }
 
             dirty = false;
 
@@ -590,12 +502,7 @@ export namespace Cam::App {
 
             Rev::OS::File selected = file;
 
-            if (!selected.open(
-                "Select STEP File",
-                "STEP Files\0*.step;*.stp\0All Files\0*.*\0"
-            )) {
-                return false;
-            }
+            if (!selected.open("Select STEP File", "STEP Files\0*.step;*.stp\0All Files\0*.*\0")) { return false; }
 
             return loadStepFile(selected);
         }
@@ -604,18 +511,12 @@ export namespace Cam::App {
             return loadStepFile(file);
         }
 
-        bool loadStepFile(
-            Rev::OS::File& selected
-        ) {
-            if (!selected) {
-                return false;
-            }
+        bool loadStepFile(Rev::OS::File& selected) {
+            if (!selected) { return false; }
 
             MaterialState* newRoot = MaterialState::FromStep(selected);
 
-            if (!newRoot) {
-                return false;
-            }
+            if (!newRoot) { return false; }
 
             MaterialState* newWorking = MaterialState::FromPriorState(newRoot);
 
@@ -670,9 +571,7 @@ export namespace Cam::App {
 
         void ensureToolPathComputed(MaterialState* state) {
 
-            if (!state || !state->needsToolPathComputation()) {
-                return;
-            }
+            if (!state || !state->needsToolPathComputation()) { return; }
 
             state->computeToolPath(toolLibrary, selectedToolName);
         }
@@ -686,6 +585,9 @@ export namespace Cam::App {
 
             return true;
         }
+
+        // Material state editing
+        //--------------------------------------------------
 
         bool deleteState(MaterialState* state) {
 
@@ -706,16 +608,9 @@ export namespace Cam::App {
                 latestCommittedState = fallback;
             }
 
-            states.erase(
-                std::remove_if(
-                    states.begin(),
-                    states.end(),
-                    [state](MaterialState* candidate) {
-                        return state->contains(candidate);
-                    }
-                ),
-                states.end()
-            );
+            states.erase(std::remove_if(states.begin(), states.end(), [state](MaterialState* candidate) {
+                return state->contains(candidate);
+            }), states.end());
 
             state->remove();
 
@@ -725,9 +620,7 @@ export namespace Cam::App {
 
             if (!workingState && latestCommittedState) {
 
-                workingState = MaterialState::FromPriorState(
-                    latestCommittedState
-                );
+                workingState = MaterialState::FromPriorState(latestCommittedState);
 
                 if (workingState) {
                     states.push_back(workingState);
@@ -755,10 +648,7 @@ export namespace Cam::App {
             if (!ok) { return false; }
 
             workingState->model.clearSelection();
-            workingState->computeDelta(
-                toolLibrary,
-                selectedToolName
-            );
+            workingState->computeDelta(toolLibrary, selectedToolName);
 
             dirty = true;
 
@@ -770,10 +660,7 @@ export namespace Cam::App {
             if (!workingState) { return false; }
             if (!workingState->model.changed && !workingState->hasDelta) { return false; }
 
-            workingState->computeDelta(
-                toolLibrary,
-                selectedToolName
-            );
+            workingState->computeDelta(toolLibrary, selectedToolName);
 
             workingState->committed = true;
             workingState->working = false;
@@ -781,9 +668,7 @@ export namespace Cam::App {
 
             latestCommittedState = workingState;
 
-            workingState = MaterialState::FromPriorState(
-                latestCommittedState
-            );
+            workingState = MaterialState::FromPriorState(latestCommittedState);
 
             if (workingState) {
                 states.push_back(workingState);
@@ -802,10 +687,7 @@ export namespace Cam::App {
             if (!displayedState) { return false; }
             if (!displayedState->parent) { return false; }
 
-            displayedState->computeDelta(
-                toolLibrary,
-                selectedToolName
-            );
+            displayedState->computeDelta(toolLibrary, selectedToolName);
 
             dirty = true;
 

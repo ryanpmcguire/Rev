@@ -36,6 +36,7 @@ export namespace Cam::App {
         bool cutting = true;
     };
 
+    // Computed tool motion for one material state.
     struct ToolPath {
 
         using Bore = Slicer::Strategy::Strategies::Bore;
@@ -44,18 +45,21 @@ export namespace Cam::App {
 
         using StrategyInstance = std::variant<Bore, Profile, Hatch>;
 
+        // Settings
         std::string toolName = "";
         std::string strategy = Hatch::name();
-
         bool strategyAuto = true;
-
-        std::vector<ToolPathPoint> points;
-
-        bool computed = false;
 
         double stepDown = 1.0;
         double feedRate = 1000.0;
         double stepover = 0.25;
+
+        // Result
+        std::vector<ToolPathPoint> points;
+        bool computed = false;
+
+        // State
+        //--------------------------------------------------
 
         ToolPath() = default;
         ToolPath(const ToolPath&) = delete;
@@ -88,6 +92,9 @@ export namespace Cam::App {
             );
         }
 
+        // Strategy detection
+        //--------------------------------------------------
+
         static std::string detectStrategy(const Model& model) {
 
             if (Bore::detect(model)) { return Bore::name(); }
@@ -96,6 +103,9 @@ export namespace Cam::App {
 
             return Hatch::name();
         }
+
+        // Point building
+        //--------------------------------------------------
 
         void addPoint(const Pos& p, float z, double& t, bool rapid = false, bool cutting = true) {
             points.push_back({
@@ -127,16 +137,12 @@ export namespace Cam::App {
             }
         }
 
-        void buildPointsFromStrategy(
-            const Slicer::Strategy::Strategy& strategyImpl
-        ) {
+        void buildPointsFromStrategy(const Slicer::Strategy::Strategy& strategyImpl) {
             points.clear();
 
             double t = 0.0;
 
-            for (const Slicer::Strategy::LayerPath& layer :
-                strategyImpl.paths()
-            ) {
+            for (const Slicer::Strategy::LayerPath& layer : strategyImpl.paths()) {
                 if (!layer.points.empty()) {
                     for (const Pos& p : layer.points) {
                         addPoint(p, layer.z, t);
@@ -150,6 +156,9 @@ export namespace Cam::App {
                 }
             }
         }
+
+        // Compute
+        //--------------------------------------------------
 
         bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
             clearPathData();
@@ -186,14 +195,8 @@ export namespace Cam::App {
                 .stepover = static_cast<float>(stepover)
             };
 
-            if (strategy == Bore::name()) {
-                strategyInstance = Bore {};
-            }
-
-            else if (strategy == Profile::name()) {
-                strategyInstance = Profile {};
-            }
-
+            if (strategy == Bore::name()) { strategyInstance = Bore {}; }
+            else if (strategy == Profile::name()) { strategyInstance = Profile {}; }
             else {
                 strategy = Hatch::name();
                 strategyInstance = Hatch {};
@@ -233,13 +236,12 @@ export namespace Cam::App {
             return compute(toCarve, toAvoid, Tool::GodTool());
         }
 
-        bool computeFromDelta(
-            Model& deltaModel,
-            Model& remainingModel,
-            const Tool& tool
-        ) {
+        bool computeFromDelta(Model& deltaModel, Model& remainingModel, const Tool& tool) {
             return compute(deltaModel, remainingModel, tool);
         }
+
+        // Rendering
+        //--------------------------------------------------
 
         void buildLineSegments(std::vector<Vertex3>& lines) const {
             lines.clear();

@@ -23,19 +23,21 @@ export namespace Cam::App {
 
     struct AppState {
 
+        // Projects
         std::vector<Project*> projects;
         Project* activeProject = nullptr;
 
+        // Cached tool folder path for the active project (or app default).
         std::string toolFolderPath = "";
+
+        // Create
+        //--------------------------------------------------
 
         static AppState* Get(void*& state) {
 
             AppState* app = static_cast<AppState*>(state);
 
-            if (!app) {
-                app = new AppState();
-                state = app;
-            }
+            if (!app) { app = new AppState(); state = app; }
 
             return app;
         }
@@ -44,6 +46,9 @@ export namespace Cam::App {
             loadSessionOrDefaults();
             loadTools();
         }
+
+        // Destroy
+        //--------------------------------------------------
 
         ~AppState() {
 
@@ -84,18 +89,14 @@ export namespace Cam::App {
 
         ToolLibrary* toolLibrary() {
 
-            if (!activeProject) {
-                return nullptr;
-            }
+            if (!activeProject) { return nullptr; }
 
             return &activeProject->toolLibrary;
         }
 
         const ToolLibrary* toolLibrary() const {
 
-            if (!activeProject) {
-                return nullptr;
-            }
+            if (!activeProject) { return nullptr; }
 
             return &activeProject->toolLibrary;
         }
@@ -116,9 +117,7 @@ export namespace Cam::App {
 
             const ToolLibrary* library = toolLibrary();
 
-            if (!library) {
-                return 0;
-            }
+            if (!library) { return 0; }
 
             return library->size();
         }
@@ -127,35 +126,25 @@ export namespace Cam::App {
 
             ToolLibrary* library = toolLibrary();
 
-            if (!library) {
-                return nullptr;
-            }
+            if (!library) { return nullptr; }
 
             return library->at(index);
         }
 
         Tool* selectedTool() {
 
-            if (!activeProject) {
-                return nullptr;
-            }
+            if (!activeProject) { return nullptr; }
 
-            return activeProject->toolLibrary.find(
-                activeProject->selectedToolName
-            );
+            return activeProject->toolLibrary.find(activeProject->selectedToolName);
         }
 
         bool selectTool(size_t index) {
 
-            if (!activeProject) {
-                return false;
-            }
+            if (!activeProject) { return false; }
 
             Tool* tool = activeProject->toolLibrary.at(index);
 
-            if (!tool) {
-                return false;
-            }
+            if (!tool) { return false; }
 
             activeProject->selectedToolName = tool->name;
 
@@ -164,9 +153,7 @@ export namespace Cam::App {
 
         bool selectToolByName(const std::string& name) {
 
-            if (!activeProject) {
-                return false;
-            }
+            if (!activeProject) { return false; }
 
             if (!activeProject->toolLibrary.find(name)) {
                 return false;
@@ -179,9 +166,7 @@ export namespace Cam::App {
 
         bool createNewTool(std::string& outName) {
 
-            if (!activeProject) {
-                return false;
-            }
+            if (!activeProject) { return false; }
 
             ToolLibrary& library = activeProject->toolLibrary;
 
@@ -192,9 +177,7 @@ export namespace Cam::App {
             tool.radius = 0.5;
             tool.length = 100.0;
 
-            if (!library.insertTool(tool)) {
-                return false;
-            }
+            if (!library.insertTool(tool)) { return false; }
 
             activeProject->selectedToolName = tool.name;
             outName = tool.name;
@@ -212,18 +195,14 @@ export namespace Cam::App {
 
             const Tool* tool = library->find(name);
 
-            if (!tool) {
-                return false;
-            }
+            if (!tool) { return false; }
 
             return tool->filePath.empty();
         }
 
         bool removeTool(const std::string& name) {
 
-            if (!activeProject) {
-                return false;
-            }
+            if (!activeProject) { return false; }
 
             ToolLibrary& library = activeProject->toolLibrary;
 
@@ -233,13 +212,8 @@ export namespace Cam::App {
 
             if (activeProject->selectedToolName == name) {
 
-                if (!library.empty()) {
-                    activeProject->selectedToolName = library.order.front();
-                }
-
-                else {
-                    activeProject->selectedToolName.clear();
-                }
+                if (!library.empty()) { activeProject->selectedToolName = library.order.front(); }
+                else { activeProject->selectedToolName.clear(); }
             }
 
             activeProject->dirty = true;
@@ -247,13 +221,7 @@ export namespace Cam::App {
             return true;
         }
 
-        bool saveTool(
-            const std::string& originalName,
-            const std::string& newName,
-            Tool::Type type,
-            double diameter,
-            double length
-        ) {
+        bool saveTool(const std::string& originalName, const std::string& newName, Tool::Type type, double diameter, double length) {
 
             if (!activeProject || newName.empty()) {
                 return false;
@@ -261,9 +229,7 @@ export namespace Cam::App {
 
             Tool* tool = activeProject->toolLibrary.find(originalName);
 
-            if (!tool) {
-                return false;
-            }
+            if (!tool) { return false; }
 
             Tool updated = *tool;
             updated.name = newName;
@@ -274,6 +240,7 @@ export namespace Cam::App {
 
             std::string targetPath = tool->filePath;
 
+            // First save: prompt for a file path.
             if (targetPath.empty()) {
 
                 std::string initialDir = activeProject->toolFolderPath;
@@ -289,18 +256,12 @@ export namespace Cam::App {
                     .pathname = suggested.string()
                 });
 
-                if (!file.saveAs(
-                    "Save Tool",
-                    "CAM Tool\0*.json\0All Files\0*.*\0",
-                    initialDir
-                )) {
-                    return false;
-                }
+                if (!file.saveAs("Save Tool", "CAM Tool\0*.json\0All Files\0*.*\0", initialDir)) { return false; }
 
                 targetPath = file.pathname;
                 updated.filePath = targetPath;
             }
-
+            // Rename: move the existing file on disk.
             else if (newName != originalName) {
 
                 std::filesystem::path oldPath(targetPath);
@@ -310,10 +271,7 @@ export namespace Cam::App {
                 std::error_code ec;
                 std::filesystem::rename(oldPath, newPath, ec);
 
-                if (!ec) {
-                    targetPath = newPath.string();
-                }
-
+                if (!ec) { targetPath = newPath.string(); }
                 else {
                     std::filesystem::remove(oldPath, ec);
                     targetPath = newPath.string();
@@ -322,19 +280,13 @@ export namespace Cam::App {
                 updated.filePath = targetPath;
             }
 
-            if (!activeProject->toolLibrary.replaceTool(originalName, updated)) {
-                return false;
-            }
+            if (!activeProject->toolLibrary.replaceTool(originalName, updated)) { return false; }
 
-            if (newName != originalName &&
-                activeProject->selectedToolName == originalName
-            ) {
+            if (newName != originalName && activeProject->selectedToolName == originalName) {
                 activeProject->selectedToolName = newName;
             }
 
-            if (!ToolLibrary::saveToolFileAtPath(targetPath, updated)) {
-                return false;
-            }
+            if (!ToolLibrary::saveToolFileAtPath(targetPath, updated)) { return false; }
 
             activeProject->dirty = true;
 
@@ -345,16 +297,9 @@ export namespace Cam::App {
 
             Rev::OS::File folder;
 
-            if (!folder.selectFolder(
-                "Select Tool Folder",
-                toolFolderPath
-            )) {
-                return false;
-            }
+            if (!folder.selectFolder("Select Tool Folder", toolFolderPath)) { return false; }
 
-            if (!activeProject) {
-                return false;
-            }
+            if (!activeProject) { return false; }
 
             activeProject->toolFolderPath = folder.pathname;
             activeProject->dirty = true;
@@ -366,10 +311,10 @@ export namespace Cam::App {
             return true;
         }
 
-        Project* createProject(
-            bool loadDefault = false,
-            std::string name = "Untitled Project"
-        ) {
+        // Project lifecycle
+        //--------------------------------------------------
+
+        Project* createProject(bool loadDefault = false, std::string name = "Untitled Project") {
             Project* project = new Project(loadDefault, name);
 
             projects.push_back(project);
@@ -381,9 +326,7 @@ export namespace Cam::App {
             return project;
         }
 
-        Project* createEmptyProject(
-            std::string name = "Untitled Project"
-        ) {
+        Project* createEmptyProject(std::string name = "Untitled Project") {
             return createProject(false, name);
         }
 
@@ -399,20 +342,19 @@ export namespace Cam::App {
             return project;
         }
 
+        // Unsaved changes
+        //--------------------------------------------------
+
         // Save / discard / cancel for one dirty project.
         // Returns false if the user cancelled or save failed.
         bool tryResolveDirtyProject(Project* project) {
 
-            if (!project || !project->dirty) {
-                return true;
-            }
+            if (!project || !project->dirty) { return true; }
 
             Rev::OS::UnsavedChangesResult result =
                 Rev::OS::Dialog::UnsavedChanges(project->name);
 
-            if (result == Rev::OS::UnsavedChangesResult::Cancel) {
-                return false;
-            }
+            if (result == Rev::OS::UnsavedChangesResult::Cancel) { return false; }
 
             if (result == Rev::OS::UnsavedChangesResult::Save) {
                 return project->save();
@@ -448,23 +390,15 @@ export namespace Cam::App {
 
             if (!project) { return false; }
 
-            auto it = std::find(
-                projects.begin(),
-                projects.end(),
-                project
-            );
+            auto it = std::find(projects.begin(), projects.end(), project);
 
             if (it == projects.end()) { return false; }
 
-            if (!tryResolveDirtyProject(project)) {
-                return false;
-            }
+            if (!tryResolveDirtyProject(project)) { return false; }
 
             bool wasActive = (project == activeProject);
 
-            size_t index = static_cast<size_t>(
-                std::distance(projects.begin(), it)
-            );
+            size_t index = static_cast<size_t>(std::distance(projects.begin(), it));
 
             projects.erase(it);
 
@@ -513,9 +447,7 @@ export namespace Cam::App {
 
             if (!activeProject) { return false; }
 
-            if (!activeProject->save()) {
-                return false;
-            }
+            if (!activeProject->save()) { return false; }
 
             saveSession();
 
@@ -526,9 +458,7 @@ export namespace Cam::App {
 
             if (!activeProject) { return false; }
 
-            if (!activeProject->saveAs()) {
-                return false;
-            }
+            if (!activeProject->saveAs()) { return false; }
 
             saveSession();
 
@@ -539,12 +469,7 @@ export namespace Cam::App {
 
             Rev::OS::File selected;
 
-            if (!selected.open(
-                "Open CAM Project",
-                "CAM Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0"
-            )) {
-                return false;
-            }
+            if (!selected.open("Open CAM Project", "CAM Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0")) { return false; }
 
             Project* project = createEmptyProject("Untitled Project");
 
@@ -566,11 +491,7 @@ export namespace Cam::App {
 
             if (!project) { return false; }
 
-            auto it = std::find(
-                projects.begin(),
-                projects.end(),
-                project
-            );
+            auto it = std::find(projects.begin(), projects.end(), project);
 
             if (it == projects.end()) { return false; }
 
@@ -639,28 +560,15 @@ export namespace Cam::App {
             return activeProject->recalculateDisplayedToolPath();
         }
 
-        bool saveToolPathSettings(
-            MaterialState* state,
-            const std::string& strategy,
-            const std::string& toolName,
-            double stepDown,
-            double stepover,
-            double feedRate
-        ) {
+        bool saveToolPathSettings(MaterialState* state, const std::string& strategy, const std::string& toolName, double stepDown, double stepover, double feedRate) {
 
             if (!activeProject || !state || toolName.empty() || stepover <= 0.0) {
                 return false;
             }
 
-            auto it = std::find(
-                activeProject->states.begin(),
-                activeProject->states.end(),
-                state
-            );
+            auto it = std::find(activeProject->states.begin(), activeProject->states.end(), state);
 
-            if (it == activeProject->states.end()) {
-                return false;
-            }
+            if (it == activeProject->states.end()) { return false; }
 
             state->toolPath.strategy = strategy;
             state->toolPath.strategyAuto = false;
@@ -670,10 +578,7 @@ export namespace Cam::App {
             state->toolPath.feedRate = feedRate;
 
             if (state->hasDelta) {
-                state->computeToolPath(
-                    activeProject->toolLibrary,
-                    activeProject->selectedToolName
-                );
+                state->computeToolPath(activeProject->toolLibrary, activeProject->selectedToolName);
             }
 
             activeProject->dirty = true;

@@ -21,8 +21,12 @@ export namespace Cam::App {
 
     struct ToolLibrary {
 
+        // Storage
         std::unordered_map<std::string, Tool> byName;
         std::vector<std::string> order;
+
+        // State
+        //--------------------------------------------------
 
         void clear() {
             byName.clear();
@@ -39,57 +43,46 @@ export namespace Cam::App {
 
         const Tool* find(const std::string& name) const {
 
-            if (name.empty()) {
-                return nullptr;
-            }
+            if (name.empty()) { return nullptr; }
 
             auto it = byName.find(name);
 
-            if (it == byName.end()) {
-                return nullptr;
-            }
+            if (it == byName.end()) { return nullptr; }
 
             return &it->second;
         }
 
         Tool* find(const std::string& name) {
 
-            if (name.empty()) {
-                return nullptr;
-            }
+            if (name.empty()) { return nullptr; }
 
             auto it = byName.find(name);
 
-            if (it == byName.end()) {
-                return nullptr;
-            }
+            if (it == byName.end()) { return nullptr; }
 
             return &it->second;
         }
 
         const Tool* at(size_t index) const {
 
-            if (index >= order.size()) {
-                return nullptr;
-            }
+            if (index >= order.size()) { return nullptr; }
 
             return find(order[index]);
         }
 
         Tool* at(size_t index) {
 
-            if (index >= order.size()) {
-                return nullptr;
-            }
+            if (index >= order.size()) { return nullptr; }
 
             return find(order[index]);
         }
 
+        // Mutation
+        //--------------------------------------------------
+
         bool insertTool(const Tool& tool) {
 
-            if (tool.name.empty()) {
-                return false;
-            }
+            if (tool.name.empty()) { return false; }
 
             bool isNew = !byName.contains(tool.name);
 
@@ -104,30 +97,20 @@ export namespace Cam::App {
 
         bool removeTool(const std::string& name) {
 
-            if (name.empty()) {
-                return false;
-            }
+            if (name.empty()) { return false; }
 
             auto it = byName.find(name);
 
-            if (it == byName.end()) {
-                return false;
-            }
+            if (it == byName.end()) { return false; }
 
             byName.erase(it);
 
-            order.erase(
-                std::remove(order.begin(), order.end(), name),
-                order.end()
-            );
+            order.erase(std::remove(order.begin(), order.end(), name), order.end());
 
             return true;
         }
 
-        static std::string uniqueToolName(
-            const ToolLibrary& library,
-            const std::string& base = "New Tool"
-        ) {
+        static std::string uniqueToolName(const ToolLibrary& library, const std::string& base = "New Tool") {
 
             if (!library.find(base)) {
                 return base;
@@ -147,23 +130,17 @@ export namespace Cam::App {
 
         bool replaceTool(const std::string& keyName, const Tool& updated) {
 
-            if (updated.name.empty()) {
-                return false;
-            }
+            if (updated.name.empty()) { return false; }
 
             auto it = byName.find(keyName);
 
-            if (it == byName.end()) {
-                return false;
-            }
+            if (it == byName.end()) { return false; }
 
             const std::string& newName = updated.name;
 
             if (newName != keyName) {
 
-                if (byName.contains(newName)) {
-                    return false;
-                }
+                if (byName.contains(newName)) { return false; }
 
                 Tool tool = updated;
                 byName.erase(it);
@@ -177,13 +154,13 @@ export namespace Cam::App {
                     }
                 }
             }
-
-            else {
-                it->second = updated;
-            }
+            else { it->second = updated; }
 
             return true;
         }
+
+        // Paths
+        //--------------------------------------------------
 
         static std::string defaultToolFolderPath() {
 
@@ -194,9 +171,7 @@ export namespace Cam::App {
                 "General"
             });
 
-            if (!folder) {
-                return "";
-            }
+            if (!folder) { return ""; }
 
             return folder.pathname;
         }
@@ -205,16 +180,14 @@ export namespace Cam::App {
             return tool.name + ".json";
         }
 
-        static void assignDefaultToolFolderIfNeeded(
-            std::string& toolFolderPath
-        ) {
-
-            if (!toolFolderPath.empty()) {
-                return;
-            }
+        static void assignDefaultToolFolderIfNeeded(std::string& toolFolderPath) {
+            if (!toolFolderPath.empty()) { return; }
 
             toolFolderPath = defaultToolFolderPath();
         }
+
+        // Serialization
+        //--------------------------------------------------
 
         static Json toolToJson(const Tool& tool) {
 
@@ -236,25 +209,14 @@ export namespace Cam::App {
             return json;
         }
 
-        static bool toolFromJson(
-            const Json& json,
-            Tool& out
-        ) {
-            if (!json.is_object()) {
+        static bool toolFromJson(const Json& json, Tool& out) {
+            if (!json.is_object()) { return false; }
+
+            if (json.contains("type") && json["type"].is_string() && json["type"].get<std::string>() != "Cam.Tool") {
                 return false;
             }
 
-            if (
-                json.contains("type") &&
-                json["type"].is_string() &&
-                json["type"].get<std::string>() != "Cam.Tool"
-            ) {
-                return false;
-            }
-
-            if (!json.contains("name") || !json["name"].is_string()) {
-                return false;
-            }
+            if (!json.contains("name") || !json["name"].is_string()) { return false; }
 
             out = Tool();
             out.name = json["name"].get<std::string>();
@@ -265,12 +227,7 @@ export namespace Cam::App {
                 kind = json["kind"].get<std::string>();
             }
 
-            if (
-                kind != "EndMill" &&
-                kind != "ThreadMill" &&
-                kind != "Chamfer" &&
-                kind != "Cylinder"
-            ) {
+            if (kind != "EndMill" && kind != "ThreadMill" && kind != "Chamfer" && kind != "Cylinder") {
                 return false;
             }
 
@@ -283,20 +240,13 @@ export namespace Cam::App {
             if (json.contains("radius") && json["radius"].is_number()) {
                 out.radius = json["radius"].get<double>();
             }
-
-            else {
-                out.radius = out.diameter * 0.5;
-            }
+            else { out.radius = out.diameter * 0.5; }
 
             if (json.contains("length") && json["length"].is_number()) {
                 out.length = json["length"].get<double>();
             }
 
-            if (
-                json.contains("axis") &&
-                json["axis"].is_array() &&
-                json["axis"].size() >= 3
-            ) {
+            if (json.contains("axis") && json["axis"].is_array() && json["axis"].size() >= 3) {
                 out.axis.x = json["axis"][0].get<float>();
                 out.axis.y = json["axis"][1].get<float>();
                 out.axis.z = json["axis"][2].get<float>();
@@ -305,13 +255,11 @@ export namespace Cam::App {
             return true;
         }
 
-        static bool saveToolFileAtPath(
-            const std::string& filePath,
-            const Tool& tool
-        ) {
-            if (filePath.empty()) {
-                return false;
-            }
+        // File I/O
+        //--------------------------------------------------
+
+        static bool saveToolFileAtPath(const std::string& filePath, const Tool& tool) {
+            if (filePath.empty()) { return false; }
 
             std::filesystem::path path(filePath);
             std::error_code ec;
@@ -321,48 +269,31 @@ export namespace Cam::App {
                 .pathname = filePath
             });
 
-            if (!file) {
-                return false;
-            }
+            if (!file) { return false; }
 
             Json json = toolToJson(tool);
 
             return file.writeText(json.dump(4));
         }
 
-        static bool saveToolFile(
-            const std::string& folderPath,
-            const Tool& tool
-        ) {
-            if (folderPath.empty()) {
-                return false;
-            }
+        static bool saveToolFile(const std::string& folderPath, const Tool& tool) {
+            if (folderPath.empty()) { return false; }
 
             std::filesystem::path dir(folderPath);
 
-            return saveToolFileAtPath(
-                (dir / toolFileName(tool)).string(),
-                tool
-            );
+            return saveToolFileAtPath((dir / toolFileName(tool)).string(), tool);
         }
 
-        static bool loadToolFile(
-            const std::filesystem::path& filePath,
-            Tool& out
-        ) {
+        static bool loadToolFile(const std::filesystem::path& filePath, Tool& out) {
             Rev::OS::File file({
                 .pathname = filePath.string()
             });
 
-            if (!file.exists) {
-                return false;
-            }
+            if (!file.exists) { return false; }
 
             std::string text;
 
-            if (!file.readText(text) || text.empty()) {
-                return false;
-            }
+            if (!file.readText(text) || text.empty()) { return false; }
 
             Json json;
 
@@ -377,47 +308,31 @@ export namespace Cam::App {
             return toolFromJson(json, out);
         }
 
-        static std::vector<std::filesystem::path> listToolJsonFiles(
-            const std::string& folderPath
-        ) {
+        static std::vector<std::filesystem::path> listToolJsonFiles(const std::string& folderPath) {
             std::vector<std::filesystem::path> files;
 
             std::error_code ec;
 
-            if (!std::filesystem::is_directory(folderPath, ec)) {
-                return files;
-            }
+            if (!std::filesystem::is_directory(folderPath, ec)) { return files; }
 
-            for (
-                const std::filesystem::directory_entry& entry :
-                std::filesystem::directory_iterator(folderPath, ec)
-            ) {
+            for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(folderPath, ec)) {
                 if (ec) { break; }
 
-                if (!entry.is_regular_file()) {
-                    continue;
-                }
-
-                if (entry.path().extension() != ".json") {
-                    continue;
-                }
+                if (!entry.is_regular_file()) { continue; }
+                if (entry.path().extension() != ".json") { continue; }
 
                 files.push_back(entry.path());
             }
 
-            std::sort(
-                files.begin(),
-                files.end(),
-                [](
-                    const std::filesystem::path& a,
-                    const std::filesystem::path& b
-                ) {
-                    return a.filename().string() < b.filename().string();
-                }
-            );
+            std::sort(files.begin(), files.end(), [](const std::filesystem::path& a, const std::filesystem::path& b) {
+                return a.filename().string() < b.filename().string();
+            });
 
             return files;
         }
+
+        // Load / bootstrap
+        //--------------------------------------------------
 
         void createDefaultTools() {
 
@@ -430,9 +345,7 @@ export namespace Cam::App {
 
         void assignFilePathsFromFolder(const std::string& folderPath) {
 
-            if (folderPath.empty()) {
-                return;
-            }
+            if (folderPath.empty()) { return; }
 
             std::filesystem::path dir(folderPath);
 
@@ -440,9 +353,7 @@ export namespace Cam::App {
 
                 Tool* tool = find(name);
 
-                if (!tool) {
-                    continue;
-                }
+                if (!tool) { continue; }
 
                 tool->filePath = (dir / toolFileName(*tool)).string();
             }
@@ -456,13 +367,8 @@ export namespace Cam::App {
 
                 auto it = byName.find(name);
 
-                if (it == byName.end()) {
-                    continue;
-                }
-
-                if (!saveToolFile(folderPath, it->second)) {
-                    ok = false;
-                }
+                if (it == byName.end()) { continue; }
+                if (!saveToolFile(folderPath, it->second)) { ok = false; }
             }
 
             return ok;

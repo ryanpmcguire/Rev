@@ -46,9 +46,11 @@ export namespace Cam::App {
 
     struct Model {
 
+        // Topology
         TopoDS_Shape shape;
         std::vector<TopoDS_Face> faces;
 
+        // Render mesh derived from the BRep shape.
         struct RenderCache {
 
             std::vector<Rev::Core::Vertex3> triangles;
@@ -69,8 +71,10 @@ export namespace Cam::App {
 
         RenderCache render;
 
+        // Selection
         std::set<size_t> selectedFaceIds;
 
+        // State
         bool loaded = false;
         bool changed = false;
 
@@ -85,37 +89,24 @@ export namespace Cam::App {
 
             std::ostringstream stream;
 
-            BRepTools::Write(
-                shape,
-                stream
-            );
+            BRepTools::Write(shape, stream);
 
             return stream.str();
         }
 
-        bool setState(
-            const std::string& state
-        ) {
+        bool setState(const std::string& state) {
             clear();
 
-            if (state.empty()) {
-                return false;
-            }
+            if (state.empty()) { return false; }
 
             std::istringstream stream(state);
 
-            if (!stream.good()) {
-                return false;
-            }
+            if (!stream.good()) { return false; }
 
             BRep_Builder builder;
 
             try {
-                BRepTools::Read(
-                    shape,
-                    stream,
-                    builder
-                );
+                BRepTools::Read(shape, stream, builder);
             }
 
             catch (...) {
@@ -149,31 +140,21 @@ export namespace Cam::App {
             return model;
         }
 
-        static Model Difference(
-            const Model& a,
-            const Model& b
-        ) {
+        static Model Difference(const Model& a, const Model& b) {
             Model result;
 
             if (a.shape.IsNull()) { return result; }
             if (b.shape.IsNull()) { return result; }
 
-            BRepAlgoAPI_Cut cut(
-                a.shape,
-                b.shape
-            );
+            BRepAlgoAPI_Cut cut(a.shape, b.shape);
 
             cut.Build();
 
-            if (!cut.IsDone()) {
-                return result;
-            }
+            if (!cut.IsDone()) { return result; }
 
             TopoDS_Shape shape = cut.Shape();
 
-            if (shape.IsNull()) {
-                return result;
-            }
+            if (shape.IsNull()) { return result; }
 
             result.shape = result.healShape(shape);
 
@@ -201,6 +182,9 @@ export namespace Cam::App {
             changed = false;
         }
 
+        // Selection
+        //--------------------------------------------------
+
         void clearSelection() {
 
             selectedFaceIds.clear();
@@ -218,13 +202,8 @@ export namespace Cam::App {
 
         void toggleFace(size_t faceId) {
 
-            if (isFaceSelected(faceId)) {
-                deselectFace(faceId);
-            }
-
-            else {
-                selectFace(faceId);
-            }
+            if (isFaceSelected(faceId)) { deselectFace(faceId); }
+            else { selectFace(faceId); }
         }
 
         bool isFaceSelected(size_t faceId) const {
@@ -239,9 +218,7 @@ export namespace Cam::App {
 
             STEPControl_Reader reader;
 
-            IFSelect_ReturnStatus status = reader.ReadFile(
-                file.string().c_str()
-            );
+            IFSelect_ReturnStatus status = reader.ReadFile(file.string().c_str());
 
             if (status != IFSelect_RetDone) {
                 throw std::runtime_error("Failed to read STEP file.");
@@ -278,18 +255,10 @@ export namespace Cam::App {
 
             faces.clear();
 
-            if (shape.IsNull()) {
-                return;
-            }
+            if (shape.IsNull()) { return; }
 
-            for (
-                TopExp_Explorer exp(shape, TopAbs_FACE);
-                exp.More();
-                exp.Next()
-            ) {
-                faces.push_back(
-                    TopoDS::Face(exp.Current())
-                );
+            for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+                faces.push_back(TopoDS::Face(exp.Current()));
             }
         }
 
@@ -298,49 +267,25 @@ export namespace Cam::App {
 
         static Rev::Core::Pos3 makePos3(const gp_Pnt& p) {
 
-            return Rev::Core::Pos3(
-                static_cast<float>(p.X()),
-                static_cast<float>(p.Y()),
-                static_cast<float>(p.Z())
-            );
+            return Rev::Core::Pos3(static_cast<float>(p.X()), static_cast<float>(p.Y()), static_cast<float>(p.Z()));
         }
 
         static Rev::Core::Pos3 makePos3(const gp_Vec& v) {
 
-            return Rev::Core::Pos3(
-                static_cast<float>(v.X()),
-                static_cast<float>(v.Y()),
-                static_cast<float>(v.Z())
-            );
+            return Rev::Core::Pos3(static_cast<float>(v.X()), static_cast<float>(v.Y()), static_cast<float>(v.Z()));
         }
 
-        static Rev::Core::Vertex3 makeVertex(
-            const gp_Pnt& p,
-            Rev::Core::Color color,
-            const gp_Vec& normal
-        ) {
-            return Rev::Core::Vertex3(
-                makePos3(p),
-                color,
-                makePos3(normal)
-            );
+        static Rev::Core::Vertex3 makeVertex(const gp_Pnt& p, Rev::Core::Color color, const gp_Vec& normal) {
+            return Rev::Core::Vertex3(makePos3(p), color, makePos3(normal));
         }
 
         void tessellate(double tolerance = 0.1) {
 
             render.clear();
 
-            if (shape.IsNull()) {
-                return;
-            }
+            if (shape.IsNull()) { return; }
 
-            BRepMesh_IncrementalMesh mesher(
-                shape,
-                tolerance,
-                false,
-                0.5,
-                true
-            );
+            BRepMesh_IncrementalMesh mesher(shape, tolerance, false, 0.5, true);
 
             mesher.Perform();
 
@@ -420,16 +365,9 @@ export namespace Cam::App {
 
         TopoDS_Shape healShape(TopoDS_Shape input) const {
 
-            if (input.IsNull()) {
-                return input;
-            }
+            if (input.IsNull()) { return input; }
 
-            ShapeUpgrade_UnifySameDomain unifier(
-                input,
-                true,
-                true,
-                true
-            );
+            ShapeUpgrade_UnifySameDomain unifier(input, true, true, true);
 
             unifier.Build();
 

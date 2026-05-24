@@ -18,6 +18,9 @@ export namespace Cam::App {
 
     struct Persist {
 
+        // File location
+        //--------------------------------------------------
+
         static Rev::OS::File persistFile() {
             return Rev::OS::File::FromPath({
                 Rev::OS::File::KnownFolder::RoamingAppData,
@@ -26,42 +29,32 @@ export namespace Cam::App {
             });
         }
 
-        static Json entryFromProject(
-            const Project* project
-        ) {
+        // Serialization
+        //--------------------------------------------------
+
+        static Json entryFromProject(const Project* project) {
             Json entry;
 
-            if (!project) {
-                return entry;
-            }
+            if (!project) { return entry; }
 
             entry["name"] = project->name;
 
             if (project->hasProjectFile()) {
                 entry["projectFile"] = project->projectFile.pathname;
             }
-
-            else {
-                entry["projectFile"] = "";
-            }
+            else { entry["projectFile"] = ""; }
 
             if (project->hasFile()) {
                 entry["sourceFile"] = project->file.pathname;
             }
-
-            else {
-                entry["sourceFile"] = "";
-            }
+            else { entry["sourceFile"] = ""; }
 
             entry["toolFolderPath"] = project->toolFolderPath;
 
             return entry;
         }
 
-        static Json buildState(
-            const std::vector<Project*>& projects,
-            Project* activeProject
-        ) {
+        static Json buildState(const std::vector<Project*>& projects, Project* activeProject) {
             Json json;
 
             json["type"] = "Cam.Persist";
@@ -87,33 +80,24 @@ export namespace Cam::App {
             return json;
         }
 
-        static bool save(
-            const std::vector<Project*>& projects,
-            Project* activeProject
-        ) {
+        // Save / load
+        //--------------------------------------------------
+
+        static bool save(const std::vector<Project*>& projects, Project* activeProject) {
             Rev::OS::File file = persistFile();
 
-            if (!file) {
-                return false;
-            }
+            if (!file) { return false; }
 
             Json json = buildState(projects, activeProject);
 
             return file.writeText(json.dump(4));
         }
 
-        static bool loadEntry(
-            const Json& entry,
-            Project* project
-        ) {
-            if (!project || !entry.is_object()) {
-                return false;
-            }
+        static bool loadEntry(const Json& entry, Project* project) {
+            if (!project || !entry.is_object()) { return false; }
 
-            if (
-                entry.contains("projectFile") &&
-                entry["projectFile"].is_string()
-            ) {
+            // Prefer a saved .cam project file over a bare STEP source.
+            if (entry.contains("projectFile") && entry["projectFile"].is_string()) {
                 std::string projectPath = entry["projectFile"].get<std::string>();
 
                 if (!projectPath.empty()) {
@@ -128,10 +112,8 @@ export namespace Cam::App {
                 }
             }
 
-            if (
-                entry.contains("sourceFile") &&
-                entry["sourceFile"].is_string()
-            ) {
+            // Fall back to loading a STEP file directly.
+            if (entry.contains("sourceFile") && entry["sourceFile"].is_string()) {
                 std::string sourcePath = entry["sourceFile"].get<std::string>();
 
                 if (!sourcePath.empty()) {
@@ -146,34 +128,24 @@ export namespace Cam::App {
                 }
             }
 
-            if (
-                entry.contains("toolFolderPath") &&
-                entry["toolFolderPath"].is_string()
-            ) {
+            if (entry.contains("toolFolderPath") && entry["toolFolderPath"].is_string()) {
                 project->toolFolderPath = entry["toolFolderPath"].get<std::string>();
             }
 
             return false;
         }
 
-        static bool load(
-            std::vector<Project*>& outProjects,
-            Project*& outActiveProject
-        ) {
+        static bool load(std::vector<Project*>& outProjects, Project*& outActiveProject) {
             outProjects.clear();
             outActiveProject = nullptr;
 
             Rev::OS::File file = persistFile();
 
-            if (!file) {
-                return false;
-            }
+            if (!file) { return false; }
 
             std::string text;
 
-            if (!file.readText(text) || text.empty()) {
-                return false;
-            }
+            if (!file.readText(text) || text.empty()) { return false; }
 
             Json json;
 
@@ -185,22 +157,13 @@ export namespace Cam::App {
                 return false;
             }
 
-            if (!json.is_object()) {
+            if (!json.is_object()) { return false; }
+
+            if (json.contains("type") && json["type"].is_string() && json["type"].get<std::string>() != "Cam.Persist") {
                 return false;
             }
 
-            if (
-                json.contains("type") &&
-                json["type"].is_string() &&
-                json["type"].get<std::string>() != "Cam.Persist"
-            ) {
-                return false;
-            }
-
-            if (
-                !json.contains("projects") ||
-                !json["projects"].is_array()
-            ) {
+            if (!json.contains("projects") || !json["projects"].is_array()) {
                 return false;
             }
 

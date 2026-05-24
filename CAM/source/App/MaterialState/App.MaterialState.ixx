@@ -119,11 +119,7 @@ export namespace Cam::App {
 
         bool hasChild(MaterialState* state) const {
 
-            return std::find(
-                children.begin(),
-                children.end(),
-                state
-            ) != children.end();
+            return std::find(children.begin(), children.end(), state) != children.end();
         }
 
         void addChild(MaterialState* state) {
@@ -139,14 +135,7 @@ export namespace Cam::App {
 
             if (!state) { return; }
 
-            children.erase(
-                std::remove(
-                    children.begin(),
-                    children.end(),
-                    state
-                ),
-                children.end()
-            );
+            children.erase(std::remove(children.begin(), children.end(), state), children.end());
 
             if (state->parent == this) {
                 state->parent = nullptr;
@@ -216,10 +205,7 @@ export namespace Cam::App {
             clearToolPath();
         }
 
-        void computeDelta(
-            const ToolLibrary& library,
-            const std::string& activeToolName
-        ) {
+        void computeDelta(const ToolLibrary& library, const std::string& activeToolName) {
 
             clearDelta();
 
@@ -228,10 +214,7 @@ export namespace Cam::App {
             if (!model.loaded) { return; }
 
             // Removed material = parent state minus current state.
-            delta = Model::Difference(
-                model,
-                parent->model
-            );
+            delta = Model::Difference(model, parent->model);
 
             hasDelta = delta.loaded;
 
@@ -249,10 +232,7 @@ export namespace Cam::App {
             hasToolPath = false;
         }
 
-        void computeToolPath(
-            const ToolLibrary& library,
-            const std::string& activeToolName
-        ) {
+        void computeToolPath(const ToolLibrary& library, const std::string& activeToolName) {
 
             toolPath.clearPathData();
             hasToolPath = false;
@@ -280,11 +260,7 @@ export namespace Cam::App {
                 return;
             }
 
-            hasToolPath = toolPath.compute(
-                delta,
-                parent->model,
-                *tool
-            );
+            hasToolPath = toolPath.compute(delta, parent->model, *tool);
         }
 
         bool needsToolPathComputation() const {
@@ -293,11 +269,7 @@ export namespace Cam::App {
                 return false;
             }
 
-            return (
-                !hasToolPath ||
-                !toolPath.computed ||
-                toolPath.points.empty()
-            );
+            return !hasToolPath || !toolPath.computed || toolPath.points.empty();
         }
     };
 }

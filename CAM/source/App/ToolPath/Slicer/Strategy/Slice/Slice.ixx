@@ -17,12 +17,15 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
         float z = 0.0f;
 
+        // Bounds of source segments in XY.
         Pos min = {};
         Pos max = {};
         bool valid = false;
 
+        // Raw section edges at this Z height.
         std::vector<Segment> source;
 
+        // Derived profiles used by strategies.
         Profile geometricProfile;
         Profile boundaryProfile;
         std::vector<Profile> profiles;
@@ -52,11 +55,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         }
 
         bool hasProfiles() const {
-            return (
-                !geometricProfile.empty() ||
-                !boundaryProfile.empty() ||
-                !profiles.empty()
-            );
+            return !geometricProfile.empty() || !boundaryProfile.empty() || !profiles.empty();
         }
 
         // Bounds
@@ -77,10 +76,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             max = Pos::max(max, p);
         }
 
-        void includeSegment(
-            const Segment& s,
-            int samples = 24
-        ) {
+        void includeSegment(const Segment& s, int samples = 24) {
             if (s.kind == Segment::Kind::Line) {
                 includePoint(s.start());
                 includePoint(s.end());
@@ -90,9 +86,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             if (samples < 1) { samples = 1; }
 
             for (int i = 0; i <= samples; i++) {
-                includePoint(
-                    s.pointAt(float(i) / float(samples))
-                );
+                includePoint(s.pointAt(float(i) / float(samples)));
             }
         }
 
@@ -104,18 +98,11 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             includeSegment(s);
         }
 
-        void addLine(
-            const Pos& a,
-            const Pos& b
-        ) {
-            addSegment(
-                Segment::Line(a, b)
-            );
+        void addLine(const Pos& a, const Pos& b) {
+            addSegment(Segment::Line(a, b));
         }
 
-        void setSource(
-            const std::vector<Segment>& segments
-        ) {
+        void setSource(const std::vector<Segment>& segments) {
             source.clear();
             resetProfiles();
 

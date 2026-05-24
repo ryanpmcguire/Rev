@@ -38,6 +38,9 @@ export namespace Cam::App::Slicer::Strategy {
 
     struct SliceSource {
 
+        // Conversion
+        //--------------------------------------------------
+
         static Pos posFromGp(const gp_Pnt& p) {
 
             return {
@@ -46,35 +49,20 @@ export namespace Cam::App::Slicer::Strategy {
             };
         }
 
-        static bool addOccLine(
-            SliceLayer& slice,
-            BRepAdaptor_Curve& curve,
-            double first,
-            double last
-        ) {
-            slice.addLine(
-                posFromGp(curve.Value(first)),
-                posFromGp(curve.Value(last))
-            );
+        // Analytic edges
+        //--------------------------------------------------
+
+        static bool addOccLine(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
+            slice.addLine(posFromGp(curve.Value(first)), posFromGp(curve.Value(last)));
 
             return true;
         }
 
-        static bool addOccCircle(
-            SliceLayer& slice,
-            BRepAdaptor_Curve& curve,
-            double first,
-            double last
-        ) {
+        static bool addOccCircle(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
             gp_Circ circle = curve.Circle();
 
-            Pos center = posFromGp(
-                circle.Location()
-            );
-
-            float radius = static_cast<float>(
-                circle.Radius()
-            );
+            Pos center = posFromGp(circle.Location());
+            float radius = static_cast<float>(circle.Radius());
 
             if (radius <= 1e-6f) { return false; }
 
@@ -84,33 +72,14 @@ export namespace Cam::App::Slicer::Strategy {
 
             double mid = first + span * 0.5;
 
-            slice.addSegment(
-                SliceSegment::Arc(
-                    center,
-                    radius,
-                    static_cast<float>(first),
-                    static_cast<float>(mid)
-                )
-            );
+            slice.addSegment(SliceSegment::Arc(center, radius, static_cast<float>(first), static_cast<float>(mid)));
 
-            slice.addSegment(
-                SliceSegment::Arc(
-                    center,
-                    radius,
-                    static_cast<float>(mid),
-                    static_cast<float>(last)
-                )
-            );
+            slice.addSegment(SliceSegment::Arc(center, radius, static_cast<float>(mid), static_cast<float>(last)));
 
             return true;
         }
 
-        static bool addAnalytic(
-            SliceLayer& slice,
-            BRepAdaptor_Curve& curve,
-            double first,
-            double last
-        ) {
+        static bool addAnalytic(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
             switch (curve.GetType()) {
 
                 case GeomAbs_Line: {
@@ -127,90 +96,53 @@ export namespace Cam::App::Slicer::Strategy {
             }
         }
 
-        static void addSampled(
-            SliceLayer& slice,
-            BRepAdaptor_Curve& curve,
-            double first,
-            double last
-        ) {
+        // Sampled edges
+        //--------------------------------------------------
+
+        static void addSampled(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
             std::vector<Pos> sampled;
 
             double lengthStep = 0.25;
 
-            GCPnts_UniformAbscissa sampler(
-                curve,
-                lengthStep,
-                first,
-                last
-            );
+            GCPnts_UniformAbscissa sampler(curve, lengthStep, first, last);
 
             if (sampler.IsDone() && sampler.NbPoints() >= 2) {
 
                 for (int i = 1; i <= sampler.NbPoints(); i++) {
-
-                    sampled.push_back(
-                        posFromGp(
-                            curve.Value(
-                                sampler.Parameter(i)
-                            )
-                        )
-                    );
+                    sampled.push_back(posFromGp(curve.Value(sampler.Parameter(i))));
                 }
             }
-
             else {
 
                 int samples = 12;
 
                 for (int i = 0; i <= samples; i++) {
-
-                    double u = first + (last - first) * (
-                        double(i) / double(samples)
-                    );
-
-                    sampled.push_back(
-                        posFromGp(
-                            curve.Value(u)
-                        )
-                    );
+                    double u = first + (last - first) * (double(i) / double(samples));
+                    sampled.push_back(posFromGp(curve.Value(u)));
                 }
             }
 
             for (size_t i = 0; i + 1 < sampled.size(); i++) {
-                slice.addLine(
-                    sampled[i],
-                    sampled[i + 1]
-                );
+                slice.addLine(sampled[i], sampled[i + 1]);
             }
 
             if (curve.IsClosed() && sampled.size() >= 2) {
-                slice.addLine(
-                    sampled.back(),
-                    sampled.front()
-                );
+                slice.addLine(sampled.back(), sampled.front());
             }
         }
 
-        static bool build(
-            const Model& model,
-            float z,
-            SliceLayer& slice
-        ) {
+        // Build
+        //--------------------------------------------------
+
+        static bool build(const Model& model, float z, SliceLayer& slice) {
             slice.z = z;
 
             if (!model.loaded) { return false; }
             if (model.shape.IsNull()) { return false; }
 
-            gp_Pln plane(
-                gp_Pnt(0.0, 0.0, double(z)),
-                gp_Dir(0.0, 0.0, 1.0)
-            );
+            gp_Pln plane(gp_Pnt(0.0, 0.0, double(z)), gp_Dir(0.0, 0.0, 1.0));
 
-            BRepAlgoAPI_Section section(
-                model.shape,
-                plane,
-                false
-            );
+            BRepAlgoAPI_Section section(model.shape, plane, false);
 
             section.ComputePCurveOn1(true);
             section.Approximation(true);
@@ -227,16 +159,10 @@ export namespace Cam::App::Slicer::Strategy {
             size_t analyticCircles = 0;
             size_t sampledSegments = 0;
 
-            for (
-                TopExp_Explorer exp(sectionShape, TopAbs_EDGE);
-                exp.More();
-                exp.Next()
-            ) {
+            for (TopExp_Explorer exp(sectionShape, TopAbs_EDGE); exp.More(); exp.Next()) {
                 edges += 1;
 
-                TopoDS_Edge edge = TopoDS::Edge(
-                    exp.Current()
-                );
+                TopoDS_Edge edge = TopoDS::Edge(exp.Current());
 
                 BRepAdaptor_Curve curve(edge);
 
@@ -253,15 +179,9 @@ export namespace Cam::App::Slicer::Strategy {
 
                     size_t added = slice.source.size() - before;
 
-                    if (type == GeomAbs_Line) {
-                        analyticLines += added;
-                    }
-
-                    if (type == GeomAbs_Circle) {
-                        analyticCircles += added;
-                    }
+                    if (type == GeomAbs_Line) { analyticLines += added; }
+                    if (type == GeomAbs_Circle) { analyticCircles += added; }
                 }
-
                 else {
                     addSampled(slice, curve, first, last);
                     sampledSegments += slice.source.size() - before;

@@ -32,6 +32,7 @@ export namespace Cam::App::Slicer::Strategy {
         std::vector<Pos> points;
     };
 
+    // Inputs shared by every strategy run.
     struct StrategyContext {
 
         const Model* positive = nullptr;
@@ -42,9 +43,13 @@ export namespace Cam::App::Slicer::Strategy {
         float stepover = 0.25f;
     };
 
+    // Base class for slice/profile/path generation.
     struct Strategy {
 
         virtual ~Strategy() = default;
+
+        // Run
+        //--------------------------------------------------
 
         template<typename S>
         static void run(S& strategy, const StrategyContext& ctx) {
@@ -115,6 +120,9 @@ export namespace Cam::App::Slicer::Strategy {
             );
         }
 
+        // Access
+        //--------------------------------------------------
+
         const std::vector<SliceLayer>& slices() const {
             return slices_;
         }
@@ -123,11 +131,10 @@ export namespace Cam::App::Slicer::Strategy {
             return paths_;
         }
 
-        static bool boundsFromModel(
-            const Model& model,
-            Pos3& min,
-            Pos3& max
-        ) {
+        // Bounds
+        //--------------------------------------------------
+
+        static bool boundsFromModel(const Model& model, Pos3& min, Pos3& max) {
             if (!model.loaded) { return false; }
             if (model.render.triangles.empty()) { return false; }
 
@@ -150,23 +157,25 @@ export namespace Cam::App::Slicer::Strategy {
 
     protected:
 
+        // Helpers
+        //--------------------------------------------------
+
         static float toolRadius(const StrategyContext& ctx) {
             return static_cast<float>(ctx.tool->radius);
         }
 
         static float stepoverDistance(const StrategyContext& ctx) {
 
-            float distance =
-                static_cast<float>(ctx.tool->diameter) * ctx.stepover;
+            float distance = static_cast<float>(ctx.tool->diameter) * ctx.stepover;
 
             if (distance <= 0.0f) {
-                distance =
-                    static_cast<float>(ctx.tool->diameter) * 0.25f;
+                distance = static_cast<float>(ctx.tool->diameter) * 0.25f;
             }
 
             return distance;
         }
 
+        // Output
         std::vector<SliceLayer> slices_;
         std::vector<LayerPath> paths_;
     };

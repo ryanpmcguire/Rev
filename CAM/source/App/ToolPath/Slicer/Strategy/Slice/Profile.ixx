@@ -34,10 +34,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             Entry() {}
 
-            Entry(
-                const Chain& chain,
-                ChainRole role = ChainRole::Unknown
-            ) {
+            Entry(const Chain& chain, ChainRole role = ChainRole::Unknown) {
                 this->chain = chain;
                 this->role = role;
             }
@@ -59,6 +56,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         };
 
+        // Chains classified as outer boundaries, holes, or open contours.
         std::vector<Entry> entries;
 
         // Create
@@ -66,34 +64,19 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
         Profile() {}
 
-        Profile(
-            const std::vector<Chain>& chains
-        ) {
+        Profile(const std::vector<Chain>& chains) {
             build(chains);
         }
 
-        Profile(
-            const std::vector<Segment>& segments,
-            float eps = 1e-4f
-        ) {
-            build(
-                Chain::BuildAll(
-                    segments,
-                    eps
-                )
-            );
+        Profile(const std::vector<Segment>& segments, float eps = 1e-4f) {
+            build(Chain::BuildAll(segments, eps));
         }
 
-        static Profile From(
-            const std::vector<Chain>& chains
-        ) {
+        static Profile From(const std::vector<Chain>& chains) {
             return Profile(chains);
         }
 
-        static Profile FromSegments(
-            const std::vector<Segment>& segments,
-            float eps = 1e-4f
-        ) {
+        static Profile FromSegments(const std::vector<Segment>& segments, float eps = 1e-4f) {
             return Profile(segments, eps);
         }
 
@@ -112,10 +95,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return entries.size();
         }
 
-        void push(
-            const Chain& chain,
-            ChainRole role = ChainRole::Unknown
-        ) {
+        void push(const Chain& chain, ChainRole role = ChainRole::Unknown) {
             entries.push_back({
                 chain,
                 role
@@ -125,29 +105,19 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Build / classify
         //--------------------------------------------------
 
-        void build(
-            const std::vector<Chain>& chains
-        ) {
+        void build(const std::vector<Chain>& chains) {
             clear();
 
             for (const Chain& chain : chains) {
 
-                ChainRole role = classifyRole(
-                    chain
-                );
-
-                push(
-                    chain,
-                    role
-                );
+                ChainRole role = classifyRole(chain);
+                push(chain, role);
             }
 
             classifyContainment();
         }
 
-        ChainRole classifyRole(
-            const Chain& chain
-        ) const {
+        ChainRole classifyRole(const Chain& chain) const {
             if (!chain.closed()) {
                 return ChainRole::Open;
             }
@@ -188,11 +158,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                 // Even nesting depth: outer island.
                 // Odd nesting depth: hole.
-                entry.role = (
-                    (containingClosedChains % 2) == 0
-                    ? ChainRole::Outer
-                    : ChainRole::Hole
-                );
+                entry.role = (containingClosedChains % 2) == 0 ? ChainRole::Outer : ChainRole::Hole;
             }
         }
 
@@ -261,10 +227,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Point containment
         //--------------------------------------------------
 
-        static bool pointInChain(
-            const Pos& p,
-            const Chain& chain
-        ) {
+        static bool pointInChain(const Pos& p, const Chain& chain) {
             if (!chain.closed()) { return false; }
 
             int crossings = 0;
@@ -273,10 +236,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                 std::vector<Segment::YHit> hits;
 
-                segment.hitsAtY(
-                    p.y,
-                    hits
-                );
+                segment.hitsAtY(p.y, hits);
 
                 for (const Segment::YHit& hit : hits) {
 
@@ -289,9 +249,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return (crossings % 2) == 1;
         }
 
-        bool contains(
-            const Pos& p
-        ) const {
+        bool contains(const Pos& p) const {
             bool inside = false;
 
             for (const Entry& entry : entries) {
@@ -321,10 +279,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Offsetting
         //--------------------------------------------------
 
-        Chain offsetTowardMaterial(
-            const Entry& entry,
-            float amount
-        ) const {
+        Chain offsetTowardMaterial(const Entry& entry, float amount) const {
             if (entry.role == ChainRole::Outer) {
                 return entry.chain.inset(amount);
             }
@@ -336,10 +291,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return entry.chain;
         }
 
-        Chain offsetAwayFromMaterial(
-            const Entry& entry,
-            float amount
-        ) const {
+        Chain offsetAwayFromMaterial(const Entry& entry, float amount) const {
             if (entry.role == ChainRole::Outer) {
                 return entry.chain.outset(amount);
             }
@@ -351,57 +303,35 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return entry.chain;
         }
 
-        Profile inset(
-            float amount
-        ) const {
+        Profile inset(float amount) const {
             Profile out;
 
             for (const Entry& entry : entries) {
 
                 if (entry.open()) {
-                    out.push(
-                        entry.chain,
-                        entry.role
-                    );
+                    out.push(entry.chain, entry.role);
 
                     continue;
                 }
 
-                out.push(
-                    offsetTowardMaterial(
-                        entry,
-                        amount
-                    ),
-                    entry.role
-                );
+                out.push(offsetTowardMaterial(entry, amount), entry.role);
             }
 
             return out;
         }
 
-        Profile outset(
-            float amount
-        ) const {
+        Profile outset(float amount) const {
             Profile out;
 
             for (const Entry& entry : entries) {
 
                 if (entry.open()) {
-                    out.push(
-                        entry.chain,
-                        entry.role
-                    );
+                    out.push(entry.chain, entry.role);
 
                     continue;
                 }
 
-                out.push(
-                    offsetAwayFromMaterial(
-                        entry,
-                        amount
-                    ),
-                    entry.role
-                );
+                out.push(offsetAwayFromMaterial(entry, amount), entry.role);
             }
 
             return out;
@@ -416,10 +346,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             size_t segment = 0;
         };
 
-        void hitsAtY(
-            float y,
-            std::vector<XHit>& out
-        ) const {
+        void hitsAtY(float y, std::vector<XHit>& out) const {
             out.clear();
 
             for (size_t i = 0; i < entries.size(); i++) {
@@ -432,10 +359,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                     std::vector<Segment::YHit> hits;
 
-                    segment.hitsAtY(
-                        y,
-                        hits
-                    );
+                    segment.hitsAtY(y, hits);
 
                     for (const Segment::YHit& hit : hits) {
                         out.push_back({
@@ -447,13 +371,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                 }
             }
 
-            std::sort(
-                out.begin(),
-                out.end(),
-                [](const XHit& a, const XHit& b) {
-                    return a.x < b.x;
-                }
-            );
+            std::sort(out.begin(), out.end(), [](const XHit& a, const XHit& b) { return a.x < b.x; });
 
             // Merge near-duplicates caused by shared vertices or sampled curves.
             std::vector<XHit> unique;
@@ -462,12 +380,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (const XHit& hit : out) {
 
-                if (
-                    !unique.empty() &&
-                    std::abs(unique.back().x - hit.x) < eps
-                ) {
-                    continue;
-                }
+                if (!unique.empty() && std::abs(unique.back().x - hit.x) < eps) { continue; }
 
                 unique.push_back(hit);
             }
@@ -478,32 +391,19 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Sampling
         //--------------------------------------------------
 
-        void sample(
-            std::vector<Pos>& out,
-            int samplesPerSegment = 8
-        ) const {
+        void sample(std::vector<Pos>& out, int samplesPerSegment = 8) const {
             out.clear();
 
             for (const Entry& entry : entries) {
 
                 std::vector<Pos> chainPoints;
 
-                entry.chain.sample(
-                    chainPoints,
-                    samplesPerSegment
-                );
-
-                out.insert(
-                    out.end(),
-                    chainPoints.begin(),
-                    chainPoints.end()
-                );
+                entry.chain.sample(chainPoints, samplesPerSegment);
+                out.insert(out.end(), chainPoints.begin(), chainPoints.end());
             }
         }
 
-        void appendSegments(
-            std::vector<Segment>& out
-        ) const {
+        void appendSegments(std::vector<Segment>& out) const {
             for (const Entry& entry : entries) {
 
                 for (const Segment& s : entry.chain.segments) {
@@ -515,9 +415,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Debug
         //--------------------------------------------------
 
-        static const char* RoleName(
-            ChainRole role
-        ) {
+        static const char* RoleName(ChainRole role) {
             switch (role) {
 
                 case ChainRole::Outer: { return "Outer"; }
@@ -530,9 +428,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
-        void debug(
-            const char* label = "[Profile]"
-        ) const {
+        void debug(const char* label = "[Profile]") const {
             dbg(
                 "%s entries=%zu outer=%zu holes=%zu open=%zu",
                 label,
