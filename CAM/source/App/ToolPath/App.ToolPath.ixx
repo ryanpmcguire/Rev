@@ -2,7 +2,7 @@ module;
 
 #include <string>
 #include <vector>
-#include <memory>
+#include <optional>
 #include <cstddef>
 
 #include <dbg.hpp>
@@ -64,7 +64,7 @@ export namespace Cam::App {
         void clearPathData() {
             points.clear();
             computed = false;
-            ownedStrategy.reset();
+            strategyInstance.reset();
         }
 
         void clear() {
@@ -76,7 +76,8 @@ export namespace Cam::App {
         size_t size() const { return points.size(); }
 
         const Slicer::Strategy::Strategy* strategyResult() const {
-            return ownedStrategy.get();
+            if (!strategyInstance) { return nullptr; }
+            return &Slicer::Strategy::strategyFrom(*strategyInstance);
         }
 
         void addPoint(const Pos& p, float z, double& t, bool rapid = false, bool cutting = true) {
@@ -116,23 +117,19 @@ export namespace Cam::App {
 
             double t = 0.0;
 
-            for (const std::unique_ptr<Slicer::Strategy::SliceLayer>& slicePtr :
-                strategyImpl.slices()
+            for (const Slicer::Strategy::LayerPath& layer :
+                strategyImpl.paths()
             ) {
-                if (!slicePtr) { continue; }
-
-                const Slicer::Strategy::SliceLayer& slice = *slicePtr;
-
-                if (slice.hasPointPath()) {
-                    for (const Pos& p : slice.points) {
-                        addPoint(p, slice.z, t);
+                if (!layer.points.empty()) {
+                    for (const Pos& p : layer.points) {
+                        addPoint(p, layer.z, t);
                     }
 
                     continue;
                 }
 
-                for (const Segment& segment : slice.paths) {
-                    addSegmentPoints(segment, slice.z, t);
+                for (const Segment& segment : layer.segments) {
+                    addSegmentPoints(segment, layer.z, t);
                 }
             }
         }
@@ -165,7 +162,7 @@ export namespace Cam::App {
                 int(strategyAuto)
             );
 
-            auto strategyImpl = Slicer::Strategy::createStrategy(strategy);
+            strategyInstance = Slicer::Strategy::createStrategy(strategy);
 
             Slicer::Strategy::StrategyContext ctx {
                 .positive = &toCarve,
@@ -175,17 +172,19 @@ export namespace Cam::App {
                 .stepover = static_cast<float>(stepover)
             };
 
-            strategyImpl->execute(ctx);
+            Slicer::Strategy::Strategy& strategyImpl =
+                Slicer::Strategy::strategyFrom(*strategyInstance);
 
-            buildPointsFromStrategy(*strategyImpl);
+            strategyImpl.execute(ctx);
+
+            buildPointsFromStrategy(strategyImpl);
 
             computed = !points.empty();
 
-            ownedStrategy = std::move(strategyImpl);
-
             dbg(
-                "[ToolPath] Done. slices=%zu points=%zu computed=%i",
-                ownedStrategy ? ownedStrategy->slices().size() : 0,
+                "[ToolPath] Done. slices=%zu paths=%zu points=%zu computed=%i",
+                strategyImpl.slices().size(),
+                strategyImpl.paths().size(),
                 points.size(),
                 int(computed)
             );
@@ -234,6 +233,6 @@ export namespace Cam::App {
 
     private:
 
-        std::unique_ptr<Slicer::Strategy::Strategy> ownedStrategy;
+        std::optional<Slicer::Strategy::StrategyInstance> strategyInstance;
     };
 }

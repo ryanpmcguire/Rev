@@ -1,115 +1,73 @@
 module;
 
-#include <vector>
-#include <memory>
-#include <cstddef>
-
-#include <dbg.hpp>
-
 export module Cam.App.Slicer.Strategy.BoreStrategy;
-
-import Rev.Core.Pos3;
-
-import Cam.App.Model;
-import Cam.App.Tool;
 
 import Cam.App.Slicer.Strategy.Strategy;
 import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Slicer.Strategy.Slice.Slice;
-import Cam.App.Slicer.Strategy.BoreSlice;
-import Cam.App.Slicer.Strategy.SliceSource;
+import Cam.App.Slicer.Strategy.Slice.Profile;
 
 export namespace Cam::App::Slicer::Strategy {
 
-    using namespace Rev::Core;
-
     using SliceLayer = Slice::Slice;
+    using SliceProfile = Slice::Profile;
 
     struct BoreStrategy : Strategy {
-
-        std::vector<std::unique_ptr<SliceLayer>> slices_;
 
         StrategyType type() const override {
             return StrategyType::Bore;
         }
 
-        const std::vector<std::unique_ptr<SliceLayer>>& slices() const override {
-            return slices_;
+    protected:
+
+        void processSlice(
+            SliceLayer& slice,
+            const StrategyContext& ctx
+        ) override {
+
+            slice.resetProfiles();
+            slice.geometricProfile = Slice::Profile(slice.source);
+
+            if (slice.geometricProfile.empty()) {
+                return;
+            }
+
+            slice.boundaryProfile =
+                slice.geometricProfile.inset(toolRadius(ctx));
+
+            slice.profiles.push_back(slice.geometricProfile);
+            slice.profiles.push_back(slice.boundaryProfile);
+
+            SliceProfile current = slice.boundaryProfile;
+            float stepover = stepoverDistance(ctx);
+
+            for (int i = 0; i < 24; i++) {
+
+                slice.profiles.push_back(current);
+                current = current.inset(stepover);
+            }
         }
 
-        void execute(const StrategyContext& ctx) override {
+        void buildPaths(
+            const StrategyContext&
+        ) override {
 
-            slices_.clear();
+            paths_.clear();
 
-            if (!ctx.positive) {
-                dbg("[BoreStrategy] Failed: no positive model");
-                return;
-            }
+            for (const SliceLayer& slice : slices_) {
 
-            if (!ctx.tool) {
-                dbg("[BoreStrategy] Failed: no tool");
-                return;
-            }
+                LayerPath layer;
+                layer.z = slice.z;
 
-            Pos3 min;
-            Pos3 max;
-
-            if (!boundsFromModel(*ctx.positive, min, max)) {
-                dbg("[BoreStrategy] Failed: no positive bounds");
-                return;
-            }
-
-            dbg(
-                "[BoreStrategy] Positive bounds min=(%.3f %.3f %.3f), max=(%.3f %.3f %.3f)",
-                min.x, min.y, min.z,
-                max.x, max.y, max.z
-            );
-
-            float dz = ctx.stepDown;
-
-            if (dz <= 0.0f) { dz = 1.0f; }
-
-            const float toolRadius = static_cast<float>(ctx.tool->radius);
-            float stepover = static_cast<float>(ctx.tool->diameter) * ctx.stepover;
-
-            if (stepover <= 0.0f) {
-                stepover = static_cast<float>(ctx.tool->diameter) * 0.25f;
-            }
-
-            size_t attempted = 0;
-            size_t solved = 0;
-
-            for (float z = min.z; z <= max.z + 1e-4f; z += dz) {
-                attempted += 1;
-
-                auto slice = std::make_unique<BoreSlice>();
-
-                slice->z = z;
-                slice->toolRadius = toolRadius;
-                slice->stepover = stepover;
-
-                if (!SliceSource::build(*ctx.positive, z, *slice)) {
-                    dbg("[BoreStrategy] z=%.3f: no slice source", z);
-                    continue;
+                // Skip geometric (0) and boundary (1); path passes follow.
+                for (size_t i = 2; i < slice.profiles.size(); i++) {
+                    slice.profiles[i].appendSegments(layer.segments);
                 }
 
-                slice->solve();
+                if (layer.segments.empty()) { continue; }
 
-                if (slice->empty()) {
-                    dbg("[BoreStrategy] z=%.3f: empty slice", z);
-                    continue;
-                }
-
-                slices_.push_back(std::move(slice));
-                solved += 1;
+                paths_.push_back(layer);
             }
-
-            dbg(
-                "[BoreStrategy] Done. attempted=%zu solved=%zu slices=%zu",
-                attempted,
-                solved,
-                slices_.size()
-            );
         }
     };
 }

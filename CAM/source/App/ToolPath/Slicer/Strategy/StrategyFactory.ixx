@@ -1,6 +1,6 @@
 module;
 
-#include <memory>
+#include <variant>
 
 export module Cam.App.Slicer.Strategy.StrategyFactory;
 
@@ -12,20 +12,44 @@ import Cam.App.Slicer.Strategy.BoreStrategy;
 
 export namespace Cam::App::Slicer::Strategy {
 
-    inline std::unique_ptr<Strategy> createStrategy(StrategyType type) {
+    using StrategyInstance = std::variant<
+        HatchStrategy,
+        ProfileStrategy,
+        BoreStrategy
+    >;
+
+    inline StrategyInstance createStrategy(StrategyType type) {
 
         switch (type) {
 
             case StrategyType::Hatch:
-                return std::make_unique<HatchStrategy>();
+                return HatchStrategy {};
 
             case StrategyType::Profile:
-                return std::make_unique<ProfileStrategy>();
+                return ProfileStrategy {};
 
             case StrategyType::Bore:
-                return std::make_unique<BoreStrategy>();
+                return BoreStrategy {};
         }
 
-        return std::make_unique<HatchStrategy>();
+        return HatchStrategy {};
+    }
+
+    inline Strategy& strategyFrom(StrategyInstance& instance) {
+        return std::visit(
+            [](auto& strategy) -> Strategy& {
+                return strategy;
+            },
+            instance
+        );
+    }
+
+    inline const Strategy& strategyFrom(const StrategyInstance& instance) {
+        return std::visit(
+            [](const auto& strategy) -> const Strategy& {
+                return strategy;
+            },
+            instance
+        );
     }
 }

@@ -72,6 +72,18 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             build(chains);
         }
 
+        Profile(
+            const std::vector<Segment>& segments,
+            float eps = 1e-4f
+        ) {
+            build(
+                Chain::BuildAll(
+                    segments,
+                    eps
+                )
+            );
+        }
+
         static Profile From(
             const std::vector<Chain>& chains
         ) {
@@ -82,16 +94,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             const std::vector<Segment>& segments,
             float eps = 1e-4f
         ) {
-            Profile profile;
-
-            profile.build(
-                Chain::BuildAll(
-                    segments,
-                    eps
-                )
-            );
-
-            return profile;
+            return Profile(segments, eps);
         }
 
         // State
@@ -495,6 +498,17 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                     chainPoints.begin(),
                     chainPoints.end()
                 );
+            }
+        }
+
+        void appendSegments(
+            std::vector<Segment>& out
+        ) const {
+            for (const Entry& entry : entries) {
+
+                for (const Segment& s : entry.chain.segments) {
+                    out.push_back(s);
+                }
             }
         }
 

@@ -7,13 +7,11 @@ export module Cam.App.Slicer.Strategy.Slice.Slice;
 import Rev.Core.Pos;
 
 import Cam.App.Slicer.Strategy.Slice.Segment2;
-import Cam.App.Slicer.Strategy.Slice.Chain;
 import Cam.App.Slicer.Strategy.Slice.Profile;
 
 export namespace Cam::App::Slicer::Strategy::Slice {
 
     using namespace Rev::Core;
-
 
     struct Slice {
 
@@ -24,13 +22,10 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         bool valid = false;
 
         std::vector<Segment> source;
+
+        Profile geometricProfile;
+        Profile boundaryProfile;
         std::vector<Profile> profiles;
-        std::vector<Segment> paths;
-        std::vector<Pos> points;
-
-        virtual ~Slice() = default;
-
-        virtual void solve() = 0;
 
         // State
         //--------------------------------------------------
@@ -38,21 +33,30 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         void clear() {
 
             source.clear();
-            profiles.clear();
-            paths.clear();
-            points.clear();
+            resetProfiles();
 
             min = {};
             max = {};
             valid = false;
         }
 
-        bool empty() const {
-            return source.empty() && paths.empty() && points.empty();
+        void resetProfiles() {
+
+            geometricProfile.clear();
+            boundaryProfile.clear();
+            profiles.clear();
         }
 
-        bool hasPointPath() const {
-            return !points.empty();
+        bool empty() const {
+            return source.empty() && !hasProfiles();
+        }
+
+        bool hasProfiles() const {
+            return (
+                !geometricProfile.empty() ||
+                !boundaryProfile.empty() ||
+                !profiles.empty()
+            );
         }
 
         // Bounds
@@ -112,31 +116,15 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         void setSource(
             const std::vector<Segment>& segments
         ) {
-            clear();
+            source.clear();
+            resetProfiles();
+
+            min = {};
+            max = {};
+            valid = false;
 
             for (const Segment& s : segments) {
                 addSegment(s);
-            }
-        }
-
-        // Profile helpers
-        //--------------------------------------------------
-
-        Profile makeProfile() const {
-
-            return Profile::FromSegments(
-                source
-            );
-        }
-
-        void collectProfile(
-            const Profile& profile
-        ) {
-            for (const Profile::Entry& entry : profile.entries) {
-
-                for (const Segment& s : entry.chain.segments) {
-                    paths.push_back(s);
-                }
             }
         }
     };
