@@ -15,8 +15,6 @@ import Rev.OS.File;
 import Cam.App.Model;
 import Cam.App.MaterialState;
 import Cam.App.ToolLibrary;
-import Cam.App.Slicer.Strategy.StrategyType;
-
 export namespace Cam::App {
 
     using Json = nlohmann::json;
@@ -213,7 +211,7 @@ export namespace Cam::App {
 
                 stateJson["toolPath"] = {
                     { "toolName", state->toolPath.toolName },
-                    { "strategy", Slicer::Strategy::strategyTypeToString(state->toolPath.strategy) },
+                    { "strategy", state->toolPath.strategy },
                     { "strategyAuto", state->toolPath.strategyAuto },
                     { "stepDown", state->toolPath.stepDown },
                     { "stepover", state->toolPath.stepover },
@@ -349,9 +347,8 @@ export namespace Cam::App {
                             toolPathJson.contains("strategy") &&
                             toolPathJson["strategy"].is_string()
                         ) {
-                            state->toolPath.strategy = Slicer::Strategy::strategyTypeFromString(
-                                toolPathJson["strategy"].get<std::string>()
-                            );
+                            state->toolPath.strategy =
+                                toolPathJson["strategy"].get<std::string>();
                         }
 
                         if (

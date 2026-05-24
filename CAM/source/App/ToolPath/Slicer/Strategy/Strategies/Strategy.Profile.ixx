@@ -1,32 +1,32 @@
 module;
 
-export module Cam.App.Slicer.Strategy.ProfileStrategy;
+export module Cam.App.Slicer.Strategy.Strategies.Profile;
 
+import Cam.App.Model;
 import Cam.App.Slicer.Strategy.Strategy;
-import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Slicer.Strategy.Slice.Slice;
 import Cam.App.Slicer.Strategy.Slice.Profile;
 
-export namespace Cam::App::Slicer::Strategy {
+export namespace Cam::App::Slicer::Strategy::Strategies {
 
     using SliceLayer = Slice::Slice;
     using SliceProfile = Slice::Profile;
 
-    struct ProfileStrategy : Strategy {
+    struct Profile : Strategy {
 
-        StrategyType type() const override {
-            return StrategyType::Profile;
+        static constexpr const char* name() { return "Profile"; }
+
+        static bool detect(const Model& model) {
+            return false;
         }
-
-    protected:
 
         void processSlice(
             SliceLayer& slice,
             const StrategyContext& ctx
-        ) override {
+        ) {
 
             slice.resetProfiles();
-            slice.geometricProfile = Slice::Profile(slice.source);
+            slice.geometricProfile = SliceProfile(slice.source);
 
             if (slice.geometricProfile.empty()) {
                 return;
@@ -52,7 +52,7 @@ export namespace Cam::App::Slicer::Strategy {
 
         void buildPaths(
             const StrategyContext&
-        ) override {
+        ) {
 
             paths_.clear();
 

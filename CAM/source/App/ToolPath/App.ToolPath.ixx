@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <vector>
+#include <variant>
 #include <optional>
 #include <cstddef>
 
@@ -19,9 +20,9 @@ import Cam.App.Tool;
 import Cam.App.Slicer.Strategy.Slice.Segment2;
 
 import Cam.App.Slicer.Strategy.Strategy;
-import Cam.App.Slicer.Strategy.StrategyType;
-import Cam.App.Slicer.Strategy.StrategyFactory;
-import Cam.App.Slicer.Strategy.StrategyDetect;
+import Cam.App.Slicer.Strategy.Strategies.Bore;
+import Cam.App.Slicer.Strategy.Strategies.Profile;
+import Cam.App.Slicer.Strategy.Strategies.Hatch;
 
 export namespace Cam::App {
 
@@ -37,14 +38,15 @@ export namespace Cam::App {
 
     struct ToolPath {
 
+        using Bore = Slicer::Strategy::Strategies::Bore;
+        using Profile = Slicer::Strategy::Strategies::Profile;
+        using Hatch = Slicer::Strategy::Strategies::Hatch;
+
+        using StrategyInstance = std::variant<Bore, Profile, Hatch>;
+
         std::string toolName = "";
+        std::string strategy = Hatch::name();
 
-        Slicer::Strategy::StrategyType strategy =
-            Slicer::Strategy::StrategyType::Hatch;
-
-        // When true, compute() will overwrite `strategy` based on geometry
-        // analysis of the carve model. Set to false once the user explicitly
-        // chooses a strategy in the settings UI.
         bool strategyAuto = true;
 
         std::vector<ToolPathPoint> points;
@@ -77,7 +79,22 @@ export namespace Cam::App {
 
         const Slicer::Strategy::Strategy* strategyResult() const {
             if (!strategyInstance) { return nullptr; }
-            return &Slicer::Strategy::strategyFrom(*strategyInstance);
+
+            return std::visit(
+                [](const auto& s) -> const Slicer::Strategy::Strategy* {
+                    return &s;
+                },
+                *strategyInstance
+            );
+        }
+
+        static std::string detectStrategy(const Model& model) {
+
+            if (Bore::detect(model)) { return Bore::name(); }
+            if (Profile::detect(model)) { return Profile::name(); }
+            if (Hatch::detect(model)) { return Hatch::name(); }
+
+            return Hatch::name();
         }
 
         void addPoint(const Pos& p, float z, double& t, bool rapid = false, bool cutting = true) {
@@ -141,14 +158,13 @@ export namespace Cam::App {
 
             if (strategyAuto) {
 
-                const Slicer::Strategy::StrategyType detected =
-                    Slicer::Strategy::detectStrategy(toCarve);
+                const std::string detected = detectStrategy(toCarve);
 
                 if (detected != strategy) {
                     dbg(
                         "[ToolPath] Auto-detected strategy: %s -> %s",
-                        Slicer::Strategy::strategyTypeToString(strategy).c_str(),
-                        Slicer::Strategy::strategyTypeToString(detected).c_str()
+                        strategy.c_str(),
+                        detected.c_str()
                     );
 
                     strategy = detected;
@@ -158,11 +174,9 @@ export namespace Cam::App {
             dbg(
                 "[ToolPath] Computing toolpath with tool \"%s\" strategy=%s (auto=%i)",
                 toolName.c_str(),
-                Slicer::Strategy::strategyTypeToString(strategy).c_str(),
+                strategy.c_str(),
                 int(strategyAuto)
             );
-
-            strategyInstance = Slicer::Strategy::createStrategy(strategy);
 
             Slicer::Strategy::StrategyContext ctx {
                 .positive = &toCarve,
@@ -172,10 +186,25 @@ export namespace Cam::App {
                 .stepover = static_cast<float>(stepover)
             };
 
-            Slicer::Strategy::Strategy& strategyImpl =
-                Slicer::Strategy::strategyFrom(*strategyInstance);
+            if (strategy == Bore::name()) {
+                strategyInstance = Bore {};
+            }
 
-            strategyImpl.execute(ctx);
+            else if (strategy == Profile::name()) {
+                strategyInstance = Profile {};
+            }
+
+            else {
+                strategy = Hatch::name();
+                strategyInstance = Hatch {};
+            }
+
+            std::visit([&ctx](auto& s) {
+                Slicer::Strategy::Strategy::run(s, ctx);
+            }, *strategyInstance);
+
+            const Slicer::Strategy::Strategy& strategyImpl =
+                *strategyResult();
 
             buildPointsFromStrategy(strategyImpl);
 
@@ -233,6 +262,6 @@ export namespace Cam::App {
 
     private:
 
-        std::optional<Slicer::Strategy::StrategyInstance> strategyInstance;
+        std::optional<StrategyInstance> strategyInstance;
     };
 }

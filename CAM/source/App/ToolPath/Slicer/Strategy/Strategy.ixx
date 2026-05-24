@@ -14,7 +14,6 @@ import Rev.Core.Vertex3;
 import Cam.App.Model;
 import Cam.App.Tool;
 
-import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Slicer.Strategy.Slice.Slice;
 import Cam.App.Slicer.Strategy.Slice.Segment2;
 import Cam.App.Slicer.Strategy.SliceSource;
@@ -47,20 +46,19 @@ export namespace Cam::App::Slicer::Strategy {
 
         virtual ~Strategy() = default;
 
-        virtual StrategyType type() const = 0;
+        template<typename S>
+        static void run(S& strategy, const StrategyContext& ctx) {
 
-        void execute(const StrategyContext& ctx) {
-
-            slices_.clear();
-            paths_.clear();
+            strategy.slices_.clear();
+            strategy.paths_.clear();
 
             if (!ctx.positive) {
-                dbg("[%s] Failed: no positive model", logLabel());
+                dbg("[%s] Failed: no positive model", S::name());
                 return;
             }
 
             if (!ctx.tool) {
-                dbg("[%s] Failed: no tool", logLabel());
+                dbg("[%s] Failed: no tool", S::name());
                 return;
             }
 
@@ -68,13 +66,13 @@ export namespace Cam::App::Slicer::Strategy {
             Pos3 max;
 
             if (!boundsFromModel(*ctx.positive, min, max)) {
-                dbg("[%s] Failed: no positive bounds", logLabel());
+                dbg("[%s] Failed: no positive bounds", S::name());
                 return;
             }
 
             dbg(
                 "[%s] Positive bounds min=(%.3f %.3f %.3f), max=(%.3f %.3f %.3f)",
-                logLabel(),
+                S::name(),
                 min.x, min.y, min.z,
                 max.x, max.y, max.z
             );
@@ -84,7 +82,6 @@ export namespace Cam::App::Slicer::Strategy {
             if (dz <= 0.0f) { dz = 1.0f; }
 
             size_t attempted = 0;
-            size_t solved = 0;
 
             for (float z = min.z; z <= max.z + 1e-4f; z += dz) {
                 attempted += 1;
@@ -93,29 +90,28 @@ export namespace Cam::App::Slicer::Strategy {
                 slice.z = z;
 
                 if (!SliceSource::build(*ctx.positive, z, slice)) {
-                    dbg("[%s] z=%.3f: no slice source", logLabel(), z);
+                    dbg("[%s] z=%.3f: no slice source", S::name(), z);
                     continue;
                 }
 
-                processSlice(slice, ctx);
+                strategy.processSlice(slice, ctx);
 
                 if (!slice.hasProfiles()) {
-                    dbg("[%s] z=%.3f: no profiles", logLabel(), z);
+                    dbg("[%s] z=%.3f: no profiles", S::name(), z);
                     continue;
                 }
 
-                slices_.push_back(slice);
-                solved += 1;
+                strategy.slices_.push_back(slice);
             }
 
-            buildPaths(ctx);
+            strategy.buildPaths(ctx);
 
             dbg(
                 "[%s] Done. attempted=%zu slices=%zu paths=%zu",
-                logLabel(),
+                S::name(),
                 attempted,
-                slices_.size(),
-                paths_.size()
+                strategy.slices_.size(),
+                strategy.paths_.size()
             );
         }
 
@@ -154,15 +150,6 @@ export namespace Cam::App::Slicer::Strategy {
 
     protected:
 
-        virtual void processSlice(
-            SliceLayer& slice,
-            const StrategyContext& ctx
-        ) = 0;
-
-        virtual void buildPaths(
-            const StrategyContext& ctx
-        ) = 0;
-
         static float toolRadius(const StrategyContext& ctx) {
             return static_cast<float>(ctx.tool->radius);
         }
@@ -182,11 +169,5 @@ export namespace Cam::App::Slicer::Strategy {
 
         std::vector<SliceLayer> slices_;
         std::vector<LayerPath> paths_;
-
-    private:
-
-        const char* logLabel() const {
-            return strategyTypeToString(type()).c_str();
-        }
     };
 }

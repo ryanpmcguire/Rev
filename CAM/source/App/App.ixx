@@ -16,7 +16,6 @@ import Cam.App.Project;
 import Cam.App.Persist;
 import Cam.App.MaterialState;
 import Cam.App.Model;
-import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
 
@@ -642,7 +641,7 @@ export namespace Cam::App {
 
         bool saveToolPathSettings(
             MaterialState* state,
-            Slicer::Strategy::StrategyType strategy,
+            const std::string& strategy,
             const std::string& toolName,
             double stepDown,
             double stepover,

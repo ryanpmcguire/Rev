@@ -1,29 +1,29 @@
 module;
 
-export module Cam.App.Slicer.Strategy.HatchStrategy;
+export module Cam.App.Slicer.Strategy.Strategies.Hatch;
 
+import Cam.App.Model;
 import Cam.App.Slicer.Strategy.Strategy;
-import Cam.App.Slicer.Strategy.StrategyType;
 import Cam.App.Slicer.Strategy.Slice.Slice;
 import Cam.App.Slicer.Strategy.Slice.Profile;
 
-export namespace Cam::App::Slicer::Strategy {
+export namespace Cam::App::Slicer::Strategy::Strategies {
 
     using SliceLayer = Slice::Slice;
     using SliceProfile = Slice::Profile;
 
-    struct HatchStrategy : Strategy {
+    struct Hatch : Strategy {
 
-        StrategyType type() const override {
-            return StrategyType::Hatch;
+        static constexpr const char* name() { return "Hatch"; }
+
+        static bool detect(const Model& model) {
+            return model.loaded;
         }
-
-    protected:
 
         void processSlice(
             SliceLayer& slice,
             const StrategyContext& ctx
-        ) override {
+        ) {
 
             slice.resetProfiles();
             slice.geometricProfile = SliceProfile(slice.source);
@@ -41,7 +41,7 @@ export namespace Cam::App::Slicer::Strategy {
 
         void buildPaths(
             const StrategyContext&
-        ) override {
+        ) {
 
             paths_.clear();
 

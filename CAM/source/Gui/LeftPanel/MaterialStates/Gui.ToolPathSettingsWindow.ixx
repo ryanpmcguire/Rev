@@ -21,7 +21,9 @@ import Rev.Element.Button;
 
 import Cam.App;
 import Cam.App.MaterialState;
-import Cam.App.Slicer.Strategy.StrategyType;
+import Cam.App.Slicer.Strategy.Strategies.Bore;
+import Cam.App.Slicer.Strategy.Strategies.Profile;
+import Cam.App.Slicer.Strategy.Strategies.Hatch;
 import Cam.App.Tool;
 import Cam.App.ToolPath;
 
@@ -229,27 +231,12 @@ export namespace Cam::Gui {
                 {
                     .label = "Strategy",
                     .options = {
-                        {
-                            Cam::App::Slicer::Strategy::strategyTypeDisplayName(
-                                Cam::App::Slicer::Strategy::StrategyType::Hatch
-                            ),
-                            "Hatch"
-                        },
-                        {
-                            Cam::App::Slicer::Strategy::strategyTypeDisplayName(
-                                Cam::App::Slicer::Strategy::StrategyType::Profile
-                            ),
-                            "Profile"
-                        },
-                        {
-                            Cam::App::Slicer::Strategy::strategyTypeDisplayName(
-                                Cam::App::Slicer::Strategy::StrategyType::Bore
-                            ),
-                            "Bore"
-                        }
+                        { "Hatch", Cam::App::Slicer::Strategy::Strategies::Hatch::name() },
+                        { "Profile", Cam::App::Slicer::Strategy::Strategies::Profile::name() },
+                        { "Bore", Cam::App::Slicer::Strategy::Strategies::Bore::name() }
                     },
                     .placeholder = "Select strategy",
-                    .value = Cam::App::Slicer::Strategy::strategyTypeToString(toolPath.strategy)
+                    .value = toolPath.strategy
                 }
             );
 
@@ -382,9 +369,7 @@ export namespace Cam::Gui {
                 return;
             }
 
-            const auto strategy = Cam::App::Slicer::Strategy::strategyTypeFromString(
-                strategyDropdown->params.value
-            );
+            const std::string strategy = strategyDropdown->params.value;
 
             if (!app->saveToolPathSettings(
                 state,
