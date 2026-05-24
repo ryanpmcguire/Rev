@@ -216,6 +216,16 @@ export namespace Cam::App {
                     { "stepDown", state->toolPath.stepDown },
                     { "stepover", state->toolPath.stepover },
                     { "feedRate", state->toolPath.feedRate },
+                    { "sliceAxis", Json::array({
+                        state->toolPath.sliceAxis.x,
+                        state->toolPath.sliceAxis.y,
+                        state->toolPath.sliceAxis.z
+                    }) },
+                    { "sliceOrigin", Json::array({
+                        state->toolPath.sliceOrigin.x,
+                        state->toolPath.sliceOrigin.y,
+                        state->toolPath.sliceOrigin.z
+                    }) },
                     { "hasToolPath", state->hasToolPath }
                 };
 
@@ -333,6 +343,18 @@ export namespace Cam::App {
 
                         if (toolPathJson.contains("stepover") && toolPathJson["stepover"].is_number()) {
                             state->toolPath.stepover = toolPathJson["stepover"].get<double>();
+                        }
+
+                        if (toolPathJson.contains("sliceAxis") && toolPathJson["sliceAxis"].is_array() && toolPathJson["sliceAxis"].size() >= 3) {
+                            state->toolPath.sliceAxis.x = toolPathJson["sliceAxis"][0].get<float>();
+                            state->toolPath.sliceAxis.y = toolPathJson["sliceAxis"][1].get<float>();
+                            state->toolPath.sliceAxis.z = toolPathJson["sliceAxis"][2].get<float>();
+                        }
+
+                        if (toolPathJson.contains("sliceOrigin") && toolPathJson["sliceOrigin"].is_array() && toolPathJson["sliceOrigin"].size() >= 3) {
+                            state->toolPath.sliceOrigin.x = toolPathJson["sliceOrigin"][0].get<float>();
+                            state->toolPath.sliceOrigin.y = toolPathJson["sliceOrigin"][1].get<float>();
+                            state->toolPath.sliceOrigin.z = toolPathJson["sliceOrigin"][2].get<float>();
                         }
                     }
 

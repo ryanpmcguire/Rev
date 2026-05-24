@@ -14,6 +14,7 @@ import Rev.Core.Vertex3;
 import Cam.App.Model;
 import Cam.App.Tool;
 
+import Cam.App.Slicer.Strategy.CutFrame;
 import Cam.App.Slicer.Strategy.Slice.Slice;
 import Cam.App.Slicer.Strategy.Slice.Segment2;
 import Cam.App.Slicer.Strategy.SliceSource;
@@ -41,6 +42,8 @@ export namespace Cam::App::Slicer::Strategy {
 
         float stepDown = 1.0f;
         float stepover = 0.25f;
+
+        CutFrame frame = CutFrame::fromAxis({ 0.0f, 0.0f, 1.0f });
     };
 
     // Base class for slice/profile/path generation.
@@ -75,11 +78,24 @@ export namespace Cam::App::Slicer::Strategy {
                 return;
             }
 
+            float minDepth = 0.0f;
+            float maxDepth = 0.0f;
+
+            ctx.frame.depthRange(min, max, minDepth, maxDepth);
+
             dbg(
                 "[%s] Positive bounds min=(%.3f %.3f %.3f), max=(%.3f %.3f %.3f)",
                 S::name(),
                 min.x, min.y, min.z,
                 max.x, max.y, max.z
+            );
+
+            dbg(
+                "[%s] Slice axis=(%.3f %.3f %.3f) depth=%.3f..%.3f",
+                S::name(),
+                ctx.frame.axis.x, ctx.frame.axis.y, ctx.frame.axis.z,
+                minDepth,
+                maxDepth
             );
 
             float dz = ctx.stepDown;
@@ -88,21 +104,21 @@ export namespace Cam::App::Slicer::Strategy {
 
             size_t attempted = 0;
 
-            for (float z = min.z; z <= max.z + 1e-4f; z += dz) {
+            for (float depth = minDepth; depth <= maxDepth + 1e-4f; depth += dz) {
                 attempted += 1;
 
                 SliceLayer slice;
-                slice.z = z;
+                slice.z = depth;
 
-                if (!SliceSource::build(*ctx.positive, z, slice)) {
-                    dbg("[%s] z=%.3f: no slice source", S::name(), z);
+                if (!SliceSource::build(*ctx.positive, ctx.frame, depth, slice)) {
+                    dbg("[%s] depth=%.3f: no slice source", S::name(), depth);
                     continue;
                 }
 
                 strategy.processSlice(slice, ctx);
 
                 if (!slice.hasProfiles()) {
-                    dbg("[%s] z=%.3f: no profiles", S::name(), z);
+                    dbg("[%s] depth=%.3f: no profiles", S::name(), depth);
                     continue;
                 }
 

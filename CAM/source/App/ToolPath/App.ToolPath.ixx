@@ -20,6 +20,7 @@ import Cam.App.Tool;
 import Cam.App.Slicer.Strategy.Slice.Segment2;
 
 import Cam.App.Slicer.Strategy.Strategy;
+import Cam.App.Slicer.Strategy.CutFrame;
 import Cam.App.Slicer.Strategy.Strategies.Bore;
 import Cam.App.Slicer.Strategy.Strategies.Profile;
 import Cam.App.Slicer.Strategy.Strategies.Hatch;
@@ -53,6 +54,11 @@ export namespace Cam::App {
         double stepDown = 1.0;
         double feedRate = 1000.0;
         double stepover = 0.25;
+
+        // Slicing frame: depth steps along sliceAxis; 2D work stays in (u,v).
+        // Defaults match world +Z. A future UI will expose this per material state.
+        Pos3 sliceAxis = { 0.0f, 0.0f, 1.0f };
+        Pos3 sliceOrigin = {};
 
         // Result
         std::vector<ToolPathPoint> points;
@@ -104,12 +110,16 @@ export namespace Cam::App {
             return Hatch::name();
         }
 
+        Slicer::Strategy::CutFrame cutFrame() const {
+            return Slicer::Strategy::CutFrame::fromAxis(sliceAxis, sliceOrigin);
+        }
+
         // Point building
         //--------------------------------------------------
 
-        void addPoint(const Pos& p, float z, double& t, bool rapid = false, bool cutting = true) {
+        void addPoint(const Pos& uv, float depth, const Slicer::Strategy::CutFrame& frame, double& t, bool rapid = false, bool cutting = true) {
             points.push_back({
-                .position = { p.x, p.y, z },
+                .position = frame.uvToWorld(uv, depth),
                 .t = t,
                 .rapid = rapid,
                 .cutting = cutting
@@ -118,10 +128,10 @@ export namespace Cam::App {
             t += 1.0;
         }
 
-        void addSegmentPoints(const Segment& segment, float z, double& t, int samples = 24) {
+        void addSegmentPoints(const Segment& segment, float depth, const Slicer::Strategy::CutFrame& frame, double& t, int samples = 24) {
             if (segment.kind == Segment::Kind::Line) {
-                addPoint(segment.start(), z, t);
-                addPoint(segment.end(), z, t);
+                addPoint(segment.start(), depth, frame, t);
+                addPoint(segment.end(), depth, frame, t);
                 return;
             }
 
@@ -130,14 +140,14 @@ export namespace Cam::App {
             for (int i = 1; i <= samples; i++) {
                 Pos p = segment.at(float(i) / float(samples));
 
-                addPoint(last, z, t);
-                addPoint(p, z, t);
+                addPoint(last, depth, frame, t);
+                addPoint(p, depth, frame, t);
 
                 last = p;
             }
         }
 
-        void buildPointsFromStrategy(const Slicer::Strategy::Strategy& strategyImpl) {
+        void buildPointsFromStrategy(const Slicer::Strategy::Strategy& strategyImpl, const Slicer::Strategy::CutFrame& frame) {
             points.clear();
 
             double t = 0.0;
@@ -145,14 +155,14 @@ export namespace Cam::App {
             for (const Slicer::Strategy::LayerPath& layer : strategyImpl.paths()) {
                 if (!layer.points.empty()) {
                     for (const Pos& p : layer.points) {
-                        addPoint(p, layer.z, t);
+                        addPoint(p, layer.z, frame, t);
                     }
 
                     continue;
                 }
 
                 for (const Segment& segment : layer.segments) {
-                    addSegmentPoints(segment, layer.z, t);
+                    addSegmentPoints(segment, layer.z, frame, t);
                 }
             }
         }
@@ -187,12 +197,15 @@ export namespace Cam::App {
                 int(strategyAuto)
             );
 
+            const Slicer::Strategy::CutFrame frame = cutFrame();
+
             Slicer::Strategy::StrategyContext ctx {
                 .positive = &toCarve,
                 .negative = &toAvoid,
                 .tool = &tool,
                 .stepDown = static_cast<float>(stepDown),
-                .stepover = static_cast<float>(stepover)
+                .stepover = static_cast<float>(stepover),
+                .frame = frame
             };
 
             if (strategy == Bore::name()) { strategyInstance = Bore {}; }
@@ -209,7 +222,7 @@ export namespace Cam::App {
             const Slicer::Strategy::Strategy& strategyImpl =
                 *strategyResult();
 
-            buildPointsFromStrategy(strategyImpl);
+            buildPointsFromStrategy(strategyImpl, frame);
 
             computed = !points.empty();
 

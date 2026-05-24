@@ -23,8 +23,10 @@ module;
 export module Cam.App.Slicer.Strategy.SliceSource;
 
 import Rev.Core.Pos;
+import Rev.Core.Pos3;
 
 import Cam.App.Model;
+import Cam.App.Slicer.Strategy.CutFrame;
 import Cam.App.Slicer.Strategy.Slice.Segment2;
 
 import Cam.App.Slicer.Strategy.Slice.Slice;
@@ -41,28 +43,34 @@ export namespace Cam::App::Slicer::Strategy {
         // Conversion
         //--------------------------------------------------
 
-        static Pos posFromGp(const gp_Pnt& p) {
-
+        static Pos3 pos3FromGp(const gp_Pnt& p) {
             return {
                 static_cast<float>(p.X()),
-                static_cast<float>(p.Y())
+                static_cast<float>(p.Y()),
+                static_cast<float>(p.Z())
             };
+        }
+
+        static Pos uvFromGp(const gp_Pnt& p, const CutFrame& frame, float depth) {
+            return frame.worldToUv(pos3FromGp(p), depth);
         }
 
         // Analytic edges
         //--------------------------------------------------
 
-        static bool addOccLine(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
-            slice.addLine(posFromGp(curve.Value(first)), posFromGp(curve.Value(last)));
+        static bool addOccLine(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
+            slice.addLine(uvFromGp(curve.Value(first), frame, depth), uvFromGp(curve.Value(last), frame, depth));
 
             return true;
         }
 
-        static bool addOccCircle(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
+        static bool addOccCircle(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
             gp_Circ circle = curve.Circle();
 
-            Pos center = posFromGp(circle.Location());
-            float radius = static_cast<float>(circle.Radius());
+            Pos center = uvFromGp(circle.Location(), frame, depth);
+
+            Pos pFirst = uvFromGp(curve.Value(first), frame, depth);
+            float radius = (pFirst - center).pythag();
 
             if (radius <= 1e-6f) { return false; }
 
@@ -70,24 +78,42 @@ export namespace Cam::App::Slicer::Strategy {
 
             if (std::abs(span) <= 1e-9) { return false; }
 
-            double mid = first + span * 0.5;
+            // Polar angle of the edge start in slice (u,v). OCCT curve parameters
+            // are not UV polar angles once the slice plane is re-oriented, but the
+            // parameter span still equals the true angular sweep along the circle.
+            float a0 = frame.uvAngle(center, pFirst);
 
-            slice.addSegment(SliceSegment::Arc(center, radius, static_cast<float>(first), static_cast<float>(mid)));
+            Pos pMid = uvFromGp(curve.Value(first + span * 0.5), frame, depth);
 
-            slice.addSegment(SliceSegment::Arc(center, radius, static_cast<float>(mid), static_cast<float>(last)));
+            Pos r0 = pFirst - center;
+            Pos rMid = pMid - center;
+
+            float cross = r0.x * rMid.y - r0.y * rMid.x;
+
+            float sweep = static_cast<float>(span);
+
+            if (cross < 0.0f) {
+                sweep = -sweep;
+            }
+
+            float aMid = a0 + sweep * 0.5f;
+            float a1 = a0 + sweep;
+
+            slice.addSegment(SliceSegment::Arc(center, radius, a0, aMid));
+            slice.addSegment(SliceSegment::Arc(center, radius, aMid, a1));
 
             return true;
         }
 
-        static bool addAnalytic(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
+        static bool addAnalytic(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
             switch (curve.GetType()) {
 
                 case GeomAbs_Line: {
-                    return addOccLine(slice, curve, first, last);
+                    return addOccLine(slice, curve, first, last, frame, depth);
                 }
 
                 case GeomAbs_Circle: {
-                    return addOccCircle(slice, curve, first, last);
+                    return addOccCircle(slice, curve, first, last, frame, depth);
                 }
 
                 default: {
@@ -99,7 +125,7 @@ export namespace Cam::App::Slicer::Strategy {
         // Sampled edges
         //--------------------------------------------------
 
-        static void addSampled(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last) {
+        static void addSampled(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
             std::vector<Pos> sampled;
 
             double lengthStep = 0.25;
@@ -109,7 +135,7 @@ export namespace Cam::App::Slicer::Strategy {
             if (sampler.IsDone() && sampler.NbPoints() >= 2) {
 
                 for (int i = 1; i <= sampler.NbPoints(); i++) {
-                    sampled.push_back(posFromGp(curve.Value(sampler.Parameter(i))));
+                    sampled.push_back(uvFromGp(curve.Value(sampler.Parameter(i)), frame, depth));
                 }
             }
             else {
@@ -118,7 +144,7 @@ export namespace Cam::App::Slicer::Strategy {
 
                 for (int i = 0; i <= samples; i++) {
                     double u = first + (last - first) * (double(i) / double(samples));
-                    sampled.push_back(posFromGp(curve.Value(u)));
+                    sampled.push_back(uvFromGp(curve.Value(u), frame, depth));
                 }
             }
 
@@ -134,13 +160,18 @@ export namespace Cam::App::Slicer::Strategy {
         // Build
         //--------------------------------------------------
 
-        static bool build(const Model& model, float z, SliceLayer& slice) {
-            slice.z = z;
+        static bool build(const Model& model, const CutFrame& frame, float depth, SliceLayer& slice) {
+            slice.z = depth;
 
             if (!model.loaded) { return false; }
             if (model.shape.IsNull()) { return false; }
 
-            gp_Pln plane(gp_Pnt(0.0, 0.0, double(z)), gp_Dir(0.0, 0.0, 1.0));
+            Pos3 planeOrigin = frame.planeOrigin(depth);
+
+            gp_Pln plane(
+                gp_Pnt(planeOrigin.x, planeOrigin.y, planeOrigin.z),
+                gp_Dir(frame.axis.x, frame.axis.y, frame.axis.z)
+            );
 
             BRepAlgoAPI_Section section(model.shape, plane, false);
 
@@ -175,7 +206,7 @@ export namespace Cam::App::Slicer::Strategy {
 
                 GeomAbs_CurveType type = curve.GetType();
 
-                if (addAnalytic(slice, curve, first, last)) {
+                if (addAnalytic(slice, curve, first, last, frame, depth)) {
 
                     size_t added = slice.source.size() - before;
 
@@ -183,14 +214,14 @@ export namespace Cam::App::Slicer::Strategy {
                     if (type == GeomAbs_Circle) { analyticCircles += added; }
                 }
                 else {
-                    addSampled(slice, curve, first, last);
+                    addSampled(slice, curve, first, last, frame, depth);
                     sampledSegments += slice.source.size() - before;
                 }
             }
 
             dbg(
-                "[SliceSource] z=%.3f edges=%zu segments=%zu lines=%zu circles=%zu sampled=%zu",
-                z,
+                "[SliceSource] depth=%.3f edges=%zu segments=%zu lines=%zu circles=%zu sampled=%zu",
+                depth,
                 edges,
                 slice.source.size(),
                 analyticLines,
