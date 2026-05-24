@@ -16,17 +16,23 @@ module;
 
 #include <TopAbs_Orientation.hxx>
 #include <TopAbs_ShapeEnum.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
+
+#include <TopTools_IndexedMapOfShape.hxx>
 
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <BRep_Builder.hxx>
 
+#include <GProp_GProps.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <Standard_Failure.hxx>
 
@@ -62,6 +68,17 @@ export namespace Cam::App {
             }
         };
 
+        struct ShapeStats {
+            int compounds = 0;
+            int solids = 0;
+            int shells = 0;
+            int faces = 0;
+            int edges = 0;
+            int vertices = 0;
+            bool valid = false;
+            double volume = 0.0;
+        };
+
         TopoDS_Shape shape;
         std::vector<TopoDS_Face> faces;
         RenderCache render;
@@ -70,6 +87,10 @@ export namespace Cam::App {
 
         bool loaded = false;
         bool changed = false;
+
+        // Human-readable debug history for recent modeling events.
+        std::vector<std::string> history;
+        size_t operationSerial = 0;
 
         // Construction
         //--------------------------------------------------
@@ -83,18 +104,46 @@ export namespace Cam::App {
         static Model Difference(const Model& a, const Model& b) {
             Model result;
 
-            if (a.shape.IsNull() || b.shape.IsNull()) { return result; }
+            if (a.shape.IsNull() || b.shape.IsNull()) {
+                dbg("[Difference] failed: input shape was null (aNull=%d bNull=%d)", a.shape.IsNull(), b.shape.IsNull());
+                return result;
+            }
 
             try {
+                dbg("[Difference] requested");
+                a.logShapeStatsStatic("[Difference] input A", a.shape);
+                b.logShapeStatsStatic("[Difference] input B", b.shape);
+
                 BRepAlgoAPI_Cut cut(a.shape, b.shape);
                 cut.Build();
 
-                if (!cut.IsDone() || cut.Shape().IsNull()) { return result; }
+                if (!cut.IsDone()) {
+                    dbg("[Difference] failed: BRepAlgoAPI_Cut IsDone=false");
+                    return result;
+                }
 
-                result.adoptShape(result.healShape(cut.Shape()), false);
+                TopoDS_Shape cutShape = cut.Shape();
+
+                if (cutShape.IsNull()) {
+                    dbg("[Difference] failed: cut result is null");
+                    return result;
+                }
+
+                TopoDS_Shape healed = result.healShape(cutShape);
+
+                if (healed.IsNull()) {
+                    dbg("[Difference] failed: healed result is null");
+                    return result;
+                }
+
+                result.adoptShape(healed, false, "Difference");
             }
             catch (const Standard_Failure& failure) {
-                dbg("[Difference] exception: %s", failure.GetMessageString());
+                dbg("[Difference] exception: %s", safeFailureMessage(failure));
+                return Model();
+            }
+            catch (...) {
+                dbg("[Difference] unknown exception");
                 return Model();
             }
 
@@ -105,47 +154,96 @@ export namespace Cam::App {
         //--------------------------------------------------
 
         void clear() {
+            logEvent("[State] clear requested");
+
             shape = TopoDS_Shape();
             faces.clear();
             render.clear();
             selectedFaceIds.clear();
+
             loaded = false;
             changed = false;
+
+            logEvent("[State] clear completed");
         }
 
         std::string getState() const {
-            if (shape.IsNull()) { return ""; }
+            if (shape.IsNull()) {
+                dbg("[State] getState: shape is null");
+                return "";
+            }
 
             std::ostringstream stream;
             BRepTools::Write(shape, stream);
-            return stream.str();
+
+            std::string state = stream.str();
+
+            dbg(
+                "[State] getState: bytes=%zu faces=%zu selected=%zu loaded=%d changed=%d",
+                state.size(),
+                faces.size(),
+                selectedFaceIds.size(),
+                loaded,
+                changed
+            );
+
+            return state;
         }
 
         bool setState(const std::string& state) {
+            logEvent(format(
+                "[State] setState requested: bytes=%zu currentFaces=%zu currentSelected=%zu",
+                state.size(),
+                faces.size(),
+                selectedFaceIds.size()
+            ));
+
             clear();
 
-            if (state.empty()) { return false; }
+            if (state.empty()) {
+                logEvent("[State] setState failed: state string is empty");
+                return false;
+            }
 
             std::istringstream stream(state);
-            if (!stream.good()) { return false; }
+
+            if (!stream.good()) {
+                logEvent("[State] setState failed: stream not good");
+                return false;
+            }
 
             try {
                 BRep_Builder builder;
                 BRepTools::Read(shape, stream, builder);
             }
+            catch (const Standard_Failure& failure) {
+                logEvent(format("[State] setState exception: %s", safeFailureMessage(failure)));
+                clear();
+                return false;
+            }
             catch (...) {
+                logEvent("[State] setState unknown exception");
                 clear();
                 return false;
             }
 
             if (shape.IsNull()) {
+                logEvent("[State] setState failed: read produced null shape");
                 clear();
                 return false;
             }
 
-            refreshTopologyAndRender();
+            refreshTopologyAndRender("setState");
+
             loaded = true;
             changed = false;
+
+            logShapeStats("[State] setState result", shape);
+            logEvent(format(
+                "[State] setState succeeded: faces=%zu triangles=%zu",
+                faces.size(),
+                render.triangleFaceIds.size()
+            ));
 
             return true;
         }
@@ -153,14 +251,66 @@ export namespace Cam::App {
         // Selection
         //--------------------------------------------------
 
-        void clearSelection() { selectedFaceIds.clear(); }
-        void selectFace(size_t faceId) { selectedFaceIds.insert(faceId); }
-        void deselectFace(size_t faceId) { selectedFaceIds.erase(faceId); }
-        bool isFaceSelected(size_t faceId) const { return selectedFaceIds.contains(faceId); }
+        void clearSelection() {
+            if (!selectedFaceIds.empty()) {
+                logEvent(format("[Selection] clearSelection: clearing %zu selected face id(s): %s",
+                    selectedFaceIds.size(),
+                    selectedFaceIdList().c_str()
+                ));
+            }
+
+            selectedFaceIds.clear();
+        }
+
+        void selectFace(size_t faceId) {
+            if (faceId >= faces.size()) {
+                logEvent(format(
+                    "[Selection] selectFace: stale/out-of-range face id %zu ignored? faceCount=%zu",
+                    faceId,
+                    faces.size()
+                ));
+            }
+
+            selectedFaceIds.insert(faceId);
+
+            logEvent(format(
+                "[Selection] selectFace: id=%zu selectedCount=%zu selected={%s}",
+                faceId,
+                selectedFaceIds.size(),
+                selectedFaceIdList().c_str()
+            ));
+        }
+
+        void deselectFace(size_t faceId) {
+            selectedFaceIds.erase(faceId);
+
+            logEvent(format(
+                "[Selection] deselectFace: id=%zu selectedCount=%zu selected={%s}",
+                faceId,
+                selectedFaceIds.size(),
+                selectedFaceIdList().c_str()
+            ));
+        }
+
+        bool isFaceSelected(size_t faceId) const {
+            return selectedFaceIds.contains(faceId);
+        }
 
         void toggleFace(size_t faceId) {
-            if (isFaceSelected(faceId)) { deselectFace(faceId); }
-            else { selectFace(faceId); }
+            if (isFaceSelected(faceId)) {
+                deselectFace(faceId);
+            }
+            else {
+                selectFace(faceId);
+            }
+        }
+
+        size_t selectedFaceCount() const {
+            return selectedFaceIds.size();
+        }
+
+        size_t faceCount() const {
+            return faces.size();
         }
 
         // STEP import
@@ -176,6 +326,7 @@ export namespace Cam::App {
             reader.TransferRoots();
 
             TopoDS_Shape loadedShape = reader.OneShape();
+
             if (loadedShape.IsNull()) {
                 throw std::runtime_error("STEP import produced null shape.");
             }
@@ -184,8 +335,25 @@ export namespace Cam::App {
         }
 
         void loadStep(Rev::OS::File& file) {
+            logEvent(format("[STEP] loadStep requested: %s", file.string().c_str()));
+
             clear();
-            adoptShape(loadStepShape(file), false);
+
+            try {
+                TopoDS_Shape loadedShape = loadStepShape(file);
+                adoptShape(loadedShape, false, "loadStep");
+                logEvent("[STEP] loadStep succeeded");
+            }
+            catch (const std::exception& exception) {
+                logEvent(format("[STEP] loadStep exception: %s", exception.what()));
+                clear();
+                throw;
+            }
+            catch (...) {
+                logEvent("[STEP] loadStep unknown exception");
+                clear();
+                throw;
+            }
         }
 
         // Topology / render cache
@@ -194,19 +362,38 @@ export namespace Cam::App {
         void collectFaces() {
             faces.clear();
 
-            if (shape.IsNull()) { return; }
+            if (shape.IsNull()) {
+                dbg("[Topology] collectFaces: shape is null");
+                return;
+            }
 
             for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
                 faces.push_back(TopoDS::Face(exp.Current()));
             }
+
+            dbg("[Topology] collectFaces: collected %zu face(s)", faces.size());
         }
 
         void tessellate(double tolerance = 0.1) {
             render.clear();
-            if (shape.IsNull()) { return; }
 
-            BRepMesh_IncrementalMesh mesher(shape, tolerance, false, 0.5, true);
-            mesher.Perform();
+            if (shape.IsNull()) {
+                dbg("[Tessellate] skipped: shape is null");
+                return;
+            }
+
+            try {
+                BRepMesh_IncrementalMesh mesher(shape, tolerance, false, 0.5, true);
+                mesher.Perform();
+            }
+            catch (const Standard_Failure& failure) {
+                dbg("[Tessellate] meshing exception: %s", safeFailureMessage(failure));
+                return;
+            }
+            catch (...) {
+                dbg("[Tessellate] unknown meshing exception");
+                return;
+            }
 
             Rev::Core::Color defaultColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 
@@ -215,13 +402,25 @@ export namespace Cam::App {
             }
 
             render.valid = true;
+
+            dbg(
+                "[Tessellate] completed: faces=%zu triangles=%zu triangleFaceIds=%zu",
+                faces.size(),
+                render.triangles.size() / 3,
+                render.triangleFaceIds.size()
+            );
         }
 
         // Modeling operations
         //--------------------------------------------------
 
         TopoDS_Shape healShape(TopoDS_Shape input) const {
-            if (input.IsNull()) { return input; }
+            if (input.IsNull()) {
+                dbg("[Heal] skipped: input is null");
+                return input;
+            }
+
+            logShapeStatsStatic("[Heal] input", input);
 
             try {
                 BRepBuilderAPI_Sewing sewer(1e-6, Standard_True, Standard_True, Standard_True, Standard_True);
@@ -229,79 +428,312 @@ export namespace Cam::App {
                 sewer.Perform();
 
                 TopoDS_Shape sewed = sewer.SewedShape();
+
                 if (!sewed.IsNull()) {
                     input = firstSolidOrSelf(sewed);
+                    logShapeStatsStatic("[Heal] after sewing", input);
+                }
+                else {
+                    dbg("[Heal] sewing produced null shape; keeping input");
                 }
 
                 ShapeUpgrade_UnifySameDomain unifier(input, true, true, true);
                 unifier.Build();
 
                 TopoDS_Shape unified = unifier.Shape();
-                if (!unified.IsNull()) { input = unified; }
+
+                if (!unified.IsNull()) {
+                    input = unified;
+                    logShapeStatsStatic("[Heal] after unify same domain", input);
+                }
+                else {
+                    dbg("[Heal] unifier produced null shape; keeping previous");
+                }
             }
             catch (const Standard_Failure& failure) {
-                dbg("[Heal] exception: %s", failure.GetMessageString());
+                dbg("[Heal] exception: %s", safeFailureMessage(failure));
             }
+            catch (...) {
+                dbg("[Heal] unknown exception");
+            }
+
+            logShapeStatsStatic("[Heal] result", input);
 
             return input;
         }
 
         bool defeatureSelected() {
-            if (shape.IsNull() || selectedFaceIds.empty()) { return false; }
+            operationSerial++;
+
+            logEvent(format(
+                "[Defeature #%zu] requested: loaded=%d changed=%d shapeNull=%d faceCount=%zu selectedCount=%zu selected={%s}",
+                operationSerial,
+                loaded,
+                changed,
+                shape.IsNull(),
+                faces.size(),
+                selectedFaceIds.size(),
+                selectedFaceIdList().c_str()
+            ));
+
+            logShapeStats("[Defeature] shape before", shape);
+
+            if (shape.IsNull()) {
+                logEvent(format("[Defeature #%zu] failed: model shape is null", operationSerial));
+                return false;
+            }
+
+            if (selectedFaceIds.empty()) {
+                logEvent(format("[Defeature #%zu] failed: selectedFaceIds is empty", operationSerial));
+                dumpRecentHistory("[Defeature] recent history because selection was empty");
+                return false;
+            }
+
+            std::vector<size_t> validFaceIds;
+
+            for (size_t faceId : selectedFaceIds) {
+                if (faceId >= faces.size()) {
+                    logEvent(format(
+                        "[Defeature #%zu] skipping stale selected face id %zu (faceCount=%zu)",
+                        operationSerial,
+                        faceId,
+                        faces.size()
+                    ));
+                    continue;
+                }
+
+                validFaceIds.push_back(faceId);
+            }
+
+            if (validFaceIds.empty()) {
+                logEvent(format(
+                    "[Defeature #%zu] failed: all selected face ids were stale; selected={%s}, faceCount=%zu",
+                    operationSerial,
+                    selectedFaceIdList().c_str(),
+                    faces.size()
+                ));
+                dumpRecentHistory("[Defeature] recent history because all selected ids were stale");
+                return false;
+            }
 
             BRepAlgoAPI_Defeaturing defeature;
             defeature.SetShape(shape);
 
-            if (!addSelectedFacesToDefeature(defeature)) { return false; }
+            size_t added = 0;
+
+            for (size_t faceId : validFaceIds) {
+                const TopoDS_Face& face = faces[faceId];
+
+                if (face.IsNull()) {
+                    logEvent(format("[Defeature #%zu] skipping null face id %zu", operationSerial, faceId));
+                    continue;
+                }
+
+                double area = faceArea(face);
+
+                logEvent(format(
+                    "[Defeature #%zu] adding face id %zu area=%.9f orientation=%d",
+                    operationSerial,
+                    faceId,
+                    area,
+                    static_cast<int>(face.Orientation())
+                ));
+
+                defeature.AddFaceToRemove(face);
+                added++;
+            }
+
+            if (added == 0) {
+                logEvent(format("[Defeature #%zu] failed: no valid non-null faces were added to defeaturing", operationSerial));
+                dumpRecentHistory("[Defeature] recent history because AddFaceToRemove received no faces");
+                return false;
+            }
 
             try {
+                logEvent(format("[Defeature #%zu] Build starting: addedFaces=%zu", operationSerial, added));
+
                 defeature.Build();
 
-                if (!defeature.IsDone() || defeature.Shape().IsNull()) {
+                logEvent(format("[Defeature #%zu] Build completed: IsDone=%d", operationSerial, defeature.IsDone()));
+
+                if (!defeature.IsDone()) {
+                    logEvent(format("[Defeature #%zu] failed: BRepAlgoAPI_Defeaturing IsDone=false", operationSerial));
+                    dumpRecentHistory("[Defeature] recent history because IsDone=false");
                     return false;
                 }
 
-                adoptShape(healShape(defeature.Shape()), true);
+                TopoDS_Shape rawResult = defeature.Shape();
+
+                if (rawResult.IsNull()) {
+                    logEvent(format("[Defeature #%zu] failed: defeature.Shape() is null", operationSerial));
+                    dumpRecentHistory("[Defeature] recent history because result was null");
+                    return false;
+                }
+
+                logShapeStats("[Defeature] raw result", rawResult);
+
+                TopoDS_Shape chosenResult = rawResult;
+
+                if (!isShapeValid(rawResult)) {
+                    logEvent(format("[Defeature #%zu] raw result is invalid; trying healShape fallback", operationSerial));
+
+                    TopoDS_Shape healed = healShape(rawResult);
+
+                    if (healed.IsNull()) {
+                        logEvent(format("[Defeature #%zu] failed: heal fallback produced null shape", operationSerial));
+                        dumpRecentHistory("[Defeature] recent history because heal fallback was null");
+                        return false;
+                    }
+
+                    logShapeStats("[Defeature] healed fallback result", healed);
+
+                    if (!isShapeValid(healed)) {
+                        logEvent(format("[Defeature #%zu] failed: raw result and healed fallback are both invalid", operationSerial));
+                        dumpRecentHistory("[Defeature] recent history because raw/healed were invalid");
+                        return false;
+                    }
+
+                    chosenResult = healed;
+                }
+                else {
+                    logEvent(format(
+                        "[Defeature #%zu] raw result is valid; adopting raw result without heal/unify to preserve future defeature stability",
+                        operationSerial
+                    ));
+                }
+
+                adoptShape(chosenResult, true, format("Defeature #%zu", operationSerial));
+
+                logEvent(format(
+                    "[Defeature #%zu] succeeded: newFaceCount=%zu renderTriangles=%zu selectedAfter=%zu",
+                    operationSerial,
+                    faces.size(),
+                    render.triangles.size() / 3,
+                    selectedFaceIds.size()
+                ));
+
                 return true;
             }
             catch (const Standard_Failure& failure) {
-                dbg("[Defeature] exception: %s", failure.GetMessageString());
+                logEvent(format("[Defeature #%zu] exception: %s", operationSerial, safeFailureMessage(failure)));
+                dumpRecentHistory("[Defeature] recent history because Standard_Failure was caught");
+                return false;
+            }
+            catch (const std::exception& exception) {
+                logEvent(format("[Defeature #%zu] std::exception: %s", operationSerial, exception.what()));
+                dumpRecentHistory("[Defeature] recent history because std::exception was caught");
+                return false;
+            }
+            catch (...) {
+                logEvent(format("[Defeature #%zu] unknown exception", operationSerial));
+                dumpRecentHistory("[Defeature] recent history because unknown exception was caught");
                 return false;
             }
         }
 
-        // Placeholder for the future topology-preserving face/edge deformation path.
-        // It intentionally does nothing for now.
+        // Disabled while topology-preserving offset work is paused.
         bool offsetSelected(double distance = 0.05) {
-            (void)distance;
+            logEvent(format(
+                "[Offset] disabled: requested distance=%.6f selectedCount=%zu selected={%s}",
+                distance,
+                selectedFaceIds.size(),
+                selectedFaceIdList().c_str()
+            ));
             return false;
+        }
+
+        std::string debugDump() const {
+            std::ostringstream stream;
+
+            stream
+                << "Model debug dump\n"
+                << "loaded=" << loaded
+                << " changed=" << changed
+                << " shapeNull=" << shape.IsNull()
+                << " faces=" << faces.size()
+                << " selectedCount=" << selectedFaceIds.size()
+                << " selected={" << selectedFaceIdList() << "}"
+                << " render.valid=" << render.valid
+                << " render.triangles=" << (render.triangles.size() / 3)
+                << " render.triangleFaceIds=" << render.triangleFaceIds.size()
+                << "\n";
+
+            ShapeStats stats = computeShapeStats(shape);
+
+            stream
+                << "shape stats: "
+                << "valid=" << stats.valid
+                << " compounds=" << stats.compounds
+                << " solids=" << stats.solids
+                << " shells=" << stats.shells
+                << " faces=" << stats.faces
+                << " edges=" << stats.edges
+                << " vertices=" << stats.vertices
+                << " volume=" << stats.volume
+                << "\n";
+
+            stream << "recent history:\n";
+
+            for (const std::string& line : history) {
+                stream << "  " << line << "\n";
+            }
+
+            return stream.str();
+        }
+
+        void dumpDebug() const {
+            std::string dump = debugDump();
+            dbg("%s", dump.c_str());
         }
 
     private:
 
-        void adoptShape(const TopoDS_Shape& nextShape, bool markChanged) {
+        void adoptShape(const TopoDS_Shape& nextShape, bool markChanged, const std::string& reason) {
+            logEvent(format(
+                "[Adopt] requested: reason=%s nextShapeNull=%d markChanged=%d oldFaces=%zu oldSelected=%zu",
+                reason.c_str(),
+                nextShape.IsNull(),
+                markChanged,
+                faces.size(),
+                selectedFaceIds.size()
+            ));
+
+            logShapeStats("[Adopt] incoming shape", nextShape);
+
             shape = nextShape;
-            refreshTopologyAndRender();
+
+            refreshTopologyAndRender(reason);
+
             clearSelection();
+
             loaded = !shape.IsNull();
             changed = markChanged;
+
+            logEvent(format(
+                "[Adopt] completed: reason=%s loaded=%d changed=%d faces=%zu selected=%zu renderTriangles=%zu",
+                reason.c_str(),
+                loaded,
+                changed,
+                faces.size(),
+                selectedFaceIds.size(),
+                render.triangles.size() / 3
+            ));
         }
 
-        void refreshTopologyAndRender() {
+        void refreshTopologyAndRender(const std::string& reason) {
+            logEvent(format("[Refresh] requested: reason=%s", reason.c_str()));
+
             collectFaces();
             tessellate();
-        }
 
-        bool addSelectedFacesToDefeature(BRepAlgoAPI_Defeaturing& defeature) const {
-            bool added = false;
-
-            for (size_t faceId : selectedFaceIds) {
-                if (faceId >= faces.size()) { continue; }
-                defeature.AddFaceToRemove(faces[faceId]);
-                added = true;
-            }
-
-            return added;
+            logEvent(format(
+                "[Refresh] completed: reason=%s faces=%zu renderValid=%d triangles=%zu triangleFaceIds=%zu",
+                reason.c_str(),
+                faces.size(),
+                render.valid,
+                render.triangles.size() / 3,
+                render.triangleFaceIds.size()
+            ));
         }
 
         static TopoDS_Shape firstSolidOrSelf(const TopoDS_Shape& input) {
@@ -312,12 +744,171 @@ export namespace Cam::App {
             return input;
         }
 
+        static bool isShapeValid(const TopoDS_Shape& input) {
+            if (input.IsNull()) { return false; }
+
+            try {
+                BRepCheck_Analyzer analyzer(input);
+                return analyzer.IsValid();
+            }
+            catch (...) {
+                return false;
+            }
+        }
+
+        static double faceArea(const TopoDS_Face& face) {
+            if (face.IsNull()) { return 0.0; }
+
+            try {
+                GProp_GProps props;
+                BRepGProp::SurfaceProperties(face, props);
+                return props.Mass();
+            }
+            catch (...) {
+                return 0.0;
+            }
+        }
+
+        static ShapeStats computeShapeStats(const TopoDS_Shape& input) {
+            ShapeStats stats;
+
+            if (input.IsNull()) {
+                stats.valid = false;
+                return stats;
+            }
+
+            TopTools_IndexedMapOfShape compounds;
+            TopTools_IndexedMapOfShape solids;
+            TopTools_IndexedMapOfShape shells;
+            TopTools_IndexedMapOfShape faces;
+            TopTools_IndexedMapOfShape edges;
+            TopTools_IndexedMapOfShape vertices;
+
+            TopExp::MapShapes(input, TopAbs_COMPOUND, compounds);
+            TopExp::MapShapes(input, TopAbs_SOLID, solids);
+            TopExp::MapShapes(input, TopAbs_SHELL, shells);
+            TopExp::MapShapes(input, TopAbs_FACE, faces);
+            TopExp::MapShapes(input, TopAbs_EDGE, edges);
+            TopExp::MapShapes(input, TopAbs_VERTEX, vertices);
+
+            stats.compounds = compounds.Extent();
+            stats.solids = solids.Extent();
+            stats.shells = shells.Extent();
+            stats.faces = faces.Extent();
+            stats.edges = edges.Extent();
+            stats.vertices = vertices.Extent();
+            stats.valid = isShapeValid(input);
+
+            try {
+                GProp_GProps props;
+                BRepGProp::VolumeProperties(input, props);
+                stats.volume = props.Mass();
+            }
+            catch (...) {
+                stats.volume = 0.0;
+            }
+
+            return stats;
+        }
+
+        void logShapeStats(const char* label, const TopoDS_Shape& input) const {
+            logShapeStatsStatic(label, input);
+        }
+
+        static void logShapeStatsStatic(const char* label, const TopoDS_Shape& input) {
+            ShapeStats stats = computeShapeStats(input);
+
+            dbg(
+                "%s: null=%d valid=%d compounds=%d solids=%d shells=%d faces=%d edges=%d vertices=%d volume=%.9f",
+                label,
+                input.IsNull(),
+                stats.valid,
+                stats.compounds,
+                stats.solids,
+                stats.shells,
+                stats.faces,
+                stats.edges,
+                stats.vertices,
+                stats.volume
+            );
+        }
+
+        void logEvent(const std::string& message) {
+            dbg("%s", message.c_str());
+
+            history.push_back(message);
+
+            constexpr size_t maxHistory = 80;
+
+            if (history.size() > maxHistory) {
+                history.erase(history.begin(), history.begin() + static_cast<std::ptrdiff_t>(history.size() - maxHistory));
+            }
+        }
+
+        void dumpRecentHistory(const char* label) const {
+            dbg("%s", label);
+
+            for (const std::string& line : history) {
+                dbg("  %s", line.c_str());
+            }
+        }
+
+        std::string selectedFaceIdList() const {
+            std::ostringstream stream;
+
+            bool first = true;
+
+            for (size_t faceId : selectedFaceIds) {
+                if (!first) {
+                    stream << ", ";
+                }
+
+                stream << faceId;
+
+                if (faceId >= faces.size()) {
+                    stream << "(stale)";
+                }
+
+                first = false;
+            }
+
+            return stream.str();
+        }
+
+        static const char* safeFailureMessage(const Standard_Failure& failure) {
+            const char* message = failure.GetMessageString();
+            return message != nullptr ? message : "(no message)";
+        }
+
+        template <typename... Args>
+        static std::string format(const char* fmt, Args... args) {
+            int count = std::snprintf(nullptr, 0, fmt, args...);
+
+            if (count <= 0) {
+                return std::string(fmt);
+            }
+
+            std::string text(static_cast<size_t>(count), '\0');
+            std::snprintf(text.data(), text.size() + 1, fmt, args...);
+
+            return text;
+        }
+
         void appendFaceTriangles(size_t faceId, Rev::Core::Color color) {
+            if (faceId >= faces.size()) {
+                dbg("[Tessellate] appendFaceTriangles skipped stale faceId=%zu faceCount=%zu", faceId, faces.size());
+                return;
+            }
+
             TopoDS_Face& face = faces[faceId];
             TopLoc_Location loc;
 
             Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
-            if (tri.IsNull()) { return; }
+
+            if (tri.IsNull()) {
+                dbg("[Tessellate] face %zu has no triangulation", faceId);
+                return;
+            }
 
             gp_Trsf trsf = loc.Transformation();
 
@@ -339,6 +930,7 @@ export namespace Cam::App {
             int i1 = 0;
             int i2 = 0;
             int i3 = 0;
+
             triangle.Get(i1, i2, i3);
 
             gp_Pnt p1 = tri->Node(i1).Transformed(trsf);
@@ -346,7 +938,10 @@ export namespace Cam::App {
             gp_Pnt p3 = tri->Node(i3).Transformed(trsf);
 
             gp_Vec normal = triangleNormal(p1, p2, p3);
-            if (normal.Magnitude() <= 1e-12) { return; }
+
+            if (normal.Magnitude() <= 1e-12) {
+                return;
+            }
 
             normal.Normalize();
 
