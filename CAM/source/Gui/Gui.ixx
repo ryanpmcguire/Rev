@@ -9,7 +9,6 @@ export module Cam.Gui;
 import Rev.Element;
 import Rev.Element.Style;
 import Rev.Element.Event;
-import Rev.Element.Event.GestureTracker;
 
 import Rev.Element.Box;
 
@@ -25,12 +24,6 @@ export namespace Cam::Gui {
     using namespace Rev;
     using namespace Rev::Element;
 
-    enum class Command {
-        Defeature,
-        OffsetFaces,
-        AddTab
-    };
-
     struct Interface : public Box {
 
         Cam::App::AppState* app = nullptr;
@@ -41,11 +34,6 @@ export namespace Cam::Gui {
         LeftPanel* leftPanel = nullptr;
         WorldView* worldView = nullptr;
         RightPanel* rightPanel = nullptr;
-
-        GestureTracker<Command> gestures = {
-            { "df", Command::Defeature },
-            { "ef", Command::OffsetFaces },
-        };
 
         // Create
         //--------------------------------------------------
@@ -190,28 +178,6 @@ export namespace Cam::Gui {
                 refresh(e);
             };
 
-            gestures.onGesture = [this](Command command, Event& e) {
-
-                switch (command) {
-
-                    case Command::Defeature: {
-                        if (worldView) { worldView->defeatureSelected(e); }
-                        break;
-                    }
-
-                    case Command::OffsetFaces: {
-                        if (worldView) { worldView->offsetSelected(e); }
-                        break;
-                    }
-
-                    case Command::AddTab: {
-                        dbg("[Gui] AddTab gesture (not implemented)");
-                        break;
-                    }
-                }
-
-                refresh(e);
-            };
         }
 
         // Events
@@ -241,43 +207,9 @@ export namespace Cam::Gui {
                 return;
             }
 
-            // Key gestures (e.g. d then f -> defeature)
-            if (gestures.track(e)) {
-                e.propagate = false;
-                return;
-            }
-
-            // Delete feature
-            if (e.keyboard.key == "delete" || e.keyboard.del) {
-
-                if (worldView) {
-                    worldView->defeatureSelected(e);
-                }
-
-                e.propagate = false;
-                return;
-            }
-
-            // Commit feature state
-            if (e.keyboard.key == "enter" || e.keyboard.enter) {
-
-                if (worldView) {
-                    worldView->commitWorkingState(e);
-                }
-
-                e.propagate = false;
-                return;
-            }
-
-            // Recalculate toolpath
-            if (e.keyboard.key == "r") {
-
-                if (worldView) {
-                    worldView->recalculateToolPath(e);
-                }
-
-                e.propagate = false;
-                return;
+            if (worldView) {
+                worldView->keyDown(e);
+                if (!e.propagate) { return; }
             }
 
             Box::keyDown(e);

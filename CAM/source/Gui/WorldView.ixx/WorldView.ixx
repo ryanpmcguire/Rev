@@ -13,6 +13,7 @@ export module Cam.Gui.WorldView;
 import Rev.Element;
 import Rev.Element.Style;
 import Rev.Element.Event;
+import Rev.Element.Event.GestureTracker;
 
 import Rev.Element.Box;
 
@@ -39,6 +40,12 @@ export namespace Cam::Gui {
 
     namespace View3d = Rev::Element::View3d;
 
+    enum class WorldViewCommand {
+        Defeature,
+        OffsetFaces,
+        AddTab
+    };
+
     struct WorldView : public Box {
 
         Cam::App::AppState* app = nullptr;
@@ -60,6 +67,11 @@ export namespace Cam::Gui {
         bool clearMaterialViewsRequested = false;
 
         std::function<void(Event&)> onStateChanged;
+
+        GestureTracker<WorldViewCommand> gestures = {
+            { "df", WorldViewCommand::Defeature },
+            { "ef", WorldViewCommand::OffsetFaces },
+        };
 
         // Create
         //--------------------------------------------------
@@ -86,6 +98,29 @@ export namespace Cam::Gui {
             }
 
             partInView = true;
+
+            gestures.onGesture = [this](WorldViewCommand command, Event& e) {
+
+                switch (command) {
+
+                    case WorldViewCommand::Defeature: {
+                        defeatureSelected(e);
+                        break;
+                    }
+
+                    case WorldViewCommand::OffsetFaces: {
+                        offsetSelected(e);
+                        break;
+                    }
+
+                    case WorldViewCommand::AddTab: {
+                        dbg("[WorldView] AddTab gesture (not implemented)");
+                        break;
+                    }
+                }
+
+                refresh(e);
+            };
         }
 
         // Destroy
@@ -628,6 +663,34 @@ export namespace Cam::Gui {
             }
 
             Box::mouseDown(e);
+        }
+
+        void keyDown(Event& e) override {
+
+            if (gestures.track(e)) {
+                e.propagate = false;
+                return;
+            }
+
+            if (e.keyboard.key == "delete" || e.keyboard.del) {
+                defeatureSelected(e);
+                e.propagate = false;
+                return;
+            }
+
+            if (e.keyboard.key == "enter" || e.keyboard.enter) {
+                commitWorkingState(e);
+                e.propagate = false;
+                return;
+            }
+
+            if (e.keyboard.key == "r") {
+                recalculateToolPath(e);
+                e.propagate = false;
+                return;
+            }
+
+            Box::keyDown(e);
         }
     };
 }
