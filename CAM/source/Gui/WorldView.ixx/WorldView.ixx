@@ -548,16 +548,16 @@ export namespace Cam::Gui {
             return true;
         }
 
-        bool extendSelectedFaces(Event& e, double distance = 1) {
+        bool offsetSelected(Event& e, double distance = 1) {
 
-            if (!app || !app->extendSelected(distance)) {
-                dbg("extend faces failed — see [Extend] logs above");
+            if (!app || !app->offsetSelected(distance)) {
+                dbg("offset faces failed — see [Offset] logs above");
                 return false;
             }
 
             sync(e);
 
-            dbg("extended selected faces");
+            dbg("offset selected faces");
 
             notifyStateChanged(e);
 

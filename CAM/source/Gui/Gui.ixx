@@ -27,7 +27,7 @@ export namespace Cam::Gui {
 
     enum class Command {
         Defeature,
-        ExtendFaces,
+        OffsetFaces,
         AddTab
     };
 
@@ -44,7 +44,7 @@ export namespace Cam::Gui {
 
         GestureTracker<Command> gestures = {
             { "df", Command::Defeature },
-            { "ef", Command::ExtendFaces },
+            { "ef", Command::OffsetFaces },
         };
 
         // Create
@@ -199,8 +199,8 @@ export namespace Cam::Gui {
                         break;
                     }
 
-                    case Command::ExtendFaces: {
-                        if (worldView) { worldView->extendSelectedFaces(e); }
+                    case Command::OffsetFaces: {
+                        if (worldView) { worldView->offsetSelected(e); }
                         break;
                     }
 
