@@ -22,6 +22,7 @@ module;
 
 #include <TopTools_IndexedMapOfShape.hxx>
 
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
@@ -41,7 +42,8 @@ module;
 
 #include <dbg.hpp>
 
-#include <gp_Pnt.hxx>
+#include <GeomAbs_SurfaceType.hxx>
+#include <gp_Dir.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -311,6 +313,53 @@ export namespace Cam::App {
 
         size_t faceCount() const {
             return faces.size();
+        }
+
+        Rev::Core::Pos3 faceNormal(size_t faceId) const {
+
+            if (faceId >= faces.size()) {
+                return {};
+            }
+
+            const TopoDS_Face& face = faces[faceId];
+
+            BRepAdaptor_Surface surf(face);
+
+            gp_Dir dir;
+
+            if (surf.GetType() == GeomAbs_Plane) {
+                dir = surf.Plane().Axis().Direction();
+            }
+            else {
+
+                double uMid = (surf.FirstUParameter() + surf.LastUParameter()) * 0.5;
+                double vMid = (surf.FirstVParameter() + surf.LastVParameter()) * 0.5;
+
+                gp_Pnt point;
+                gp_Vec du;
+                gp_Vec dv;
+
+                surf.D1(uMid, vMid, point, du, dv);
+
+                gp_Vec normal = du.Crossed(dv);
+
+                if (normal.Magnitude() <= 1e-12) {
+                    return {};
+                }
+
+                normal.Normalize();
+                dir = gp_Dir(normal);
+            }
+
+            if (face.Orientation() == TopAbs_REVERSED) {
+                dir.Reverse();
+            }
+
+            return {
+                static_cast<float>(dir.X()),
+                static_cast<float>(dir.Y()),
+                static_cast<float>(dir.Z())
+            };
         }
 
         // STEP import

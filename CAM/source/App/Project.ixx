@@ -12,9 +12,11 @@ module;
 export module Cam.App.Project;
 
 import Rev.OS.File;
+import Rev.Core.Pos3;
 
 import Cam.App.Model;
 import Cam.App.MaterialState;
+import Cam.App.ToolPath;
 import Cam.App.ToolLibrary;
 export namespace Cam::App {
 
@@ -226,6 +228,10 @@ export namespace Cam::App {
                         state->toolPath.sliceOrigin.y,
                         state->toolPath.sliceOrigin.z
                     }) },
+                    { "sliceFaceId", state->toolPath.hasSliceFace()
+                        ? Json(state->toolPath.sliceFaceId)
+                        : Json(nullptr)
+                    },
                     { "hasToolPath", state->hasToolPath }
                 };
 
@@ -355,6 +361,13 @@ export namespace Cam::App {
                             state->toolPath.sliceOrigin.x = toolPathJson["sliceOrigin"][0].get<float>();
                             state->toolPath.sliceOrigin.y = toolPathJson["sliceOrigin"][1].get<float>();
                             state->toolPath.sliceOrigin.z = toolPathJson["sliceOrigin"][2].get<float>();
+                        }
+
+                        if (toolPathJson.contains("sliceFaceId") && !toolPathJson["sliceFaceId"].is_null()) {
+                            state->toolPath.sliceFaceId = toolPathJson["sliceFaceId"].get<size_t>();
+                        }
+                        else {
+                            state->toolPath.sliceFaceId = ToolPath::NoSliceFaceId;
                         }
                     }
 
@@ -736,6 +749,33 @@ export namespace Cam::App {
             dirty = true;
 
             return displayedState->hasToolPath;
+        }
+
+        bool setDisplayedSlicePlaneFromFace(size_t faceId, const Model& model) {
+
+            if (!displayedState) { return false; }
+            if (faceId >= model.faceCount()) { return false; }
+
+            Pos3 normal = model.faceNormal(faceId);
+
+            if (normal.pythag() <= 1e-6f) { return false; }
+
+            ToolPath& toolPath = displayedState->toolPath;
+
+            if (toolPath.hasSliceFace() && toolPath.sliceFaceId == faceId) {
+                toolPath.clearSlicePlane();
+            }
+            else {
+                toolPath.setSlicePlane(faceId, normal);
+            }
+
+            if (displayedState->hasDelta) {
+                displayedState->computeToolPath(toolLibrary, selectedToolName);
+            }
+
+            dirty = true;
+
+            return true;
         }
     };
 }

@@ -56,9 +56,11 @@ export namespace Cam::App {
         double stepover = 0.25;
 
         // Slicing frame: depth steps along sliceAxis; 2D work stays in (u,v).
-        // Defaults match world +Z. A future UI will expose this per material state.
         Pos3 sliceAxis = { 0.0f, 0.0f, 1.0f };
         Pos3 sliceOrigin = {};
+
+        static constexpr size_t NoSliceFaceId = static_cast<size_t>(-1);
+        size_t sliceFaceId = NoSliceFaceId;
 
         // Result
         std::vector<ToolPathPoint> points;
@@ -86,6 +88,20 @@ export namespace Cam::App {
 
         bool empty() const { return points.empty(); }
         size_t size() const { return points.size(); }
+
+        bool hasSliceFace() const {
+            return sliceFaceId != NoSliceFaceId;
+        }
+
+        void clearSlicePlane() {
+            sliceAxis = { 0.0f, 0.0f, 1.0f };
+            sliceFaceId = NoSliceFaceId;
+        }
+
+        void setSlicePlane(size_t faceId, const Pos3& axis) {
+            sliceAxis = axis;
+            sliceFaceId = faceId;
+        }
 
         const Slicer::Strategy::Strategy* strategyResult() const {
             if (!strategyInstance) { return nullptr; }

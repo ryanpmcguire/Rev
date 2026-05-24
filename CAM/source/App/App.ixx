@@ -567,6 +567,13 @@ export namespace Cam::App {
             return activeProject->recalculateDisplayedToolPath();
         }
 
+        bool setDisplayedSlicePlaneFromFace(size_t faceId, const Model& model) {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->setDisplayedSlicePlaneFromFace(faceId, model);
+        }
+
         bool saveToolPathSettings(MaterialState* state, const std::string& strategy, const std::string& toolName, double stepDown, double stepover, double feedRate) {
 
             if (!activeProject || !state || toolName.empty() || stepover <= 0.0) {

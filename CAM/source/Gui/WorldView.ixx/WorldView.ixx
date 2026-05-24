@@ -564,6 +564,54 @@ export namespace Cam::Gui {
             sync(e);
         }
 
+        void selectSliceFaceAtMouse(Event& e) {
+
+            if (!app || !view3d) { return; }
+
+            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+
+            if (!worldState || !worldState->pickActor) { return; }
+
+            Cam::App::Model* visible = worldState->displayModel();
+
+            if (!visible || !visible->loaded) { return; }
+
+            View3d::Actor* pickActor = worldState->pickActor;
+
+            bool wasSelectable = pickActor->selectable;
+
+            pickActor->mesh->pTriangles = &visible->render.triangles;
+            pickActor->selectable = true;
+
+            View3d::Hit hit;
+
+            bool gotHit = view3d->hitTest(e.mouse.pos, hit);
+
+            pickActor->selectable = wasSelectable;
+
+            if (!gotHit || hit.actor != pickActor) { return; }
+
+            size_t tri = hit.triangleId;
+
+            if (tri >= visible->render.triangleFaceIds.size()) { return; }
+
+            size_t faceId = visible->render.triangleFaceIds[tri];
+
+            if (!app->setDisplayedSlicePlaneFromFace(faceId, *visible)) { return; }
+
+            dbg(
+                "[WorldView] Slice plane from face %zu axis=(%.3f %.3f %.3f)",
+                faceId,
+                visible->faceNormal(faceId).x,
+                visible->faceNormal(faceId).y,
+                visible->faceNormal(faceId).z
+            );
+
+            sync(e);
+
+            notifyStateChanged(e);
+        }
+
         // App operations
         //--------------------------------------------------
 
@@ -663,6 +711,23 @@ export namespace Cam::Gui {
             }
 
             Box::mouseDown(e);
+        }
+
+        void mouseUp(Event& e) override {
+
+            if (e.keyboard.shift) {
+
+                float dragDistance = (e.mouse.pos - e.mouse.down).pythag();
+
+                if (dragDistance < 5.0f) {
+                    selectSliceFaceAtMouse(e);
+
+                    e.propagate = false;
+                    return;
+                }
+            }
+
+            Box::mouseUp(e);
         }
 
         void keyDown(Event& e) override {

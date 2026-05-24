@@ -17,6 +17,7 @@ import Rev.Element.View3d.Actor3d;
 
 import Cam.App.MaterialState;
 import Cam.App.Model;
+import Cam.App.ToolPath;
 
 import Cam.Gui.ToolPath;
 
@@ -364,17 +365,35 @@ export namespace Cam::Gui::World {
                 1.0f
             };
 
+            Rev::Core::Color slicePlane = {
+                0.55f,
+                0.82f,
+                1.0f,
+                1.0f
+            };
+
+            size_t sliceFaceId = Cam::App::ToolPath::NoSliceFaceId;
+
+            if (state && state->toolPath.hasSliceFace()) {
+                sliceFaceId = state->toolPath.sliceFaceId;
+            }
+
             size_t triangleCount = triangles.size() / 3;
 
             for (size_t tri = 0; tri < triangleCount; tri++) {
 
                 if (tri >= triangleFaceIds.size()) { continue; }
 
-                Rev::Core::Color color = (
-                    model->isFaceSelected(triangleFaceIds[tri])
-                    ? selected
-                    : base
-                );
+                size_t faceId = triangleFaceIds[tri];
+
+                Rev::Core::Color color = base;
+
+                if (faceId == sliceFaceId) {
+                    color = slicePlane;
+                }
+                else if (model->isFaceSelected(faceId)) {
+                    color = selected;
+                }
 
                 triangles[tri * 3 + 0].color = color;
                 triangles[tri * 3 + 1].color = color;
