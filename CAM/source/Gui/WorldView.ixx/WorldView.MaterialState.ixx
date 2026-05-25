@@ -197,9 +197,8 @@ export namespace Cam::Gui::World {
 
             if (!state) { return nullptr; }
 
-            // While editing a working state, preview parent stock plus the delta
-            // volume instead of the in-progress child model.
-            if (state->working && state->parent && state->hasDelta) {
+            // Inspect parent stock for every step; final state has no parent.
+            if (state->parent) {
                 return &state->parent->model;
             }
 

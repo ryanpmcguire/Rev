@@ -449,7 +449,6 @@ export namespace Cam::Gui {
 
             applyDefaultVisibilityPolicy();
             syncAllMaterialViews();
-            syncActorDrawOrder(representedProject);
         }
 
         void syncMaterialViewList() {
@@ -527,34 +526,6 @@ export namespace Cam::Gui {
             }
         }
 
-        void syncActorDrawOrder(Cam::App::Project* project) {
-
-            if (!view3d || !project || project->viewSelection.size() <= 1) {
-                return;
-            }
-
-            Cam::App::MaterialState* primary = project->primaryViewState();
-
-            if (!primary) { return; }
-
-            Cam::Gui::World::MaterialState* primaryView = viewForState(primary);
-
-            if (!primaryView || !primaryView->attached) { return; }
-
-            auto moveToEnd = [this](View3d::Actor* actor) {
-
-                if (!actor) { return; }
-
-                view3d->removeActor(actor);
-                view3d->addActor(actor);
-            };
-
-            moveToEnd(primaryView->partActor);
-            moveToEnd(primaryView->toolPath.actor);
-            moveToEnd(primaryView->deltaActor);
-            moveToEnd(primaryView->pickActor);
-        }
-
         void applyDefaultVisibilityPolicy() {
             applyVisibilityPolicy();
         }
@@ -594,7 +565,6 @@ export namespace Cam::Gui {
 
             applyVisibilityPolicy();
             syncAllMaterialViews();
-            syncActorDrawOrder(project);
         }
 
         // External sync hook
