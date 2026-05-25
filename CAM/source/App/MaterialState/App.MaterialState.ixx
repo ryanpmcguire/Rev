@@ -269,6 +269,21 @@ export namespace Cam::App {
             hasToolPath = toolPath.compute(delta, parent->model, *tool);
         }
 
+        bool link(MaterialState* nextMaterialState) {
+
+            if (!nextMaterialState) { return false; }
+
+            if (!hasToolPath || !nextMaterialState->hasToolPath) {
+                return false;
+            }
+
+            if (toolPath.points.empty() || nextMaterialState->toolPath.points.empty()) {
+                return false;
+            }
+
+            return toolPath.link(nextMaterialState->toolPath);
+        }
+
         bool needsToolPathComputation() const {
 
             if (!hasDelta || !delta.loaded || !parent) {

@@ -741,6 +741,25 @@ export namespace Cam::App {
             state->computeToolPath(toolLibrary, selectedToolName);
         }
 
+        // Connect each state's toolpath to the previous one in history (lower index).
+        // prior = states[i], next = states[i - 1].
+        void linkMaterialStateToolPaths() {
+
+            for (MaterialState* state : states) {
+                ensureToolPathComputed(state);
+            }
+
+            for (size_t i = 1; i < states.size(); i++) {
+
+                MaterialState* prior = states[i];
+                MaterialState* next = states[i - 1];
+
+                if (!prior || !next) { continue; }
+
+                prior->link(next);
+            }
+        }
+
         bool selectState(MaterialState* state, bool addToSelection = false) {
 
             if (!state) { return false; }

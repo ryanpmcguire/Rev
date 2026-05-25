@@ -68,6 +68,7 @@ export namespace Cam::App {
         std::vector<ToolPathPoint> points;
         std::vector<ToolPathPoint> axis;
         bool computed = false;
+        size_t linkedPointCount = 0;
 
         static constexpr float linkRetractDistance = 10.0f;
         static constexpr double travelSpeedMmPerSec = 1.0;
@@ -85,6 +86,7 @@ export namespace Cam::App {
             points.clear();
             axis.clear();
             computed = false;
+            linkedPointCount = 0;
             strategyInstance.reset();
         }
 
@@ -444,6 +446,41 @@ export namespace Cam::App {
 
         bool computeFromDelta(Model& deltaModel, Model& remainingModel, const Tool& tool) {
             return compute(deltaModel, remainingModel, tool);
+        }
+
+        // Linking
+        //--------------------------------------------------
+
+        // Connect this toolpath's execution end to the next path's execution start.
+        // Points are stored with t=0 at the approach side (front) and execution
+        // finishing at the back after retract.
+        bool link(const ToolPath& next) {
+
+            if (points.empty() || next.points.empty()) {
+                return false;
+            }
+
+            if (linkedPointCount > 0) {
+                points.resize(points.size() - linkedPointCount);
+                linkedPointCount = 0;
+            }
+
+            const Pos3 from = points.back().position;
+            const Pos3 to = next.points.front().position;
+
+            addWorldPoint(to, true, false);
+            linkedPointCount = 1;
+
+            assignPointTimes();
+
+            dbg(
+                "[ToolPath] Linked paths: (%.3f, %.3f, %.3f) -> (%.3f, %.3f, %.3f) distance=%.3fmm",
+                from.x, from.y, from.z,
+                to.x, to.y, to.z,
+                from.distanceTo(to)
+            );
+
+            return true;
         }
 
         // Rendering

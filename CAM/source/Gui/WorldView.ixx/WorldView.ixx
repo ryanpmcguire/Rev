@@ -448,6 +448,8 @@ export namespace Cam::Gui {
             representedWorkingState = representedProject->workingState;
             representedStateCount = representedProject->states.size();
 
+            representedProject->linkMaterialStateToolPaths();
+
             applyDefaultVisibilityPolicy();
             syncAllMaterialViews();
         }
@@ -675,6 +677,8 @@ export namespace Cam::Gui {
             representedDisplayedState = project->displayedState;
             representedWorkingState = project->workingState;
             representedStateCount = project->states.size();
+
+            project->linkMaterialStateToolPaths();
 
             applyVisibilityPolicy();
             syncAllMaterialViews();
