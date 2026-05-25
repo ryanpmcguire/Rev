@@ -34,7 +34,7 @@ export namespace Cam::App {
 
     struct ToolPathPoint {
         Pos3 position = {};
-        double t = 0.0;
+        double t = 0.0; // seconds from path start
         bool rapid = false;
         bool cutting = true;
     };
@@ -70,6 +70,7 @@ export namespace Cam::App {
         bool computed = false;
 
         static constexpr float axisDebugLength = 50.0f;
+        static constexpr double travelSpeedMmPerSec = 1.0;
 
         // State
         //--------------------------------------------------
@@ -139,21 +140,45 @@ export namespace Cam::App {
         // Point building
         //--------------------------------------------------
 
-        void addPoint(const Pos& uv, float depth, const Slicer::Strategy::CutFrame& frame, double& t, bool rapid = false, bool cutting = true) {
+        void addPoint(
+            const Pos& uv,
+            float depth,
+            const Slicer::Strategy::CutFrame& frame,
+            bool rapid = false,
+            bool cutting = true
+        ) {
             points.push_back({
                 .position = frame.uvToWorld(uv, depth),
-                .t = t,
+                .t = 0.0,
                 .rapid = rapid,
                 .cutting = cutting
             });
-
-            t += 1.0;
         }
 
-        void addSegmentPoints(const Segment& segment, float depth, const Slicer::Strategy::CutFrame& frame, double& t, int samples = 24) {
+        void assignPointTimes(double speedMmPerSec = travelSpeedMmPerSec) {
+
+            if (points.empty()) { return; }
+
+            points.front().t = 0.0;
+
+            if (speedMmPerSec <= 0.0) { return; }
+
+            for (size_t i = 1; i < points.size(); i++) {
+                const float distance = points[i - 1].position.distanceTo(points[i].position);
+
+                points[i].t = points[i - 1].t + double(distance) / speedMmPerSec;
+            }
+        }
+
+        void addSegmentPoints(
+            const Segment& segment,
+            float depth,
+            const Slicer::Strategy::CutFrame& frame,
+            int samples = 24
+        ) {
             if (segment.kind == Segment::Kind::Line) {
-                addPoint(segment.start(), depth, frame, t);
-                addPoint(segment.end(), depth, frame, t);
+                addPoint(segment.start(), depth, frame);
+                addPoint(segment.end(), depth, frame);
                 return;
             }
 
@@ -162,31 +187,34 @@ export namespace Cam::App {
             for (int i = 1; i <= samples; i++) {
                 Pos p = segment.at(float(i) / float(samples));
 
-                addPoint(last, depth, frame, t);
-                addPoint(p, depth, frame, t);
+                addPoint(last, depth, frame);
+                addPoint(p, depth, frame);
 
                 last = p;
             }
         }
 
-        void buildPointsFromStrategy(const Slicer::Strategy::Strategy& strategyImpl, const Slicer::Strategy::CutFrame& frame) {
+        void buildPointsFromStrategy(
+            const Slicer::Strategy::Strategy& strategyImpl,
+            const Slicer::Strategy::CutFrame& frame
+        ) {
             points.clear();
-
-            double t = 0.0;
 
             for (const Slicer::Strategy::LayerPath& layer : strategyImpl.paths()) {
                 if (!layer.points.empty()) {
                     for (const Pos& p : layer.points) {
-                        addPoint(p, layer.z, frame, t);
+                        addPoint(p, layer.z, frame);
                     }
 
                     continue;
                 }
 
                 for (const Segment& segment : layer.segments) {
-                    addSegmentPoints(segment, layer.z, frame, t);
+                    addSegmentPoints(segment, layer.z, frame);
                 }
             }
+
+            assignPointTimes();
         }
 
         void buildAxisFromStrategy(
@@ -311,11 +339,12 @@ export namespace Cam::App {
             computed = !points.empty();
 
             dbg(
-                "[ToolPath] Done. slices=%zu paths=%zu points=%zu axis=%zu computed=%i",
+                "[ToolPath] Done. slices=%zu paths=%zu points=%zu axis=%zu duration=%.3fs computed=%i",
                 strategyImpl.slices().size(),
                 strategyImpl.paths().size(),
                 points.size(),
                 axis.size(),
+                points.empty() ? 0.0 : points.back().t,
                 int(computed)
             );
 
