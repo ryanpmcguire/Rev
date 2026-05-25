@@ -5,6 +5,8 @@ module;
 #include <variant>
 #include <optional>
 #include <cstddef>
+#include <cmath>
+#include <algorithm>
 
 #include <dbg.hpp>
 
@@ -64,7 +66,10 @@ export namespace Cam::App {
 
         // Result
         std::vector<ToolPathPoint> points;
+        std::vector<ToolPathPoint> axis;
         bool computed = false;
+
+        static constexpr float axisDebugLength = 50.0f;
 
         // State
         //--------------------------------------------------
@@ -77,6 +82,7 @@ export namespace Cam::App {
 
         void clearPathData() {
             points.clear();
+            axis.clear();
             computed = false;
             strategyInstance.reset();
         }
@@ -183,6 +189,67 @@ export namespace Cam::App {
             }
         }
 
+        void buildAxisFromStrategy(
+            const Slicer::Strategy::Strategy& strategyImpl,
+            const Slicer::Strategy::CutFrame& frame
+        ) {
+            axis.clear();
+
+            const std::vector<Slicer::Strategy::LayerPath>& paths = strategyImpl.paths();
+
+            if (paths.empty()) { return; }
+
+            float minDepth = paths.front().z;
+
+            for (const Slicer::Strategy::LayerPath& layer : paths) {
+                minDepth = std::min(minDepth, layer.z);
+            }
+
+            Pos uvSum = {};
+            size_t uvCount = 0;
+
+            auto addUv = [&](const Pos& uv) {
+                uvSum.x += uv.x;
+                uvSum.y += uv.y;
+                uvCount += 1;
+            };
+
+            for (const Slicer::Strategy::LayerPath& layer : paths) {
+                if (std::abs(layer.z - minDepth) > 1e-4f) { continue; }
+
+                for (const Pos& uv : layer.points) {
+                    addUv(uv);
+                }
+
+                for (const Segment& segment : layer.segments) {
+                    addUv(segment.start());
+                    addUv(segment.end());
+                }
+            }
+
+            Pos uv = uvCount > 0
+                ? Pos { uvSum.x / float(uvCount), uvSum.y / float(uvCount) }
+                : Pos {};
+
+            Pos3 origin = frame.uvToWorld(uv, minDepth);
+            Pos3 direction = frame.axis.normalized();
+            Pos3 tip = origin + direction * axisDebugLength;
+
+            axis.push_back({
+                .position = origin,
+                .t = 0.0,
+                .rapid = false,
+                .cutting = false
+            });
+
+            axis.push_back({
+                .position = tip,
+                .t = 1.0,
+                .rapid = false,
+                .cutting = false
+            });
+        }
+
         // Compute
         //--------------------------------------------------
 
@@ -239,14 +306,16 @@ export namespace Cam::App {
                 *strategyResult();
 
             buildPointsFromStrategy(strategyImpl, frame);
+            buildAxisFromStrategy(strategyImpl, frame);
 
             computed = !points.empty();
 
             dbg(
-                "[ToolPath] Done. slices=%zu paths=%zu points=%zu computed=%i",
+                "[ToolPath] Done. slices=%zu paths=%zu points=%zu axis=%zu computed=%i",
                 strategyImpl.slices().size(),
                 strategyImpl.paths().size(),
                 points.size(),
+                axis.size(),
                 int(computed)
             );
 
@@ -288,6 +357,21 @@ export namespace Cam::App {
 
                 lines.push_back({ a.x, a.y, a.z, color });
                 lines.push_back({ b.x, b.y, b.z, color });
+            }
+        }
+
+        void buildAxisLineSegments(std::vector<Vertex3>& lines) const {
+
+            if (axis.size() < 2) { return; }
+
+            Color axisColor = { 0.55f, 0.82f, 1.0f, 1.0f };
+
+            for (size_t i = 0; i + 1 < axis.size(); i++) {
+                const Pos3& a = axis[i].position;
+                const Pos3& b = axis[i + 1].position;
+
+                lines.push_back({ a.x, a.y, a.z, axisColor });
+                lines.push_back({ b.x, b.y, b.z, axisColor });
             }
         }
 
