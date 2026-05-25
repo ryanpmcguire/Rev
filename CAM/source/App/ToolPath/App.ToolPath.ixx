@@ -69,7 +69,7 @@ export namespace Cam::App {
         std::vector<ToolPathPoint> axis;
         bool computed = false;
 
-        static constexpr float axisDebugLength = 50.0f;
+        static constexpr float linkRetractDistance = 10.0f;
         static constexpr double travelSpeedMmPerSec = 1.0;
 
         // State
@@ -270,21 +270,40 @@ export namespace Cam::App {
             return true;
         }
 
-        Pos3 axisOffsetPoint(
+        Pos3 linkSafePoint(
             const Slicer::Strategy::CutFrame& frame,
-            const Pos3& anchor
+            const Pos3& anchor,
+            const Model* referenceModel
         ) const {
-            return anchor + frame.axis.normalized() * axisDebugLength;
+
+            const float anchorDepth = frame.dotFromOrigin(anchor);
+            const Pos anchorUv = frame.worldToUv(anchor, anchorDepth);
+
+            float safeDepth = anchorDepth + linkRetractDistance;
+
+            if (
+                hasSliceFace() &&
+                referenceModel &&
+                sliceFaceId < referenceModel->faceCount()
+            ) {
+                const Pos3 faceRef = referenceModel->facePoint(sliceFaceId);
+                const float faceDepth = frame.dotFromOrigin(faceRef);
+
+                safeDepth = faceDepth + linkRetractDistance;
+            }
+
+            return frame.uvToWorld(anchorUv, safeDepth);
         }
 
         void addApproachRetractLinks(
             const Pos3& axisAnchor,
-            const Slicer::Strategy::CutFrame& frame
+            const Slicer::Strategy::CutFrame& frame,
+            const Model* referenceModel
         ) {
 
             if (points.empty()) { return; }
 
-            const Pos3 offset = axisOffsetPoint(frame, axisAnchor);
+            const Pos3 offset = linkSafePoint(frame, axisAnchor, referenceModel);
 
             // Toolpath points are stored in reverse execution order.
             // Retract: axis offset -> first stored point (last real-life step).
@@ -301,11 +320,12 @@ export namespace Cam::App {
 
         void buildAxisDebugLine(
             const Slicer::Strategy::CutFrame& frame,
-            const Pos3& anchor
+            const Pos3& anchor,
+            const Model* referenceModel
         ) {
             axis.clear();
 
-            Pos3 tip = axisOffsetPoint(frame, anchor);
+            Pos3 tip = linkSafePoint(frame, anchor, referenceModel);
 
             axis.push_back({
                 .position = anchor,
@@ -383,13 +403,13 @@ export namespace Cam::App {
             const bool hasAxisAnchor = computeAxisAnchor(strategyImpl, frame, axisAnchor);
 
             if (hasAxisAnchor && !points.empty()) {
-                addApproachRetractLinks(axisAnchor, frame);
+                addApproachRetractLinks(axisAnchor, frame, &toAvoid);
             }
 
             assignPointTimes();
 
             if (hasAxisAnchor) {
-                buildAxisDebugLine(frame, axisAnchor);
+                buildAxisDebugLine(frame, axisAnchor, &toAvoid);
             }
 
             computed = !points.empty();

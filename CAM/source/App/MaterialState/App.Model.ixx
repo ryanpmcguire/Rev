@@ -362,6 +362,28 @@ export namespace Cam::App {
             };
         }
 
+        Rev::Core::Pos3 facePoint(size_t faceId) const {
+
+            if (faceId >= faces.size()) {
+                return {};
+            }
+
+            const TopoDS_Face& face = faces[faceId];
+
+            BRepAdaptor_Surface surf(face);
+
+            double uMid = (surf.FirstUParameter() + surf.LastUParameter()) * 0.5;
+            double vMid = (surf.FirstVParameter() + surf.LastVParameter()) * 0.5;
+
+            gp_Pnt point = surf.Value(uMid, vMid);
+
+            return {
+                static_cast<float>(point.X()),
+                static_cast<float>(point.Y()),
+                static_cast<float>(point.Z())
+            };
+        }
+
         // STEP import
         //--------------------------------------------------
 
