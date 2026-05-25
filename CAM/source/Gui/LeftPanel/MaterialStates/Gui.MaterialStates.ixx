@@ -100,7 +100,7 @@ export namespace Cam::Gui {
 
             if (!app || !state) { return; }
 
-            if (app->selectState(state)) {
+            if (app->selectState(state, e.keyboard.shift)) {
 
                 if (onSelectState) { onSelectState(e); }
 

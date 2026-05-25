@@ -449,6 +449,7 @@ export namespace Cam::Gui {
 
             applyDefaultVisibilityPolicy();
             syncAllMaterialViews();
+            syncActorDrawOrder(representedProject);
         }
 
         void syncMaterialViewList() {
@@ -492,23 +493,70 @@ export namespace Cam::Gui {
             representedStateCount = project->states.size();
         }
 
-        void applyDefaultVisibilityPolicy() {
+        void applyVisibilityPolicy() {
 
-            Cam::App::MaterialState* displayed = displayedState();
+            Cam::App::Project* project = activeProject();
+            Cam::App::MaterialState* primary = project ? project->primaryViewState() : nullptr;
+
+            size_t primaryIndex = static_cast<size_t>(-1);
+
+            if (project && primary) {
+                primaryIndex = project->indexOf(primary);
+            }
+
             for (Cam::Gui::World::MaterialState* view : materialViews) {
 
                 if (!view) { continue; }
 
                 view->hideAll();
 
-                if (view->state == displayed) {
+                if (!project || !view->state) { continue; }
+                if (!project->isViewSelected(view->state)) { continue; }
+
+                const size_t stateIndex = project->indexOf(view->state);
+
+                if (view->state == primary) {
                     view->showDisplayed();
+                    view->enablePicking();
+                    continue;
                 }
 
-                if (view->state == displayed) {
-                    view->enablePicking();
+                if (primary && stateIndex > primaryIndex) {
+                    view->showOverlays();
                 }
             }
+        }
+
+        void syncActorDrawOrder(Cam::App::Project* project) {
+
+            if (!view3d || !project || project->viewSelection.size() <= 1) {
+                return;
+            }
+
+            Cam::App::MaterialState* primary = project->primaryViewState();
+
+            if (!primary) { return; }
+
+            Cam::Gui::World::MaterialState* primaryView = viewForState(primary);
+
+            if (!primaryView || !primaryView->attached) { return; }
+
+            auto moveToEnd = [this](View3d::Actor* actor) {
+
+                if (!actor) { return; }
+
+                view3d->removeActor(actor);
+                view3d->addActor(actor);
+            };
+
+            moveToEnd(primaryView->partActor);
+            moveToEnd(primaryView->toolPath.actor);
+            moveToEnd(primaryView->deltaActor);
+            moveToEnd(primaryView->pickActor);
+        }
+
+        void applyDefaultVisibilityPolicy() {
+            applyVisibilityPolicy();
         }
 
         void syncAllMaterialViews() {
@@ -536,31 +584,17 @@ export namespace Cam::Gui {
 
             bool stateListChanged = !materialViewListMatchesProject(project);
 
-            bool displayedChanged = (
-                project->displayedState != representedDisplayedState
-            );
-
-            bool workingChanged = (
-                project->workingState != representedWorkingState
-            );
-
             if (stateListChanged) {
                 syncMaterialViewList();
             }
 
-            if (
-                stateListChanged ||
-                displayedChanged ||
-                workingChanged
-            ) {
-                representedDisplayedState = project->displayedState;
-                representedWorkingState = project->workingState;
-                representedStateCount = project->states.size();
+            representedDisplayedState = project->displayedState;
+            representedWorkingState = project->workingState;
+            representedStateCount = project->states.size();
 
-                applyDefaultVisibilityPolicy();
-            }
-
+            applyVisibilityPolicy();
             syncAllMaterialViews();
+            syncActorDrawOrder(project);
         }
 
         // External sync hook

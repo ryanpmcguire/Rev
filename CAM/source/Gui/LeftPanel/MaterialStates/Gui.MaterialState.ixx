@@ -287,7 +287,7 @@ export namespace Cam::Gui {
 
         void computeChildren(Event& e) override {
 
-            bool selected = state && displayedState() == state;
+            bool selected = state && activeProject() && activeProject()->isViewSelected(state);
             bool working = state && state->working;
             bool changed = state && state->working && state->model.changed;
 

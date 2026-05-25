@@ -63,6 +63,7 @@ export namespace Cam::App {
         MaterialState* latestCommittedState = nullptr;
         MaterialState* workingState = nullptr;
         MaterialState* displayedState = nullptr;
+        std::vector<MaterialState*> viewSelection;
 
         // Create
         //--------------------------------------------------
@@ -103,6 +104,7 @@ export namespace Cam::App {
             latestCommittedState = nullptr;
             workingState = nullptr;
             displayedState = nullptr;
+            viewSelection.clear();
 
             loaded = false;
         }
@@ -146,6 +148,73 @@ export namespace Cam::App {
             if (index >= states.size()) { return nullptr; }
 
             return states[index];
+        }
+
+        void sortViewSelection() {
+
+            std::sort(
+                viewSelection.begin(),
+                viewSelection.end(),
+                [this](MaterialState* a, MaterialState* b) {
+                    return indexOf(a) < indexOf(b);
+                }
+            );
+        }
+
+        MaterialState* primaryViewState() const {
+
+            MaterialState* primary = nullptr;
+
+            for (MaterialState* state : viewSelection) {
+
+                if (!state) { continue; }
+
+                if (!primary || indexOf(state) < indexOf(primary)) {
+                    primary = state;
+                }
+            }
+
+            if (primary) { return primary; }
+
+            return displayedState;
+        }
+
+        bool isViewSelected(MaterialState* state) const {
+
+            if (!state) { return false; }
+
+            return std::find(
+                viewSelection.begin(),
+                viewSelection.end(),
+                state
+            ) != viewSelection.end();
+        }
+
+        void syncViewSelectionToDisplayed() {
+
+            viewSelection.clear();
+
+            if (displayedState) {
+                viewSelection.push_back(displayedState);
+            }
+        }
+
+        void pruneViewSelection() {
+
+            viewSelection.erase(
+                std::remove_if(
+                    viewSelection.begin(),
+                    viewSelection.end(),
+                    [this](MaterialState* candidate) {
+                        return !candidate || indexOf(candidate) == static_cast<size_t>(-1);
+                    }
+                ),
+                viewSelection.end()
+            );
+
+            if (viewSelection.empty()) {
+                syncViewSelectionToDisplayed();
+            }
         }
 
         // Tools
@@ -442,6 +511,8 @@ export namespace Cam::App {
                     displayedState = workingState ? workingState : latestCommittedState;
                 }
 
+                syncViewSelectionToDisplayed();
+
                 loaded = rootState != nullptr;
                 dirty = false;
 
@@ -570,6 +641,7 @@ export namespace Cam::App {
             latestCommittedState = newRoot;
             workingState = newWorking;
             displayedState = newWorking ? newWorking : newRoot;
+            syncViewSelectionToDisplayed();
 
             states.push_back(rootState);
 
@@ -612,12 +684,23 @@ export namespace Cam::App {
             state->computeToolPath(toolLibrary, selectedToolName);
         }
 
-        bool selectState(MaterialState* state) {
+        bool selectState(MaterialState* state, bool addToSelection = false) {
 
             if (!state) { return false; }
 
-            displayedState = state;
-            ensureToolPathComputed(state);
+            if (!addToSelection) {
+                viewSelection = { state };
+            }
+            else if (!isViewSelected(state)) {
+                viewSelection.push_back(state);
+                sortViewSelection();
+            }
+
+            displayedState = primaryViewState();
+
+            for (MaterialState* selected : viewSelection) {
+                ensureToolPathComputed(selected);
+            }
 
             return true;
         }
@@ -667,6 +750,20 @@ export namespace Cam::App {
                 displayedState = workingState ? workingState : latestCommittedState;
             }
 
+            viewSelection.erase(
+                std::remove_if(
+                    viewSelection.begin(),
+                    viewSelection.end(),
+                    [state](MaterialState* candidate) {
+                        return !candidate || state->contains(candidate);
+                    }
+                ),
+                viewSelection.end()
+            );
+
+            pruneViewSelection();
+            displayedState = primaryViewState();
+
             loaded = rootState != nullptr;
             dirty = true;
 
@@ -678,6 +775,7 @@ export namespace Cam::App {
             if (!workingState) { return false; }
 
             displayedState = workingState;
+            syncViewSelectionToDisplayed();
 
             bool ok = workingState->model.defeatureSelected();
 
@@ -699,6 +797,7 @@ export namespace Cam::App {
             }
 
             displayedState = workingState;
+            syncViewSelectionToDisplayed();
 
             bool ok = workingState->model.offsetSelected(distance);
 
@@ -732,6 +831,7 @@ export namespace Cam::App {
             }
 
             displayedState = workingState ? workingState : latestCommittedState;
+            syncViewSelectionToDisplayed();
 
             loaded = rootState != nullptr;
             dirty = true;

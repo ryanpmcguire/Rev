@@ -197,9 +197,9 @@ export namespace Cam::Gui::World {
 
             if (!state) { return nullptr; }
 
-            // If the state has an uncommitted delta, display the parent model
-            // plus the delta volume instead of the mutated child model.
-            if (state->parent && state->hasDelta) {
+            // While editing a working state, preview parent stock plus the delta
+            // volume instead of the in-progress child model.
+            if (state->working && state->parent && state->hasDelta) {
                 return &state->parent->model;
             }
 
@@ -237,6 +237,17 @@ export namespace Cam::Gui::World {
             selectable = false;
 
             includeInFit = true;
+        }
+
+        void showOverlays() {
+
+            showPart = false;
+            showDelta = true;
+            showToolPath = true;
+
+            showPick = false;
+            selectable = false;
+            includeInFit = false;
         }
 
         void enablePicking() {

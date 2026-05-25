@@ -525,11 +525,11 @@ export namespace Cam::App {
             return activeProject->getDisplayedModel();
         }
 
-        bool selectState(MaterialState* state) {
+        bool selectState(MaterialState* state, bool addToSelection = false) {
 
             if (!activeProject) { return false; }
 
-            return activeProject->selectState(state);
+            return activeProject->selectState(state, addToSelection);
         }
 
         bool deleteState(MaterialState* state) {
