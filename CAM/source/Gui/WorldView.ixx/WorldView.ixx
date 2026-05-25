@@ -504,6 +504,12 @@ export namespace Cam::Gui {
                 primaryIndex = project->indexOf(primary);
             }
 
+            const bool faceEditingActive = (
+                project &&
+                project->workingState &&
+                project->displayedState == project->workingState
+            );
+
             for (Cam::Gui::World::MaterialState* view : materialViews) {
 
                 if (!view) { continue; }
@@ -517,12 +523,26 @@ export namespace Cam::Gui {
 
                 if (view->state == primary) {
                     view->showDisplayed();
-                    view->enablePicking();
                     continue;
                 }
 
                 if (primary && stateIndex > primaryIndex) {
                     view->showOverlays();
+                }
+            }
+
+            // Picking follows the editable working view (displayed == working),
+            // not only the primary overlay/base layer.
+            if (faceEditingActive) {
+
+                Cam::Gui::World::MaterialState* editView =
+                    viewForState(project->workingState);
+
+                if (
+                    editView &&
+                    project->isViewSelected(project->workingState)
+                ) {
+                    editView->enablePicking();
                 }
             }
         }

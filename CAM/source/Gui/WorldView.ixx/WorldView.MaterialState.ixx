@@ -212,6 +212,16 @@ export namespace Cam::Gui::World {
             return &state->model;
         }
 
+        // Part mesh: parent stock when inspecting, own model when editing faces.
+        Cam::App::Model* partModel() {
+
+            if (showPick || selectable) {
+                return selectionModel();
+            }
+
+            return displayModel();
+        }
+
         // Settings
         //--------------------------------------------------
 
@@ -253,6 +263,7 @@ export namespace Cam::Gui::World {
 
             showPick = true;
             selectable = true;
+            showPart = true;
         }
 
         // Sync
@@ -276,7 +287,7 @@ export namespace Cam::Gui::World {
 
             if (!partActor || !partActor->mesh) { return; }
 
-            Cam::App::Model* model = displayModel();
+            Cam::App::Model* model = partModel();
 
             if (!state || !model || !showPart) {
                 partActor->visible = false;
@@ -349,7 +360,7 @@ export namespace Cam::Gui::World {
 
         void applyFaceColors() {
 
-            Cam::App::Model* model = displayModel();
+            Cam::App::Model* model = partModel();
 
             if (!model || !partActor || !partActor->mesh) { return; }
 

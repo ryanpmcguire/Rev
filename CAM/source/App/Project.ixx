@@ -747,13 +747,13 @@ export namespace Cam::App {
 
             if (!addToSelection) {
                 viewSelection = { state };
+                displayedState = state;
             }
             else if (!isViewSelected(state)) {
                 viewSelection.push_back(state);
                 sortViewSelection();
+                displayedState = state;
             }
-
-            displayedState = primaryViewState();
 
             for (MaterialState* selected : viewSelection) {
                 ensureToolPathComputed(selected);
@@ -842,12 +842,14 @@ export namespace Cam::App {
 
             pruneViewSelection();
 
-            if (viewSelection.empty()) {
-                syncViewSelectionToDisplayed();
+            if (workingState) {
+                displayedState = workingState;
             }
-            else {
-                displayedState = primaryViewState();
+            else if (!displayedState) {
+                displayedState = latestCommittedState;
             }
+
+            syncViewSelectionToDisplayed();
 
             loaded = rootState != nullptr;
             dirty = true;
