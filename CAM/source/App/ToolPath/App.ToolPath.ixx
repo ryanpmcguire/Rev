@@ -370,19 +370,35 @@ export namespace Cam::App {
         // Rendering
         //--------------------------------------------------
 
-        void buildLineSegments(std::vector<Vertex3>& lines) const {
+        void buildLineSegments(
+            std::vector<Vertex3>& lines,
+            double previewProgress = 1.0
+        ) const {
             lines.clear();
 
             if (points.size() < 2) { return; }
 
+            previewProgress = std::clamp(previewProgress, 0.0, 1.0);
+
+            const double totalDuration = points.back().t;
+            const double previewTime = totalDuration * previewProgress;
+
             Color cutColor = { 1.0f, 0.0f, 1.0f, 1.0f };
             Color rapidColor = { 0.6f, 0.0f, 1.0f, 0.35f };
+            Color uncoloredColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 
             for (size_t i = 0; i + 1 < points.size(); i++) {
                 const Pos3& a = points[i].position;
                 const Pos3& b = points[i + 1].position;
 
-                Color color = points[i + 1].rapid ? rapidColor : cutColor;
+                Color baseColor = points[i + 1].rapid ? rapidColor : cutColor;
+
+                const bool colored = (
+                    previewProgress >= 1.0 - 1e-9 ||
+                    points[i + 1].t <= previewTime + 1e-9
+                );
+
+                Color color = colored ? baseColor : uncoloredColor;
 
                 lines.push_back({ a.x, a.y, a.z, color });
                 lines.push_back({ b.x, b.y, b.z, color });

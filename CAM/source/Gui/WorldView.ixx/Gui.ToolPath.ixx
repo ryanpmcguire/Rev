@@ -44,10 +44,10 @@ export namespace Cam::Gui {
             });
 
             actor->lines->color = {
-                1.0f,
-                0.0f,
-                1.0f,
-                1.0f
+                0.5f,
+                0.5f,
+                0.55f,
+                0.2f
             };
         }
 
@@ -72,7 +72,10 @@ export namespace Cam::Gui {
             actor->lines->dirty = true;
         }
 
-        void sync(Cam::App::MaterialState* state) {
+        void sync(
+            Cam::App::MaterialState* state,
+            double previewProgress = 1.0
+        ) {
 
             if (!actor || !actor->lines) { return; }
 
@@ -84,7 +87,7 @@ export namespace Cam::Gui {
                 return;
             }
 
-            state->toolPath.buildLineSegments(lines);
+            state->toolPath.buildLineSegments(lines, previewProgress);
             state->toolPath.buildAxisLineSegments(lines);
 
             actor->visible = !lines.empty();

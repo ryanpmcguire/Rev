@@ -28,7 +28,7 @@ export namespace Rev::Element {
         };
 
         Style TextRow = {
-            .layout = { Axis::Horizontal, Align::SpaceBetween, Align::Center },
+            .layout = { Axis::Horizontal, Align::Center, Align::Center },
             .size = { 100_pct },
             .margin = { 0_px, 0_px, 6_px, 0_px }
         };

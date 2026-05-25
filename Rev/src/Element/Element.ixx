@@ -1162,6 +1162,8 @@ export namespace Rev::Element {
                 case (Align::Center): { return (parent - child) / 2; break; }
                 case (Align::Unset): { return 0; break; }
             }
+
+            return 0;
         }
 
         // Resolve final positions (top down)

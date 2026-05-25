@@ -16,6 +16,7 @@ import Rev.Element.Event;
 import Rev.Element.Event.GestureTracker;
 
 import Rev.Element.Box;
+import Rev.Element.Slider;
 
 import Rev.Core.Pos3;
 import Rev.Core.Color;
@@ -51,6 +52,9 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
 
         View3d::View* view3d = nullptr;
+        Slider* toolPathPreviewSlider = nullptr;
+
+        float toolPathPreviewPercent = 100.0f;
 
         Cam::App::Project* representedProject = nullptr;
         Cam::App::MaterialState* representedDisplayedState = nullptr;
@@ -84,9 +88,12 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->style->size = { .width = Grow(), .height = Grow() };
+            this->style->layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
             this->style->background.color = rgba(0, 0, 0, 0.0);
 
             view3d = new View3d::View(this);
+
+            createToolPathPreviewSlider();
 
             createTestLines();
 
@@ -140,6 +147,51 @@ export namespace Cam::Gui {
 
         // Axis lines
         //--------------------------------------------------
+
+        void createToolPathPreviewSlider() {
+
+            Slider::SliderData previewSliderData;
+            previewSliderData.min = 0.0f;
+            previewSliderData.max = 100.0f;
+            previewSliderData.def = 1.0f;
+            previewSliderData.val = 100.0f;
+
+            toolPathPreviewSlider = new Slider(
+                this,
+                previewSliderData,
+                {},
+                "ToolPathPreviewSlider"
+            );
+
+            toolPathPreviewSlider->labelText->setContent("Toolpath preview: ");
+            toolPathPreviewSlider->style->size = { .width = 100_pct };
+            toolPathPreviewSlider->style->padding = { 8_px, 12_px, 10_px, 12_px };
+            toolPathPreviewSlider->style->background.color = rgba(255, 255, 255, 0.04);
+
+            auto onPreviewChanged = [this](Event& e) {
+                syncToolPathPreview(e);
+            };
+
+            toolPathPreviewSlider->sliderContainer->onMouseDown(onPreviewChanged);
+            toolPathPreviewSlider->sliderContainer->onDrag(onPreviewChanged);
+        }
+
+        double toolPathPreviewProgress() const {
+            return double(toolPathPreviewPercent) / 100.0;
+        }
+
+        void syncToolPathPreview(Event& e) {
+
+            if (toolPathPreviewSlider) {
+                toolPathPreviewPercent = toolPathPreviewSlider->data.val;
+            }
+
+            syncAllMaterialViews();
+
+            if (view3d) {
+                view3d->refresh(e);
+            }
+        }
 
         void createTestLines() {
 
@@ -461,8 +513,10 @@ export namespace Cam::Gui {
 
         void syncAllMaterialViews() {
 
+            const double previewProgress = toolPathPreviewProgress();
+
             for (Cam::Gui::World::MaterialState* view : materialViews) {
-                if (view) { view->sync(); }
+                if (view) { view->sync(previewProgress); }
             }
         }
 

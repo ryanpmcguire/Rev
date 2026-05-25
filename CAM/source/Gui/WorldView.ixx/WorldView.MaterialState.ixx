@@ -254,12 +254,12 @@ export namespace Cam::Gui::World {
             this->state = state;
         }
 
-        void sync() {
+        void sync(double toolPathPreviewProgress = 1.0) {
 
             syncPart();
             syncDelta();
             syncPick();
-            syncToolPath();
+            syncToolPath(toolPathPreviewProgress);
         }
 
         void syncPart() {
@@ -322,7 +322,7 @@ export namespace Cam::Gui::World {
             pickActor->includeInFit = false;
         }
 
-        void syncToolPath() {
+        void syncToolPath(double toolPathPreviewProgress = 1.0) {
 
             if (!toolPath.actor) { return; }
 
@@ -331,7 +331,7 @@ export namespace Cam::Gui::World {
                 return;
             }
 
-            toolPath.sync(state);
+            toolPath.sync(state, toolPathPreviewProgress);
         }
 
         // Selection display
