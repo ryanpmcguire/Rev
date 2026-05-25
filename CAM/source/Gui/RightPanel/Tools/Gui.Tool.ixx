@@ -19,6 +19,7 @@ import Rev.Element.Svg;
 
 import Cam.App;
 import Cam.App.Tool;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
@@ -32,24 +33,13 @@ export namespace Cam::Gui {
             .size = { .width = 100_pct },
             .margin = { .bottom = 2_px },
             .padding = { 4_px, 8_px, 4_px, 8_px },
-            .background = { .color = rgba(203, 213, 223, 0.0), .transition = 100_ms },
             .border = { .radius = 4_px },
             .cursor = Cursor::Hand
         };
 
-        Style Hover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(203, 213, 223, 1.0) }
-        };
-
-        Style Selected = {
-            .background = { .color = rgba(109, 119, 255, 0.22) },
-            .border = { .color = rgba(109, 119, 255, 1.0), .width = 1_px }
-        };
-
         Style Label = {
             .size = { .width = Grow() },
-            .text = { .color = rgba(0, 0, 0, 0.85), .size = 13_px }
+            .text = { .size = 13_px }
         };
 
         Style SettingsButton = {
@@ -60,13 +50,7 @@ export namespace Cam::Gui {
         };
 
         Style SettingsIcon = {
-            .size = { 15_px, 15_px },
-            .text = { .color = rgba(148, 163, 184, 1.0), .transition = 100_ms }
-        };
-
-        Style SettingsIconHover = {
-            .applies = { .hover = true, .focus = true },
-            .text = { .color = rgba(79, 99, 255, 1.0) }
+            .size = { 15_px, 15_px }
         };
     };
 
@@ -88,9 +72,17 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&Styles::Self);
-            this->styles.add(&Styles::Hover);
+            this->styles.add(&Theme::Styles::Row);
+            this->styles.add(&Theme::Styles::RowHover);
 
-            label = new Text(this, "", { &Styles::Label });
+            label = new Text(
+                this,
+                "",
+                Theme::layer(
+                    { &Styles::Label },
+                    { &Theme::Styles::Text }
+                )
+            );
 
             label->onMouseDown([this](Event& e) {
                 if (onSelect) { onSelect(e, toolIndex); }
@@ -105,10 +97,12 @@ export namespace Cam::Gui {
             new Svg(
                 settingsButton,
                 File("./Settings.svg"),
-                {
+                Theme::layer({
                     &Styles::SettingsIcon,
-                    &Styles::SettingsIconHover
-                },
+                    &Theme::Styles::IconHover
+                }, {
+                    &Theme::Styles::Icon
+                }),
                 "ToolSettingsIcon"
             );
 
@@ -149,11 +143,11 @@ export namespace Cam::Gui {
         void computeChildren(Event& e) override {
 
             if (isSelected()) {
-                styles.add(&Styles::Selected);
+                styles.add(&Theme::Styles::RowSelected);
             }
 
             else {
-                styles.remove(&Styles::Selected);
+                styles.remove(&Theme::Styles::RowSelected);
             }
 
             Box::computeChildren(e);

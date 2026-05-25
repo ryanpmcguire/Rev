@@ -19,6 +19,7 @@ import Cam.App;
 import Cam.App.Project;
 
 import Cam.Gui.MaterialStates;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
@@ -27,20 +28,12 @@ export namespace Cam::Gui {
 
     namespace LeftPanelStyle {
 
-        Shadow subtleShadow = {
-            .color = rgba(0, 0, 0, 0.35),
-            .size = Px(-8),
-            .blur = 16_px
-        };
-
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 220_px, .height = Grow() },
             .margin = { 12_px, 12_px, 12_px, 12_px },
             .padding = { 8_px, 8_px, 8_px, 8_px },
-            //.background = { .color = rgba(0, 0, 0, 0.10) },
             .border = { .radius = 6_px },
-            .shadow = subtleShadow,
             .zIndex = +1
         };
 
@@ -49,36 +42,15 @@ export namespace Cam::Gui {
             .size = { .width = 100_pct, .height = 34_px },
             .margin = { 0_px, 0_px, 0_px, 8_px },
             .padding = { 10_px, 10_px, 3_px, 2_px },
-            .background = { .color = rgba(255, 255, 255, 0.24), .transition = 100_ms },
             .border = {
-                .color = rgba(0, 0, 0, 0.22),
                 .width = 1_px,
                 .radius = 5_px
             },
             .cursor = Cursor::Hand
         };
 
-        Style FileButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(255, 255, 255, 0.42) },
-            .border = {
-                .color = rgba(0, 0, 0, 0.32)
-            }
-        };
-
-        Style FileButtonPress = {
-            .applies = { .press = true },
-            .background = { .color = rgba(255, 255, 255, 0.56) },
-            .border = {
-                .color = rgba(0, 0, 0, 0.42)
-            }
-        };
-
         Style FileButtonLabel = {
-            .text = {
-                .color = rgba(0, 0, 0, 0.74),
-                .size = 13_px
-            }
+            .text = { .size = 13_px }
         };
 
         Style MaterialStateHost = {
@@ -109,21 +81,26 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&LeftPanelStyle::Self);
+            this->styles.add(&Theme::Styles::Panel);
+            this->styles.add(&Theme::Styles::PanelBorder);
 
             fileButton = new Box(
                 this,
-                {
+                Theme::withButton({
                     &LeftPanelStyle::FileButton,
-                    &LeftPanelStyle::FileButtonHover,
-                    &LeftPanelStyle::FileButtonPress
-                },
+                    &Theme::Styles::ButtonHover,
+                    &Theme::Styles::ButtonPress
+                }),
                 "ProjectFileButton"
             );
 
             fileButtonLabel = new Text(
                 fileButton,
                 "Select File",
-                { &LeftPanelStyle::FileButtonLabel }
+                Theme::layer(
+                    { &LeftPanelStyle::FileButtonLabel },
+                    { &Theme::Styles::ButtonLabel }
+                )
             );
 
             fileButton->onClick([this](Event& e) {

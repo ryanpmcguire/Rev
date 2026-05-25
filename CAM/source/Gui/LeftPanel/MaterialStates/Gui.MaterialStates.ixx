@@ -19,6 +19,7 @@ import Cam.App.Project;
 import Cam.App.MaterialState;
 import Cam.Gui.MaterialState;
 import Cam.Gui.ToolPathSettingsWindow;
+import Cam.Gui.Theme;
 
 import Rev.Window;
 
@@ -40,7 +41,7 @@ export namespace Cam::Gui {
         Style Title = {
             .size = { 100_pct },
             .margin = { .bottom = 4_px },
-            .text = { .color = rgba(100, 116, 139, 1.0), .size = 12_px }
+            .text = { .size = 12_px }
         };
 
         Style List = {
@@ -79,7 +80,7 @@ export namespace Cam::Gui {
             title = new Text(
                 this,
                 "Material States",
-                { &MaterialStatesStyle::Title }
+                Theme::withMutedText({ &MaterialStatesStyle::Title })
             );
 
             list = new Box(

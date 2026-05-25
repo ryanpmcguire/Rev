@@ -22,6 +22,7 @@ import Rev.Element.Svg;
 import Cam.App;
 
 import Cam.Gui.Tools;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
@@ -30,19 +31,12 @@ export namespace Cam::Gui {
 
     namespace RightPanelStyle {
 
-        Shadow subtleShadow = {
-            .color = rgba(0, 0, 0, 0.35),
-            .size = Px(-8),
-            .blur = 16_px
-        };
-
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 220_px, .height = Grow() },
             .margin = { 12_px, 12_px, 12_px, 12_px },
             .padding = { 8_px, 8_px, 8_px, 8_px },
             .border = { .radius = 6_px },
-            .shadow = subtleShadow,
             .zIndex = +1
         };
 
@@ -51,47 +45,20 @@ export namespace Cam::Gui {
             .size = { .width = 100_pct },
             .margin = { 0_px, 0_px, 0_px, 4_px },
             .padding = { 6_px, 10_px, 6_px, 10_px },
-            .background = { .color = rgba(255, 255, 255, 0.24), .transition = 100_ms },
             .border = {
-                .color = rgba(0, 0, 0, 0.22),
                 .width = 1_px,
                 .radius = 5_px
             },
             .cursor = Cursor::Hand
         };
 
-        Style FolderButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(255, 255, 255, 0.42) },
-            .border = {
-                .color = rgba(0, 0, 0, 0.32)
-            }
-        };
-
-        Style FolderButtonPress = {
-            .applies = { .press = true },
-            .background = { .color = rgba(255, 255, 255, 0.56) },
-            .border = {
-                .color = rgba(0, 0, 0, 0.42)
-            }
-        };
-
         Style FolderButtonLabel = {
-            .text = {
-                .color = rgba(0, 0, 0, 0.74),
-                .size = 12_px
-            }
+            .text = { .size = 12_px }
         };
 
         Style FolderButtonIcon = {
             .size = { 13_px, 13_px },
-            .margin = { 0_px, 5_px, 0_px, 0_px },
-            .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
-        };
-
-        Style FolderButtonIconHover = {
-            .applies = { .hover = true, .focus = true },
-            .text = { .color = rgba(0, 0, 0, 0.90) }
+            .margin = { 0_px, 5_px, 0_px, 0_px }
         };
 
         Style ToolsHost = {
@@ -117,30 +84,37 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&RightPanelStyle::Self);
+            this->styles.add(&Theme::Styles::Panel);
+            this->styles.add(&Theme::Styles::PanelBorder);
 
             folderButton = new Box(
                 this,
-                {
+                Theme::withButton({
                     &RightPanelStyle::FolderButton,
-                    &RightPanelStyle::FolderButtonHover,
-                    &RightPanelStyle::FolderButtonPress
-                },
+                    &Theme::Styles::ButtonHover,
+                    &Theme::Styles::ButtonPress
+                }),
                 "ToolFolderButton"
             );
 
             folderButtonLabel = new Text(
                 folderButton,
                 "Select Tool Folder",
-                { &RightPanelStyle::FolderButtonLabel }
+                Theme::layer(
+                    { &RightPanelStyle::FolderButtonLabel },
+                    { &Theme::Styles::ButtonLabel }
+                )
             );
 
             folderButtonIcon = new Svg(
                 folderButton,
                 File("./Choose-Folder.svg"),
-                {
+                Theme::layer({
                     &RightPanelStyle::FolderButtonIcon,
-                    &RightPanelStyle::FolderButtonIconHover
-                },
+                    &Theme::Styles::ChromeIconHover
+                }, {
+                    &Theme::Styles::ChromeIcon
+                }),
                 "ToolFolderButtonIcon"
             );
 

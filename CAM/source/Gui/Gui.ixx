@@ -21,6 +21,7 @@ import Cam.Gui.WorldView;
 
 import Rev.Element.ControlTheme;
 import Cam.Gui.MaterialState;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
@@ -45,8 +46,10 @@ export namespace Cam::Gui {
 
             app = Cam::App::AppState::Get(shared->state);
 
+            Theme::applyMode(Theme::currentMode());
+
             this->style->layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
-            this->style->background.color = rgba(0, 0, 0, 0.0);
+            this->styles.add(&Theme::Styles::Background);
             this->style->size = { .width = 100_pct, .height = 100_pct };
             //this->style->padding = { 10_px, 10_px, 10_px, 10_px };
 
@@ -210,18 +213,28 @@ export namespace Cam::Gui {
                 return;
             }
 
+            // Toggle light/dark theme.
+            if (e.keyboard.key == "d") {
+
+                Theme::toggleMode();
+                refresh(e);
+
+                e.propagate = false;
+                return;
+            }
+
             // Style stress test: shared material-state name label + permuted row DOM.
             if (e.keyboard.key == "l") {
-
-                using namespace MaterialStateStyle::Styles;
 
                 static bool labelsRed = false;
 
                 labelsRed = !labelsRed;
 
-                Label.text.color = labelsRed
+                Theme::Styles::Text.text.color = labelsRed
                     ? rgba(220, 38, 38, 1.0)
-                    : rgba(30, 41, 59, 1.0);
+                    : Theme::palette.text;
+
+                Theme::Styles::Text.dirty = true;
 
                 if (leftPanel && leftPanel->materialStates) {
                     leftPanel->materialStates->stressTestPermuteRows(e);

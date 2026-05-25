@@ -20,6 +20,7 @@ import Rev.Element.Svg;
 import Cam.App;
 import Cam.App.Project;
 import Cam.App.MaterialState;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
@@ -33,27 +34,17 @@ export namespace Cam::Gui {
             .size = { .width = 100_pct },
             .margin = { .bottom = 2_px },
             .padding = { 4_px, 8_px, 4_px, 8_px },
-            .background = { .color = rgba(255, 255, 255, 0.0), .transition = 100_ms },
             .border = { .radius = 6_px },
             .cursor = Cursor::Hand
         };
 
-        Style Hover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(241, 245, 249, 1.0) }
-        };
-
-        Style Selected = {
-            .background = { .color = rgba(79, 99, 255, 0.08) }
-        };
-
         Style IndexLabel = {
             .margin = { 0_px, 8_px, 0_px, 0_px },
-            .text = { .color = rgba(148, 163, 184, 1.0), .size = 11_px }
+            .text = { .size = 11_px }
         };
 
         Style IndexLabelSelected = {
-            .text = { .color = rgba(79, 99, 255, 1.0), .size = 11_px }
+            .text = { .size = 11_px }
         };
 
         Style Content = {
@@ -63,20 +54,20 @@ export namespace Cam::Gui {
 
         Style Label = {
             .size = { .width = Grow() },
-            .text = { .color = rgba(30, 41, 59, 1.0), .size = 13_px }
+            .text = { .size = 13_px }
         };
 
         Style Subtitle = {
             .margin = { 1_px, 0_px, 0_px, 0_px },
-            .text = { .color = rgba(100, 116, 139, 1.0), .size = 10_px }
+            .text = { .size = 10_px }
         };
 
         Style SubtitleWorking = {
-            .text = { .color = rgba(148, 163, 184, 1.0), .size = 10_px }
+            .text = { .size = 10_px }
         };
 
         Style SubtitleChanged = {
-            .text = { .color = rgba(245, 158, 11, 1.0), .size = 10_px }
+            .text = { .size = 10_px }
         };
 
         Style IconButton = {
@@ -87,35 +78,11 @@ export namespace Cam::Gui {
         };
 
         Style SettingsIcon = {
-            .size = { 15_px, 15_px },
-            .text = { .color = rgba(148, 163, 184, 1.0), .transition = 100_ms }
-        };
-
-        Style SettingsIconHover = {
-            .applies = { .hover = true, .focus = true },
-            .text = { .color = rgba(79, 99, 255, 1.0) }
-        };
-
-        Style SettingsIconDisabled = {
-            .applies = { .disabled = true },
-            .text = { .color = rgba(203, 213, 225, 1.0) },
-            .cursor = Cursor::Default
+            .size = { 15_px, 15_px }
         };
 
         Style DeleteIcon = {
-            .size = { 15_px, 15_px },
-            .text = { .color = rgba(148, 163, 184, 1.0), .transition = 100_ms }
-        };
-
-        Style DeleteIconHover = {
-            .applies = { .hover = true, .focus = true },
-            .text = { .color = rgba(239, 68, 68, 1.0) }
-        };
-
-        Style DeleteIconDisabled = {
-            .applies = { .disabled = true },
-            .text = { .color = rgba(203, 213, 225, 1.0) },
-            .cursor = Cursor::Default
+            .size = { 15_px, 15_px }
         };
     };
 
@@ -146,14 +113,36 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&Styles::Self);
-            this->styles.add(&Styles::Hover);
+            this->styles.add(&Theme::Styles::Row);
+            this->styles.add(&Theme::Styles::RowHover);
 
-            indexLabel = new Text(this, "0", { &Styles::IndexLabel });
+            indexLabel = new Text(
+                this,
+                "0",
+                Theme::layer(
+                    { &Styles::IndexLabel },
+                    { &Theme::Styles::MutedText }
+                )
+            );
 
             content = new Box(this, { &Styles::Content }, "MaterialStateContent");
 
-            label = new Text(content, "", { &Styles::Label });
-            subtitle = new Text(content, "", { &Styles::Subtitle });
+            label = new Text(
+                content,
+                "",
+                Theme::layer(
+                    { &Styles::Label },
+                    { &Theme::Styles::Text }
+                )
+            );
+            subtitle = new Text(
+                content,
+                "",
+                Theme::layer(
+                    { &Styles::Subtitle },
+                    { &Theme::Styles::MutedText }
+                )
+            );
 
             settingsButton = new Box(
                 this,
@@ -164,11 +153,13 @@ export namespace Cam::Gui {
             settingsIcon = new Svg(
                 settingsButton,
                 File("./ToolPath/Settings.svg"),
-                {
+                Theme::layer({
                     &Styles::SettingsIcon,
-                    &Styles::SettingsIconHover,
-                    &Styles::SettingsIconDisabled
-                },
+                    &Theme::Styles::IconHover,
+                    &Theme::Styles::IconDisabled
+                }, {
+                    &Theme::Styles::Icon
+                }),
                 "ToolPathSettingsIcon"
             );
 
@@ -181,11 +172,13 @@ export namespace Cam::Gui {
             deleteIcon = new Svg(
                 deleteButton,
                 File("./Close.svg"),
-                {
+                Theme::layer({
                     &Styles::DeleteIcon,
-                    &Styles::DeleteIconHover,
-                    &Styles::DeleteIconDisabled
-                },
+                    &Theme::Styles::DeleteIconHover,
+                    &Theme::Styles::IconDisabled
+                }, {
+                    &Theme::Styles::Icon
+                }),
                 "DeleteMaterialStateIcon"
             );
 
@@ -321,22 +314,19 @@ export namespace Cam::Gui {
                 settingsIcon->resolved.disabled = !canEditToolPath();
             }
 
-            if (selected) { styles.add(&Styles::Selected); }
-            else { styles.remove(&Styles::Selected); }
+            if (selected) { styles.add(&Theme::Styles::RowSelected); }
+            else { styles.remove(&Theme::Styles::RowSelected); }
 
             if (indexLabel) {
-                if (selected) { indexLabel->styles.add(&Styles::IndexLabelSelected); }
-                else { indexLabel->styles.remove(&Styles::IndexLabelSelected); }
+                if (selected) { indexLabel->styles.add(&Theme::Styles::AccentText); }
+                else { indexLabel->styles.remove(&Theme::Styles::AccentText); }
             }
 
             if (subtitle) {
-                subtitle->styles.remove(&Styles::SubtitleWorking);
-                subtitle->styles.remove(&Styles::SubtitleChanged);
+                subtitle->styles.remove(&Theme::Styles::WarningText);
 
                 if (changed) {
-                    subtitle->styles.add(&Styles::SubtitleChanged);
-                } else if (working) {
-                    subtitle->styles.add(&Styles::SubtitleWorking);
+                    subtitle->styles.add(&Theme::Styles::WarningText);
                 }
             }
 

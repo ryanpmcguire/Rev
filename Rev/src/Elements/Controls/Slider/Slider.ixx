@@ -28,7 +28,7 @@ export namespace Rev::Element {
         };
 
         Style TextRow = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center },
+            .layout = { Axis::Horizontal, Align::Start, Align::Center },
             .size = { 100_pct },
             .margin = { 0_px, 0_px, 6_px, 0_px }
         };
@@ -43,7 +43,7 @@ export namespace Rev::Element {
         };
     }
 
-    struct Slider : public Box {
+    struct Slider : public Element {
 
         Element* textContainer = nullptr;
             Text* labelText = nullptr;
@@ -71,7 +71,7 @@ export namespace Rev::Element {
             SliderData sliderData = SliderData(),
             StyleList styles = {},
             std::string name = "Slider"
-        ) : Box(parent, styles, name) {
+        ) : Element(parent, styles, name) {
 
             this->data = sliderData;
             this->styles.add(&SliderStyle::Self);
@@ -123,7 +123,7 @@ export namespace Rev::Element {
             float pctVal = (data.val - data.min) / (data.max - data.min);
             thumbContainer->style->position.left = Pct(100.0f * pctVal);
         
-            Box::computeStyle(e);
+            Element::computeStyle(e);
         }
     };
 };

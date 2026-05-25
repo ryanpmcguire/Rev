@@ -34,6 +34,7 @@ import Cam.App.Model;
 import Cam.App.MaterialState;
 
 import Cam.Gui.World.MaterialState;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
@@ -167,7 +168,8 @@ export namespace Cam::Gui {
             toolPathPreviewSlider->labelText->setContent("Toolpath preview: ");
             toolPathPreviewSlider->style->size = { .width = 100_pct };
             toolPathPreviewSlider->style->padding = { 8_px, 12_px, 10_px, 12_px };
-            toolPathPreviewSlider->style->background.color = rgba(255, 255, 255, 0.04);
+            toolPathPreviewSlider->labelText->styles.add(&Theme::Styles::MutedText);
+            toolPathPreviewSlider->valueText->styles.add(&Theme::Styles::Text);
 
             auto onPreviewChanged = [this](Event& e) {
                 syncToolPathPreview(e);

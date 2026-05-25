@@ -20,6 +20,7 @@ import Rev.Element.Svg;
 
 import Cam.App;
 import Cam.App.Project;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
@@ -32,23 +33,7 @@ export namespace Cam::Gui {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
             .margin = { 4_px, 4_px, 0_px, 4_px },
-            .padding = { 8_px, 8_px, 0_px, 0_px },
-
-            .border = {
-                .bottom = {
-                    .color = rgba(0, 0, 0, 0.25),
-                    .width = 1_px
-                }
-            },
-
-            .background = { .color = rgba(0, 0, 0, 0.025) },
-
-            .shadow = {
-                .color = rgba(0, 0, 0, 0.10),
-                .size = Px(-4),
-                .blur = 8_px,
-                .y = 1_px
-            },
+            .padding = { 8_px, 8_px, 0_px, 0_px }
         };
 
         Style OpenButton = {
@@ -56,18 +41,12 @@ export namespace Cam::Gui {
             .size = { .height = 24_px },
             .margin = { .right = 8_px },
             .padding = { 10_px, 10_px, 2_px, 2_px },
-            .background = { .color = rgba(76, 120, 220, 0.85), .transition = 100_ms },
             .border = { .radius = 6_px },
             .cursor = Cursor::Hand
         };
 
-        Style OpenButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(86, 135, 245, 0.95) }
-        };
-
         Style OpenButtonLabel = {
-            .text = { .color = rgba(255, 255, 255, 0.96), .size = 13_px }
+            .text = { .size = 13_px }
         };
 
         Style TabsHost = {
@@ -81,9 +60,7 @@ export namespace Cam::Gui {
             .size = { .height = 34_px },
             .margin = { .right = 5_px },
             .padding = { 15_px, 8_px, 4_px, 2_px },
-            .background = { .color = rgba(255, 255, 255, 0.22), .transition = 100_ms },
             .border = {
-                .color = rgba(0, 0, 0, 0.16),
                 .width = 1_px,
                 .tl = { .radius = 7_px },
                 .tr = { .radius = 7_px },
@@ -92,26 +69,13 @@ export namespace Cam::Gui {
             .cursor = Cursor::Hand
         };
 
-        Style TabHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(255, 255, 255, 0.40) },
+        Style TabActiveShape = {
             .border = {
-                .color = rgba(0, 0, 0, 0.23)
-            }
-        };
-
-        Style TabActive = {
-            .background = { .color = rgba(255, 255, 255, 0.86) },
-            .border = {
-                .color = rgba(0, 0, 0, 0.30),
                 .width = 1_px,
                 .tl = { .radius = 7_px },
                 .tr = { .radius = 7_px },
-                .bottom = {
-                    .color = rgba(255, 255, 255, 0.86),
-                    .width = 1_px
-                }
-            },
+                .bottom = { .width = 1_px }
+            }
         };
 
         Style LabelBox = {
@@ -120,11 +84,7 @@ export namespace Cam::Gui {
         };
 
         Style Label = {
-            .text = { .color = rgba(0, 0, 0, 0.68), .size = 13_px }
-        };
-
-        Style LabelActive = {
-            .text = { .color = rgba(0, 0, 0, 0.94), .size = 13_px }
+            .text = { .size = 13_px }
         };
 
         Style CloseButton = {
@@ -135,19 +95,8 @@ export namespace Cam::Gui {
             .cursor = Cursor::Hand
         };
 
-        Style CloseButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(0, 0, 0, 0.12) }
-        };
-
         Style CloseIcon = {
-            .size = { 12_px, 12_px },
-            .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
-        };
-
-        Style CloseIconHover = {
-            .applies = { .hover = true, .focus = true },
-            .text = { .color = rgba(0, 0, 0, 0.90) }
+            .size = { 12_px, 12_px }
         };
 
         Style NewButtonHost = {
@@ -163,19 +112,8 @@ export namespace Cam::Gui {
             .cursor = Cursor::Hand
         };
 
-        Style NewButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(0, 0, 0, 0.12) }
-        };
-
         Style NewIcon = {
-            .size = { 12_px, 12_px },
-            .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
-        };
-
-        Style NewIconHover = {
-            .applies = { .hover = true, .focus = true },
-            .text = { .color = rgba(0, 0, 0, 0.90) }
+            .size = { 12_px, 12_px }
         };
     }
 
@@ -192,7 +130,10 @@ export namespace Cam::Gui {
             Cam::App::Project* project
         ) : Box(
             parent,
-            { &TabViewStyle::Tab, &TabViewStyle::TabHover },
+            Theme::withTab({
+                &TabViewStyle::Tab,
+                &Theme::Styles::TabHover
+            }),
             "ProjectTab"
         ) {
             this->app = app;
@@ -255,6 +196,7 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&TabViewStyle::Self);
+            this->styles.add(&Theme::Styles::TabBar);
 
             createOpenButton();
 
@@ -343,14 +285,22 @@ export namespace Cam::Gui {
 
             openButton = new Box(
                 this,
-                { &TabViewStyle::OpenButton, &TabViewStyle::OpenButtonHover },
+                Theme::layer({
+                    &TabViewStyle::OpenButton,
+                    &Theme::Styles::AccentButtonHover
+                }, {
+                    &Theme::Styles::AccentButton
+                }),
                 "OpenProjectButton"
             );
 
             openLabel = new Text(
                 openButton,
                 "Open",
-                { &TabViewStyle::OpenButtonLabel }
+                Theme::layer(
+                    { &TabViewStyle::OpenButtonLabel },
+                    { &Theme::Styles::AccentButtonLabel }
+                )
             );
 
             openButton->onClick([this](Event& e) {
@@ -380,14 +330,22 @@ export namespace Cam::Gui {
 
             newButton = new Box(
                 newButtonHost,
-                { &TabViewStyle::NewButton, &TabViewStyle::NewButtonHover },
+                Theme::layer({
+                    &TabViewStyle::NewButton,
+                    &Theme::Styles::ChromeHover
+                }, {}),
                 "NewProjectButton"
             );
 
             newIcon = new Svg(
                 newButton,
                 File("./New.svg"),
-                { &TabViewStyle::NewIcon, &TabViewStyle::NewIconHover },
+                Theme::layer({
+                    &TabViewStyle::NewIcon,
+                    &Theme::Styles::ChromeIconHover
+                }, {
+                    &Theme::Styles::ChromeIcon
+                }),
                 "NewProjectIcon"
             );
 
@@ -453,19 +411,30 @@ export namespace Cam::Gui {
             Text* label = new Text(
                 labelBox,
                 projectName(project, i),
-                { &TabViewStyle::Label }
+                Theme::layer(
+                    { &TabViewStyle::Label },
+                    { &Theme::Styles::TabLabel }
+                )
             );
 
             Box* closeButton = new Box(
                 tab,
-                { &TabViewStyle::CloseButton, &TabViewStyle::CloseButtonHover },
+                Theme::layer({
+                    &TabViewStyle::CloseButton,
+                    &Theme::Styles::ChromeHover
+                }, {}),
                 "CloseProjectButton"
             );
 
             Svg* closeIcon = new Svg(
                 closeButton,
                 File("./Close.svg"),
-                { &TabViewStyle::CloseIcon, &TabViewStyle::CloseIconHover },
+                Theme::layer({
+                    &TabViewStyle::CloseIcon,
+                    &Theme::Styles::ChromeIconHover
+                }, {
+                    &Theme::Styles::ChromeIcon
+                }),
                 "CloseProjectIcon"
             );
 
@@ -531,11 +500,17 @@ export namespace Cam::Gui {
 
                 bool isActive = projectIsActive(tabProjects[i]);
 
-                if (isActive) { tabs[i]->styles.add(&TabViewStyle::TabActive); }
-                else { tabs[i]->styles.remove(&TabViewStyle::TabActive); }
+                if (isActive) {
+                    tabs[i]->styles.add(&TabViewStyle::TabActiveShape);
+                    tabs[i]->styles.add(&Theme::Styles::TabActive);
+                }
+                else {
+                    tabs[i]->styles.remove(&TabViewStyle::TabActiveShape);
+                    tabs[i]->styles.remove(&Theme::Styles::TabActive);
+                }
 
-                if (isActive) { labels[i]->styles.add(&TabViewStyle::LabelActive); }
-                else { labels[i]->styles.remove(&TabViewStyle::LabelActive); }
+                if (isActive) { labels[i]->styles.add(&Theme::Styles::TabLabelActive); }
+                else { labels[i]->styles.remove(&Theme::Styles::TabLabelActive); }
             }
 
             Box::computeChildren(e);

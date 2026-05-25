@@ -23,6 +23,7 @@ import Cam.App.Tool;
 
 import Cam.Gui.Tool;
 import Cam.Gui.ToolSettingsWindow;
+import Cam.Gui.Theme;
 
 import Rev.Window;
 
@@ -44,7 +45,7 @@ export namespace Cam::Gui {
         Style Title = {
             .size = { 100_pct },
             .margin = { .bottom = 4_px },
-            .text = { .color = rgba(0, 0, 0, 0.65), .size = 12_px }
+            .text = { .size = 12_px }
         };
 
         Style NewToolButton = {
@@ -52,47 +53,20 @@ export namespace Cam::Gui {
             .size = { .width = 100_pct },
             .margin = { 0_px, 0_px, 0_px, 4_px },
             .padding = { 6_px, 10_px, 6_px, 10_px },
-            .background = { .color = rgba(255, 255, 255, 0.24), .transition = 100_ms },
             .border = {
-                .color = rgba(0, 0, 0, 0.22),
                 .width = 1_px,
                 .radius = 5_px
             },
             .cursor = Cursor::Hand
         };
 
-        Style NewToolButtonHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = rgba(255, 255, 255, 0.42) },
-            .border = {
-                .color = rgba(0, 0, 0, 0.32)
-            }
-        };
-
-        Style NewToolButtonPress = {
-            .applies = { .press = true },
-            .background = { .color = rgba(255, 255, 255, 0.56) },
-            .border = {
-                .color = rgba(0, 0, 0, 0.42)
-            }
-        };
-
         Style NewToolButtonLabel = {
-            .text = {
-                .color = rgba(0, 0, 0, 0.74),
-                .size = 12_px
-            }
+            .text = { .size = 12_px }
         };
 
         Style NewToolButtonIcon = {
             .size = { 13_px, 13_px },
-            .margin = { 0_px, 5_px, 0_px, 0_px },
-            .text = { .color = rgba(0, 0, 0, 0.55), .transition = 100_ms }
-        };
-
-        Style NewToolButtonIconHover = {
-            .applies = { .hover = true, .focus = true },
-            .text = { .color = rgba(0, 0, 0, 0.90) }
+            .margin = { 0_px, 5_px, 0_px, 0_px }
         };
 
         Style List = {
@@ -127,31 +101,40 @@ export namespace Cam::Gui {
 
             this->styles.add(&ToolsStyle::Self);
 
-            title = new Text(this, "Tools", { &ToolsStyle::Title });
+            title = new Text(
+                this,
+                "Tools",
+                Theme::withMutedText({ &ToolsStyle::Title })
+            );
 
             newToolButton = new Box(
                 this,
-                {
+                Theme::withButton({
                     &ToolsStyle::NewToolButton,
-                    &ToolsStyle::NewToolButtonHover,
-                    &ToolsStyle::NewToolButtonPress
-                },
+                    &Theme::Styles::ButtonHover,
+                    &Theme::Styles::ButtonPress
+                }),
                 "NewToolButton"
             );
 
             newToolButtonLabel = new Text(
                 newToolButton,
                 "New Tool",
-                { &ToolsStyle::NewToolButtonLabel }
+                Theme::layer(
+                    { &ToolsStyle::NewToolButtonLabel },
+                    { &Theme::Styles::ButtonLabel }
+                )
             );
 
             newToolButtonIcon = new Svg(
                 newToolButton,
                 File("./New-Tool.svg"),
-                {
+                Theme::layer({
                     &ToolsStyle::NewToolButtonIcon,
-                    &ToolsStyle::NewToolButtonIconHover
-                },
+                    &Theme::Styles::ChromeIconHover
+                }, {
+                    &Theme::Styles::ChromeIcon
+                }),
                 "NewToolButtonIcon"
             );
 
