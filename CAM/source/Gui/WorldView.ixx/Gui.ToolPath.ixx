@@ -88,7 +88,6 @@ export namespace Cam::Gui {
             }
 
             state->toolPath.buildLineSegments(lines, previewProgress);
-            state->toolPath.buildAxisLineSegments(lines);
 
             actor->visible = !lines.empty();
             actor->lines->dirty = true;

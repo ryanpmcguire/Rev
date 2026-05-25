@@ -140,6 +140,19 @@ export namespace Cam::App {
         // Point building
         //--------------------------------------------------
 
+        void addWorldPoint(
+            const Pos3& position,
+            bool rapid = false,
+            bool cutting = true
+        ) {
+            points.push_back({
+                .position = position,
+                .t = 0.0,
+                .rapid = rapid,
+                .cutting = cutting
+            });
+        }
+
         void addPoint(
             const Pos& uv,
             float depth,
@@ -147,12 +160,7 @@ export namespace Cam::App {
             bool rapid = false,
             bool cutting = true
         ) {
-            points.push_back({
-                .position = frame.uvToWorld(uv, depth),
-                .t = 0.0,
-                .rapid = rapid,
-                .cutting = cutting
-            });
+            addWorldPoint(frame.uvToWorld(uv, depth), rapid, cutting);
         }
 
         void assignPointTimes(double speedMmPerSec = travelSpeedMmPerSec) {
@@ -213,19 +221,17 @@ export namespace Cam::App {
                     addSegmentPoints(segment, layer.z, frame);
                 }
             }
-
-            assignPointTimes();
         }
 
-        void buildAxisFromStrategy(
+        bool computeAxisAnchor(
             const Slicer::Strategy::Strategy& strategyImpl,
-            const Slicer::Strategy::CutFrame& frame
-        ) {
-            axis.clear();
+            const Slicer::Strategy::CutFrame& frame,
+            Pos3& anchorOut
+        ) const {
 
             const std::vector<Slicer::Strategy::LayerPath>& paths = strategyImpl.paths();
 
-            if (paths.empty()) { return; }
+            if (paths.empty()) { return false; }
 
             float minDepth = paths.front().z;
 
@@ -259,12 +265,50 @@ export namespace Cam::App {
                 ? Pos { uvSum.x / float(uvCount), uvSum.y / float(uvCount) }
                 : Pos {};
 
-            Pos3 origin = frame.uvToWorld(uv, minDepth);
-            Pos3 direction = frame.axis.normalized();
-            Pos3 tip = origin + direction * axisDebugLength;
+            anchorOut = frame.uvToWorld(uv, minDepth);
+
+            return true;
+        }
+
+        Pos3 axisOffsetPoint(
+            const Slicer::Strategy::CutFrame& frame,
+            const Pos3& anchor
+        ) const {
+            return anchor + frame.axis.normalized() * axisDebugLength;
+        }
+
+        void addApproachRetractLinks(
+            const Pos3& axisAnchor,
+            const Slicer::Strategy::CutFrame& frame
+        ) {
+
+            if (points.empty()) { return; }
+
+            const Pos3 offset = axisOffsetPoint(frame, axisAnchor);
+
+            // Toolpath points are stored in reverse execution order.
+            // Retract: axis offset -> first stored point (last real-life step).
+            points.insert(points.begin(), {
+                .position = offset,
+                .t = 0.0,
+                .rapid = true,
+                .cutting = false
+            });
+
+            // Approach: last stored point (first real-life step) -> axis offset.
+            addWorldPoint(offset, true, false);
+        }
+
+        void buildAxisDebugLine(
+            const Slicer::Strategy::CutFrame& frame,
+            const Pos3& anchor
+        ) {
+            axis.clear();
+
+            Pos3 tip = axisOffsetPoint(frame, anchor);
 
             axis.push_back({
-                .position = origin,
+                .position = anchor,
                 .t = 0.0,
                 .rapid = false,
                 .cutting = false
@@ -334,17 +378,32 @@ export namespace Cam::App {
                 *strategyResult();
 
             buildPointsFromStrategy(strategyImpl, frame);
-            buildAxisFromStrategy(strategyImpl, frame);
+
+            Pos3 axisAnchor = {};
+            const bool hasAxisAnchor = computeAxisAnchor(strategyImpl, frame, axisAnchor);
+
+            if (hasAxisAnchor && !points.empty()) {
+                addApproachRetractLinks(axisAnchor, frame);
+            }
+
+            assignPointTimes();
+
+            if (hasAxisAnchor) {
+                buildAxisDebugLine(frame, axisAnchor);
+            }
 
             computed = !points.empty();
 
             dbg(
-                "[ToolPath] Done. slices=%zu paths=%zu points=%zu axis=%zu duration=%.3fs computed=%i",
+                "[ToolPath] Done. slices=%zu paths=%zu points=%zu axis=%zu duration=%.3fs link=%.3fmm computed=%i",
                 strategyImpl.slices().size(),
                 strategyImpl.paths().size(),
                 points.size(),
                 axis.size(),
                 points.empty() ? 0.0 : points.back().t,
+                hasAxisAnchor && points.size() >= 2
+                    ? points[1].position.distanceTo(points[0].position)
+                    : 0.0f,
                 int(computed)
             );
 
@@ -385,13 +444,18 @@ export namespace Cam::App {
 
             Color cutColor = { 1.0f, 0.0f, 1.0f, 1.0f };
             Color rapidColor = { 0.6f, 0.0f, 1.0f, 0.35f };
+            Color linkColor = { 0.25f, 0.85f, 1.0f, 1.0f };
             Color uncoloredColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 
             for (size_t i = 0; i + 1 < points.size(); i++) {
                 const Pos3& a = points[i].position;
                 const Pos3& b = points[i + 1].position;
 
-                Color baseColor = points[i + 1].rapid ? rapidColor : cutColor;
+                const bool isLink = !points[i].cutting || !points[i + 1].cutting;
+
+                Color baseColor = isLink
+                    ? linkColor
+                    : (points[i + 1].rapid ? rapidColor : cutColor);
 
                 const bool colored = (
                     previewProgress >= 1.0 - 1e-9 ||
