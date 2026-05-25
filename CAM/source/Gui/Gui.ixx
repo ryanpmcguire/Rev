@@ -19,6 +19,9 @@ import Cam.Gui.LeftPanel;
 import Cam.Gui.RightPanel;
 import Cam.Gui.WorldView;
 
+import Rev.Element.ControlTheme;
+import Cam.Gui.MaterialState;
+
 export namespace Cam::Gui {
 
     using namespace Rev;
@@ -202,6 +205,29 @@ export namespace Cam::Gui {
                 if (app) {
                     app->saveProjectAs();
                 }
+
+                e.propagate = false;
+                return;
+            }
+
+            // Style stress test: shared material-state name label + permuted row DOM.
+            if (e.keyboard.key == "l") {
+
+                using namespace MaterialStateStyle::Styles;
+
+                static bool labelsRed = false;
+
+                labelsRed = !labelsRed;
+
+                Label.text.color = labelsRed
+                    ? rgba(220, 38, 38, 1.0)
+                    : rgba(30, 41, 59, 1.0);
+
+                if (leftPanel && leftPanel->materialStates) {
+                    leftPanel->materialStates->stressTestPermuteRows(e);
+                }
+
+                refresh(e);
 
                 e.propagate = false;
                 return;

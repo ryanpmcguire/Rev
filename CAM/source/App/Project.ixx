@@ -150,6 +150,59 @@ export namespace Cam::App {
             return states[index];
         }
 
+        // Rebuild parent/child links from the flat states list (index order is history).
+        void relinkMaterialStateHierarchy() {
+
+            for (MaterialState* node : states) {
+
+                if (!node) { continue; }
+
+                node->parent = nullptr;
+                node->children.clear();
+            }
+
+            if (states.empty()) {
+
+                rootState = nullptr;
+                latestCommittedState = nullptr;
+                workingState = nullptr;
+
+                return;
+            }
+
+            rootState = states.front();
+
+            for (size_t i = 1; i < states.size(); i++) {
+
+                MaterialState* prior = states[i - 1];
+                MaterialState* node = states[i];
+
+                if (!prior || !node) { continue; }
+
+                prior->addChild(node);
+            }
+
+            latestCommittedState = rootState;
+            workingState = nullptr;
+
+            for (MaterialState* node : states) {
+
+                if (!node) { continue; }
+
+                if (node->working) {
+                    workingState = node;
+                }
+
+                if (node->committed && !node->working) {
+                    latestCommittedState = node;
+                }
+            }
+
+            if (!latestCommittedState) {
+                latestCommittedState = rootState;
+            }
+        }
+
         void sortViewSelection() {
 
             std::sort(
@@ -511,6 +564,8 @@ export namespace Cam::App {
                     displayedState = workingState ? workingState : latestCommittedState;
                 }
 
+                relinkMaterialStateHierarchy();
+
                 syncViewSelectionToDisplayed();
 
                 loaded = rootState != nullptr;
@@ -649,6 +704,8 @@ export namespace Cam::App {
                 states.push_back(workingState);
             }
 
+            relinkMaterialStateHierarchy();
+
             loaded = true;
             dirty = true;
 
@@ -711,31 +768,63 @@ export namespace Cam::App {
         bool deleteState(MaterialState* state) {
 
             if (!state) { return false; }
-            if (state == rootState) { return false; }
 
-            MaterialState* fallback = state->parent;
+            size_t index = indexOf(state);
 
-            if (displayedState && state->contains(displayedState)) {
-                displayedState = fallback;
+            if (index == static_cast<size_t>(-1)) { return false; }
+            if (index == 0) { return false; }
+
+            MaterialState* anchor = states[index - 1];
+
+            std::vector<MaterialState*> toDelete(
+                states.begin() + static_cast<std::ptrdiff_t>(index),
+                states.end()
+            );
+
+            auto isRemoved = [&toDelete](MaterialState* candidate) {
+
+                if (!candidate) { return true; }
+
+                return std::find(toDelete.begin(), toDelete.end(), candidate) != toDelete.end();
+            };
+
+            if (displayedState && isRemoved(displayedState)) {
+                displayedState = anchor;
             }
 
-            if (workingState && state->contains(workingState)) {
+            if (workingState && isRemoved(workingState)) {
                 workingState = nullptr;
             }
 
-            if (latestCommittedState && state->contains(latestCommittedState)) {
-                latestCommittedState = fallback;
+            if (latestCommittedState && isRemoved(latestCommittedState)) {
+                latestCommittedState = anchor;
             }
 
-            states.erase(std::remove_if(states.begin(), states.end(), [state](MaterialState* candidate) {
-                return state->contains(candidate);
-            }), states.end());
+            viewSelection.erase(
+                std::remove_if(
+                    viewSelection.begin(),
+                    viewSelection.end(),
+                    [&](MaterialState* candidate) { return isRemoved(candidate); }
+                ),
+                viewSelection.end()
+            );
 
-            state->remove();
+            states.erase(
+                states.begin() + static_cast<std::ptrdiff_t>(index),
+                states.end()
+            );
 
-            if (!latestCommittedState) {
-                latestCommittedState = rootState;
+            for (MaterialState* node : toDelete) {
+
+                node->parent = nullptr;
+                node->children.clear();
+                node->model.clear();
+                node->clearDelta();
+
+                delete node;
             }
+
+            relinkMaterialStateHierarchy();
 
             if (!workingState && latestCommittedState) {
 
@@ -743,6 +832,7 @@ export namespace Cam::App {
 
                 if (workingState) {
                     states.push_back(workingState);
+                    relinkMaterialStateHierarchy();
                 }
             }
 
@@ -750,19 +840,14 @@ export namespace Cam::App {
                 displayedState = workingState ? workingState : latestCommittedState;
             }
 
-            viewSelection.erase(
-                std::remove_if(
-                    viewSelection.begin(),
-                    viewSelection.end(),
-                    [state](MaterialState* candidate) {
-                        return !candidate || state->contains(candidate);
-                    }
-                ),
-                viewSelection.end()
-            );
-
             pruneViewSelection();
-            displayedState = primaryViewState();
+
+            if (viewSelection.empty()) {
+                syncViewSelectionToDisplayed();
+            }
+            else {
+                displayedState = primaryViewState();
+            }
 
             loaded = rootState != nullptr;
             dirty = true;
@@ -829,6 +914,8 @@ export namespace Cam::App {
             if (workingState) {
                 states.push_back(workingState);
             }
+
+            relinkMaterialStateHierarchy();
 
             displayedState = workingState ? workingState : latestCommittedState;
             syncViewSelectionToDisplayed();

@@ -3,6 +3,7 @@ module;
 #include <string>
 #include <vector>
 #include <functional>
+#include <algorithm>
 
 export module Cam.Gui.MaterialStates;
 
@@ -59,6 +60,9 @@ export namespace Cam::Gui {
         Box* list = nullptr;
 
         std::vector<MaterialState*> rows;
+
+        // Dev stress test: cycles DOM child order without destroying rows.
+        size_t domPermuteStep = 0;
 
         ToolPathSettingsWindow* settingsWindow = nullptr;
 
@@ -143,6 +147,35 @@ export namespace Cam::Gui {
             if (settingsWindow->state && state->contains(settingsWindow->state)) {
                 closeSettingsWindow();
             }
+        }
+
+        // Reorder row elements in the list box to exercise shared-style + DOM churn.
+        void stressTestPermuteRows(Event& e) {
+
+            if (!list || rows.size() < 2) {
+                return;
+            }
+
+            domPermuteStep++;
+
+            // Pointer order is stable for next_permutation; wrap by sorting when exhausted.
+            auto rowLess = [](MaterialState* a, MaterialState* b) {
+                return static_cast<const void*>(a) < static_cast<const void*>(b);
+            };
+
+            if (!std::next_permutation(rows.begin(), rows.end(), rowLess)) {
+                std::sort(rows.begin(), rows.end(), rowLess);
+            }
+
+            for (MaterialState* row : rows) {
+                list->removeChild(row);
+            }
+
+            for (MaterialState* row : rows) {
+                list->addChild(row);
+            }
+
+            refresh(e);
         }
 
         void clearRowsForState(Cam::App::MaterialState* state) {

@@ -135,7 +135,11 @@ export namespace Cam::App {
 
             if (!state) { return; }
 
-            children.erase(std::remove(children.begin(), children.end(), state), children.end());
+            auto it = std::find(children.begin(), children.end(), state);
+
+            if (it == children.end()) { return; }
+
+            children.erase(it);
 
             if (state->parent == this) {
                 state->parent = nullptr;
@@ -144,10 +148,12 @@ export namespace Cam::App {
 
         void detach() {
 
-            if (!parent) { return; }
+            MaterialState* owner = parent;
 
-            parent->removeChild(this);
+            if (!owner) { return; }
+
             parent = nullptr;
+            owner->removeChild(this);
         }
 
         bool contains(MaterialState* state) {

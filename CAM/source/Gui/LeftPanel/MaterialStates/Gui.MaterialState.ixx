@@ -198,8 +198,15 @@ export namespace Cam::Gui {
             });
 
             deleteButton->onClick([this](Event& e) {
+
                 if (!canDelete()) { return; }
-                if (onDelete && state) { onDelete(e, state); }
+
+                Cam::App::Project* project = activeProject();
+
+                if (onDelete && project && index < project->states.size()) {
+                    onDelete(e, project->states[index]);
+                }
+
                 e.propagate = false;
             });
 
@@ -272,10 +279,13 @@ export namespace Cam::Gui {
 
         bool canDelete() {
 
-            if (!state) { return false; }
-            if (!state->parent) { return false; }
+            if (index == 0) { return false; }
 
-            return true;
+            Cam::App::Project* project = activeProject();
+
+            if (!project) { return false; }
+
+            return index < project->states.size();
         }
 
         bool canEditToolPath() const {

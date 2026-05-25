@@ -1,8 +1,10 @@
 module;
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 export module Rev.Element.Style;
@@ -1063,14 +1065,76 @@ export namespace Rev::Element {
         bool hasDragStyle = false;
         bool hasFocusStyle = false;
 
-        StyleList() {}
+        void ensureStyleLinked(Style* style) {
 
-        StyleList(std::initializer_list<Style*> init) : styles(init) {
+            if (!style) { return; }
 
+            style->linkDirtyFlag(&style->dirty);
         }
 
-        StyleList(std::vector<Style*> styles) {
-            this->styles = styles;
+        void linkStyle(Style* style) {
+
+            if (!style) { return; }
+
+            ensureStyleLinked(style);
+            dirty.subscribe(&style->dirty);
+        }
+
+        void unlinkStyle(Style* style) {
+
+            if (!style) { return; }
+
+            style->dirty.disconnect(&dirty);
+        }
+
+        void clearStyleLinks() {
+
+            for (Style* style : styles) {
+                unlinkStyle(style);
+            }
+        }
+
+        void wireStyleLinks() {
+
+            clearStyleLinks();
+
+            for (Style* style : styles) {
+                linkStyle(style);
+            }
+        }
+
+        StyleList() {}
+
+        ~StyleList() {
+            clearStyleLinks();
+        }
+
+        // Brace-init and by-value copies must not wire subscriptions — only the
+        // owning element's StyleList should link to shared Style dirty flags.
+        StyleList(std::initializer_list<Style*> init) : styles(init) {
+            dirty = true;
+        }
+
+        StyleList(std::vector<Style*> styles) : styles(std::move(styles)) {
+            dirty = true;
+        }
+
+        StyleList(const StyleList& other) : styles(other.styles) {
+
+            if (other.dirty) {
+                dirty = true;
+            }
+        }
+
+        StyleList(StyleList&& other) noexcept : styles(std::move(other.styles)) {
+
+            other.clearStyleLinks();
+
+            if (other.dirty) {
+                dirty = true;
+            }
+
+            other.dirty = false;
         }
 
         void prepend(Style* style) {
@@ -1079,6 +1143,7 @@ export namespace Rev::Element {
             if (it != styles.end()) { return; }
 
             styles.insert(styles.begin(), style);
+            linkStyle(style);
             dirty = true;
         }
         
@@ -1089,6 +1154,7 @@ export namespace Rev::Element {
             if (it != styles.end()) { return; }
 
             styles.push_back(style);
+            linkStyle(style);
             dirty = true;
         }
 
@@ -1097,7 +1163,8 @@ export namespace Rev::Element {
 
             auto it = std::find(styles.begin(), styles.end(), style);
             if (it == styles.end()) { return; }
-            
+
+            unlinkStyle(style);
             styles.erase(it);
             dirty = true;
         }
@@ -1107,11 +1174,36 @@ export namespace Rev::Element {
             return styles;
         }
 
-        // Assign from StyleList (copy all except dirty flag)
-        StyleList& operator=(StyleList& other) {
+        // Assign from StyleList (copy pointers only; wire on the owner)
+        StyleList& operator=(const StyleList& other) {
 
+            if (this == &other) { return *this; }
+
+            clearStyleLinks();
             styles = other.styles;
-            dirty = true;
+            wireStyleLinks();
+
+            if (other.dirty) {
+                dirty = true;
+            }
+
+            return *this;
+        }
+
+        StyleList& operator=(StyleList&& other) noexcept {
+
+            if (this == &other) { return *this; }
+
+            clearStyleLinks();
+            styles = std::move(other.styles);
+            other.clearStyleLinks();
+            wireStyleLinks();
+
+            if (other.dirty) {
+                dirty = true;
+            }
+
+            other.dirty = false;
 
             return *this;
         }
@@ -1119,7 +1211,19 @@ export namespace Rev::Element {
         // Assign from vector
         StyleList& operator=(std::vector<Style*> other) {
 
-            styles = other;
+            clearStyleLinks();
+            styles = std::move(other);
+            wireStyleLinks();
+            dirty = true;
+
+            return *this;
+        }
+
+        StyleList& operator=(std::initializer_list<Style*> init) {
+
+            clearStyleLinks();
+            styles = init;
+            wireStyleLinks();
             dirty = true;
 
             return *this;

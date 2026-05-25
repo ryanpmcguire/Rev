@@ -2,6 +2,7 @@ module;
 
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 #include <ranges>
 #include <functional>
@@ -102,9 +103,11 @@ export namespace Rev::Element {
                 this->refresh(*shared->event);
             });
 
+            this->styles = std::move(styles);
+            this->styles.wireStyleLinks();
+
             dirty.style = true;
 
-            this->styles = styles;
             this->name = name;
         }
         
