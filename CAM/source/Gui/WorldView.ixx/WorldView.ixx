@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <cstddef>
 #include <cmath>
 #include <string>
@@ -530,12 +531,104 @@ export namespace Cam::Gui {
             applyVisibilityPolicy();
         }
 
+        static double sequentialToolPathPreviewProgress(
+            double globalProgress,
+            size_t sequenceIndex,
+            size_t sequenceCount
+        ) {
+            if (sequenceCount <= 1) {
+                return globalProgress;
+            }
+
+            globalProgress = std::clamp(globalProgress, 0.0, 1.0);
+
+            const double segmentSize = 1.0 / double(sequenceCount);
+            const double segmentStart = segmentSize * double(sequenceIndex);
+            const double segmentEnd = segmentStart + segmentSize;
+
+            if (globalProgress <= segmentStart) { return 0.0; }
+            if (globalProgress >= segmentEnd) { return 1.0; }
+
+            return (globalProgress - segmentStart) / segmentSize;
+        }
+
+        std::vector<Cam::App::MaterialState*> toolPathPreviewSequence(
+            Cam::App::Project* project
+        ) {
+            std::vector<Cam::App::MaterialState*> sequence;
+
+            if (!project || project->viewSelection.size() <= 1) {
+                return sequence;
+            }
+
+            Cam::App::MaterialState* primary = project->primaryViewState();
+
+            if (!primary) { return sequence; }
+
+            const size_t primaryIndex = project->indexOf(primary);
+
+            for (Cam::App::MaterialState* state : project->viewSelection) {
+
+                if (!state) { continue; }
+
+                const size_t stateIndex = project->indexOf(state);
+
+                if (stateIndex < primaryIndex) { continue; }
+                if (!state->hasToolPath) { continue; }
+
+                sequence.push_back(state);
+            }
+
+            return sequence;
+        }
+
+        double toolPathPreviewProgressForState(
+            Cam::App::MaterialState* state,
+            Cam::App::Project* project,
+            double globalProgress
+        ) {
+            if (!state || !project) {
+                return globalProgress;
+            }
+
+            const std::vector<Cam::App::MaterialState*> sequence =
+                toolPathPreviewSequence(project);
+
+            if (sequence.size() <= 1) {
+                return globalProgress;
+            }
+
+            for (size_t i = 0; i < sequence.size(); i++) {
+
+                if (sequence[i] != state) { continue; }
+
+                return sequentialToolPathPreviewProgress(
+                    globalProgress,
+                    i,
+                    sequence.size()
+                );
+            }
+
+            return 0.0;
+        }
+
         void syncAllMaterialViews() {
 
-            const double previewProgress = toolPathPreviewProgress();
+            const double globalProgress = toolPathPreviewProgress();
+
+            Cam::App::Project* project = activeProject();
 
             for (Cam::Gui::World::MaterialState* view : materialViews) {
-                if (view) { view->sync(previewProgress); }
+
+                if (!view) { continue; }
+
+                const double previewProgress = toolPathPreviewProgressForState(
+                    view->state,
+                    project,
+                    globalProgress
+                );
+
+                view->sync(previewProgress);
             }
         }
 
