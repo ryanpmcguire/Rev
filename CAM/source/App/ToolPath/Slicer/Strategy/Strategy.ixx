@@ -31,6 +31,11 @@ export namespace Cam::App::Slicer::Strategy {
         float z = 0.0f;
         std::vector<Segment> segments;
         std::vector<Pos> points;
+
+        // Per-layer cut geometry. approach/abscond are link stems on the shallow
+        // and deep layers respectively (paths_ deep → shallow; see Strategy::run).
+        std::vector<Pos3> approach;
+        std::vector<Pos3> abscond;
     };
 
     // Inputs shared by every strategy run.
@@ -127,6 +132,23 @@ export namespace Cam::App::Slicer::Strategy {
 
             strategy.buildPaths(ctx);
 
+            for (LayerPath& layer : strategy.paths_) {
+                layer.approach.clear();
+                layer.abscond.clear();
+            }
+
+            // paths_ are stored deep → shallow (index 0 deepest, back() shallowest /
+            // first cut in real life). Link stems: approach on the shallow layer,
+            // abscond on the deep layer. Both use one clearance plane measured from
+            // the first (shallow) slice.
+            if (!strategy.paths_.empty()) {
+                const float shallowDepth = strategy.paths_.back().z;
+                const float clearDepth = shallowDepth - clearanceDistance(ctx);
+
+                buildLayerApproach(strategy.paths_.back(), ctx, clearDepth);
+                buildLayerAbscond(strategy.paths_.front(), ctx, clearDepth);
+            }
+
             dbg(
                 "[%s] Done. attempted=%zu slices=%zu paths=%zu",
                 S::name(),
@@ -189,6 +211,58 @@ export namespace Cam::App::Slicer::Strategy {
             }
 
             return distance;
+        }
+
+        static float clearanceDistance(const StrategyContext&) {
+            return 10.0f;
+        }
+
+        static bool layerEndpoints(const LayerPath& layer, Pos& entry, Pos& exit) {
+
+            if (!layer.points.empty()) {
+                entry = layer.points.front();
+                exit = layer.points.back();
+                return entry && exit;
+            }
+
+            if (layer.segments.empty()) {
+                return false;
+            }
+
+            entry = layer.segments.front().start();
+            exit = layer.segments.back().end();
+
+            return entry && exit;
+        }
+
+        static void buildLayerApproach(LayerPath& layer, const StrategyContext& ctx, float clearDepth) {
+
+            layer.approach.clear();
+
+            Pos entry;
+            Pos exit;
+
+            if (!layerEndpoints(layer, entry, exit)) {
+                return;
+            }
+
+            layer.approach.push_back(ctx.frame.uvToWorld(entry, clearDepth));
+            layer.approach.push_back(ctx.frame.uvToWorld(entry, layer.z));
+        }
+
+        static void buildLayerAbscond(LayerPath& layer, const StrategyContext& ctx, float clearDepth) {
+
+            layer.abscond.clear();
+
+            Pos entry;
+            Pos exit;
+
+            if (!layerEndpoints(layer, entry, exit)) {
+                return;
+            }
+
+            layer.abscond.push_back(ctx.frame.uvToWorld(exit, layer.z));
+            layer.abscond.push_back(ctx.frame.uvToWorld(exit, clearDepth));
         }
 
         // Output

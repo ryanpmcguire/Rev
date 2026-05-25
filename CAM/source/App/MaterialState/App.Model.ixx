@@ -1,6 +1,7 @@
 module;
 
 #include <cstddef>
+#include <algorithm>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -22,6 +23,9 @@ module;
 
 #include <TopTools_IndexedMapOfShape.hxx>
 
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
@@ -321,44 +325,80 @@ export namespace Cam::App {
                 return {};
             }
 
+            if (shape.IsNull()) {
+                return {};
+            }
+
             const TopoDS_Face& face = faces[faceId];
 
             BRepAdaptor_Surface surf(face);
 
-            gp_Dir dir;
+            double uMid = (surf.FirstUParameter() + surf.LastUParameter()) * 0.5;
+            double vMid = (surf.FirstVParameter() + surf.LastVParameter()) * 0.5;
 
-            if (surf.GetType() == GeomAbs_Plane) {
-                dir = surf.Plane().Axis().Direction();
+            gp_Pnt point;
+            gp_Vec du;
+            gp_Vec dv;
+
+            surf.D1(uMid, vMid, point, du, dv);
+
+            gp_Vec normal = du.Crossed(dv);
+
+            if (normal.Magnitude() <= 1e-12) {
+                return {};
             }
-            else {
 
-                double uMid = (surf.FirstUParameter() + surf.LastUParameter()) * 0.5;
-                double vMid = (surf.FirstVParameter() + surf.LastVParameter()) * 0.5;
-
-                gp_Pnt point;
-                gp_Vec du;
-                gp_Vec dv;
-
-                surf.D1(uMid, vMid, point, du, dv);
-
-                gp_Vec normal = du.Crossed(dv);
-
-                if (normal.Magnitude() <= 1e-12) {
-                    return {};
-                }
-
-                normal.Normalize();
-                dir = gp_Dir(normal);
-            }
+            normal.Normalize();
 
             if (face.Orientation() == TopAbs_REVERSED) {
-                dir.Reverse();
+                normal.Reverse();
+            }
+
+            TopAbs_ShapeEnum shapeType = shape.ShapeType();
+
+            if (
+                shapeType == TopAbs_SOLID ||
+                shapeType == TopAbs_COMPSOLID ||
+                shapeType == TopAbs_COMPOUND
+            ) {
+                Bnd_Box bounds;
+
+                BRepBndLib::Add(shape, bounds);
+
+                Standard_Real xMin = 0.0;
+                Standard_Real yMin = 0.0;
+                Standard_Real zMin = 0.0;
+                Standard_Real xMax = 0.0;
+                Standard_Real yMax = 0.0;
+                Standard_Real zMax = 0.0;
+
+                bounds.Get(xMin, yMin, zMin, xMax, yMax, zMax);
+
+                gp_Vec diagonal(
+                    xMax - xMin,
+                    yMax - yMin,
+                    zMax - zMin
+                );
+
+                double probeDistance = std::max(1e-6, diagonal.Magnitude() * 1e-6);
+
+                // Normal should point away from the solid. Stepping opposite the
+                // candidate normal must land inside the material.
+                gp_Pnt interiorProbe = point.Translated(normal * -probeDistance);
+
+                BRepClass3d_SolidClassifier classifier(shape);
+
+                classifier.Perform(interiorProbe, 1e-7);
+
+                if (classifier.State() != TopAbs_IN) {
+                    normal.Reverse();
+                }
             }
 
             return {
-                static_cast<float>(dir.X()),
-                static_cast<float>(dir.Y()),
-                static_cast<float>(dir.Z())
+                static_cast<float>(normal.X()),
+                static_cast<float>(normal.Y()),
+                static_cast<float>(normal.Z())
             };
         }
 

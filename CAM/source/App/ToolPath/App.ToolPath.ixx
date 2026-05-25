@@ -37,6 +37,13 @@ export namespace Cam::App {
         bool cutting = true;
     };
 
+    // One slice-layer feature before global linking.
+    struct ToolPathFeature {
+        std::vector<Pos3> approach;
+        std::vector<Pos3> abscond;
+        std::vector<ToolPathPoint> points;
+    };
+
     // Computed tool motion for one material state.
     struct ToolPath {
 
@@ -63,6 +70,7 @@ export namespace Cam::App {
         size_t sliceFaceId = NoSliceFaceId;
 
         // Result
+        std::vector<ToolPathFeature> features;
         std::vector<ToolPathPoint> points;
         bool computed = false;
 
@@ -76,6 +84,7 @@ export namespace Cam::App {
         ToolPath& operator=(ToolPath&&) = default;
 
         void clearPathData() {
+            features.clear();
             points.clear();
             computed = false;
             strategyInstance.reset();
@@ -133,9 +142,15 @@ export namespace Cam::App {
         // Point building
         //--------------------------------------------------
 
-        void addPoint(const Pos& uv, float depth, const Slicer::Strategy::CutFrame& frame, double& t, bool rapid = false, bool cutting = true) {
-            points.push_back({
-                .position = frame.uvToWorld(uv, depth),
+        void appendWorldPoint(
+            std::vector<ToolPathPoint>& out,
+            const Pos3& position,
+            double& t,
+            bool rapid = false,
+            bool cutting = true
+        ) {
+            out.push_back({
+                .position = position,
                 .t = t,
                 .rapid = rapid,
                 .cutting = cutting
@@ -144,10 +159,33 @@ export namespace Cam::App {
             t += 1.0;
         }
 
-        void addSegmentPoints(const Segment& segment, float depth, const Slicer::Strategy::CutFrame& frame, double& t, int samples = 24) {
+        void addPoint(const Pos& uv, float depth, const Slicer::Strategy::CutFrame& frame, double& t, bool rapid = false, bool cutting = true) {
+            appendWorldPoint(points, frame.uvToWorld(uv, depth), t, rapid, cutting);
+        }
+
+        void addFeaturePoint(
+            ToolPathFeature& feature,
+            const Pos& uv,
+            float depth,
+            const Slicer::Strategy::CutFrame& frame,
+            double& t,
+            bool rapid = false,
+            bool cutting = true
+        ) {
+            appendWorldPoint(feature.points, frame.uvToWorld(uv, depth), t, rapid, cutting);
+        }
+
+        void addSegmentPoints(
+            std::vector<ToolPathPoint>& out,
+            const Segment& segment,
+            float depth,
+            const Slicer::Strategy::CutFrame& frame,
+            double& t,
+            int samples = 24
+        ) {
             if (segment.kind == Segment::Kind::Line) {
-                addPoint(segment.start(), depth, frame, t);
-                addPoint(segment.end(), depth, frame, t);
+                appendWorldPoint(out, frame.uvToWorld(segment.start(), depth), t);
+                appendWorldPoint(out, frame.uvToWorld(segment.end(), depth), t);
                 return;
             }
 
@@ -156,30 +194,68 @@ export namespace Cam::App {
             for (int i = 1; i <= samples; i++) {
                 Pos p = segment.at(float(i) / float(samples));
 
-                addPoint(last, depth, frame, t);
-                addPoint(p, depth, frame, t);
+                appendWorldPoint(out, frame.uvToWorld(last, depth), t);
+                appendWorldPoint(out, frame.uvToWorld(p, depth), t);
 
                 last = p;
             }
         }
 
+        void addSegmentPoints(const Segment& segment, float depth, const Slicer::Strategy::CutFrame& frame, double& t, int samples = 24) {
+            addSegmentPoints(points, segment, depth, frame, t, samples);
+        }
+
+        void buildFeatureCuts(
+            const Slicer::Strategy::LayerPath& layer,
+            const Slicer::Strategy::CutFrame& frame,
+            ToolPathFeature& feature,
+            double& t
+        ) {
+            if (!layer.points.empty()) {
+                for (const Pos& p : layer.points) {
+                    addFeaturePoint(feature, p, layer.z, frame, t);
+                }
+
+                return;
+            }
+
+            for (const Segment& segment : layer.segments) {
+                addSegmentPoints(feature.points, segment, layer.z, frame, t);
+            }
+        }
+
+        void flattenFeatureToPoints(const ToolPathFeature& feature, double& t) {
+
+            for (const Pos3& position : feature.approach) {
+                appendWorldPoint(points, position, t, true, false);
+            }
+
+            for (const ToolPathPoint& point : feature.points) {
+                appendWorldPoint(points, point.position, t, point.rapid, point.cutting);
+            }
+
+            for (const Pos3& position : feature.abscond) {
+                appendWorldPoint(points, position, t, true, false);
+            }
+        }
+
         void buildPointsFromStrategy(const Slicer::Strategy::Strategy& strategyImpl, const Slicer::Strategy::CutFrame& frame) {
+            features.clear();
             points.clear();
 
             double t = 0.0;
 
             for (const Slicer::Strategy::LayerPath& layer : strategyImpl.paths()) {
-                if (!layer.points.empty()) {
-                    for (const Pos& p : layer.points) {
-                        addPoint(p, layer.z, frame, t);
-                    }
 
-                    continue;
-                }
+                ToolPathFeature feature;
 
-                for (const Segment& segment : layer.segments) {
-                    addSegmentPoints(segment, layer.z, frame, t);
-                }
+                feature.approach = layer.approach;
+                feature.abscond = layer.abscond;
+
+                buildFeatureCuts(layer, frame, feature, t);
+                flattenFeatureToPoints(feature, t);
+
+                features.push_back(std::move(feature));
             }
         }
 
@@ -243,9 +319,10 @@ export namespace Cam::App {
             computed = !points.empty();
 
             dbg(
-                "[ToolPath] Done. slices=%zu paths=%zu points=%zu computed=%i",
+                "[ToolPath] Done. slices=%zu paths=%zu features=%zu points=%zu computed=%i",
                 strategyImpl.slices().size(),
                 strategyImpl.paths().size(),
+                features.size(),
                 points.size(),
                 int(computed)
             );
@@ -275,19 +352,46 @@ export namespace Cam::App {
         void buildLineSegments(std::vector<Vertex3>& lines) const {
             lines.clear();
 
-            if (points.size() < 2) { return; }
-
             Color cutColor = { 1.0f, 0.0f, 1.0f, 1.0f };
             Color rapidColor = { 0.6f, 0.0f, 1.0f, 0.35f };
 
-            for (size_t i = 0; i + 1 < points.size(); i++) {
-                const Pos3& a = points[i].position;
-                const Pos3& b = points[i + 1].position;
+            for (const ToolPathFeature& feature : features) {
 
-                Color color = points[i + 1].rapid ? rapidColor : cutColor;
+                const std::vector<ToolPathPoint>& featurePoints = feature.points;
 
-                lines.push_back({ a.x, a.y, a.z, color });
-                lines.push_back({ b.x, b.y, b.z, color });
+                if (featurePoints.size() < 2) { continue; }
+
+                for (size_t i = 0; i + 1 < featurePoints.size(); i++) {
+                    const Pos3& a = featurePoints[i].position;
+                    const Pos3& b = featurePoints[i + 1].position;
+
+                    Color color = featurePoints[i + 1].rapid ? rapidColor : cutColor;
+
+                    lines.push_back({ a.x, a.y, a.z, color });
+                    lines.push_back({ b.x, b.y, b.z, color });
+                }
+            }
+        }
+
+        void buildLinkLineSegments(std::vector<Vertex3>& lines) const {
+
+            Color linkColor = { 0.25f, 0.85f, 1.0f, 1.0f };
+
+            auto appendPolyline = [&](const std::vector<Pos3>& path) {
+                if (path.size() < 2) { return; }
+
+                for (size_t i = 0; i + 1 < path.size(); i++) {
+                    const Pos3& a = path[i];
+                    const Pos3& b = path[i + 1];
+
+                    lines.push_back({ a.x, a.y, a.z, linkColor });
+                    lines.push_back({ b.x, b.y, b.z, linkColor });
+                }
+            };
+
+            for (const ToolPathFeature& feature : features) {
+                appendPolyline(feature.approach);
+                appendPolyline(feature.abscond);
             }
         }
 

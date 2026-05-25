@@ -213,8 +213,8 @@ export namespace Cam::App {
             if (!parent->model.loaded) { return; }
             if (!model.loaded) { return; }
 
-            // Removed material = parent state minus current state.
-            delta = Model::Difference(model, parent->model);
+            // Removed material = parent minus current (stock still in parent, not in model).
+            delta = Model::Difference(parent->model, model);
 
             hasDelta = delta.loaded;
 
@@ -259,6 +259,19 @@ export namespace Cam::App {
                 );
                 return;
             }
+
+            toolPath.syncSlicePlaneFromModel(model);
+
+            dbg(
+                "[MaterialState] computeToolPath sliceFace=%zu axis=(%.3f %.3f %.3f) origin=(%.3f %.3f %.3f)",
+                toolPath.sliceFaceId,
+                toolPath.sliceAxis.x,
+                toolPath.sliceAxis.y,
+                toolPath.sliceAxis.z,
+                toolPath.sliceOrigin.x,
+                toolPath.sliceOrigin.y,
+                toolPath.sliceOrigin.z
+            );
 
             hasToolPath = toolPath.compute(delta, parent->model, *tool);
         }
