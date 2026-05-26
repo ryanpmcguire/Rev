@@ -48,7 +48,9 @@ export namespace Cam::Gui {
         OffsetFaces,
         AddTab,
         CenterOrigin,
-        DefineAxisX
+        DefineAxisX,
+        DefineAxisY,
+        DefineAxisZ
     };
 
     struct WorldView : public Box {
@@ -81,6 +83,8 @@ export namespace Cam::Gui {
             { "ef", WorldViewCommand::OffsetFaces },
             { "co", WorldViewCommand::CenterOrigin },
             { "ax", WorldViewCommand::DefineAxisX },
+            { "ay", WorldViewCommand::DefineAxisY },
+            { "az", WorldViewCommand::DefineAxisZ },
         };
 
         // Create
@@ -138,7 +142,17 @@ export namespace Cam::Gui {
                     }
 
                     case WorldViewCommand::DefineAxisX: {
-                        defineAxisXFromSelection(e);
+                        defineAxisFromSelection(e, 'X');
+                        break;
+                    }
+
+                    case WorldViewCommand::DefineAxisY: {
+                        defineAxisFromSelection(e, 'Y');
+                        break;
+                    }
+
+                    case WorldViewCommand::DefineAxisZ: {
+                        defineAxisFromSelection(e, 'Z');
                         break;
                     }
                 }
@@ -211,43 +225,6 @@ export namespace Cam::Gui {
             }
         }
 
-        static void axisFrameFromX(
-            const Rev::Core::Pos3& xIn,
-            Rev::Core::Pos3& xOut,
-            Rev::Core::Pos3& yOut,
-            Rev::Core::Pos3& zOut
-        ) {
-            const float xLen = xIn.pythag();
-
-            if (xLen <= 1e-6f) {
-                xOut = { 1.0f, 0.0f, 0.0f };
-                yOut = { 0.0f, 1.0f, 0.0f };
-                zOut = { 0.0f, 0.0f, 1.0f };
-                return;
-            }
-
-            xOut = xIn / xLen;
-
-            Rev::Core::Pos3 reference = (
-                std::fabs(xOut.z) < 0.9f
-                    ? Rev::Core::Pos3(0.0f, 0.0f, 1.0f)
-                    : Rev::Core::Pos3(1.0f, 0.0f, 0.0f)
-            );
-
-            yOut = reference.cross(xOut);
-
-            const float yLen = yOut.pythag();
-
-            if (yLen <= 1e-6f) {
-                yOut = { 0.0f, 1.0f, 0.0f };
-            }
-            else {
-                yOut /= yLen;
-            }
-
-            zOut = xOut.cross(yOut).normalized();
-        }
-
         void appendAxisLine(
             const Rev::Core::Pos3& origin,
             const Rev::Core::Pos3& direction,
@@ -301,12 +278,20 @@ export namespace Cam::Gui {
 
             Cam::App::Model* model = selectionModel();
 
-            if (model && (model->hasAxisOrigin || model->hasAxisX)) {
+            if (
+                model &&
+                (
+                    model->hasAxisOrigin ||
+                    model->hasAxisX ||
+                    model->hasAxisY ||
+                    model->hasAxisZ
+                )
+            ) {
                 origin = model->axisOrigin;
             }
 
-            if (model && model->hasAxisX) {
-                axisFrameFromX(model->axisXDirection, xDir, yDir, zDir);
+            if (model) {
+                model->getOrthonormalAxisFrame(xDir, yDir, zDir);
             }
 
             appendAxisLine(origin, xDir, { 1.0f, 0.0f, 0.0f, 1.0f }, core, far);
@@ -958,7 +943,7 @@ export namespace Cam::Gui {
             return true;
         }
 
-        bool defineAxisXFromSelection(Event& e) {
+        bool defineAxisFromSelection(Event& e, char axis) {
 
             if (!displayedModelIsEditable()) {
                 dbg("[WorldView] Select the working state to define axes.");
@@ -969,7 +954,30 @@ export namespace Cam::Gui {
 
             if (!editable) { return false; }
 
-            if (!editable->defineAxisXFromSelectedPoints()) {
+            bool defined = false;
+
+            switch (axis) {
+
+                case 'X':
+                case 'x':
+                    defined = editable->defineAxisXFromSelectedPoints();
+                    break;
+
+                case 'Y':
+                case 'y':
+                    defined = editable->defineAxisYFromSelectedPoints();
+                    break;
+
+                case 'Z':
+                case 'z':
+                    defined = editable->defineAxisZFromSelectedPoints();
+                    break;
+
+                default:
+                    return false;
+            }
+
+            if (!defined) {
                 return false;
             }
 

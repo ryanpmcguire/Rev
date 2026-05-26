@@ -100,8 +100,12 @@ export namespace Cam::App {
 
         Rev::Core::Pos3 axisOrigin = {};
         Rev::Core::Pos3 axisXDirection = { 1.0f, 0.0f, 0.0f };
+        Rev::Core::Pos3 axisYDirection = { 0.0f, 1.0f, 0.0f };
+        Rev::Core::Pos3 axisZDirection = { 0.0f, 0.0f, 1.0f };
         bool hasAxisOrigin = false;
         bool hasAxisX = false;
+        bool hasAxisY = false;
+        bool hasAxisZ = false;
 
         bool loaded = false;
         bool changed = false;
@@ -183,6 +187,8 @@ export namespace Cam::App {
             axisPickSelectedPoints.clear();
             hasAxisOrigin = false;
             hasAxisX = false;
+            hasAxisY = false;
+            hasAxisZ = false;
 
             loaded = false;
             changed = false;
@@ -375,6 +381,15 @@ export namespace Cam::App {
 
             hasAxisOrigin = false;
             hasAxisX = false;
+            hasAxisY = false;
+            hasAxisZ = false;
+        }
+
+        void invalidateDefinedAxes() {
+
+            hasAxisX = false;
+            hasAxisY = false;
+            hasAxisZ = false;
         }
 
         void clearAxisPickSelection() {
@@ -414,7 +429,7 @@ export namespace Cam::App {
                         axisPickSelectedPoints.begin() + static_cast<std::ptrdiff_t>(i)
                     );
 
-                    hasAxisX = false;
+                    invalidateDefinedAxes();
 
                     logEvent(format(
                         "[AxisPick] deselected point (%.3f %.3f %.3f) count=%zu",
@@ -433,7 +448,7 @@ export namespace Cam::App {
                 }
 
                 axisPickSelectedPoints.push_back(axisPickCandidates[i]);
-                hasAxisX = false;
+                invalidateDefinedAxes();
 
                 logEvent(format(
                     "[AxisPick] selected point (%.3f %.3f %.3f) count=%zu",
@@ -484,16 +499,87 @@ export namespace Cam::App {
             return true;
         }
 
-        bool defineAxisXFromSelectedPoints() {
+        static Rev::Core::Pos3 normalizeAxisOr(
+            const Rev::Core::Pos3& direction,
+            const Rev::Core::Pos3& fallback
+        ) {
+            const float length = direction.pythag();
 
-            if (!hasAxisOrigin) {
-                logEvent("[AxisPick] define X failed: center origin first (co)");
-                return false;
+            if (length <= 1e-6f) {
+                return fallback;
             }
+
+            return direction / length;
+        }
+
+        static Rev::Core::Pos3 axisPerpendicularToX(const Rev::Core::Pos3& xAxis) {
+
+            Rev::Core::Pos3 reference = (
+                std::fabs(xAxis.z) < 0.9f
+                    ? Rev::Core::Pos3(0.0f, 0.0f, 1.0f)
+                    : Rev::Core::Pos3(1.0f, 0.0f, 0.0f)
+            );
+
+            return normalizeAxisOr(reference.cross(xAxis), { 0.0f, 1.0f, 0.0f });
+        }
+
+        static Rev::Core::Pos3 projectOntoPlane(
+            const Rev::Core::Pos3& vector,
+            const Rev::Core::Pos3& planeNormal
+        ) {
+            return vector - planeNormal * vector.dot(planeNormal);
+        }
+
+        void getOrthonormalAxisFrame(
+            Rev::Core::Pos3& xOut,
+            Rev::Core::Pos3& yOut,
+            Rev::Core::Pos3& zOut
+        ) const {
+
+            xOut = normalizeAxisOr(
+                hasAxisX ? axisXDirection : Rev::Core::Pos3(1.0f, 0.0f, 0.0f),
+                Rev::Core::Pos3(1.0f, 0.0f, 0.0f)
+            );
+
+            if (hasAxisY) {
+                yOut = normalizeAxisOr(
+                    projectOntoPlane(axisYDirection, xOut),
+                    axisPerpendicularToX(xOut)
+                );
+            }
+            else {
+                yOut = axisPerpendicularToX(xOut);
+            }
+
+            zOut = normalizeAxisOr(xOut.cross(yOut), { 0.0f, 0.0f, 1.0f });
+
+            if (hasAxisZ) {
+                const Rev::Core::Pos3 zHint = normalizeAxisOr(
+                    projectOntoPlane(
+                        projectOntoPlane(axisZDirection, xOut),
+                        yOut
+                    ),
+                    zOut
+                );
+
+                if (zHint.dot(zOut) < 0.0f) {
+                    yOut = yOut * -1.0f;
+                    zOut = normalizeAxisOr(xOut.cross(yOut), { 0.0f, 0.0f, 1.0f });
+                }
+            }
+        }
+
+        bool defineAxisFromSelectedPoints(
+            const char* axisName,
+            Rev::Core::Pos3& directionOut,
+            bool& hasAxisOut,
+            char axis
+        ) {
 
             if (axisPickSelectedPoints.size() != 1) {
                 logEvent(format(
-                    "[AxisPick] define X failed: need 1 point (have %zu)",
+                    "[AxisPick] define %s failed: need 1 point (have %zu)",
+                    axisName,
                     axisPickSelectedPoints.size()
                 ));
                 return false;
@@ -503,30 +589,93 @@ export namespace Cam::App {
 
             Rev::Core::Pos3 dir = target - axisOrigin;
 
+            if (axis == 'Y' || axis == 'y') {
+
+                if (hasAxisX) {
+                    const Rev::Core::Pos3 xAxis = normalizeAxisOr(
+                        axisXDirection,
+                        Rev::Core::Pos3(1.0f, 0.0f, 0.0f)
+                    );
+
+                    dir = projectOntoPlane(dir, xAxis);
+                }
+            }
+            else if (axis == 'Z' || axis == 'z') {
+
+                Rev::Core::Pos3 xAxis = {};
+                Rev::Core::Pos3 yAxis = {};
+                Rev::Core::Pos3 zAxis = {};
+
+                getOrthonormalAxisFrame(xAxis, yAxis, zAxis);
+
+                dir = projectOntoPlane(projectOntoPlane(dir, xAxis), yAxis);
+            }
+
             const float length = dir.pythag();
 
             if (length <= 1e-6f) {
-                logEvent("[AxisPick] define X failed: selected point is at the origin");
+                logEvent(format(
+                    "[AxisPick] define %s failed: direction parallel to existing axes",
+                    axisName
+                ));
                 return false;
             }
 
-            axisXDirection = dir / length;
-            hasAxisX = true;
+            directionOut = dir / length;
+            hasAxisOut = true;
+
+            Rev::Core::Pos3 frameX = {};
+            Rev::Core::Pos3 frameY = {};
+            Rev::Core::Pos3 frameZ = {};
+
+            getOrthonormalAxisFrame(frameX, frameY, frameZ);
+
+            if (hasAxisX) { axisXDirection = frameX; }
+            if (hasAxisY) { axisYDirection = frameY; }
+            if (hasAxisZ) { axisZDirection = frameZ; }
 
             logEvent(format(
-                "[AxisPick] +X from origin (%.3f %.3f %.3f) toward (%.3f %.3f %.3f) dir=(%.3f %.3f %.3f)",
+                "[AxisPick] +%s from origin (%.3f %.3f %.3f) toward (%.3f %.3f %.3f) dir=(%.3f %.3f %.3f)",
+                axisName,
                 axisOrigin.x,
                 axisOrigin.y,
                 axisOrigin.z,
                 target.x,
                 target.y,
                 target.z,
-                axisXDirection.x,
-                axisXDirection.y,
-                axisXDirection.z
+                directionOut.x,
+                directionOut.y,
+                directionOut.z
             ));
 
             return true;
+        }
+
+        bool defineAxisXFromSelectedPoints() {
+            return defineAxisFromSelectedPoints(
+                "X",
+                axisXDirection,
+                hasAxisX,
+                'X'
+            );
+        }
+
+        bool defineAxisYFromSelectedPoints() {
+            return defineAxisFromSelectedPoints(
+                "Y",
+                axisYDirection,
+                hasAxisY,
+                'Y'
+            );
+        }
+
+        bool defineAxisZFromSelectedPoints() {
+            return defineAxisFromSelectedPoints(
+                "Z",
+                axisZDirection,
+                hasAxisZ,
+                'Z'
+            );
         }
 
         void setAxisPickFace(size_t faceId) {
