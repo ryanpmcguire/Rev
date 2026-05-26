@@ -12,6 +12,9 @@ module;
 
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Wire.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <TopoDS.hxx>
 
 #include <TopAbs_Orientation.hxx>
@@ -44,6 +47,7 @@ module;
 
 #include <GeomAbs_SurfaceType.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -86,6 +90,9 @@ export namespace Cam::App {
         RenderCache render;
 
         std::set<size_t> selectedFaceIds;
+
+        static constexpr size_t NoAxisPickFaceId = static_cast<size_t>(-1);
+        size_t axisPickFaceId = NoAxisPickFaceId;
 
         bool loaded = false;
         bool changed = false;
@@ -162,6 +169,7 @@ export namespace Cam::App {
             faces.clear();
             render.clear();
             selectedFaceIds.clear();
+            axisPickFaceId = NoAxisPickFaceId;
 
             loaded = false;
             changed = false;
@@ -305,6 +313,132 @@ export namespace Cam::App {
             else {
                 selectFace(faceId);
             }
+        }
+
+        // Axis-definition face pick (alt+click); separate from defeature selection.
+        //--------------------------------------------------
+
+        bool hasAxisPickFace() const {
+            return axisPickFaceId != NoAxisPickFaceId && axisPickFaceId < faces.size();
+        }
+
+        bool isAxisPickFace(size_t faceId) const {
+            return hasAxisPickFace() && axisPickFaceId == faceId;
+        }
+
+        void setAxisPickFace(size_t faceId) {
+
+            if (faceId >= faces.size()) {
+                axisPickFaceId = NoAxisPickFaceId;
+                return;
+            }
+
+            axisPickFaceId = faceId;
+
+            logEvent(format(
+                "[AxisPick] face id=%zu",
+                faceId
+            ));
+        }
+
+        void clearAxisPickFace() {
+
+            if (!hasAxisPickFace()) { return; }
+
+            logEvent(format(
+                "[AxisPick] cleared face id=%zu",
+                axisPickFaceId
+            ));
+
+            axisPickFaceId = NoAxisPickFaceId;
+        }
+
+        void toggleAxisPickFace(size_t faceId) {
+
+            if (isAxisPickFace(faceId)) {
+                clearAxisPickFace();
+            }
+            else {
+                setAxisPickFace(faceId);
+            }
+        }
+
+        std::vector<Rev::Core::Pos3> faceAxisPickMarkers(size_t faceId) const {
+
+            std::vector<Rev::Core::Pos3> markers;
+
+            if (faceId >= faces.size()) {
+                return markers;
+            }
+
+            const TopoDS_Face& face = faces[faceId];
+
+            TopoDS_Wire wire = BRepTools::OuterWire(face);
+
+            if (wire.IsNull()) {
+
+                TopExp_Explorer wireExp(face, TopAbs_WIRE);
+
+                if (!wireExp.More()) {
+                    markers.push_back(facePoint(faceId));
+                    return markers;
+                }
+
+                wire = TopoDS::Wire(wireExp.Current());
+            }
+
+            const float dedupeTolerance = 1e-3f;
+
+            auto appendUnique = [&](const Rev::Core::Pos3& point) {
+
+                for (const Rev::Core::Pos3& existing : markers) {
+
+                    if ((existing - point).pythag() <= dedupeTolerance) {
+                        return;
+                    }
+                }
+
+                markers.push_back(point);
+            };
+
+            auto vertexPosition = [](const TopoDS_Vertex& vertex) -> Rev::Core::Pos3 {
+
+                gp_Pnt point = BRep_Tool::Pnt(vertex);
+
+                gp_Trsf trsf = vertex.Location().Transformation();
+                point.Transform(trsf);
+
+                return {
+                    static_cast<float>(point.X()),
+                    static_cast<float>(point.Y()),
+                    static_cast<float>(point.Z())
+                };
+            };
+
+            for (
+                TopExp_Explorer edgeExp(wire, TopAbs_EDGE);
+                edgeExp.More();
+                edgeExp.Next()
+            ) {
+                TopoDS_Edge edge = TopoDS::Edge(edgeExp.Current());
+
+                TopoDS_Vertex v1;
+                TopoDS_Vertex v2;
+
+                TopExp::Vertices(edge, v1, v2);
+
+                if (!v1.IsNull()) {
+                    appendUnique(vertexPosition(v1));
+                }
+
+                if (!v2.IsNull()) {
+                    appendUnique(vertexPosition(v2));
+                }
+            }
+
+            appendUnique(facePoint(faceId));
+
+            return markers;
         }
 
         size_t selectedFaceCount() const {

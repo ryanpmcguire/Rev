@@ -1,6 +1,8 @@
 module;
 
+#include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <vector>
 
 export module Cam.Gui.World.MaterialState;
@@ -8,9 +10,11 @@ export module Cam.Gui.World.MaterialState;
 import Rev.Graphics.Canvas;
 
 import Rev.Core.Color;
+import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
 import Rev.Primitive.Mesh3d;
+import Rev.Primitive.Lines3d;
 
 import Rev.Element.View3d;
 import Rev.Element.View3d.Actor3d;
@@ -35,6 +39,9 @@ export namespace Cam::Gui::World {
         View3d::Actor* partActor = nullptr;
         View3d::Actor* deltaActor = nullptr;
         View3d::Actor* pickActor = nullptr;
+        View3d::Actor* axisPickMarkerActor = nullptr;
+
+        std::vector<Rev::Core::Vertex3> axisPickMarkers;
 
         Cam::Gui::ToolPath toolPath;
 
@@ -74,6 +81,7 @@ export namespace Cam::Gui::World {
             createPartActor();
             createDeltaActor();
             createPickActor();
+            createAxisPickMarkerActor();
 
             toolPath.create(canvas);
         }
@@ -85,12 +93,14 @@ export namespace Cam::Gui::World {
             delete partActor;
             delete deltaActor;
             delete pickActor;
+            delete axisPickMarkerActor;
 
             toolPath.destroy();
 
             partActor = nullptr;
             deltaActor = nullptr;
             pickActor = nullptr;
+            axisPickMarkerActor = nullptr;
 
             canvas = nullptr;
             state = nullptr;
@@ -109,6 +119,7 @@ export namespace Cam::Gui::World {
             view->addActor(partActor);
             view->addActor(toolPath.actor);
             view->addActor(deltaActor);
+            view->addActor(axisPickMarkerActor);
             view->addActor(pickActor);
 
             attached = true;
@@ -120,6 +131,7 @@ export namespace Cam::Gui::World {
 
             if (partActor) { view->removeActor(partActor); }
             if (deltaActor) { view->removeActor(deltaActor); }
+            if (axisPickMarkerActor) { view->removeActor(axisPickMarkerActor); }
             if (pickActor) { view->removeActor(pickActor); }
             if (toolPath.actor) { view->removeActor(toolPath.actor); }
 
@@ -188,6 +200,78 @@ export namespace Cam::Gui::World {
                 0.0f,
                 0.0f
             };
+        }
+
+        void createAxisPickMarkerActor() {
+
+            axisPickMarkerActor = new View3d::Actor();
+
+            axisPickMarkerActor->visible = false;
+            axisPickMarkerActor->selectable = false;
+            axisPickMarkerActor->ownsLines = true;
+            axisPickMarkerActor->includeInFit = false;
+
+            axisPickMarkerActor->lines = new Rev::Primitives::Lines3d(canvas, {
+                .lines = &axisPickMarkers
+            });
+
+            axisPickMarkerActor->lines->color = {
+                1.0f,
+                0.55f,
+                0.12f,
+                1.0f
+            };
+        }
+
+        static void appendMarkerCross(
+            std::vector<Rev::Core::Vertex3>& lines,
+            const Rev::Core::Pos3& center,
+            float size,
+            const Rev::Core::Color& color
+        ) {
+            const Rev::Core::Pos3 axes[3] = {
+                { size, 0.0f, 0.0f },
+                { 0.0f, size, 0.0f },
+                { 0.0f, 0.0f, size }
+            };
+
+            for (const Rev::Core::Pos3& axis : axes) {
+
+                Rev::Core::Pos3 a = center - axis;
+                Rev::Core::Pos3 b = center + axis;
+
+                lines.push_back({
+                    a.x, a.y, a.z, color
+                });
+
+                lines.push_back({
+                    b.x, b.y, b.z, color
+                });
+            }
+        }
+
+        static float axisPickMarkerSize(
+            const std::vector<Rev::Core::Pos3>& points
+        ) {
+            if (points.empty()) {
+                return 1.0f;
+            }
+
+            Rev::Core::Pos3 min = points[0];
+            Rev::Core::Pos3 max = points[0];
+
+            for (const Rev::Core::Pos3& point : points) {
+                min.x = std::min(min.x, point.x);
+                min.y = std::min(min.y, point.y);
+                min.z = std::min(min.z, point.z);
+                max.x = std::max(max.x, point.x);
+                max.y = std::max(max.y, point.y);
+                max.z = std::max(max.z, point.z);
+            }
+
+            const float span = (max - min).pythag();
+
+            return std::clamp(span * 0.06f, 0.5f, 8.0f);
         }
 
         // Model access
@@ -281,6 +365,7 @@ export namespace Cam::Gui::World {
             syncDelta();
             syncPick();
             syncToolPath(toolPathPreviewProgress);
+            syncAxisPickMarkers();
         }
 
         void syncPart() {
@@ -355,6 +440,51 @@ export namespace Cam::Gui::World {
             toolPath.sync(state, toolPathPreviewProgress);
         }
 
+        void syncAxisPickMarkers() {
+
+            if (!axisPickMarkerActor || !axisPickMarkerActor->lines) { return; }
+
+            axisPickMarkers.clear();
+
+            Cam::App::Model* model = selectionModel();
+
+            if (
+                !state ||
+                !model ||
+                !showPick ||
+                !model->hasAxisPickFace()
+            ) {
+                axisPickMarkerActor->visible = false;
+                axisPickMarkerActor->lines->dirty = true;
+                return;
+            }
+
+            std::vector<Rev::Core::Pos3> points =
+                model->faceAxisPickMarkers(model->axisPickFaceId);
+
+            if (points.empty()) {
+                axisPickMarkerActor->visible = false;
+                axisPickMarkerActor->lines->dirty = true;
+                return;
+            }
+
+            const float markerSize = axisPickMarkerSize(points);
+
+            Rev::Core::Color markerColor = {
+                1.0f,
+                0.55f,
+                0.12f,
+                1.0f
+            };
+
+            for (const Rev::Core::Pos3& point : points) {
+                appendMarkerCross(axisPickMarkers, point, markerSize, markerColor);
+            }
+
+            axisPickMarkerActor->visible = true;
+            axisPickMarkerActor->lines->dirty = true;
+        }
+
         // Selection display
         //--------------------------------------------------
 
@@ -386,6 +516,13 @@ export namespace Cam::Gui::World {
                 1.0f
             };
 
+            Rev::Core::Color axisPick = {
+                0.55f,
+                0.95f,
+                0.45f,
+                1.0f
+            };
+
             Rev::Core::Color slicePlane = {
                 0.55f,
                 0.82f,
@@ -411,6 +548,9 @@ export namespace Cam::Gui::World {
 
                 if (faceId == sliceFaceId) {
                     color = slicePlane;
+                }
+                else if (model->isAxisPickFace(faceId)) {
+                    color = axisPick;
                 }
                 else if (model->isFaceSelected(faceId)) {
                     color = selected;

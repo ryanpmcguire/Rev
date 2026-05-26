@@ -741,6 +741,45 @@ export namespace Cam::Gui {
             sync(e);
         }
 
+        void selectAxisPickFaceAtMouse(Event& e) {
+
+            if (!app || !view3d) { return; }
+
+            if (!displayedModelIsEditable()) {
+                dbg("Select the working state to pick axis reference faces.");
+                return;
+            }
+
+            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+
+            if (!worldState || !worldState->pickActor) { return; }
+
+            Cam::App::Model* editable = selectionModel();
+
+            if (!editable) { return; }
+
+            View3d::Hit hit;
+
+            if (!view3d->hitTest(e.mouse.pos, hit)) { return; }
+            if (hit.actor != worldState->pickActor) { return; }
+
+            size_t tri = hit.triangleId;
+
+            if (tri >= editable->render.triangleFaceIds.size()) { return; }
+
+            size_t faceId = editable->render.triangleFaceIds[tri];
+
+            editable->toggleAxisPickFace(faceId);
+
+            dbg(
+                "[WorldView] Axis pick face %zu%s",
+                faceId,
+                editable->hasAxisPickFace() ? "" : " (cleared)"
+            );
+
+            sync(e);
+        }
+
         void selectSliceFaceAtMouse(Event& e) {
 
             if (!app || !view3d) { return; }
@@ -878,6 +917,14 @@ export namespace Cam::Gui {
         //--------------------------------------------------
 
         void mouseDown(Event& e) override {
+
+            if (e.keyboard.alt) {
+
+                selectAxisPickFaceAtMouse(e);
+
+                e.propagate = false;
+                return;
+            }
 
             if (e.keyboard.ctrl) {
 

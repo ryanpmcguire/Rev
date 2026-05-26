@@ -84,8 +84,14 @@ export namespace Rev {
         inline static const std::unordered_map<int, Key> WinKeys = {
 
             { VK_CONTROL, Key::Ctrl },
+            { VK_LCONTROL, Key::Ctrl },
+            { VK_RCONTROL, Key::Ctrl },
             { VK_SHIFT,   Key::Shift },
+            { VK_LSHIFT,  Key::Shift },
+            { VK_RSHIFT,  Key::Shift },
             { VK_MENU,    Key::Alt },
+            { VK_LMENU,   Key::Alt },
+            { VK_RMENU,   Key::Alt },
             { VK_LWIN,    Key::Super }, { VK_RWIN, Key::Super },
         
             { VK_UP,    Key::Up }, { VK_DOWN,  Key::Down },
@@ -853,6 +859,24 @@ export namespace Rev {
             return (it != WinKeys.end()) ? it->second : Key::Unknown;
         }
 
+        // Win32 routes Alt (and other system combos) through WM_SYSKEY* instead of WM_KEY*.
+        bool notifyKeyboard(WPARAM wp, int action) {
+
+            Key key = getKey(wp);
+
+            if (key == Key::Unknown) {
+                return false;
+            }
+
+            notifyEvent({
+                WinEvent::Type::Keyboard,
+                static_cast<uint64_t>(key),
+                static_cast<uint64_t>(action)
+            });
+
+            return true;
+        }
+
         // Get self (user pointer) from window handle
         static NativeWindow* Self(HWND h) {
             return reinterpret_cast<NativeWindow*>(GetWindowLongPtrW(h, GWLP_USERDATA));
@@ -1135,9 +1159,19 @@ export namespace Rev {
                 case (WM_RBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
                 case (WM_MBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
       
-                // Keyboard
-                case (WM_KEYDOWN): { self->notifyEvent({ WinEvent::Type::Keyboard, (uint64_t)self->getKey(wp), 1 }); return 0; }
-                case (WM_KEYUP): { self->notifyEvent({ WinEvent::Type::Keyboard, (uint64_t)self->getKey(wp), 0 }); return 0; }
+                // Keyboard (WM_SYSKEY* is required for Alt / Alt+key on Windows)
+                case (WM_KEYDOWN):
+                case (WM_SYSKEYDOWN): {
+                    if (self && self->notifyKeyboard(wp, 1)) { return 0; }
+                    break;
+                }
+
+                case (WM_KEYUP):
+                case (WM_SYSKEYUP): {
+                    if (self && self->notifyKeyboard(wp, 0)) { return 0; }
+                    break;
+                }
+
                 case (WM_CHAR): { self->notifyEvent({ WinEvent::Type::Character, (uint64_t)(wp) }); return 0; }
             }
 
