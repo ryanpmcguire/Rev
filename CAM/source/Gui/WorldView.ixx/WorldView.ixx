@@ -46,7 +46,9 @@ export namespace Cam::Gui {
     enum class WorldViewCommand {
         Defeature,
         OffsetFaces,
-        AddTab
+        AddTab,
+        CenterOrigin,
+        DefineAxisX
     };
 
     struct WorldView : public Box {
@@ -77,6 +79,8 @@ export namespace Cam::Gui {
         GestureTracker<WorldViewCommand> gestures = {
             { "df", WorldViewCommand::Defeature },
             { "ef", WorldViewCommand::OffsetFaces },
+            { "co", WorldViewCommand::CenterOrigin },
+            { "ax", WorldViewCommand::DefineAxisX },
         };
 
         // Create
@@ -97,7 +101,8 @@ export namespace Cam::Gui {
 
             createToolPathPreviewSlider();
 
-            createTestLines();
+            createAxisLineActor();
+            syncAxisLines();
 
             syncRepresentedProject();
 
@@ -124,6 +129,16 @@ export namespace Cam::Gui {
 
                     case WorldViewCommand::AddTab: {
                         dbg("[WorldView] AddTab gesture (not implemented)");
+                        break;
+                    }
+
+                    case WorldViewCommand::CenterOrigin: {
+                        centerOriginFromSelection(e);
+                        break;
+                    }
+
+                    case WorldViewCommand::DefineAxisX: {
+                        defineAxisXFromSelection(e);
                         break;
                     }
                 }
@@ -196,60 +211,112 @@ export namespace Cam::Gui {
             }
         }
 
-        void createTestLines() {
+        static void axisFrameFromX(
+            const Rev::Core::Pos3& xIn,
+            Rev::Core::Pos3& xOut,
+            Rev::Core::Pos3& yOut,
+            Rev::Core::Pos3& zOut
+        ) {
+            const float xLen = xIn.pythag();
+
+            if (xLen <= 1e-6f) {
+                xOut = { 1.0f, 0.0f, 0.0f };
+                yOut = { 0.0f, 1.0f, 0.0f };
+                zOut = { 0.0f, 0.0f, 1.0f };
+                return;
+            }
+
+            xOut = xIn / xLen;
+
+            Rev::Core::Pos3 reference = (
+                std::fabs(xOut.z) < 0.9f
+                    ? Rev::Core::Pos3(0.0f, 0.0f, 1.0f)
+                    : Rev::Core::Pos3(1.0f, 0.0f, 0.0f)
+            );
+
+            yOut = reference.cross(xOut);
+
+            const float yLen = yOut.pythag();
+
+            if (yLen <= 1e-6f) {
+                yOut = { 0.0f, 1.0f, 0.0f };
+            }
+            else {
+                yOut /= yLen;
+            }
+
+            zOut = xOut.cross(yOut).normalized();
+        }
+
+        void appendAxisLine(
+            const Rev::Core::Pos3& origin,
+            const Rev::Core::Pos3& direction,
+            const Rev::Core::Color& color,
+            float core,
+            float far
+        ) {
+            Rev::Core::Color full = color;
+            Rev::Core::Color soft = color;
+            Rev::Core::Color fade = color;
+
+            full.a = 1.0f;
+            soft.a = 0.8f;
+            fade.a = 0.0f;
+
+            const Rev::Core::Pos3 nFar = origin + direction * -far;
+            const Rev::Core::Pos3 nCore = origin + direction * -core;
+            const Rev::Core::Pos3 pCore = origin + direction * core;
+            const Rev::Core::Pos3 pFar = origin + direction * far;
+
+            auto addPoint = [this](const Rev::Core::Pos3& p, const Rev::Core::Color& c) {
+                testLines.push_back({ p.x, p.y, p.z, c });
+            };
+
+            addPoint(nFar, fade);
+            addPoint(nCore, soft);
+
+            addPoint(nCore, soft);
+            addPoint(origin, full);
+
+            addPoint(origin, full);
+            addPoint(pCore, soft);
+
+            addPoint(pCore, soft);
+            addPoint(pFar, fade);
+        }
+
+        void syncAxisLines() {
 
             testLines.clear();
 
-            auto addLinePoint = [this](
-                const Rev::Core::Pos3& p,
-                const Rev::Core::Color& color
-            ) {
-                testLines.push_back({
-                    p.x,
-                    p.y,
-                    p.z,
-                    color
-                });
-            };
+            if (!lineActor || !lineActor->lines) { return; }
 
-            auto addAxis = [this, &addLinePoint](
-                const Rev::Core::Pos3& dir,
-                Rev::Core::Color color
-            ) {
-                float core = 2.0f;
-                float far = 90.0f;
+            constexpr float core = 2.0f;
+            constexpr float far = 90.0f;
 
-                Rev::Core::Color full = color;
-                Rev::Core::Color soft = color;
-                Rev::Core::Color fade = color;
+            Rev::Core::Pos3 origin = { 0.0f, 0.0f, 0.0f };
+            Rev::Core::Pos3 xDir = { 1.0f, 0.0f, 0.0f };
+            Rev::Core::Pos3 yDir = { 0.0f, 1.0f, 0.0f };
+            Rev::Core::Pos3 zDir = { 0.0f, 0.0f, 1.0f };
 
-                full.a = 1.0f;
-                soft.a = 0.8f;
-                fade.a = 0.0f;
+            Cam::App::Model* model = selectionModel();
 
-                Rev::Core::Pos3 origin = { 0.0f, 0.0f, 0.0f };
+            if (model && (model->hasAxisOrigin || model->hasAxisX)) {
+                origin = model->axisOrigin;
+            }
 
-                Rev::Core::Pos3 nFar = dir * -far;
-                Rev::Core::Pos3 nCore = dir * -core;
-                Rev::Core::Pos3 pCore = dir * core;
-                Rev::Core::Pos3 pFar = dir * far;
+            if (model && model->hasAxisX) {
+                axisFrameFromX(model->axisXDirection, xDir, yDir, zDir);
+            }
 
-                addLinePoint(nFar, fade);
-                addLinePoint(nCore, soft);
+            appendAxisLine(origin, xDir, { 1.0f, 0.0f, 0.0f, 1.0f }, core, far);
+            appendAxisLine(origin, yDir, { 0.0f, 1.0f, 0.0f, 1.0f }, core, far);
+            appendAxisLine(origin, zDir, { 0.0f, 0.25f, 1.0f, 1.0f }, core, far);
 
-                addLinePoint(nCore, soft);
-                addLinePoint(origin, full);
+            lineActor->lines->dirty = true;
+        }
 
-                addLinePoint(origin, full);
-                addLinePoint(pCore, soft);
-
-                addLinePoint(pCore, soft);
-                addLinePoint(pFar, fade);
-            };
-
-            addAxis({ 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f });
-            addAxis({ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f });
-            addAxis({ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.25f, 1.0f, 1.0f });
+        void createAxisLineActor() {
 
             lineActor = new View3d::Actor();
 
@@ -684,6 +751,7 @@ export namespace Cam::Gui {
 
             applyVisibilityPolicy();
             syncAllMaterialViews();
+            syncAxisLines();
         }
 
         // External sync hook
@@ -778,6 +846,137 @@ export namespace Cam::Gui {
             );
 
             sync(e);
+        }
+
+        View3d::Ray pickRayFromMouse(Event& e) const {
+
+            return view3d->camera.rayFromMouse(
+                e.mouse.pos,
+                view3d->canvasWidth(),
+                view3d->canvasHeight()
+            );
+        }
+
+        bool trySelectDisplayedPickPointAtMouse(Event& e) {
+
+            if (!app || !view3d) { return false; }
+
+            if (!displayedModelIsEditable()) {
+                return false;
+            }
+
+            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+
+            if (!worldState) { return false; }
+
+            Cam::App::Model* editable = selectionModel();
+
+            if (!editable) { return false; }
+
+            Rev::Core::Pos3 hitPoint;
+
+            if (!worldState->hitTestDisplayedPickPoint(
+                pickRayFromMouse(e),
+                editable,
+                hitPoint
+            )) {
+                return false;
+            }
+
+            if (!editable->toggleAxisPickPoint(hitPoint)) {
+                return false;
+            }
+
+            dbg("[WorldView] selecting the point!");
+
+            sync(e);
+
+            return true;
+        }
+
+        void updateAxisPickHover(Event& e) {
+
+            if (!view3d) { return; }
+
+            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+
+            if (!worldState) { return; }
+
+            Cam::App::Model* editable = selectionModel();
+
+            const bool hasDisplayedPoints =
+                editable &&
+                (
+                    !editable->axisPickCandidates.empty() ||
+                    !editable->axisPickSelectedPoints.empty()
+                );
+
+            if (!hasDisplayedPoints) {
+                worldState->setAxisPickHoveredCandidate(
+                    Cam::Gui::World::MaterialState::NoAxisPickHover
+                );
+                worldState->syncAxisPickMarkers();
+                return;
+            }
+
+            size_t hitIndex = Cam::Gui::World::MaterialState::NoAxisPickHover;
+
+            Rev::Core::Pos3 hitPoint;
+
+            worldState->hitTestDisplayedPickPoint(
+                pickRayFromMouse(e),
+                editable,
+                hitPoint,
+                &hitIndex
+            );
+
+            worldState->setAxisPickHoveredCandidate(hitIndex);
+
+            if (worldState->axisPickMarkerActor && worldState->axisPickMarkerActor->lines) {
+                worldState->syncAxisPickMarkers();
+            }
+        }
+
+        bool centerOriginFromSelection(Event& e) {
+
+            if (!displayedModelIsEditable()) {
+                dbg("[WorldView] Select the working state to center the origin.");
+                return false;
+            }
+
+            Cam::App::Model* editable = selectionModel();
+
+            if (!editable) { return false; }
+
+            if (!editable->centerOriginFromSelectedPoints()) {
+                return false;
+            }
+
+            sync(e);
+            notifyStateChanged(e);
+
+            return true;
+        }
+
+        bool defineAxisXFromSelection(Event& e) {
+
+            if (!displayedModelIsEditable()) {
+                dbg("[WorldView] Select the working state to define axes.");
+                return false;
+            }
+
+            Cam::App::Model* editable = selectionModel();
+
+            if (!editable) { return false; }
+
+            if (!editable->defineAxisXFromSelectedPoints()) {
+                return false;
+            }
+
+            sync(e);
+            notifyStateChanged(e);
+
+            return true;
         }
 
         void selectSliceFaceAtMouse(Event& e) {
@@ -916,9 +1115,21 @@ export namespace Cam::Gui {
         // Events
         //--------------------------------------------------
 
+        void mouseMove(Event& e) override {
+
+            updateAxisPickHover(e);
+
+            Box::mouseMove(e);
+        }
+
         void mouseDown(Event& e) override {
 
             if (e.keyboard.alt) {
+
+                if (trySelectDisplayedPickPointAtMouse(e)) {
+                    e.propagate = false;
+                    return;
+                }
 
                 selectAxisPickFaceAtMouse(e);
 
@@ -927,6 +1138,11 @@ export namespace Cam::Gui {
             }
 
             if (e.keyboard.ctrl) {
+
+                if (trySelectDisplayedPickPointAtMouse(e)) {
+                    e.propagate = false;
+                    return;
+                }
 
                 selectFaceAtMouse(e);
 
@@ -944,6 +1160,12 @@ export namespace Cam::Gui {
                 float dragDistance = (e.mouse.pos - e.mouse.down).pythag();
 
                 if (dragDistance < 5.0f) {
+
+                    if (trySelectDisplayedPickPointAtMouse(e)) {
+                        e.propagate = false;
+                        return;
+                    }
+
                     selectSliceFaceAtMouse(e);
 
                     e.propagate = false;
@@ -954,7 +1176,52 @@ export namespace Cam::Gui {
             Box::mouseUp(e);
         }
 
+        void clearAllSelections(Event& e) {
+
+            bool changed = false;
+
+            Cam::App::Model* model = selectionModel();
+
+            if (model) {
+                const bool hadModelSelection =
+                    !model->selectedFaceIds.empty() ||
+                    model->hasAxisPickFace() ||
+                    !model->axisPickSelectedPoints.empty();
+
+                if (hadModelSelection) {
+                    model->clearAllSelections();
+                    changed = true;
+                }
+            }
+
+            Cam::App::MaterialState* material = displayedState();
+
+            if (material && material->toolPath.hasSliceFace()) {
+                material->toolPath.clearSlicePlane();
+                changed = true;
+            }
+
+            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+
+            if (worldState) {
+                worldState->setAxisPickHoveredCandidate(
+                    Cam::Gui::World::MaterialState::NoAxisPickHover
+                );
+            }
+
+            if (changed) {
+                sync(e);
+                notifyStateChanged(e);
+            }
+        }
+
         void keyDown(Event& e) override {
+
+            if (e.keyboard.key == "escape") {
+                clearAllSelections(e);
+                e.propagate = false;
+                return;
+            }
 
             if (gestures.track(e)) {
                 e.propagate = false;

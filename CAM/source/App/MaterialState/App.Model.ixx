@@ -92,7 +92,16 @@ export namespace Cam::App {
         std::set<size_t> selectedFaceIds;
 
         static constexpr size_t NoAxisPickFaceId = static_cast<size_t>(-1);
+        static constexpr size_t NoAxisPickCandidateIndex = static_cast<size_t>(-1);
+
         size_t axisPickFaceId = NoAxisPickFaceId;
+        std::vector<Rev::Core::Pos3> axisPickCandidates;
+        std::vector<Rev::Core::Pos3> axisPickSelectedPoints;
+
+        Rev::Core::Pos3 axisOrigin = {};
+        Rev::Core::Pos3 axisXDirection = { 1.0f, 0.0f, 0.0f };
+        bool hasAxisOrigin = false;
+        bool hasAxisX = false;
 
         bool loaded = false;
         bool changed = false;
@@ -170,6 +179,10 @@ export namespace Cam::App {
             render.clear();
             selectedFaceIds.clear();
             axisPickFaceId = NoAxisPickFaceId;
+            axisPickCandidates.clear();
+            axisPickSelectedPoints.clear();
+            hasAxisOrigin = false;
+            hasAxisX = false;
 
             loaded = false;
             changed = false;
@@ -272,6 +285,24 @@ export namespace Cam::App {
             selectedFaceIds.clear();
         }
 
+        void clearAllSelections() {
+
+            clearSelection();
+
+            if (hasAxisPickFace()) {
+                logEvent(format(
+                    "[AxisPick] cleared face id=%zu",
+                    axisPickFaceId
+                ));
+            }
+
+            axisPickFaceId = NoAxisPickFaceId;
+            axisPickCandidates.clear();
+            clearAxisPickPointSelection();
+
+            logEvent("[Selection] clearAllSelections");
+        }
+
         void selectFace(size_t faceId) {
             if (faceId >= faces.size()) {
                 logEvent(format(
@@ -326,18 +357,195 @@ export namespace Cam::App {
             return hasAxisPickFace() && axisPickFaceId == faceId;
         }
 
+        void refreshAxisPickCandidates() {
+
+            axisPickCandidates.clear();
+
+            if (!hasAxisPickFace()) { return; }
+
+            axisPickCandidates = faceAxisPickMarkers(axisPickFaceId);
+        }
+
+        void clearAxisPickPointSelection() {
+
+            axisPickSelectedPoints.clear();
+        }
+
+        void clearAxisFrame() {
+
+            hasAxisOrigin = false;
+            hasAxisX = false;
+        }
+
+        void clearAxisPickSelection() {
+
+            clearAxisPickPointSelection();
+            clearAxisFrame();
+        }
+
+        bool isAxisPickCandidateSelected(size_t candidateIndex) const {
+
+            if (candidateIndex >= axisPickCandidates.size()) {
+                return false;
+            }
+
+            const Rev::Core::Pos3& point = axisPickCandidates[candidateIndex];
+            const float tolerance = 1e-3f;
+
+            for (const Rev::Core::Pos3& selected : axisPickSelectedPoints) {
+
+                if ((selected - point).pythag() <= tolerance) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool toggleAxisPickPoint(const Rev::Core::Pos3& point) {
+
+            const float tolerance = 1e-3f;
+
+            for (size_t i = 0; i < axisPickSelectedPoints.size(); i++) {
+
+                if ((axisPickSelectedPoints[i] - point).pythag() <= tolerance) {
+
+                    axisPickSelectedPoints.erase(
+                        axisPickSelectedPoints.begin() + static_cast<std::ptrdiff_t>(i)
+                    );
+
+                    hasAxisX = false;
+
+                    logEvent(format(
+                        "[AxisPick] deselected point (%.3f %.3f %.3f) count=%zu",
+                        point.x, point.y, point.z,
+                        axisPickSelectedPoints.size()
+                    ));
+
+                    return true;
+                }
+            }
+
+            for (size_t i = 0; i < axisPickCandidates.size(); i++) {
+
+                if ((axisPickCandidates[i] - point).pythag() > tolerance) {
+                    continue;
+                }
+
+                axisPickSelectedPoints.push_back(axisPickCandidates[i]);
+                hasAxisX = false;
+
+                logEvent(format(
+                    "[AxisPick] selected point (%.3f %.3f %.3f) count=%zu",
+                    point.x, point.y, point.z,
+                    axisPickSelectedPoints.size()
+                ));
+
+                return true;
+            }
+
+            return false;
+        }
+
+        bool toggleAxisPickCandidate(size_t candidateIndex) {
+
+            if (candidateIndex >= axisPickCandidates.size()) {
+                return false;
+            }
+
+            return toggleAxisPickPoint(axisPickCandidates[candidateIndex]);
+        }
+
+        bool centerOriginFromSelectedPoints() {
+
+            if (axisPickSelectedPoints.size() != 2) {
+                logEvent(format(
+                    "[AxisPick] center origin failed: need 2 points (have %zu)",
+                    axisPickSelectedPoints.size()
+                ));
+                return false;
+            }
+
+            const Rev::Core::Pos3& a = axisPickSelectedPoints[0];
+            const Rev::Core::Pos3& b = axisPickSelectedPoints[1];
+
+            axisOrigin = a.centerTo(b);
+            hasAxisOrigin = true;
+
+            logEvent(format(
+                "[AxisPick] origin centered at (%.3f %.3f %.3f) between (%.3f %.3f %.3f) and (%.3f %.3f %.3f)",
+                axisOrigin.x,
+                axisOrigin.y,
+                axisOrigin.z,
+                a.x, a.y, a.z,
+                b.x, b.y, b.z
+            ));
+
+            return true;
+        }
+
+        bool defineAxisXFromSelectedPoints() {
+
+            if (!hasAxisOrigin) {
+                logEvent("[AxisPick] define X failed: center origin first (co)");
+                return false;
+            }
+
+            if (axisPickSelectedPoints.size() != 1) {
+                logEvent(format(
+                    "[AxisPick] define X failed: need 1 point (have %zu)",
+                    axisPickSelectedPoints.size()
+                ));
+                return false;
+            }
+
+            const Rev::Core::Pos3& target = axisPickSelectedPoints[0];
+
+            Rev::Core::Pos3 dir = target - axisOrigin;
+
+            const float length = dir.pythag();
+
+            if (length <= 1e-6f) {
+                logEvent("[AxisPick] define X failed: selected point is at the origin");
+                return false;
+            }
+
+            axisXDirection = dir / length;
+            hasAxisX = true;
+
+            logEvent(format(
+                "[AxisPick] +X from origin (%.3f %.3f %.3f) toward (%.3f %.3f %.3f) dir=(%.3f %.3f %.3f)",
+                axisOrigin.x,
+                axisOrigin.y,
+                axisOrigin.z,
+                target.x,
+                target.y,
+                target.z,
+                axisXDirection.x,
+                axisXDirection.y,
+                axisXDirection.z
+            ));
+
+            return true;
+        }
+
         void setAxisPickFace(size_t faceId) {
 
             if (faceId >= faces.size()) {
                 axisPickFaceId = NoAxisPickFaceId;
+                axisPickCandidates.clear();
+                clearAxisPickSelection();
                 return;
             }
 
             axisPickFaceId = faceId;
+            refreshAxisPickCandidates();
 
             logEvent(format(
-                "[AxisPick] face id=%zu",
-                faceId
+                "[AxisPick] face id=%zu candidates=%zu selected=%zu",
+                faceId,
+                axisPickCandidates.size(),
+                axisPickSelectedPoints.size()
             ));
         }
 
@@ -351,6 +559,8 @@ export namespace Cam::App {
             ));
 
             axisPickFaceId = NoAxisPickFaceId;
+            axisPickCandidates.clear();
+            clearAxisPickSelection();
         }
 
         void toggleAxisPickFace(size_t faceId) {

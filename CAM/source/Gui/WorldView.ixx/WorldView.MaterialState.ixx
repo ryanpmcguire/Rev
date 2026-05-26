@@ -3,6 +3,7 @@ module;
 #include <algorithm>
 #include <cstddef>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 export module Cam.Gui.World.MaterialState;
@@ -42,6 +43,9 @@ export namespace Cam::Gui::World {
         View3d::Actor* axisPickMarkerActor = nullptr;
 
         std::vector<Rev::Core::Vertex3> axisPickMarkers;
+
+        static constexpr size_t NoAxisPickHover = static_cast<size_t>(-1);
+        size_t axisPickHoveredCandidate = NoAxisPickHover;
 
         Cam::Gui::ToolPath toolPath;
 
@@ -274,6 +278,142 @@ export namespace Cam::Gui::World {
             return std::clamp(span * 0.06f, 0.5f, 8.0f);
         }
 
+        float axisPickMarkerSizeForModel(Cam::App::Model* model) const {
+
+            if (!model || !model->hasAxisPickFace()) {
+                return 1.0f;
+            }
+
+            return axisPickMarkerSize(model->axisPickCandidates);
+        }
+
+        static float rayPointDistance(
+            const View3d::Ray& ray,
+            const Rev::Core::Pos3& point
+        ) {
+            Rev::Core::Pos3 along = point - ray.origin;
+
+            const float t = along.dot(ray.direction);
+
+            if (t < 0.0f) {
+                return std::numeric_limits<float>::max();
+            }
+
+            Rev::Core::Pos3 closest = ray.origin + ray.direction * t;
+
+            return (point - closest).pythag();
+        }
+
+        bool hitTestDisplayedPickPoint(
+            const View3d::Ray& ray,
+            Cam::App::Model* model,
+            Rev::Core::Pos3& outPoint,
+            size_t* outCandidateIndex = nullptr
+        ) const {
+
+            outPoint = {};
+
+            if (outCandidateIndex) {
+                *outCandidateIndex = NoAxisPickHover;
+            }
+
+            if (!model) {
+                return false;
+            }
+
+            const bool hasCandidates = !model->axisPickCandidates.empty();
+            const bool hasSelected = !model->axisPickSelectedPoints.empty();
+
+            if (!hasCandidates && !hasSelected) {
+                return false;
+            }
+
+            std::vector<Rev::Core::Pos3> sizingPoints;
+
+            if (hasCandidates) {
+                sizingPoints = model->axisPickCandidates;
+            }
+
+            for (const Rev::Core::Pos3& point : model->axisPickSelectedPoints) {
+                sizingPoints.push_back(point);
+            }
+
+            const float markerSize = axisPickMarkerSize(sizingPoints);
+            const float pickRadius = markerSize * 1.35f;
+
+            float bestDistance = pickRadius;
+            bool found = false;
+            size_t bestCandidateIndex = NoAxisPickHover;
+
+            for (size_t i = 0; i < model->axisPickCandidates.size(); i++) {
+
+                const float distance = rayPointDistance(
+                    ray,
+                    model->axisPickCandidates[i]
+                );
+
+                if (distance <= bestDistance) {
+                    bestDistance = distance;
+                    outPoint = model->axisPickCandidates[i];
+                    bestCandidateIndex = i;
+                    found = true;
+                }
+            }
+
+            for (const Rev::Core::Pos3& point : model->axisPickSelectedPoints) {
+
+                const float distance = rayPointDistance(ray, point);
+
+                if (distance > bestDistance) {
+                    continue;
+                }
+
+                bestDistance = distance;
+                outPoint = point;
+                bestCandidateIndex = NoAxisPickHover;
+
+                for (size_t i = 0; i < model->axisPickCandidates.size(); i++) {
+
+                    if ((model->axisPickCandidates[i] - point).pythag() <= 1e-3f) {
+                        bestCandidateIndex = i;
+                        break;
+                    }
+                }
+
+                found = true;
+            }
+
+            if (found && outCandidateIndex) {
+                *outCandidateIndex = bestCandidateIndex;
+            }
+
+            return found;
+        }
+
+        bool hitTestAxisPickCandidate(
+            const View3d::Ray& ray,
+            Cam::App::Model* model,
+            size_t& outIndex
+        ) const {
+
+            Rev::Core::Pos3 hitPoint;
+
+            return hitTestDisplayedPickPoint(ray, model, hitPoint, &outIndex);
+        }
+
+        void setAxisPickHoveredCandidate(size_t index) {
+
+            if (axisPickHoveredCandidate == index) {
+                return;
+            }
+
+            axisPickHoveredCandidate = index;
+
+            if (axisPickMarkerActor && axisPickMarkerActor->lines) {
+                axisPickMarkerActor->lines->dirty = true;
+            }
+        }
+
         // Model access
         //--------------------------------------------------
 
@@ -448,37 +588,88 @@ export namespace Cam::Gui::World {
 
             Cam::App::Model* model = selectionModel();
 
+            const bool hasCandidates =
+                model &&
+                model->hasAxisPickFace() &&
+                !model->axisPickCandidates.empty();
+
+            const bool hasSelected =
+                model && !model->axisPickSelectedPoints.empty();
+
             if (
                 !state ||
                 !model ||
                 !showPick ||
-                !model->hasAxisPickFace()
+                (!hasCandidates && !hasSelected)
             ) {
+                axisPickHoveredCandidate = NoAxisPickHover;
                 axisPickMarkerActor->visible = false;
                 axisPickMarkerActor->lines->dirty = true;
                 return;
             }
 
-            std::vector<Rev::Core::Pos3> points =
-                model->faceAxisPickMarkers(model->axisPickFaceId);
+            std::vector<Rev::Core::Pos3> sizingPoints;
 
-            if (points.empty()) {
-                axisPickMarkerActor->visible = false;
-                axisPickMarkerActor->lines->dirty = true;
-                return;
+            if (hasCandidates) {
+                sizingPoints = model->axisPickCandidates;
             }
 
-            const float markerSize = axisPickMarkerSize(points);
+            for (const Rev::Core::Pos3& point : model->axisPickSelectedPoints) {
+                sizingPoints.push_back(point);
+            }
 
-            Rev::Core::Color markerColor = {
+            const float markerSize = axisPickMarkerSize(sizingPoints);
+
+            const Rev::Core::Color candidateColor = {
                 1.0f,
                 0.55f,
                 0.12f,
+                0.45f
+            };
+
+            const Rev::Core::Color candidateHoverColor = {
+                1.0f,
+                0.70f,
+                0.20f,
+                0.85f
+            };
+
+            const Rev::Core::Color selectedColor = {
+                0.35f,
+                0.95f,
+                0.55f,
                 1.0f
             };
 
-            for (const Rev::Core::Pos3& point : points) {
-                appendMarkerCross(axisPickMarkers, point, markerSize, markerColor);
+            if (hasCandidates) {
+
+                for (size_t i = 0; i < model->axisPickCandidates.size(); i++) {
+
+                    if (model->isAxisPickCandidateSelected(i)) {
+                        continue;
+                    }
+
+                    const bool hovered = (i == axisPickHoveredCandidate);
+
+                    appendMarkerCross(
+                        axisPickMarkers,
+                        model->axisPickCandidates[i],
+                        hovered ? markerSize * 1.12f : markerSize,
+                        hovered ? candidateHoverColor : candidateColor
+                    );
+                }
+            }
+            else {
+                axisPickHoveredCandidate = NoAxisPickHover;
+            }
+
+            for (const Rev::Core::Pos3& point : model->axisPickSelectedPoints) {
+                appendMarkerCross(
+                    axisPickMarkers,
+                    point,
+                    markerSize * 1.2f,
+                    selectedColor
+                );
             }
 
             axisPickMarkerActor->visible = true;
