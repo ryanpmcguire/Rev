@@ -146,7 +146,7 @@ find_package(OpenGL REQUIRED)
 if(UNIX AND NOT APPLE)
     find_package(Freetype REQUIRED)
     find_package(GLEW REQUIRED)
-    find_package(X11 REQUIRED COMPONENTS Xrandr)
+    find_package(X11 REQUIRED COMPONENTS Xrandr Xext)
 endif()
 
 target_include_directories(Rev PUBLIC
@@ -205,5 +205,6 @@ elseif (UNIX)
         OpenGL::GL
         X11::X11
         X11::Xrandr
+        X11::Xext
     )
 endif()

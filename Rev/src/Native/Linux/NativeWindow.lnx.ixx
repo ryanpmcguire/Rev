@@ -19,6 +19,10 @@ module;
 #define REV_HAS_XRANDR 1
 #include <X11/extensions/Xrandr.h>
 #endif
+#if __has_include(<X11/extensions/sync.h>)
+#define REV_HAS_XSYNC 1
+#include <X11/extensions/sync.h>
+#endif
 #include <glew/glew.h>
 #include <GL/glx.h>
 #include <dbg.hpp>
@@ -157,6 +161,14 @@ export namespace Rev {
         inline static Atom wmStateMaximizedVert = 0;
         inline static Atom wmStateMaximizedHorz = 0;
         inline static Atom motifWmHints = 0;
+        inline static Atom wmProtocols = 0;
+        inline static Atom wmSyncRequest = 0;
+        inline static Atom wmSyncRequestCounter = 0;
+#if REV_HAS_XSYNC
+        inline static bool xsyncAvailable = false;
+        inline static int xsyncEventBase = 0;
+        inline static int xsyncErrorBase = 0;
+#endif
 
         void* handle = nullptr;
         ::Window xWindow = 0;
@@ -167,6 +179,12 @@ export namespace Rev {
         EventCallback callback;
         XIC inputContext = nullptr;
         ::Cursor xCursor = 0;
+#if REV_HAS_XSYNC
+        XSyncCounter syncCounter = None;
+        XSyncValue syncValue{};
+        XSyncValue pendingSyncValue{};
+        bool hasPendingSync = false;
+#endif
 
         Size size;
         float scale = 1.0f;
@@ -233,7 +251,9 @@ export namespace Rev {
 
             windows[xWindow] = this;
             XStoreName(xDisplay, xWindow, "Rev");
-            XSetWMProtocols(xDisplay, xWindow, &wmDeleteWindow, 1);
+            createSyncCounter();
+            Atom protocols[] = { wmDeleteWindow };
+            XSetWMProtocols(xDisplay, xWindow, protocols, 1);
             applyWindowManagerHints(details);
             createInputContext();
 
@@ -283,6 +303,8 @@ export namespace Rev {
                     sharedRoot = nullptr;
                     glewLoaded = false;
                 }
+
+                destroySyncCounter();
 
                 if (inputContext) {
                     XDestroyIC(inputContext);
@@ -451,6 +473,7 @@ export namespace Rev {
 
         void swapBuffers() {
             glXSwapBuffers(xDisplay, xWindow);
+            completeSyncRequest();
             dirty = false;
         }
 
@@ -534,6 +557,12 @@ export namespace Rev {
             wmStateMaximizedVert = XInternAtom(xDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", False);
             wmStateMaximizedHorz = XInternAtom(xDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
             motifWmHints = XInternAtom(xDisplay, "_MOTIF_WM_HINTS", False);
+            wmProtocols = XInternAtom(xDisplay, "WM_PROTOCOLS", False);
+            wmSyncRequest = XInternAtom(xDisplay, "_NET_WM_SYNC_REQUEST", False);
+            wmSyncRequestCounter = XInternAtom(xDisplay, "_NET_WM_SYNC_REQUEST_COUNTER", False);
+#if REV_HAS_XSYNC
+            xsyncAvailable = XSyncQueryExtension(xDisplay, &xsyncEventBase, &xsyncErrorBase);
+#endif
             inputMethod = XOpenIM(xDisplay, nullptr, nullptr, nullptr);
         }
 
@@ -589,6 +618,72 @@ export namespace Rev {
                 Atom states[] = { wmStateMaximizedVert, wmStateMaximizedHorz };
                 XChangeProperty(xDisplay, xWindow, wmState, XA_ATOM, 32, PropModeReplace, reinterpret_cast<unsigned char*>(states), 2);
             }
+        }
+
+        void createSyncCounter() {
+#if REV_HAS_XSYNC
+            if (!xsyncAvailable || !xWindow) return;
+
+            XSyncIntToValue(&syncValue, 0);
+            syncCounter = XSyncCreateCounter(xDisplay, syncValue);
+            if (syncCounter == None) return;
+
+            // EWMH resize synchronization: advertise a counter the WM can
+            // request during interactive resize. Rev advances it only after
+            // the frame has been rendered and swapped to the GLX drawable.
+            unsigned long counter = static_cast<unsigned long>(syncCounter);
+            XChangeProperty(
+                xDisplay,
+                xWindow,
+                wmSyncRequestCounter,
+                XA_CARDINAL,
+                32,
+                PropModeReplace,
+                reinterpret_cast<unsigned char*>(&counter),
+                1
+            );
+#endif
+        }
+
+        void destroySyncCounter() {
+#if REV_HAS_XSYNC
+            if (!xsyncAvailable || syncCounter == None) return;
+            XSyncDestroyCounter(xDisplay, syncCounter);
+            syncCounter = None;
+            hasPendingSync = false;
+#endif
+        }
+
+        void beginSyncRequest(const XClientMessageEvent& message) {
+#if REV_HAS_XSYNC
+            if (!xsyncAvailable || syncCounter == None) return;
+
+            // _NET_WM_SYNC_REQUEST carries the target 64-bit counter value in
+            // data.l[2] low / data.l[3] high. Multiple requests can arrive
+            // before the next draw; acknowledging the latest one after swap is
+            // sufficient and prevents the WM from presenting unpainted resize
+            // regions.
+            XSyncIntsToValue(
+                &pendingSyncValue,
+                static_cast<unsigned int>(message.data.l[2]),
+                static_cast<int>(message.data.l[3])
+            );
+            hasPendingSync = true;
+            requestFrame(true);
+#else
+            (void)message;
+#endif
+        }
+
+        void completeSyncRequest() {
+#if REV_HAS_XSYNC
+            if (!xsyncAvailable || syncCounter == None || !hasPendingSync) return;
+
+            XSyncSetCounter(xDisplay, syncCounter, pendingSyncValue);
+            syncValue = pendingSyncValue;
+            hasPendingSync = false;
+            XFlush(xDisplay);
+#endif
         }
 
         void createInputContext() {
@@ -672,9 +767,14 @@ export namespace Rev {
 
                 switch (ev.type) {
                     case ClientMessage:
-                        if (static_cast<Atom>(ev.xclient.data.l[0]) == wmDeleteWindow) {
-                            self->closed = true;
-                            self->notifyEvent({ WinEvent::Type::Close });
+                        if (ev.xclient.message_type == wmProtocols) {
+                            if (static_cast<Atom>(ev.xclient.data.l[0]) == wmDeleteWindow) {
+                                self->closed = true;
+                                self->notifyEvent({ WinEvent::Type::Close });
+                            }
+                            else if (static_cast<Atom>(ev.xclient.data.l[0]) == wmSyncRequest) {
+                                self->beginSyncRequest(ev.xclient);
+                            }
                         }
                         break;
                     case DestroyNotify:
