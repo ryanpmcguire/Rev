@@ -17,6 +17,7 @@ import Rev.Graphics.Canvas;
 import Rev.Core.Pos;
 import Rev.Core.Rect;
 import Rev.Core.DirtyFlag;
+import Rev.Core.Dispatcher;
 
 import Rev.Element.Style;
 import Rev.Element.Event;
@@ -86,8 +87,12 @@ export namespace Rev::Element {
 
         Dirty dirty;
 
+        Core::Dispatcher<Event>* dispatcher = nullptr;
+
         // Create
         Element(Element* parent = nullptr, StyleList styles = {}, std::string name = "") {
+
+            dispatcher = new Core::Dispatcher<Event>();
 
             if (parent && parent != this) { parent->addChild(this); }
 
@@ -151,6 +156,9 @@ export namespace Rev::Element {
             }
 
             children.clear();
+
+            delete dispatcher;
+            dispatcher = nullptr;
         }
 
         // Cast as pointer to canvas
@@ -1311,74 +1319,59 @@ export namespace Rev::Element {
             }
         }
 
-        // Event callbacks
+        // Animation queue
+        //--------------------------------------------------
+
+        void requestAnimate() {
+
+            if (!shared) { return; }
+
+            auto& list = shared->dirty.animate;
+
+            if (std::find(list.begin(), list.end(), this) == list.end()) {
+                list.push_back(this);
+            }
+        }
+
+        void stopAnimateRequest() {
+
+            if (!shared) { return; }
+
+            auto& list = shared->dirty.animate;
+
+            list.erase(
+                std::remove(list.begin(), list.end(), this),
+                list.end()
+            );
+        }
+
+        // Event callbacks (Rev::Core::Dispatcher)
         //--------------------------------------------------------------------------------
 
-        struct ListenerGroup {
+        using ListenerFunc = void (Element::*)(Event&);
 
-            using ListenerFunc = void (Element::*)(Event&);
-            std::vector<std::function<void(Event&)>> listeners;
-            ListenerFunc func;
-
-            ListenerGroup(ListenerFunc f) : func(f) {}
-        };
-
-        std::vector<ListenerGroup> listenerGroups;
-
-        // Register a listener for a specific function (used for lookup)
-        void listen(ListenerGroup::ListenerFunc func, const std::function<void(Event&)>& listener) {
-
-            // Check if the function already has a listener group
-            auto it = std::find_if(listenerGroups.begin(), listenerGroups.end(),
-                [func](const ListenerGroup& group) {
-                    return func == group.func;  // Compare function pointers (addresses)
-                });
-
-            // If found, add the listener to the group
-            if (it != listenerGroups.end()) {
-                it->listeners.push_back(listener);
-            }
-
-            // If not found, create a new group
-            else {
-                ListenerGroup newGroup(func);
-                newGroup.listeners.push_back(listener);
-                listenerGroups.push_back(newGroup);
-            }
+        void listen(ListenerFunc func, const std::function<void(Event&)>& listener) {
+            if (dispatcher) { dispatcher->listen(func, listener); }
         }
 
-        // "tell" function to notify listeners of a specific function
-        void tell(ListenerGroup::ListenerFunc tellingFunc, Event& e) {
-
-            // Search for the listener group that matches the telling function
-            auto it = std::find_if(listenerGroups.begin(), listenerGroups.end(),
-                [tellingFunc](const ListenerGroup& group) {
-                    return tellingFunc == group.func;  // Compare function pointers (addresses)
-                });
-
-            // If a matching listener group is found, notify all its listeners
-            if (it != listenerGroups.end()) {
-                for (auto& listener : it->listeners) {
-                    listener(e);
-                }
-            }
+        void tell(ListenerFunc tellingFunc, Event& e) {
+            if (dispatcher) { dispatcher->tell(tellingFunc, e); }
         }
 
-        // Wrapper functions
-        void onRefresh(const std::function<void(Event&)>& listener) { this->listen(&Element::refresh, listener); }
-        void onClick(const std::function<void(Event&)>& listener) { this->listen(&Element::click, listener); }
-        void onMouseDown(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDown, listener); }
-        void onMouseUp(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseUp, listener); }
-        void onMouseMove(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseMove, listener); }
-        void onDrag(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseDrag, listener); }
-        void onGainFocus(const std::function<void(Event&)>& listener) { this->listen(&Element::gainFocus, listener); }
-        void onLoseFocus(const std::function<void(Event&)>& listener) { this->listen(&Element::loseFocus, listener); }
-        void onMouseEnter(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseEnter, listener); }
-        void onMouseLeave(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseLeave, listener); }
-        void onMouseWheel(const std::function<void(Event&)>& listener) { this->listen(&Element::mouseWheel, listener); }
-        void onKeyDown(const std::function<void(Event&)>& listener) { this->listen(&Element::keyDown, listener); }
-        void onKeyUp(const std::function<void(Event&)>& listener) { this->listen(&Element::keyUp, listener); }
-        void onTextInput(const std::function<void(Event&)>& listener) { this->listen(&Element::textInput, listener); }
+        void onRefresh(const std::function<void(Event&)>& listener) { listen(&Element::refresh, listener); }
+        void onClick(const std::function<void(Event&)>& listener) { listen(&Element::click, listener); }
+        void onMouseDown(const std::function<void(Event&)>& listener) { listen(&Element::mouseDown, listener); }
+        void onMouseUp(const std::function<void(Event&)>& listener) { listen(&Element::mouseUp, listener); }
+        void onMouseMove(const std::function<void(Event&)>& listener) { listen(&Element::mouseMove, listener); }
+        void onDrag(const std::function<void(Event&)>& listener) { listen(&Element::mouseDrag, listener); }
+        void onGainFocus(const std::function<void(Event&)>& listener) { listen(&Element::gainFocus, listener); }
+        void onLoseFocus(const std::function<void(Event&)>& listener) { listen(&Element::loseFocus, listener); }
+        void onMouseEnter(const std::function<void(Event&)>& listener) { listen(&Element::mouseEnter, listener); }
+        void onMouseLeave(const std::function<void(Event&)>& listener) { listen(&Element::mouseLeave, listener); }
+        void onMouseWheel(const std::function<void(Event&)>& listener) { listen(&Element::mouseWheel, listener); }
+        void onKeyDown(const std::function<void(Event&)>& listener) { listen(&Element::keyDown, listener); }
+        void onKeyUp(const std::function<void(Event&)>& listener) { listen(&Element::keyUp, listener); }
+        void onTextInput(const std::function<void(Event&)>& listener) { listen(&Element::textInput, listener); }
 
         // Event propagation
         //--------------------------------------------------
@@ -1426,8 +1419,7 @@ export namespace Rev::Element {
                 }
             }
 
-            // Tell event listeners
-            tell(&Element::gainFocus, e);
+            dispatcher->tell(&Element::gainFocus, e);
             if (!e.propagate) { return; }
 
             // Propagate to children
@@ -1451,7 +1443,7 @@ export namespace Rev::Element {
                 if (resolved.hasFocusStyle) { styles.dirty = true; }
             }
 
-            tell(&Element::loseFocus, e);
+            dispatcher->tell(&Element::loseFocus, e);
             if (!e.propagate) { return; }
 
             for (Element* pChild : std::views::reverse(children)) {
@@ -1468,7 +1460,7 @@ export namespace Rev::Element {
 
         virtual void click(Event& e) {
 
-            tell(&Element::click, e);
+            dispatcher->tell(&Element::click, e);
             if (!e.propagate) { return; }
 
 
@@ -1490,8 +1482,7 @@ export namespace Rev::Element {
                 }
             }
 
-            // Tell event listeners
-            tell(&Element::mouseDown, e);
+            dispatcher->tell(&Element::mouseDown, e);
             if (!e.propagate) { return; }
 
             // Propagate
@@ -1525,7 +1516,7 @@ export namespace Rev::Element {
             }
 
             // Stop if listener does not pass "continue" flag
-            tell(&Element::mouseUp, e);
+            dispatcher->tell(&Element::mouseUp, e);
             if (!e.propagate) { return; }
 
             // Process children in reverse
@@ -1553,7 +1544,7 @@ export namespace Rev::Element {
             }
 
             // Stop if listener does not pass "continue" flag
-            tell(&Element::mouseMove, e);
+            dispatcher->tell(&Element::mouseMove, e);
             if (!e.propagate) { return; }
             
             // Process children in reverse
@@ -1582,8 +1573,7 @@ export namespace Rev::Element {
                 }
             }
 
-            // Tell event listeners
-            tell(&Element::mouseEnter, e);
+            dispatcher->tell(&Element::mouseEnter, e);
             if (!e.propagate) { return; }
 
             // Propagate to children
@@ -1607,7 +1597,7 @@ export namespace Rev::Element {
                 if (resolved.hasHoverStyle) { styles.dirty = true; }
             }
 
-            tell(&Element::mouseLeave, e);
+            dispatcher->tell(&Element::mouseLeave, e);
             if (!e.propagate) { return; }
 
             for (Element* pChild : std::views::reverse(children)) {
@@ -1626,7 +1616,7 @@ export namespace Rev::Element {
         virtual void mouseDrag(Event& e) {
 
             // Stop if listener does not pass "continue" flag
-            tell(&Element::mouseDrag, e);
+            dispatcher->tell(&Element::mouseDrag, e);
             if (!e.propagate) { return; }
 
             for (Element* pChild : std::views::reverse(children)) {
@@ -1642,7 +1632,7 @@ export namespace Rev::Element {
         // When the mouse scrolls
         virtual void mouseWheel(Event& e) {
 
-            tell(&Element::mouseWheel, e);
+            dispatcher->tell(&Element::mouseWheel, e);
             if (!e.propagate) { return; }
 
             for (Element* pChild : std::views::reverse(children)) {
@@ -1658,7 +1648,7 @@ export namespace Rev::Element {
         // When a key is pressed
         virtual void keyDown(Event& e) {
 
-            tell(&Element::keyDown, e);
+            dispatcher->tell(&Element::keyDown, e);
             if (!e.propagate) { return; }
 
             // Propogate in reverse order
@@ -1674,7 +1664,7 @@ export namespace Rev::Element {
         // When a key is released
         virtual void keyUp(Event& e) {
 
-            tell(&Element::keyUp, e);
+            dispatcher->tell(&Element::keyUp, e);
             if (!e.propagate) { return; }
 
             // Propagate in reverse order
@@ -1690,7 +1680,7 @@ export namespace Rev::Element {
         // When text is recieved
         virtual void textInput(Event& e) {
 
-            tell(&Element::textInput, e);
+            dispatcher->tell(&Element::textInput, e);
             if (!e.propagate) { return; }
 
             // Propagate in reverse order

@@ -17,6 +17,7 @@ import Rev.Element.Event;
 import Rev.Element.Event.GestureTracker;
 
 import Rev.Element.Box;
+import Rev.Element.Text;
 import Rev.Element.Slider;
 
 import Rev.Core.Pos3;
@@ -53,14 +54,46 @@ export namespace Cam::Gui {
         DefineAxisZ
     };
 
+    namespace ToolPathPreviewStyle {
+
+        Style Panel = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = 100_pct }
+        };
+
+        Style Transport = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .margin = { 0_px, 0_px, 4_px, 0_px }
+        };
+
+        Style TransportButton = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .width = 30_px, .height = 28_px },
+            .margin = { .right = 6_px },
+            .padding = { 4_px, 6_px, 4_px, 6_px },
+            .border = { .radius = 6_px },
+            .cursor = Cursor::Hand
+        };
+
+        Style TransportButtonLabel = {
+            .text = { .size = 13_px }
+        };
+    }
+
     struct WorldView : public Box {
 
         Cam::App::AppState* app = nullptr;
 
         View3d::View* view3d = nullptr;
+        Box* toolPathPreviewPanel = nullptr;
         Slider* toolPathPreviewSlider = nullptr;
 
         float toolPathPreviewPercent = 100.0f;
+        bool toolPathPreviewPlaying = false;
+        uint64_t toolPathPreviewLastTimeMs = 0;
+
+        static constexpr float ToolPathPreviewPlaySpeed = 12.0f;
+        static constexpr float ToolPathPreviewStepPercent = 1.0f;
 
         Cam::App::Project* representedProject = nullptr;
         Cam::App::MaterialState* representedDisplayedState = nullptr;
@@ -181,6 +214,79 @@ export namespace Cam::Gui {
 
         void createToolPathPreviewSlider() {
 
+            toolPathPreviewPanel = new Box(
+                this,
+                { &ToolPathPreviewStyle::Panel },
+                "ToolPathPreviewPanel"
+            );
+
+            Box* transport = new Box(
+                toolPathPreviewPanel,
+                Theme::withButton({
+                    &ToolPathPreviewStyle::Transport,
+                    &Theme::Styles::ButtonHover,
+                    &Theme::Styles::ButtonPress
+                }),
+                "ToolPathPreviewTransport"
+            );
+
+            auto makeTransportButton = [&](
+                const char* label,
+                const char* name,
+                std::function<void(Event&)> onClick
+            ) -> Box* {
+
+                Box* button = new Box(
+                    transport,
+                    Theme::withButton({
+                        &ToolPathPreviewStyle::TransportButton,
+                        &Theme::Styles::ButtonHover,
+                        &Theme::Styles::ButtonPress
+                    }),
+                    name
+                );
+
+                new Text(
+                    button,
+                    label,
+                    Theme::layer(
+                        { &ToolPathPreviewStyle::TransportButtonLabel },
+                        { &Theme::Styles::ButtonLabel }
+                    )
+                );
+
+                button->onClick([onClick](Event& e) {
+                    onClick(e);
+                    e.propagate = false;
+                });
+
+                return button;
+            };
+
+            makeTransportButton(
+                "Play",
+                "ToolPathPreviewPlay",
+                [this](Event& e) { playToolPathPreview(e); }
+            );
+
+            makeTransportButton(
+                "Pause",
+                "ToolPathPreviewPause",
+                [this](Event& e) { pauseToolPathPreview(e); }
+            );
+
+            makeTransportButton(
+                "<",
+                "ToolPathPreviewStepBack",
+                [this](Event& e) { stepToolPathPreviewBack(e); }
+            );
+
+            makeTransportButton(
+                ">",
+                "ToolPathPreviewStepForward",
+                [this](Event& e) { stepToolPathPreviewForward(e); }
+            );
+
             Slider::SliderData previewSliderData;
             previewSliderData.min = 0.0f;
             previewSliderData.max = 100.0f;
@@ -188,7 +294,7 @@ export namespace Cam::Gui {
             previewSliderData.val = 100.0f;
 
             toolPathPreviewSlider = new Slider(
-                this,
+                toolPathPreviewPanel,
                 previewSliderData,
                 {},
                 "ToolPathPreviewSlider"
@@ -201,6 +307,7 @@ export namespace Cam::Gui {
             toolPathPreviewSlider->valueText->styles.add(&Theme::Styles::Text);
 
             auto onPreviewChanged = [this](Event& e) {
+                pauseToolPathPreview(e);
                 syncToolPathPreview(e);
             };
 
@@ -210,6 +317,85 @@ export namespace Cam::Gui {
 
         double toolPathPreviewProgress() const {
             return double(toolPathPreviewPercent) / 100.0;
+        }
+
+        void setToolPathPreviewPercent(float percent, Event& e) {
+
+            toolPathPreviewPercent = std::clamp(percent, 0.0f, 100.0f);
+
+            if (toolPathPreviewSlider) {
+                toolPathPreviewSlider->setVal(toolPathPreviewPercent);
+                toolPathPreviewSlider->refresh(e);
+            }
+
+            syncToolPathPreview(e);
+        }
+
+        void pauseToolPathPreview(Event& e) {
+
+            if (!toolPathPreviewPlaying) { return; }
+
+            toolPathPreviewPlaying = false;
+            toolPathPreviewLastTimeMs = 0;
+            stopAnimateRequest();
+            refresh(e);
+        }
+
+        void playToolPathPreview(Event& e) {
+
+            if (toolPathPreviewPercent >= 100.0f) {
+                setToolPathPreviewPercent(0.0f, e);
+            }
+
+            toolPathPreviewPlaying = true;
+            toolPathPreviewLastTimeMs = 0;
+            requestAnimate();
+            refresh(e);
+        }
+
+        void stepToolPathPreviewBack(Event& e) {
+
+            pauseToolPathPreview(e);
+            setToolPathPreviewPercent(
+                toolPathPreviewPercent - ToolPathPreviewStepPercent,
+                e
+            );
+        }
+
+        void stepToolPathPreviewForward(Event& e) {
+
+            pauseToolPathPreview(e);
+            setToolPathPreviewPercent(
+                toolPathPreviewPercent + ToolPathPreviewStepPercent,
+                e
+            );
+        }
+
+        void animate(Event& e) override {
+
+            Element::animate(e);
+
+            if (!toolPathPreviewPlaying) { return; }
+
+            if (toolPathPreviewLastTimeMs == 0) {
+                toolPathPreviewLastTimeMs = e.time;
+            }
+
+            const uint64_t elapsedMs = e.time - toolPathPreviewLastTimeMs;
+            toolPathPreviewLastTimeMs = e.time;
+
+            const float deltaPercent =
+                (float(elapsedMs) / 1000.0f) * ToolPathPreviewPlaySpeed;
+
+            setToolPathPreviewPercent(toolPathPreviewPercent + deltaPercent, e);
+
+            if (toolPathPreviewPercent >= 100.0f) {
+                pauseToolPathPreview(e);
+            }
+
+            else {
+                requestAnimate();
+            }
         }
 
         void syncToolPathPreview(Event& e) {
