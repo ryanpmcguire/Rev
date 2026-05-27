@@ -12,6 +12,10 @@ module;
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#if __has_include(<X11/extensions/Xrandr.h>)
+#define REV_HAS_XRANDR 1
+#include <X11/extensions/Xrandr.h>
+#endif
 #include <glew/glew.h>
 #include <GL/glx.h>
 #include <dbg.hpp>
@@ -58,15 +62,62 @@ export namespace Rev {
 
         static std::vector<Display> getDisplays() {
             ensureDisplay();
-            return {{
-                .handle = screen,
-                .friendlyName = "Default Display",
-                .x = 0,
-                .y = 0,
-                .w = DisplayWidth(xDisplay, screen),
-                .h = DisplayHeight(xDisplay, screen),
-                .primary = true
-            }};
+            std::vector<Display> displays;
+
+#if REV_HAS_XRANDR
+            int eventBase = 0;
+            int errorBase = 0;
+            if (XRRQueryExtension(xDisplay, &eventBase, &errorBase)) {
+                ::Window root = RootWindow(xDisplay, screen);
+                XRRScreenResources* resources = XRRGetScreenResourcesCurrent(xDisplay, root);
+                if (resources) {
+                    RROutput primary = XRRGetOutputPrimary(xDisplay, root);
+                    for (int i = 0; i < resources->noutput; ++i) {
+                        XRROutputInfo* output = XRRGetOutputInfo(xDisplay, resources, resources->outputs[i]);
+                        if (!output) continue;
+
+                        if (output->connection == RR_Connected && output->crtc) {
+                            XRRCrtcInfo* crtc = XRRGetCrtcInfo(xDisplay, resources, output->crtc);
+                            if (crtc) {
+                                displays.push_back({
+                                    .handle = static_cast<int>(resources->outputs[i]),
+                                    .friendlyName = output->name ? std::string(output->name, output->nameLen) : "Display",
+                                    .x = crtc->x,
+                                    .y = crtc->y,
+                                    .w = static_cast<int>(crtc->width),
+                                    .h = static_cast<int>(crtc->height),
+                                    .primary = primary == resources->outputs[i]
+                                });
+                                XRRFreeCrtcInfo(crtc);
+                            }
+                        }
+
+                        XRRFreeOutputInfo(output);
+                    }
+                    XRRFreeScreenResources(resources);
+                }
+            }
+#endif
+
+            if (displays.empty()) {
+                displays.push_back({
+                    .handle = screen,
+                    .friendlyName = "Default Display",
+                    .x = 0,
+                    .y = 0,
+                    .w = DisplayWidth(xDisplay, screen),
+                    .h = DisplayHeight(xDisplay, screen),
+                    .primary = true
+                });
+            }
+
+            bool hasPrimary = false;
+            for (const auto& display : displays) {
+                if (display.primary) { hasPrimary = true; break; }
+            }
+            if (!hasPrimary && !displays.empty()) displays[0].primary = true;
+
+            return displays;
         }
 
         struct Size { int w, h, minW, minH, maxW, maxH; };
@@ -107,6 +158,8 @@ export namespace Rev {
 
         Size size;
         float scale = 1.0f;
+        int posX = 0;
+        int posY = 0;
         Element::Cursor cursor;
         bool dirty = false;
         bool closed = false;
@@ -155,10 +208,18 @@ export namespace Rev {
 
             ::Window parentWindow = parent ? static_cast<::Window>(reinterpret_cast<uintptr_t>(parent)) : root;
 
+            auto [initialX, initialY] = initialWindowPosition(details.size);
+            if (relationship == Relationship::EmbeddedChild || parentWindow != root) {
+                initialX = 0;
+                initialY = 0;
+            }
+            posX = initialX;
+            posY = initialY;
+
             xWindow = XCreateWindow(
                 xDisplay,
                 parentWindow,
-                0, 0,
+                initialX, initialY,
                 static_cast<unsigned int>(size.w), static_cast<unsigned int>(size.h),
                 0,
                 visual->depth,
@@ -249,6 +310,8 @@ export namespace Rev {
         }
 
         void setPos(int x, int y) {
+            posX = x;
+            posY = y;
             XMoveWindow(xDisplay, xWindow, x, y);
         }
 
@@ -257,6 +320,8 @@ export namespace Rev {
         }
 
         void setRect(int x, int y, int w, int h) {
+            posX = x;
+            posY = y;
             size.w = w;
             size.h = h;
             XMoveResizeWindow(xDisplay, xWindow, x, y, static_cast<unsigned int>(w), static_cast<unsigned int>(h));
@@ -367,6 +432,36 @@ export namespace Rev {
             }
         }
 
+        static float displayScale() {
+            ensureDisplay();
+            int mmWidth = DisplayWidthMM(xDisplay, screen);
+            int pxWidth = DisplayWidth(xDisplay, screen);
+            if (mmWidth <= 0 || pxWidth <= 0) return 1.0f;
+
+            float dpi = static_cast<float>(pxWidth) * 25.4f / static_cast<float>(mmWidth);
+            if (dpi <= 0.0f) return 1.0f;
+            return dpi / 96.0f;
+        }
+
+        static std::pair<int, int> initialWindowPosition(const Size& size) {
+            auto displays = getDisplays();
+            const Display* display = displays.empty() ? nullptr : &displays[0];
+            for (const auto& candidate : displays) {
+                if (candidate.primary) {
+                    display = &candidate;
+                    break;
+                }
+            }
+
+            if (!display) return { 0, 0 };
+
+            int x = display->x + ((display->w - size.w) / 2);
+            int y = display->y + ((display->h - size.h) / 2);
+            if (x < display->x) x = display->x;
+            if (y < display->y) y = display->y;
+            return { x, y };
+        }
+
         static void ensureDisplay() {
             if (xDisplay) return;
             XInitThreads();
@@ -452,6 +547,8 @@ export namespace Rev {
                             self->size.h = ev.xconfigure.height;
                             self->notifyEvent({ WinEvent::Type::Resize, 0, 0, self->size.w, self->size.h });
                         }
+                        self->posX = ev.xconfigure.x;
+                        self->posY = ev.xconfigure.y;
                         self->notifyEvent({ WinEvent::Type::Move, 0, 0, ev.xconfigure.x, ev.xconfigure.y });
                         break;
                     case Expose:
