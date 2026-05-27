@@ -139,6 +139,8 @@ export namespace Rev::Graphics {
             // Stencil
             glEnable(GL_STENCIL_TEST);
             glStencilMask(0xFF);
+            flags.stencil = true;
+            flags.color = true;
 
             glClearStencil(0x00);
             glClearDepth(1.0);

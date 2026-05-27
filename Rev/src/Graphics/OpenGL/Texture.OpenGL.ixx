@@ -56,15 +56,22 @@ export namespace Rev::Graphics {
             // Determine format
             GLenum format = GL_RED;
             GLenum internalFormat = GL_R8;
-            if (channels == 3) { format = GL_RGB; internalFormat = GL_RGB8; }
+            if (channels == 1) { format = GL_RED; internalFormat = GL_R8; }
+            else if (channels == 3) { format = GL_RGB; internalFormat = GL_RGB8; }
             else if (channels == 4) { format = GL_RGBA; internalFormat = GL_RGBA8; }
+            else { throw std::runtime_error("[Texture] Unsupported channel count"); }
 
             GLint previousUnpackAlignment = 4;
+            GLint previousActiveTexture = 0;
+            GLint previousTextureBinding = 0;
             glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTextureBinding);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
             // Generate and bind texture
             glGenTextures(1, &id);
+            glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, id);
 
             glTexImage2D(
@@ -90,7 +97,12 @@ export namespace Rev::Graphics {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-            glBindTexture(GL_TEXTURE_2D, 0);
+            if (usesMipmaps(filter)) {
+                glGenerateMipmap(GL_TEXTURE_2D);
+            }
+
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTextureBinding));
+            glActiveTexture(static_cast<GLenum>(previousActiveTexture));
         }
 
         // Destroy
@@ -98,6 +110,18 @@ export namespace Rev::Graphics {
 
             NativeWindow::requireContext(context, "Texture destroy");
             if (id) { glDeleteTextures(1, &id); }
+        }
+
+        static bool usesMipmaps(Filter filter) {
+            switch (filter) {
+                case Filter::NearestMipmapNearest:
+                case Filter::BilinearMipmapNearest:
+                case Filter::NearestMipmapBilinear:
+                case Filter::Trilinear:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         void bind(GLuint unit = 0) {

@@ -45,9 +45,13 @@ export namespace Rev::Graphics {
             glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 
             if (!success) {
-                char infoLog[512];
-                glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-                dbg("Shader compilation failed:\n%s", infoLog);
+                GLint logLength = 0;
+                glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+
+                std::string infoLog(static_cast<size_t>(logLength > 1 ? logLength : 1), '\0');
+                glGetShaderInfoLog(shader, logLength, nullptr, infoLog.data());
+
+                dbg("Shader compilation failed:\n%s", infoLog.c_str());
                 throw std::runtime_error(std::string("Shader compilation failed: ") + infoLog);
             }
         }
