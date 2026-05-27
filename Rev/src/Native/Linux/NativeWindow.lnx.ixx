@@ -160,6 +160,7 @@ export namespace Rev {
         inline static Atom wmStateFullscreen = 0;
         inline static Atom wmStateMaximizedVert = 0;
         inline static Atom wmStateMaximizedHorz = 0;
+        inline static Atom wmStateHidden = 0;
         inline static Atom motifWmHints = 0;
         inline static Atom wmProtocols = 0;
         inline static Atom wmSyncRequest = 0;
@@ -194,6 +195,9 @@ export namespace Rev {
         Element::Cursor cursor;
         bool dirty = false;
         bool closed = false;
+        bool minimized = false;
+        bool maximized = false;
+        bool fullscreen = false;
         Relationship relationship = Relationship::EmbeddedChild;
 
         NativeWindow(::Window parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr)
@@ -223,7 +227,7 @@ export namespace Rev {
             swa.colormap = colormap;
             swa.event_mask = ExposureMask | StructureNotifyMask | FocusChangeMask |
                              PointerMotionMask | ButtonPressMask | ButtonReleaseMask |
-                             KeyPressMask | KeyReleaseMask;
+                             KeyPressMask | KeyReleaseMask | PropertyChangeMask;
 
             ::Window parentWindow = parent ? static_cast<::Window>(reinterpret_cast<uintptr_t>(parent)) : root;
 
@@ -560,6 +564,7 @@ export namespace Rev {
             wmStateFullscreen = XInternAtom(xDisplay, "_NET_WM_STATE_FULLSCREEN", False);
             wmStateMaximizedVert = XInternAtom(xDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", False);
             wmStateMaximizedHorz = XInternAtom(xDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+            wmStateHidden = XInternAtom(xDisplay, "_NET_WM_STATE_HIDDEN", False);
             motifWmHints = XInternAtom(xDisplay, "_MOTIF_WM_HINTS", False);
             wmProtocols = XInternAtom(xDisplay, "WM_PROTOCOLS", False);
             wmSyncRequest = XInternAtom(xDisplay, "_NET_WM_SYNC_REQUEST", False);
@@ -623,6 +628,65 @@ export namespace Rev {
                 Atom states[] = { wmStateMaximizedVert, wmStateMaximizedHorz };
                 XChangeProperty(xDisplay, xWindow, wmState, XA_ATOM, 32, PropModeReplace, reinterpret_cast<unsigned char*>(states), 2);
             }
+        }
+
+        void updateWindowState() {
+            if (!xDisplay || !xWindow) return;
+
+            Atom actualType = None;
+            int actualFormat = 0;
+            unsigned long itemCount = 0;
+            unsigned long bytesAfter = 0;
+            unsigned char* data = nullptr;
+
+            int status = XGetWindowProperty(
+                xDisplay,
+                xWindow,
+                wmState,
+                0,
+                1024,
+                False,
+                XA_ATOM,
+                &actualType,
+                &actualFormat,
+                &itemCount,
+                &bytesAfter,
+                &data
+            );
+
+            if (status != Success || actualType != XA_ATOM || actualFormat != 32) {
+                if (data) XFree(data);
+                return;
+            }
+
+            bool newFullscreen = false;
+            bool maxVert = false;
+            bool maxHorz = false;
+            bool newMinimized = false;
+
+            Atom* states = reinterpret_cast<Atom*>(data);
+            for (unsigned long i = 0; i < itemCount; ++i) {
+                if (states[i] == wmStateFullscreen) newFullscreen = true;
+                if (states[i] == wmStateMaximizedVert) maxVert = true;
+                if (states[i] == wmStateMaximizedHorz) maxHorz = true;
+                if (states[i] == wmStateHidden) newMinimized = true;
+            }
+
+            XFree(data);
+
+            bool newMaximized = maxVert && maxHorz;
+
+            if (newMinimized != minimized) {
+                minimized = newMinimized;
+                notifyEvent({ minimized ? WinEvent::Type::Minimize : WinEvent::Type::Restore });
+            }
+
+            if (newMaximized != maximized) {
+                maximized = newMaximized;
+                notifyEvent({ maximized ? WinEvent::Type::Maximize : WinEvent::Type::Restore });
+            }
+
+            fullscreen = newFullscreen;
         }
 
         void createSyncCounter() {
@@ -799,6 +863,9 @@ export namespace Rev {
                     case FocusOut:
                         if (self->inputContext) XUnsetICFocus(self->inputContext);
                         self->notifyEvent({ WinEvent::Type::Defocus });
+                        break;
+                    case PropertyNotify:
+                        if (ev.xproperty.atom == wmState) self->updateWindowState();
                         break;
                     case ConfigureNotify: {
                         XConfigureEvent latest = ev.xconfigure;
