@@ -3,6 +3,7 @@ module;
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include <clocale>
 #include <stdexcept>
 #include <functional>
 #include <string>
@@ -12,6 +13,7 @@ module;
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <X11/cursorfont.h>
 #if __has_include(<X11/extensions/Xrandr.h>)
 #define REV_HAS_XRANDR 1
 #include <X11/extensions/Xrandr.h>
@@ -148,6 +150,7 @@ export namespace Rev {
         inline static GLXContext sharedRoot = nullptr;
         inline static size_t liveWindows = 0;
         inline static bool glewLoaded = false;
+        inline static XIM inputMethod = nullptr;
 
         void* handle = nullptr;
         ::Window xWindow = 0;
@@ -155,6 +158,8 @@ export namespace Rev {
         Colormap colormap = 0;
         XVisualInfo* visual = nullptr;
         EventCallback callback;
+        XIC inputContext = nullptr;
+        ::Cursor xCursor = 0;
 
         Size size;
         float scale = 1.0f;
@@ -234,6 +239,7 @@ export namespace Rev {
             windows[xWindow] = this;
             XStoreName(xDisplay, xWindow, "Rev");
             XSetWMProtocols(xDisplay, xWindow, &wmDeleteWindow, 1);
+            createInputContext();
 
             glContext = glXCreateContext(xDisplay, visual, sharedRoot, GL_TRUE);
             if (!glContext) throw std::runtime_error("[NativeWindow] glXCreateContext failed");
@@ -280,6 +286,16 @@ export namespace Rev {
                     glXDestroyContext(xDisplay, sharedRoot);
                     sharedRoot = nullptr;
                     glewLoaded = false;
+                }
+
+                if (inputContext) {
+                    XDestroyIC(inputContext);
+                    inputContext = nullptr;
+                }
+
+                if (xCursor) {
+                    XFreeCursor(xDisplay, xCursor);
+                    xCursor = 0;
                 }
 
                 XDestroyWindow(xDisplay, xWindow);
@@ -335,6 +351,22 @@ export namespace Rev {
 
         void setCursor(Element::Cursor newCursor) {
             cursor = newCursor;
+            if (!xDisplay || !xWindow) return;
+
+            if (xCursor) {
+                XFreeCursor(xDisplay, xCursor);
+                xCursor = 0;
+            }
+
+            unsigned int shape = cursorShape(newCursor);
+            if (shape != 0) {
+                xCursor = XCreateFontCursor(xDisplay, shape);
+                XDefineCursor(xDisplay, xWindow, xCursor);
+            }
+            else {
+                XUndefineCursor(xDisplay, xWindow);
+            }
+            XFlush(xDisplay);
         }
 
         void requestFrame() {
@@ -465,10 +497,42 @@ export namespace Rev {
         static void ensureDisplay() {
             if (xDisplay) return;
             XInitThreads();
+            setlocale(LC_CTYPE, "");
+            XSetLocaleModifiers("");
             xDisplay = XOpenDisplay(nullptr);
             if (!xDisplay) throw std::runtime_error("[NativeWindow] XOpenDisplay failed");
             screen = DefaultScreen(xDisplay);
             wmDeleteWindow = XInternAtom(xDisplay, "WM_DELETE_WINDOW", False);
+            inputMethod = XOpenIM(xDisplay, nullptr, nullptr, nullptr);
+        }
+
+        void createInputContext() {
+            if (!inputMethod || !xWindow) return;
+            inputContext = XCreateIC(
+                inputMethod,
+                XNInputStyle, XIMPreeditNothing | XIMStatusNothing,
+                XNClientWindow, xWindow,
+                XNFocusWindow, xWindow,
+                nullptr
+            );
+        }
+
+        static unsigned int cursorShape(Element::Cursor cursor) {
+            switch (cursor) {
+                case Element::Cursor::Default:
+                case Element::Cursor::Arrow: return XC_left_ptr;
+                case Element::Cursor::Caret: return XC_xterm;
+                case Element::Cursor::Crosshair: return XC_crosshair;
+                case Element::Cursor::Hand: return XC_hand2;
+                case Element::Cursor::NotAllowed: return XC_X_cursor;
+                case Element::Cursor::ArrowsHorizontal: return XC_sb_h_double_arrow;
+                case Element::Cursor::ArrowsVertical: return XC_sb_v_double_arrow;
+                case Element::Cursor::ArrowsDiagonalUp: return XC_top_right_corner;
+                case Element::Cursor::ArrowsDiagonalDown: return XC_bottom_right_corner;
+                case Element::Cursor::ArrowsOmni: return XC_fleur;
+                case Element::Cursor::Unset:
+                default: return 0;
+            }
         }
 
         static Key translateKey(KeySym sym) {
@@ -536,9 +600,11 @@ export namespace Rev {
                         self->notifyEvent({ WinEvent::Type::Destroy });
                         break;
                     case FocusIn:
+                        if (self->inputContext) XSetICFocus(self->inputContext);
                         self->notifyEvent({ WinEvent::Type::Focus });
                         break;
                     case FocusOut:
+                        if (self->inputContext) XUnsetICFocus(self->inputContext);
                         self->notifyEvent({ WinEvent::Type::Defocus });
                         break;
                     case ConfigureNotify:
@@ -569,10 +635,26 @@ export namespace Rev {
                     case KeyPress: {
                         KeySym sym = XLookupKeysym(&ev.xkey, 0);
                         self->notifyEvent({ WinEvent::Type::Keyboard, static_cast<uint64_t>(translateKey(sym)), 1 });
-                        char text[8]{};
+
+                        char text[64]{};
                         KeySym ignored{};
-                        int len = XLookupString(&ev.xkey, text, sizeof(text), &ignored, nullptr);
-                        if (len > 0) self->notifyEvent({ WinEvent::Type::Character, static_cast<uint64_t>(static_cast<unsigned char>(text[0])) });
+                        Status status = 0;
+                        int len = self->inputContext
+                            ? Xutf8LookupString(self->inputContext, &ev.xkey, text, sizeof(text) - 1, &ignored, &status)
+                            : XLookupString(&ev.xkey, text, sizeof(text) - 1, &ignored, nullptr);
+
+                        if (len > 0) {
+                            text[len] = '\0';
+                            const unsigned char* bytes = reinterpret_cast<const unsigned char*>(text);
+                            size_t index = 0;
+                            while (index < static_cast<size_t>(len)) {
+                                uint32_t codepoint = 0;
+                                size_t consumed = decodeUtf8(bytes + index, static_cast<size_t>(len) - index, codepoint);
+                                if (consumed == 0) break;
+                                self->notifyEvent({ WinEvent::Type::Character, static_cast<uint64_t>(codepoint) });
+                                index += consumed;
+                            }
+                        }
                         break;
                     }
                     case KeyRelease: {
@@ -582,6 +664,31 @@ export namespace Rev {
                     }
                 }
             }
+        }
+
+        static size_t decodeUtf8(const unsigned char* input, size_t length, uint32_t& codepoint) {
+            if (length == 0) return 0;
+
+            unsigned char c = input[0];
+            if (c < 0x80) {
+                codepoint = c;
+                return 1;
+            }
+            if ((c & 0xE0) == 0xC0 && length >= 2) {
+                codepoint = ((c & 0x1F) << 6) | (input[1] & 0x3F);
+                return 2;
+            }
+            if ((c & 0xF0) == 0xE0 && length >= 3) {
+                codepoint = ((c & 0x0F) << 12) | ((input[1] & 0x3F) << 6) | (input[2] & 0x3F);
+                return 3;
+            }
+            if ((c & 0xF8) == 0xF0 && length >= 4) {
+                codepoint = ((c & 0x07) << 18) | ((input[1] & 0x3F) << 12) | ((input[2] & 0x3F) << 6) | (input[3] & 0x3F);
+                return 4;
+            }
+
+            codepoint = c;
+            return 1;
         }
 
         static uint64_t buttonFromX(unsigned int button) {
