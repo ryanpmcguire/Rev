@@ -4,6 +4,8 @@ module;
 #include <cstdlib>
 #include <stdexcept>
 #include <functional>
+#include <string>
+#include <vector>
 #include <unordered_map>
 
 #include <X11/Xlib.h>
@@ -46,15 +48,54 @@ export namespace Rev {
             PrintScreen, Pause,
         };
 
+        struct Display {
+            int handle = 0;
+            std::string friendlyName;
+            int x, y, w, h;
+            bool primary = false;
+        };
+
+        static std::vector<Display> getDisplays() {
+            ensureDisplay();
+            return {{
+                .handle = screen,
+                .friendlyName = "Default Display",
+                .x = 0,
+                .y = 0,
+                .w = DisplayWidth(xDisplay, screen),
+                .h = DisplayHeight(xDisplay, screen),
+                .primary = true
+            }};
+        }
+
         struct Size { int w, h, minW, minH, maxW, maxH; };
+
+        struct Details {
+            Size size = { 640, 480, 0, 0, 1000, 1000 };
+            bool decorated = true;
+            bool resizable = true;
+            bool borderless = false;
+            bool fullscreen = false;
+            bool closeButton = true;
+            bool minimizeButton = true;
+            bool maximizeButton = true;
+        };
+
+        enum class Relationship {
+            Independent,
+            OwnedTopLevel,
+            EmbeddedChild
+        };
+
         using EventCallback = std::function<void(WinEvent&)>;
 
-        inline static Display* display = nullptr;
+        inline static ::Display* xDisplay = nullptr;
         inline static int screen = 0;
         inline static Atom wmDeleteWindow = 0;
         inline static std::unordered_map<::Window, NativeWindow*> windows;
 
-        ::Window handle = 0;
+        void* handle = nullptr;
+        ::Window xWindow = 0;
         GLXContext glContext = nullptr;
         Colormap colormap = 0;
         XVisualInfo* visual = nullptr;
@@ -65,13 +106,23 @@ export namespace Rev {
         Element::Cursor cursor;
         bool dirty = false;
         bool closed = false;
+        Relationship relationship = Relationship::EmbeddedChild;
 
         NativeWindow(::Window parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr)
-            : NativeWindow(reinterpret_cast<void*>(static_cast<uintptr_t>(parent)), size, callback) {}
+            : NativeWindow(reinterpret_cast<void*>(static_cast<uintptr_t>(parent)), Details{ .size = size }, callback) {}
 
-        NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr) {
-            this->size = size;
+        NativeWindow(void* parent, Size size = { 640, 480, 0, 0, 1000, 1000 }, EventCallback callback = nullptr)
+            : NativeWindow(parent, Details{ .size = size }, callback) {}
+
+        NativeWindow(
+            void* parent,
+            Details details,
+            EventCallback callback = nullptr,
+            Relationship relationship = Relationship::EmbeddedChild
+        ) {
+            this->size = details.size;
             this->callback = callback;
+            this->relationship = relationship;
 
             ensureDisplay();
 
@@ -86,11 +137,11 @@ export namespace Rev {
                 None
             };
 
-            visual = glXChooseVisual(display, screen, attrs);
+            visual = glXChooseVisual(xDisplay, screen, attrs);
             if (!visual) throw std::runtime_error("[NativeWindow] glXChooseVisual failed");
 
-            ::Window root = RootWindow(display, screen);
-            colormap = XCreateColormap(display, root, visual->visual, AllocNone);
+            ::Window root = RootWindow(xDisplay, screen);
+            colormap = XCreateColormap(xDisplay, root, visual->visual, AllocNone);
 
             XSetWindowAttributes swa{};
             swa.colormap = colormap;
@@ -100,8 +151,8 @@ export namespace Rev {
 
             ::Window parentWindow = parent ? static_cast<::Window>(reinterpret_cast<uintptr_t>(parent)) : root;
 
-            handle = XCreateWindow(
-                display,
+            xWindow = XCreateWindow(
+                xDisplay,
                 parentWindow,
                 0, 0,
                 static_cast<unsigned int>(size.w), static_cast<unsigned int>(size.h),
@@ -113,35 +164,37 @@ export namespace Rev {
                 &swa
             );
 
-            if (!handle) throw std::runtime_error("[NativeWindow] XCreateWindow failed");
+            if (!xWindow) throw std::runtime_error("[NativeWindow] XCreateWindow failed");
 
-            windows[handle] = this;
-            XStoreName(display, handle, "Rev");
-            XSetWMProtocols(display, handle, &wmDeleteWindow, 1);
+            windows[xWindow] = this;
+            XStoreName(xDisplay, xWindow, "Rev");
+            XSetWMProtocols(xDisplay, xWindow, &wmDeleteWindow, 1);
 
-            glContext = glXCreateContext(display, visual, nullptr, GL_TRUE);
+            glContext = glXCreateContext(xDisplay, visual, nullptr, GL_TRUE);
             if (!glContext) throw std::runtime_error("[NativeWindow] glXCreateContext failed");
 
-            XMapWindow(display, handle);
-            XFlush(display);
+            XMapWindow(xDisplay, xWindow);
+            XFlush(xDisplay);
+
+            handle = reinterpret_cast<void*>(static_cast<uintptr_t>(xWindow));
 
             notifyEvent({ WinEvent::Type::Create });
             notifyEvent({ WinEvent::Type::Resize, 0, 0, size.w, size.h });
         }
 
         ~NativeWindow() {
-            if (display && handle) {
-                windows.erase(handle);
+            if (xDisplay && xWindow) {
+                windows.erase(xWindow);
                 if (glContext) {
-                    if (glXGetCurrentContext() == glContext) glXMakeCurrent(display, None, nullptr);
-                    glXDestroyContext(display, glContext);
+                    if (glXGetCurrentContext() == glContext) glXMakeCurrent(xDisplay, None, nullptr);
+                    glXDestroyContext(xDisplay, glContext);
                     glContext = nullptr;
                 }
-                XDestroyWindow(display, handle);
-                handle = 0;
+                XDestroyWindow(xDisplay, xWindow);
+                xWindow = 0; handle = nullptr;
             }
             if (visual) XFree(visual);
-            if (display && colormap) XFreeColormap(display, colormap);
+            if (xDisplay && colormap) XFreeColormap(xDisplay, colormap);
         }
 
         const char* keyToString(int key) { return keyToString(Key(key)); }
@@ -158,10 +211,29 @@ export namespace Rev {
             }
         }
 
+        void show() {
+            XMapRaised(xDisplay, xWindow);
+            XFlush(xDisplay);
+        }
+
+        void setPos(int x, int y) {
+            XMoveWindow(xDisplay, xWindow, x, y);
+        }
+
+        void setTitle(const std::string& title) {
+            XStoreName(xDisplay, xWindow, title.c_str());
+        }
+
+        void setRect(int x, int y, int w, int h) {
+            size.w = w;
+            size.h = h;
+            XMoveResizeWindow(xDisplay, xWindow, x, y, static_cast<unsigned int>(w), static_cast<unsigned int>(h));
+        }
+
         void setSize(int w, int h) {
             size.w = w;
             size.h = h;
-            XResizeWindow(display, handle, static_cast<unsigned int>(w), static_cast<unsigned int>(h));
+            XResizeWindow(xDisplay, xWindow, static_cast<unsigned int>(w), static_cast<unsigned int>(h));
         }
 
         void setCursor(Element::Cursor newCursor) {
@@ -173,10 +245,10 @@ export namespace Rev {
             dirty = true;
             XEvent ev{};
             ev.type = Expose;
-            ev.xexpose.display = display;
-            ev.xexpose.window = handle;
-            XSendEvent(display, handle, False, ExposureMask, &ev);
-            XFlush(display);
+            ev.xexpose.display = xDisplay;
+            ev.xexpose.window = xWindow;
+            XSendEvent(xDisplay, xWindow, False, ExposureMask, &ev);
+            XFlush(xDisplay);
         }
 
         WinEvent notifyEvent(WinEvent event) {
@@ -185,8 +257,49 @@ export namespace Rev {
             return event;
         }
 
+        struct ResourceContextGuard {
+            NativeWindow* previous = nullptr;
+
+            ResourceContextGuard(NativeWindow* window) {
+                previous = currentWindow();
+                if (window) window->makeContextCurrent();
+            }
+
+            ~ResourceContextGuard() {
+                if (previous) previous->makeContextCurrent();
+            }
+        };
+
+        static NativeWindow* currentWindow() {
+            GLXContext current = glXGetCurrentContext();
+            if (!current) return nullptr;
+            for (auto& [_, window] : windows) {
+                if (window && window->glContext == current) return window;
+            }
+            return nullptr;
+        }
+
+        static NativeWindow* requireContext(void* context, const char* operation = "OpenGL operation") {
+            if (!context) throw std::runtime_error(std::string("[NativeWindow] Missing context for ") + operation);
+            NativeWindow* window = static_cast<NativeWindow*>(context);
+            window->makeContextCurrent();
+            return window;
+        }
+
+        void createContext() {
+            makeContextCurrent();
+        }
+
+        bool isContextCurrent() const {
+            return glXGetCurrentContext() == glContext;
+        }
+
+        bool tryMakeContextCurrent() {
+            return glXMakeCurrent(xDisplay, xWindow, glContext);
+        }
+
         void makeContextCurrent() {
-            if (!glXMakeCurrent(display, handle, glContext)) {
+            if (!tryMakeContextCurrent()) {
                 throw std::runtime_error("[NativeWindow] glXMakeCurrent failed");
             }
         }
@@ -204,17 +317,17 @@ export namespace Rev {
         }
 
         void swapBuffers() {
-            glXSwapBuffers(display, handle);
+            glXSwapBuffers(xDisplay, xWindow);
             dirty = false;
         }
 
         static void ensureDisplay() {
-            if (display) return;
+            if (xDisplay) return;
             XInitThreads();
-            display = XOpenDisplay(nullptr);
-            if (!display) throw std::runtime_error("[NativeWindow] XOpenDisplay failed");
-            screen = DefaultScreen(display);
-            wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
+            xDisplay = XOpenDisplay(nullptr);
+            if (!xDisplay) throw std::runtime_error("[NativeWindow] XOpenDisplay failed");
+            screen = DefaultScreen(xDisplay);
+            wmDeleteWindow = XInternAtom(xDisplay, "WM_DELETE_WINDOW", False);
         }
 
         static Key translateKey(KeySym sym) {
@@ -258,9 +371,9 @@ export namespace Rev {
 
         static void pumpEvents() {
             ensureDisplay();
-            while (XPending(display) > 0) {
+            while (XPending(xDisplay) > 0) {
                 XEvent ev{};
-                XNextEvent(display, &ev);
+                XNextEvent(xDisplay, &ev);
 
                 NativeWindow* self = nullptr;
                 auto it = windows.find(ev.xany.window);

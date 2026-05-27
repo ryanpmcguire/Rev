@@ -52,18 +52,48 @@
     },
     "Rev/src/Graphics/Primitives/Rectangle/Shaders/Rectangle.vert": {
       "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Rectangle/Shaders/Rectangle.vert",
-      "hash": "4a7288bb337a03f0cc7e333b30ed808ee7cfd338d2ee8535b842250ea3e092c6",
-      "mtime": 1779828742.5564125
+      "hash": "b10f88774dde9d9085cd9a5ba79f31cb6187300323f5d3ccb88017ab245d4587",
+      "mtime": 1779907543.2417753
     },
     "Rev/src/Graphics/Primitives/Rectangle/Shaders/Rectangle.frag": {
       "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Rectangle/Shaders/Rectangle.frag",
-      "hash": "4b9e900d7dee3c272e40bb64abaf714eb33acf724e616e5f74c17b4632460e9c",
-      "mtime": 1779828742.556382
+      "hash": "bcba621acbd7be34682f4634f57b32555fa6a39f0d42200d3481cdfe6c9d9278",
+      "mtime": 1779907543.2417486
     },
     "Rev/src/Graphics/Primitives/Rectangle/Shaders/Rectangle.metal": {
       "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Rectangle/Shaders/Rectangle.metal",
       "hash": "83168dd69fd1bfceed28771d5c0919caee8eeea20187771cc3d8e8f3b0586bfa",
       "mtime": 1779828742.5564125
+    },
+    "Rev/src/Graphics/Primitives/Mesh3d/Shaders/Mesh3d.vert": {
+      "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Mesh3d/Shaders/Mesh3d.vert",
+      "hash": "d59a32cc9e36620d6c85e84a841637b530fef60518c9736abb9d8fd9001c2106",
+      "mtime": 1779907543.2416556
+    },
+    "Rev/src/Graphics/Primitives/Mesh3d/Shaders/Mesh3d.frag": {
+      "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Mesh3d/Shaders/Mesh3d.frag",
+      "hash": "1fb46570c67577d38cf2778d212f6ad8c7dcfc5bed0a0c0276bd71793b7a10e5",
+      "mtime": 1779907543.2416346
+    },
+    "Rev/src/Graphics/Primitives/Mesh3d/Shaders/Mesh3d.metal": {
+      "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Mesh3d/Shaders/Mesh3d.metal",
+      "hash": "dd0cbe571e0daefae9eeb00ba937eb8f973a87642d20176d4c63e31f7543e3b3",
+      "mtime": 1779907543.2416556
+    },
+    "Rev/src/Graphics/Primitives/Lines3d/Shaders/Lines3d.vert": {
+      "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Lines3d/Shaders/Lines3d.vert",
+      "hash": "6909f24496f386cc2cf120c3a32827e2a25c673b346afa396373c1da1b4386b9",
+      "mtime": 1779907543.2415738
+    },
+    "Rev/src/Graphics/Primitives/Lines3d/Shaders/Lines3d.frag": {
+      "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Lines3d/Shaders/Lines3d.frag",
+      "hash": "9edf9a9eebb82141c415f3183d9ebc8c6fad48dff6796bdb4f8e3f23df8434d9",
+      "mtime": 1779907543.2415504
+    },
+    "Rev/src/Graphics/Primitives/Lines3d/Shaders/Lines3d.metal": {
+      "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Lines3d/Shaders/Lines3d.metal",
+      "hash": "dd0cbe571e0daefae9eeb00ba937eb8f973a87642d20176d4c63e31f7543e3b3",
+      "mtime": 1779907543.2415738
     },
     "Rev/src/Graphics/Primitives/Triangles/Shaders/Triangles.vert": {
       "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Graphics/Primitives/Triangles/Shaders/Triangles.vert",
