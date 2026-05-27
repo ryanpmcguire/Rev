@@ -1,6 +1,8 @@
 module;
 
+#include <cerrno>
 #include <cstdint>
+#include <cstring>
 #include <fcntl.h>
 #include <string>
 #include <termios.h>
@@ -20,6 +22,9 @@ export namespace Rev {
         int baud = 0;
 
         static speed_t baudToSpeed(int baud) {
+            #ifdef B250000
+            if (baud == 250000) return B250000;
+            #endif
             switch (baud) {
                 case 9600: return B9600;
                 case 19200: return B19200;
@@ -66,10 +71,14 @@ export namespace Rev {
             tty.c_cc[VTIME] = 5;
 
             if (tcsetattr(handle, TCSANOW, &tty) != 0) {
-                dbg("[Serial] tcsetattr failed");
+                dbg("[Serial] tcsetattr failed: %s", strerror(errno));
                 close(handle);
                 handle = -1;
                 return;
+            }
+
+            if (speed == B115200 && baud != 115200) {
+                dbg("[Serial] Unsupported baud %d, using 115200", baud);
             }
 
             dbg("[Serial] Connected");

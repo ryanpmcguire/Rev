@@ -2,6 +2,7 @@ module;
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include <stdexcept>
 #include <functional>
 #include <string>
@@ -94,6 +95,8 @@ export namespace Rev {
         inline static Atom wmDeleteWindow = 0;
         inline static std::unordered_map<::Window, NativeWindow*> windows;
         inline static GLXContext sharedRoot = nullptr;
+        inline static size_t liveWindows = 0;
+        inline static bool glewLoaded = false;
 
         void* handle = nullptr;
         ::Window xWindow = 0;
@@ -174,6 +177,7 @@ export namespace Rev {
             glContext = glXCreateContext(xDisplay, visual, sharedRoot, GL_TRUE);
             if (!glContext) throw std::runtime_error("[NativeWindow] glXCreateContext failed");
             if (!sharedRoot) sharedRoot = glContext;
+            liveWindows++;
 
             XMapWindow(xDisplay, xWindow);
             XFlush(xDisplay);
@@ -207,6 +211,14 @@ export namespace Rev {
                         glXDestroyContext(xDisplay, glContext);
                     }
                     glContext = nullptr;
+                }
+
+                if (liveWindows > 0) { liveWindows--; }
+
+                if (liveWindows == 0 && sharedRoot) {
+                    glXDestroyContext(xDisplay, sharedRoot);
+                    sharedRoot = nullptr;
+                    glewLoaded = false;
                 }
 
                 XDestroyWindow(xDisplay, xWindow);
@@ -325,12 +337,20 @@ export namespace Rev {
         }
 
         void loadGlFunctions() {
-            glewExperimental = GL_TRUE;
-            GLenum status = glewInit();
-            glGetError();
-            if (status != GLEW_OK) {
-                throw std::runtime_error(reinterpret_cast<const char*>(glewGetErrorString(status)));
+            if (!isContextCurrent()) { makeContextCurrent(); }
+
+            if (!glewLoaded) {
+                glewExperimental = GL_TRUE;
+                GLenum status = glewInit();
+                glGetError();
+                if (status != GLEW_OK) {
+                    throw std::runtime_error(reinterpret_cast<const char*>(glewGetErrorString(status)));
+                }
+                glewLoaded = true;
             }
+
+            validateGlCapabilities();
+
             dbg("OpenGL INFO");
             dbg("GLEW version: %s", glewGetString(GLEW_VERSION));
             dbg("OpenGL version: %s", glGetString(GL_VERSION));
@@ -339,6 +359,12 @@ export namespace Rev {
         void swapBuffers() {
             glXSwapBuffers(xDisplay, xWindow);
             dirty = false;
+        }
+
+        static void validateGlCapabilities() {
+            if (!(GLEW_VERSION_4_4 || GLEW_ARB_buffer_storage)) {
+                throw std::runtime_error("[NativeWindow] OpenGL backend requires OpenGL 4.4 or GL_ARB_buffer_storage");
+            }
         }
 
         static void ensureDisplay() {

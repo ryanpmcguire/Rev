@@ -1,11 +1,13 @@
 module;
 
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <cstdio>
 #include <fstream>
 #include <initializer_list>
 #include <string>
@@ -169,6 +171,38 @@ export namespace Rev::OS {
         static File FromLocalAppData(const std::string& relativePath = "") { return FromKnownFolder(KnownFolder::LocalAppData, relativePath); }
         static File FromCommonAppData(const std::string& relativePath = "") { return FromKnownFolder(KnownFolder::CommonAppData, relativePath); }
 
+        static std::string shellQuote(const std::string& value) {
+            std::string out = "'";
+            for (char c : value) {
+                if (c == '\'') out += "'\\''";
+                else out += c;
+            }
+            out += "'";
+            return out;
+        }
+
+        static bool commandExists(const char* command) {
+            std::string test = "command -v ";
+            test += command;
+            test += " >/dev/null 2>&1";
+            return std::system(test.c_str()) == 0;
+        }
+
+        static bool runCommandCapture(const std::string& command, std::string& out) {
+            out.clear();
+            FILE* pipe = popen(command.c_str(), "r");
+            if (!pipe) return false;
+
+            std::array<char, 512> buffer{};
+            while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+                out += buffer.data();
+            }
+
+            int status = pclose(pipe);
+            while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+            return status == 0 && !out.empty();
+        }
+
         static File Open(std::string title = "Open File", const char* filter = "All Files\0*.*\0", std::string initialDir = "") {
             File file;
             file.open(title, filter, initialDir);
@@ -182,9 +216,17 @@ export namespace Rev::OS {
         }
 
         bool open(std::string title = "Open File", const char* filter = "All Files\0*.*\0", std::string initialDir = "", const std::vector<PathComponent>& initialPath = {}) {
-            (void)title; (void)filter;
+            (void)filter;
             initialDir = resolveInitialDir(initialDir, initialPath);
             if (initialDir.empty()) initialDir = currentDir();
+
+            std::string selected;
+            if (openDialog(selected, title, filter, initialDir, "")) {
+                path = selected;
+                valid = true;
+                refresh();
+                return true;
+            }
             return false;
         }
 
@@ -193,9 +235,17 @@ export namespace Rev::OS {
         }
 
         bool saveAs(std::string title = "Save File", const char* filter = "All Files\0*.*\0", std::string initialDir = "", const std::vector<PathComponent>& initialPath = {}) {
-            (void)title; (void)filter;
+            (void)filter;
             initialDir = resolveInitialDir(initialDir, initialPath);
             if (initialDir.empty()) initialDir = currentDir();
+
+            std::string selected;
+            if (saveDialog(selected, title, filter, initialDir, name)) {
+                path = selected;
+                valid = true;
+                refresh();
+                return true;
+            }
             return false;
         }
 
@@ -204,7 +254,13 @@ export namespace Rev::OS {
         }
 
         bool selectFolder(std::string title = "Select Folder", std::string initialDir = "") {
-            (void)title; (void)initialDir;
+            std::string selected;
+            if (pickFolderDialog(selected, title, initialDir)) {
+                path = selected;
+                valid = true;
+                refresh();
+                return true;
+            }
             return false;
         }
 
@@ -340,6 +396,34 @@ export namespace Rev::OS {
             if (!stream) return false;
             stream << content;
             return stream.good();
+        }
+
+        static bool openDialog(std::string& out, std::string title, const char* filter, std::string initialDir = "", std::string initialFileName = "") {
+            (void)filter;
+            (void)initialFileName;
+            if (!commandExists("zenity")) return false;
+
+            std::string command = "zenity --file-selection --title=" + shellQuote(title);
+            if (!initialDir.empty()) command += " --filename=" + shellQuote((std::filesystem::path(initialDir) / "").string());
+            return runCommandCapture(command, out);
+        }
+
+        static bool saveDialog(std::string& out, std::string title, const char* filter, std::string initialDir = "", std::string initialFileName = "") {
+            (void)filter;
+            if (!commandExists("zenity")) return false;
+
+            std::filesystem::path initial = initialDir.empty() ? std::filesystem::path(initialFileName) : std::filesystem::path(initialDir) / initialFileName;
+            std::string command = "zenity --file-selection --save --confirm-overwrite --title=" + shellQuote(title);
+            if (!initial.empty()) command += " --filename=" + shellQuote(initial.string());
+            return runCommandCapture(command, out);
+        }
+
+        static bool pickFolderDialog(std::string& out, std::string title, std::string initialDir = "") {
+            if (!commandExists("zenity")) return false;
+
+            std::string command = "zenity --file-selection --directory --title=" + shellQuote(title);
+            if (!initialDir.empty()) command += " --filename=" + shellQuote((std::filesystem::path(initialDir) / "").string());
+            return runCommandCapture(command, out);
         }
 
         operator bool() const { return valid; }
