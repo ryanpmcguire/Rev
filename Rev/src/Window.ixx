@@ -695,6 +695,8 @@ export namespace Rev {
 
                 case (WinEvent::Keyboard): { this->onKeyboard(event.a, event.b); break; }
                 case (WinEvent::Character): { this->onCharacter(event.a); break; }
+                case (WinEvent::Null):
+                case (WinEvent::Clear): { break; }
             }
         }
 
@@ -870,7 +872,9 @@ export namespace Rev {
                 case (NativeWindow::Key::Escape): { event.keyboard.escape.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Tab): { event.keyboard.tab.set(action, event.mouse.pos); break; }
 
+                case (NativeWindow::Key::Enter):
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.enter.set(action, event.mouse.pos); break; }
+                default: { break; }
             }
 
             // Clear textual represenation first
@@ -922,6 +926,7 @@ export namespace Rev {
                 case (NativeWindow::Key::X): { event.keyboard.key = "x"; break; }
                 case (NativeWindow::Key::Y): { event.keyboard.key = "y"; break; }
                 case (NativeWindow::Key::Z): { event.keyboard.key = "z"; break; }
+                default: { break; }
             }
 
             event.resetBeforeDispatch();

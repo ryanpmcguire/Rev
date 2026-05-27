@@ -414,7 +414,7 @@ export namespace Rev::Element {
     enum class Align {
         Unset,
         Start, End, Center,
-        SpaceAorund, SpaceBetween
+        SpaceAround, SpaceBetween
     };
 
     enum class Wrap {
@@ -931,7 +931,7 @@ export namespace Rev::Element {
                 .cursor = Cursor::Unset,
                 .zIndex = 0,
                 .transition = -1,
-                .dirty = true
+                .dirty = { true }
             };
 
             nullStyle.linkDirtyFlag(&nullStyle.dirty);
