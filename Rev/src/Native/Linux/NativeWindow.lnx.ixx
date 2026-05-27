@@ -93,6 +93,7 @@ export namespace Rev {
         inline static int screen = 0;
         inline static Atom wmDeleteWindow = 0;
         inline static std::unordered_map<::Window, NativeWindow*> windows;
+        inline static GLXContext sharedRoot = nullptr;
 
         void* handle = nullptr;
         ::Window xWindow = 0;
@@ -170,8 +171,9 @@ export namespace Rev {
             XStoreName(xDisplay, xWindow, "Rev");
             XSetWMProtocols(xDisplay, xWindow, &wmDeleteWindow, 1);
 
-            glContext = glXCreateContext(xDisplay, visual, nullptr, GL_TRUE);
+            glContext = glXCreateContext(xDisplay, visual, sharedRoot, GL_TRUE);
             if (!glContext) throw std::runtime_error("[NativeWindow] glXCreateContext failed");
+            if (!sharedRoot) sharedRoot = glContext;
 
             XMapWindow(xDisplay, xWindow);
             XFlush(xDisplay);
