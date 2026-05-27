@@ -12,6 +12,7 @@ module;
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/cursorfont.h>
 #if __has_include(<X11/extensions/Xrandr.h>)
@@ -151,6 +152,11 @@ export namespace Rev {
         inline static size_t liveWindows = 0;
         inline static bool glewLoaded = false;
         inline static XIM inputMethod = nullptr;
+        inline static Atom wmState = 0;
+        inline static Atom wmStateFullscreen = 0;
+        inline static Atom wmStateMaximizedVert = 0;
+        inline static Atom wmStateMaximizedHorz = 0;
+        inline static Atom motifWmHints = 0;
 
         void* handle = nullptr;
         ::Window xWindow = 0;
@@ -229,6 +235,7 @@ export namespace Rev {
             windows[xWindow] = this;
             XStoreName(xDisplay, xWindow, "Rev");
             XSetWMProtocols(xDisplay, xWindow, &wmDeleteWindow, 1);
+            applyWindowManagerHints(details);
             createInputContext();
 
             glContext = glXCreateContext(xDisplay, visual, sharedRoot, GL_TRUE);
@@ -523,7 +530,74 @@ export namespace Rev {
             if (!xDisplay) throw std::runtime_error("[NativeWindow] XOpenDisplay failed");
             screen = DefaultScreen(xDisplay);
             wmDeleteWindow = XInternAtom(xDisplay, "WM_DELETE_WINDOW", False);
+            wmState = XInternAtom(xDisplay, "_NET_WM_STATE", False);
+            wmStateFullscreen = XInternAtom(xDisplay, "_NET_WM_STATE_FULLSCREEN", False);
+            wmStateMaximizedVert = XInternAtom(xDisplay, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+            wmStateMaximizedHorz = XInternAtom(xDisplay, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+            motifWmHints = XInternAtom(xDisplay, "_MOTIF_WM_HINTS", False);
             inputMethod = XOpenIM(xDisplay, nullptr, nullptr, nullptr);
+        }
+
+        struct MotifHints {
+            unsigned long flags = 0;
+            unsigned long functions = 0;
+            unsigned long decorations = 0;
+            long inputMode = 0;
+            unsigned long status = 0;
+        };
+
+        void applyWindowManagerHints(const Details& details) {
+            if (!xDisplay || !xWindow) return;
+
+            if (!details.decorated || details.borderless) {
+                MotifHints hints{};
+                hints.flags = 2; // MWM_HINTS_DECORATIONS
+                hints.decorations = 0;
+                XChangeProperty(
+                    xDisplay,
+                    xWindow,
+                    motifWmHints,
+                    motifWmHints,
+                    32,
+                    PropModeReplace,
+                    reinterpret_cast<unsigned char*>(&hints),
+                    5
+                );
+            }
+
+            if (!details.resizable) {
+                XSizeHints hints{};
+                hints.flags = PMinSize | PMaxSize;
+                hints.min_width = details.size.w;
+                hints.min_height = details.size.h;
+                hints.max_width = details.size.w;
+                hints.max_height = details.size.h;
+                XSetWMNormalHints(xDisplay, xWindow, &hints);
+            }
+            else if (details.size.minW > 0 || details.size.minH > 0 || details.size.maxW > 0 || details.size.maxH > 0) {
+                XSizeHints hints{};
+                hints.flags = 0;
+                if (details.size.minW > 0 || details.size.minH > 0) {
+                    hints.flags |= PMinSize;
+                    hints.min_width = details.size.minW;
+                    hints.min_height = details.size.minH;
+                }
+                if (details.size.maxW > 0 || details.size.maxH > 0) {
+                    hints.flags |= PMaxSize;
+                    hints.max_width = details.size.maxW;
+                    hints.max_height = details.size.maxH;
+                }
+                XSetWMNormalHints(xDisplay, xWindow, &hints);
+            }
+
+            if (details.fullscreen) {
+                Atom states[] = { wmStateFullscreen };
+                XChangeProperty(xDisplay, xWindow, wmState, XA_ATOM, 32, PropModeReplace, reinterpret_cast<unsigned char*>(states), 1);
+            }
+            else if (details.maximizeButton && details.size.w >= DisplayWidth(xDisplay, screen) && details.size.h >= DisplayHeight(xDisplay, screen)) {
+                Atom states[] = { wmStateMaximizedVert, wmStateMaximizedHorz };
+                XChangeProperty(xDisplay, xWindow, wmState, XA_ATOM, 32, PropModeReplace, reinterpret_cast<unsigned char*>(states), 2);
+            }
         }
 
         void createInputContext() {
