@@ -164,6 +164,7 @@ export namespace Rev {
         inline static Atom wmProtocols = 0;
         inline static Atom wmSyncRequest = 0;
         inline static Atom wmSyncRequestCounter = 0;
+        inline static Atom revFrameRequest = 0;
 #if REV_HAS_XSYNC
         inline static bool xsyncAvailable = false;
         inline static int xsyncEventBase = 0;
@@ -390,11 +391,14 @@ export namespace Rev {
         void requestFrame(bool force = false) {
             if (dirty && !force) return;
             dirty = true;
+
             XEvent ev{};
-            ev.type = Expose;
-            ev.xexpose.display = xDisplay;
-            ev.xexpose.window = xWindow;
-            XSendEvent(xDisplay, xWindow, False, ExposureMask, &ev);
+            ev.type = ClientMessage;
+            ev.xclient.display = xDisplay;
+            ev.xclient.window = xWindow;
+            ev.xclient.message_type = revFrameRequest;
+            ev.xclient.format = 32;
+            XSendEvent(xDisplay, xWindow, False, NoEventMask, &ev);
             XFlush(xDisplay);
         }
 
@@ -560,6 +564,7 @@ export namespace Rev {
             wmProtocols = XInternAtom(xDisplay, "WM_PROTOCOLS", False);
             wmSyncRequest = XInternAtom(xDisplay, "_NET_WM_SYNC_REQUEST", False);
             wmSyncRequestCounter = XInternAtom(xDisplay, "_NET_WM_SYNC_REQUEST_COUNTER", False);
+            revFrameRequest = XInternAtom(xDisplay, "_REV_FRAME_REQUEST", False);
 #if REV_HAS_XSYNC
             xsyncAvailable = XSyncQueryExtension(xDisplay, &xsyncEventBase, &xsyncErrorBase);
 #endif
@@ -767,7 +772,10 @@ export namespace Rev {
 
                 switch (ev.type) {
                     case ClientMessage:
-                        if (ev.xclient.message_type == wmProtocols) {
+                        if (ev.xclient.message_type == revFrameRequest) {
+                            self->notifyEvent({ WinEvent::Type::Paint });
+                        }
+                        else if (ev.xclient.message_type == wmProtocols) {
                             if (static_cast<Atom>(ev.xclient.data.l[0]) == wmDeleteWindow) {
                                 self->closed = true;
                                 self->notifyEvent({ WinEvent::Type::Close });
