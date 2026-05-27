@@ -34,6 +34,8 @@ export namespace Cam::App {
 
     struct ToolPathPoint {
         Pos3 position = {};
+        Pos3 toolDirection = { 0.0f, 0.0f, 1.0f }; // normalized slice axis at this point
+        double spindleSpeed = 0.0; // RPM; placeholder until spindle model exists
         double t = 0.0; // seconds from path start
         bool rapid = false;
         bool cutting = true;
@@ -56,6 +58,10 @@ export namespace Cam::App {
         double stepDown = 1.0;
         double feedRate = 1000.0;
         double stepover = 0.25;
+
+        // Cached from the tool used at last compute (for preview geometry).
+        double toolDiameter = 0.0;
+        double toolLength = 0.0;
 
         // Slicing frame: depth steps along sliceAxis; 2D work stays in (u,v).
         Pos3 sliceAxis = { 0.0f, 0.0f, 1.0f };
@@ -87,6 +93,8 @@ export namespace Cam::App {
             axis.clear();
             computed = false;
             linkedPointCount = 0;
+            toolDiameter = 0.0;
+            toolLength = 0.0;
             strategyInstance.reset();
         }
 
@@ -147,12 +155,7 @@ export namespace Cam::App {
             bool rapid = false,
             bool cutting = true
         ) {
-            points.push_back({
-                .position = position,
-                .t = 0.0,
-                .rapid = rapid,
-                .cutting = cutting
-            });
+            points.push_back(makePoint(position, rapid, cutting));
         }
 
         void addPoint(
@@ -309,12 +312,7 @@ export namespace Cam::App {
 
             // Toolpath points are stored in reverse execution order.
             // Retract: axis offset -> first stored point (last real-life step).
-            points.insert(points.begin(), {
-                .position = offset,
-                .t = 0.0,
-                .rapid = true,
-                .cutting = false
-            });
+            points.insert(points.begin(), makePoint(offset, true, false));
 
             // Approach: last stored point (first real-life step) -> axis offset.
             addWorldPoint(offset, true, false);
@@ -329,19 +327,11 @@ export namespace Cam::App {
 
             Pos3 tip = linkSafePoint(frame, anchor, referenceModel);
 
-            axis.push_back({
-                .position = anchor,
-                .t = 0.0,
-                .rapid = false,
-                .cutting = false
-            });
+            axis.push_back(makePoint(anchor, false, false));
+            axis.back().t = 0.0;
 
-            axis.push_back({
-                .position = tip,
-                .t = 1.0,
-                .rapid = false,
-                .cutting = false
-            });
+            axis.push_back(makePoint(tip, false, false));
+            axis.back().t = 1.0;
         }
 
         // Compute
@@ -351,6 +341,8 @@ export namespace Cam::App {
             clearPathData();
 
             toolName = tool.name;
+            toolDiameter = tool.diameter;
+            toolLength = tool.length;
 
             if (strategyAuto) {
 
@@ -483,6 +475,67 @@ export namespace Cam::App {
             return true;
         }
 
+        // Preview sampling
+        //--------------------------------------------------
+
+        bool sampleAtProgress(double previewProgress, ToolPathPoint& out) const {
+
+            if (points.empty()) { return false; }
+
+            previewProgress = std::clamp(previewProgress, 0.0, 1.0);
+
+            if (points.size() == 1) {
+                out = points.front();
+                return true;
+            }
+
+            const double totalDuration = points.back().t;
+
+            if (totalDuration <= 1e-12) {
+                out = points.front();
+                return true;
+            }
+
+            if (previewProgress <= 0.0) {
+                out = points.front();
+                return true;
+            }
+
+            if (previewProgress >= 1.0 - 1e-12) {
+                out = points.back();
+                return true;
+            }
+
+            const double previewTime = totalDuration * previewProgress;
+
+            for (size_t i = 0; i + 1 < points.size(); i++) {
+
+                const double t0 = points[i].t;
+                const double t1 = points[i + 1].t;
+
+                if (previewTime > t1 + 1e-9) { continue; }
+
+                const double span = t1 - t0;
+                const float alpha = span > 1e-12
+                    ? float((previewTime - t0) / span)
+                    : 0.0f;
+
+                const ToolPathPoint& a = points[i];
+                const ToolPathPoint& b = points[i + 1];
+
+                out = a;
+                out.position = a.position + (b.position - a.position) * alpha;
+                out.toolDirection = (a.toolDirection + (b.toolDirection - a.toolDirection) * alpha).normalized();
+                out.spindleSpeed = a.spindleSpeed + (b.spindleSpeed - a.spindleSpeed) * double(alpha);
+                out.t = previewTime;
+
+                return true;
+            }
+
+            out = points.back();
+            return true;
+        }
+
         // Rendering
         //--------------------------------------------------
 
@@ -542,6 +595,33 @@ export namespace Cam::App {
         }
 
     private:
+
+        Pos3 slicingToolDirection() const {
+
+            const float len = sliceAxis.pythag();
+
+            if (len <= 1e-6f) {
+                return { 0.0f, 0.0f, 1.0f };
+            }
+
+            return sliceAxis / len;
+        }
+
+        ToolPathPoint makePoint(
+            const Pos3& position,
+            bool rapid = false,
+            bool cutting = true
+        ) const {
+
+            return {
+                .position = position,
+                .toolDirection = slicingToolDirection(),
+                .spindleSpeed = 0.0,
+                .t = 0.0,
+                .rapid = rapid,
+                .cutting = cutting
+            };
+        }
 
         std::optional<StrategyInstance> strategyInstance;
     };

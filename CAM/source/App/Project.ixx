@@ -749,6 +749,7 @@ export namespace Cam::App {
                 ensureToolPathComputed(state);
             }
 
+#if 0 // TEMP: stem linking disabled
             for (size_t i = 1; i < states.size(); i++) {
 
                 MaterialState* prior = states[i];
@@ -758,6 +759,7 @@ export namespace Cam::App {
 
                 prior->link(next);
             }
+#endif
         }
 
         bool selectState(MaterialState* state, bool addToSelection = false) {
