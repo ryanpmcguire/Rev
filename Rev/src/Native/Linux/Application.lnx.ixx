@@ -39,7 +39,18 @@ export namespace Rev {
                     }
                 }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                if (windows.empty()) { break; }
+
+                if (NativeWindow::hasPendingEvents()) {
+                    continue;
+                }
+
+                if (NativeWindow::hasActiveWork()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                else {
+                    NativeWindow::waitForEvents(16);
+                }
             }
         }
 

@@ -9,6 +9,7 @@ module;
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <poll.h>
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -194,6 +195,7 @@ export namespace Rev {
         int posY = 0;
         Element::Cursor cursor;
         bool dirty = false;
+        bool frameQueued = false;
         bool closed = false;
         bool minimized = false;
         bool maximized = false;
@@ -393,8 +395,9 @@ export namespace Rev {
         }
 
         void requestFrame(bool force = false) {
-            if (dirty && !force) return;
+            if (frameQueued && !force) return;
             dirty = true;
+            frameQueued = true;
 
             XEvent ev{};
             ev.type = ClientMessage;
@@ -823,6 +826,33 @@ export namespace Rev {
             }
         }
 
+        static bool hasPendingEvents() {
+            ensureDisplay();
+            return XPending(xDisplay) > 0;
+        }
+
+        static bool hasActiveWork() {
+            ensureDisplay();
+            for (auto& [_, window] : windows) {
+                if (!window) continue;
+                if (window->dirty || window->frameQueued) return true;
+#if REV_HAS_XSYNC
+                if (window->hasPendingSync) return true;
+#endif
+            }
+            return false;
+        }
+
+        static void waitForEvents(int timeoutMs = 16) {
+            ensureDisplay();
+            if (XPending(xDisplay) > 0) return;
+
+            pollfd fd{};
+            fd.fd = ConnectionNumber(xDisplay);
+            fd.events = POLLIN;
+            poll(&fd, 1, timeoutMs);
+        }
+
         static void pumpEvents() {
             ensureDisplay();
             while (XPending(xDisplay) > 0) {
@@ -837,6 +867,7 @@ export namespace Rev {
                 switch (ev.type) {
                     case ClientMessage:
                         if (ev.xclient.message_type == revFrameRequest) {
+                            self->frameQueued = false;
                             self->notifyEvent({ WinEvent::Type::Paint });
                         }
                         else if (ev.xclient.message_type == wmProtocols) {
