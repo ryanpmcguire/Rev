@@ -415,6 +415,12 @@ export namespace Rev {
 
         WinEvent notifyEvent(WinEvent event) {
             event.subject = this;
+
+            if (event.type == WinEvent::Type::MouseButton || event.type == WinEvent::Type::MouseMove) {
+                event.c = static_cast<uint64_t>(static_cast<float>(event.c) / scale);
+                event.d = static_cast<uint64_t>(static_cast<float>(event.d) / scale);
+            }
+
             if (callback) callback(event);
             return event;
         }
