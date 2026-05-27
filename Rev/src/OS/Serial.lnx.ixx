@@ -5,8 +5,9 @@ module;
 #include <cstring>
 #include <fcntl.h>
 #include <string>
-#include <termios.h>
 #include <unistd.h>
+#include <asm/termbits.h>
+#include <sys/ioctl.h>
 
 #include <dbg.hpp>
 
@@ -21,10 +22,7 @@ export namespace Rev {
         std::string port;
         int baud = 0;
 
-        static speed_t baudToSpeed(int baud) {
-            #ifdef B250000
-            if (baud == 250000) return B250000;
-            #endif
+        static unsigned int baudToConstant(int baud) {
             switch (baud) {
                 case 9600: return B9600;
                 case 19200: return B19200;
@@ -34,8 +32,53 @@ export namespace Rev {
 #ifdef B230400
                 case 230400: return B230400;
 #endif
-                default: return B115200;
+#ifdef B250000
+                case 250000: return B250000;
+#endif
+                default: return 0;
             }
+        }
+
+        bool configurePort(int requestedBaud) {
+            termios2 tty{};
+            if (ioctl(handle, TCGETS2, &tty) != 0) {
+                dbg("[Serial] TCGETS2 failed: %s", strerror(errno));
+                return false;
+            }
+
+            tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+            tty.c_oflag &= ~OPOST;
+            tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+            tty.c_cflag &= ~(CSIZE | PARENB | PARODD | CSTOPB | CRTSCTS);
+            tty.c_cflag |= CS8 | CLOCAL | CREAD;
+            tty.c_cc[VMIN] = 0;
+            tty.c_cc[VTIME] = 5;
+
+            unsigned int speed = baudToConstant(requestedBaud);
+            if (speed != 0) {
+                tty.c_cflag &= ~CBAUD;
+                tty.c_cflag |= speed;
+                tty.c_ispeed = requestedBaud;
+                tty.c_ospeed = requestedBaud;
+            }
+            else {
+#ifdef BOTHER
+                tty.c_cflag &= ~CBAUD;
+                tty.c_cflag |= BOTHER;
+                tty.c_ispeed = requestedBaud;
+                tty.c_ospeed = requestedBaud;
+#else
+                dbg("[Serial] Unsupported baud %d and BOTHER is unavailable", requestedBaud);
+                return false;
+#endif
+            }
+
+            if (ioctl(handle, TCSETS2, &tty) != 0) {
+                dbg("[Serial] TCSETS2 failed: %s", strerror(errno));
+                return false;
+            }
+
+            return true;
         }
 
         Serial(const std::string& port, int baud)
@@ -49,36 +92,10 @@ export namespace Rev {
                 return;
             }
 
-            termios tty{};
-            if (tcgetattr(handle, &tty) != 0) {
-                dbg("[Serial] tcgetattr failed");
+            if (!configurePort(baud)) {
                 close(handle);
                 handle = -1;
                 return;
-            }
-
-            cfmakeraw(&tty);
-            speed_t speed = baudToSpeed(baud);
-            cfsetispeed(&tty, speed);
-            cfsetospeed(&tty, speed);
-
-            tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
-            tty.c_cflag |= CLOCAL | CREAD;
-            tty.c_cflag &= ~(PARENB | PARODD);
-            tty.c_cflag &= ~CSTOPB;
-            tty.c_cflag &= ~CRTSCTS;
-            tty.c_cc[VMIN] = 0;
-            tty.c_cc[VTIME] = 5;
-
-            if (tcsetattr(handle, TCSANOW, &tty) != 0) {
-                dbg("[Serial] tcsetattr failed: %s", strerror(errno));
-                close(handle);
-                handle = -1;
-                return;
-            }
-
-            if (speed == B115200 && baud != 115200) {
-                dbg("[Serial] Unsupported baud %d, using 115200", baud);
             }
 
             dbg("[Serial] Connected");
@@ -99,9 +116,19 @@ export namespace Rev {
                 return;
             }
 
-            ssize_t written = write(handle, data, size);
-            if (written < 0) dbg("[Serial] Write failed");
-            else dbg("[Serial] Sent %d bytes", (int)written);
+            const uint8_t* bytes = static_cast<const uint8_t*>(data);
+            size_t total = 0;
+            while (total < size) {
+                ssize_t written = write(handle, bytes + total, size - total);
+                if (written < 0) {
+                    if (errno == EINTR) continue;
+                    dbg("[Serial] Write failed: %s", strerror(errno));
+                    return;
+                }
+                if (written == 0) break;
+                total += static_cast<size_t>(written);
+            }
+            dbg("[Serial] Sent %d bytes", (int)total);
         }
 
         void sendText(const std::string& text) {
