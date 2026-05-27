@@ -121,11 +121,13 @@ export namespace Rev::Graphics {
                 // Resize framebuffer, bind transform
                 frameBuffer->resize(details.width, details.height);
                 transform->set(&projection);
+                flags.record = true;
                 flags.resize = false;
             }
 
             // Framebuffer
             frameBuffer->bind();
+            glViewport(0, 0, static_cast<GLsizei>(details.width), static_cast<GLsizei>(details.height));
             glEnable(GL_MULTISAMPLE);
             glDisable(GL_DEPTH_TEST);
 

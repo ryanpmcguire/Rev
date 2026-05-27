@@ -197,7 +197,6 @@ export namespace Rev {
 
             visual = chooseVisual();
             if (!visual) throw std::runtime_error("[NativeWindow] failed to choose GLX visual");
-
             ::Window root = RootWindow(xDisplay, screen);
             colormap = XCreateColormap(xDisplay, root, visual->visual, AllocNone);
 
@@ -366,8 +365,8 @@ export namespace Rev {
             XFlush(xDisplay);
         }
 
-        void requestFrame() {
-            if (dirty) return;
+        void requestFrame(bool force = false) {
+            if (dirty && !force) return;
             dirty = true;
             XEvent ev{};
             ev.type = Expose;
@@ -693,16 +692,24 @@ export namespace Rev {
                         if (self->inputContext) XUnsetICFocus(self->inputContext);
                         self->notifyEvent({ WinEvent::Type::Defocus });
                         break;
-                    case ConfigureNotify:
-                        if (self->size.w != ev.xconfigure.width || self->size.h != ev.xconfigure.height) {
-                            self->size.w = ev.xconfigure.width;
-                            self->size.h = ev.xconfigure.height;
+                    case ConfigureNotify: {
+                        XConfigureEvent latest = ev.xconfigure;
+                        XEvent next{};
+                        while (XCheckTypedWindowEvent(xDisplay, self->xWindow, ConfigureNotify, &next)) {
+                            latest = next.xconfigure;
+                        }
+
+                        if (self->size.w != latest.width || self->size.h != latest.height) {
+                            self->size.w = latest.width;
+                            self->size.h = latest.height;
                             self->notifyEvent({ WinEvent::Type::Resize, 0, 0, self->size.w, self->size.h });
                         }
-                        self->posX = ev.xconfigure.x;
-                        self->posY = ev.xconfigure.y;
-                        self->notifyEvent({ WinEvent::Type::Move, 0, 0, ev.xconfigure.x, ev.xconfigure.y });
+                        self->posX = latest.x;
+                        self->posY = latest.y;
+                        self->notifyEvent({ WinEvent::Type::Move, 0, 0, latest.x, latest.y });
+                        self->requestFrame(true);
                         break;
+                    }
                     case Expose:
                         if (ev.xexpose.count == 0) self->notifyEvent({ WinEvent::Type::Paint });
                         break;
