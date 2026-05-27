@@ -88,6 +88,13 @@ export namespace Rev::Graphics {
 
             window->makeContextCurrent();
 
+            size_t windowWidth = window->size.w ? static_cast<size_t>(window->size.w) : 1;
+            size_t windowHeight = window->size.h ? static_cast<size_t>(window->size.h) : 1;
+
+            if (details.width != windowWidth || details.height != windowHeight || details.scale != window->scale) {
+                flags.resize = true;
+            }
+
             // Ensure cache coherency (wait for flush) before proceeding
             // (this is because any changes to buffers need to make it to
             // ram before we can tell the GPU everything is good)
@@ -97,11 +104,11 @@ export namespace Rev::Graphics {
             if (flags.resize) {
 
                 // Get width and height from window size
-                details.width = window->size.w;
-                details.height = window->size.h;
+                details.width = windowWidth;
+                details.height = windowHeight;
                 details.scale = window->scale;
 
-                glViewport(0, 0, details.width, details.height);
+                glViewport(0, 0, static_cast<GLsizei>(details.width), static_cast<GLsizei>(details.height));
 
                 glm::mat4 projection = glm::ortho(
                     0.0f,                                      // left
@@ -147,14 +154,28 @@ export namespace Rev::Graphics {
         // We end the frame by blitting and swapping buffers (present)
         void endFrame() {
 
+            if (!window) { return; }
+            requireCurrent("Canvas endFrame");
+
+            size_t targetWidth = window->size.w ? static_cast<size_t>(window->size.w) : 1;
+            size_t targetHeight = window->size.h ? static_cast<size_t>(window->size.h) : 1;
+
             // Bind both render target and actual (window) framebuffer
             glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer->buffer);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
-            // Copy (blit)
+            // Ensure any newly exposed default-framebuffer area is initialized.
+            glViewport(0, 0, static_cast<GLsizei>(targetWidth), static_cast<GLsizei>(targetHeight));
+            glDisable(GL_SCISSOR_TEST);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            // Copy (blit). Use the actual drawable size as the destination so
+            // live-resize frames never leave newly exposed regions untouched.
             glBlitFramebuffer(
-                0, 0, details.width, details.height,
-                0, 0, details.width, details.height,
+                0, 0, static_cast<GLint>(details.width), static_cast<GLint>(details.height),
+                0, 0, static_cast<GLint>(targetWidth), static_cast<GLint>(targetHeight),
                 GL_COLOR_BUFFER_BIT, GL_NEAREST
             );
 
