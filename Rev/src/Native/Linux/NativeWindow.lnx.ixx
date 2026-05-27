@@ -7,6 +7,7 @@ module;
 #include <stdexcept>
 #include <functional>
 #include <string>
+#include <algorithm>
 #include <vector>
 #include <unordered_map>
 #include <poll.h>
@@ -16,6 +17,7 @@ module;
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/cursorfont.h>
+#include <X11/Xresource.h>
 #if __has_include(<X11/extensions/Xrandr.h>)
 #define REV_HAS_XRANDR 1
 #include <X11/extensions/Xrandr.h>
@@ -219,6 +221,7 @@ export namespace Rev {
             this->relationship = relationship;
 
             ensureDisplay();
+            scale = displayScale();
 
             visual = chooseVisual();
             if (!visual) throw std::runtime_error("[NativeWindow] failed to choose GLX visual");
@@ -275,6 +278,7 @@ export namespace Rev {
             handle = reinterpret_cast<void*>(static_cast<uintptr_t>(xWindow));
 
             notifyEvent({ WinEvent::Type::Create });
+            notifyEvent({ WinEvent::Type::Scale, 0, 0, static_cast<int>(scale * 100.0f), static_cast<int>(scale * 100.0f) });
             notifyEvent({ WinEvent::Type::Resize, 0, 0, size.w, size.h });
         }
 
@@ -526,13 +530,54 @@ export namespace Rev {
 
         static float displayScale() {
             ensureDisplay();
+
+            if (const char* forcedScale = std::getenv("REV_SCALE")) {
+                float value = std::strtof(forcedScale, nullptr);
+                if (value > 0.0f) return std::clamp(value, 0.5f, 4.0f);
+            }
+
+            if (const char* toolkitScale = std::getenv("GDK_SCALE")) {
+                float value = std::strtof(toolkitScale, nullptr);
+                if (value > 0.0f) return std::clamp(value, 0.5f, 4.0f);
+            }
+
+            if (const char* qtScale = std::getenv("QT_SCALE_FACTOR")) {
+                float value = std::strtof(qtScale, nullptr);
+                if (value > 0.0f) return std::clamp(value, 0.5f, 4.0f);
+            }
+
+            float xftDpi = xftDpiValue();
+            if (xftDpi > 0.0f) return std::clamp(xftDpi / 96.0f, 0.5f, 4.0f);
+
             int mmWidth = DisplayWidthMM(xDisplay, screen);
             int pxWidth = DisplayWidth(xDisplay, screen);
             if (mmWidth <= 0 || pxWidth <= 0) return 1.0f;
 
             float dpi = static_cast<float>(pxWidth) * 25.4f / static_cast<float>(mmWidth);
             if (dpi <= 0.0f) return 1.0f;
-            return dpi / 96.0f;
+            return std::clamp(dpi / 96.0f, 0.5f, 4.0f);
+        }
+
+        static float xftDpiValue() {
+            if (!xDisplay) return 0.0f;
+
+            XrmInitialize();
+            char* resourceString = XResourceManagerString(xDisplay);
+            if (!resourceString) return 0.0f;
+
+            XrmDatabase db = XrmGetStringDatabase(resourceString);
+            if (!db) return 0.0f;
+
+            char* type = nullptr;
+            XrmValue value{};
+            float dpi = 0.0f;
+
+            if (XrmGetResource(db, "Xft.dpi", "Xft.Dpi", &type, &value) && value.addr) {
+                dpi = std::strtof(value.addr, nullptr);
+            }
+
+            XrmDestroyDatabase(db);
+            return dpi;
         }
 
         static std::pair<int, int> initialWindowPosition(const Size& size) {
