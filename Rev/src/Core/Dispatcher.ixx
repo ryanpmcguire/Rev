@@ -1,6 +1,8 @@
 module;
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -13,10 +15,11 @@ export namespace Rev::Core {
     template<typename EventType>
     struct Dispatcher {
 
-        using ListenerKey = std::uintptr_t;
+        static constexpr size_t ListenerKeySize = 32;
+        using ListenerKey = std::array<std::byte, ListenerKeySize>;
 
         struct ListenerGroup {
-            ListenerKey key = 0;
+            ListenerKey key{};
             std::vector<std::function<void(EventType&)>> listeners;
         };
 
@@ -24,9 +27,10 @@ export namespace Rev::Core {
 
         template<typename Owner>
         static ListenerKey listenerKey(void (Owner::*func)(EventType&)) {
+            static_assert(sizeof(func) <= ListenerKeySize, "Member function pointer is larger than Dispatcher::ListenerKey");
 
-            ListenerKey key = 0;
-            std::memcpy(&key, &func, sizeof(func));
+            ListenerKey key{};
+            std::memcpy(key.data(), &func, sizeof(func));
             return key;
         }
 
