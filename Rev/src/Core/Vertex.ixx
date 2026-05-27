@@ -1,5 +1,6 @@
 module;
 
+#include <cstddef>
 #include <vector>
 
 export module Rev.Core.Vertex;

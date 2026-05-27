@@ -1,5 +1,6 @@
 module;
 
+#include <cstring>
 #include <vector>
 #include <numeric>
 #include <stdexcept>

@@ -88,7 +88,7 @@ export namespace HelloWorld {
                 size_t num = 1000;
                 for (size_t i = 0; i < num; i++) {
                     float t = float(i) / float(num);
-                    chart->points.push_back({ t, 0.5f + 0.5f * sin(10.0f * 3.14159f * t) });
+                    chart->points.push_back({ t, 0.5f + 0.5f * sinf(10.0f * 3.14159f * t) });
                 }
         }
 

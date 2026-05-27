@@ -7,7 +7,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(RCS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/resources)
+set(RCS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Resources)
 set(EXT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external)
 
 file(GLOB_RECURSE RESOURCE_FILES
@@ -21,7 +21,7 @@ add_compile_definitions(PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 
 add_custom_target(EmbedResources ALL
     COMMAND ${CMAKE_COMMAND} -E echo "Running resource embed script..."
-    COMMAND ${Python3_EXECUTABLE} 
+    COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/Create_Resource_Modules.py
             --project-root ${CMAKE_SOURCE_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -143,6 +143,11 @@ target_sources(Rev
 add_dependencies(Rev EmbedResources)
 find_package(OpenGL REQUIRED)
 
+if(UNIX AND NOT APPLE)
+    find_package(Freetype REQUIRED)
+    find_package(GLEW REQUIRED)
+endif()
+
 target_include_directories(Rev PUBLIC
     ${SRC_DIR}
     ${RCS_DIR}/.modules
@@ -191,5 +196,12 @@ elseif (APPLE)
         "-framework MetalKit"     # (optional, for easier setup)
         "-framework Carbon"
         "-framework OpenGL"       # still needed if you keep GL backend
+    )
+elseif (UNIX)
+    target_link_libraries(Rev PUBLIC
+        GLEW::GLEW
+        Freetype::Freetype
+        OpenGL::GL
+        X11
     )
 endif()

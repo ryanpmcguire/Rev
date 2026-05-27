@@ -1,5 +1,6 @@
 module;
 
+#include <cstddef>
 #include <map>
 
 export module Rev.Core.FontAtlas;
