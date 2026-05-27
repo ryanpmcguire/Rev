@@ -224,6 +224,7 @@ export namespace Rev {
         float scale = 1.0f;
         Element::Cursor cursor = Element::Cursor::Unset;
         bool dirty = false;
+        bool invalidatePending = false;
 
         NativeWindow(void* parent,
                      Size size = { 640, 480, 0, 0, 1000, 1000 },
@@ -419,8 +420,18 @@ export namespace Rev {
         }
 
         void requestFrame() {
-            if (dirty) return;
+            if (dirty) {
+                invalidatePending = true;
+                return;
+            }
             dirty = true;
+            XClearArea(xDisplay, handle, 0, 0, 0, 0, True);
+            XFlush(xDisplay);
+        }
+
+        void flushPendingInvalidate() {
+            if (!invalidatePending) { return; }
+            invalidatePending = false;
             XClearArea(xDisplay, handle, 0, 0, 0, 0, True);
             XFlush(xDisplay);
         }
@@ -514,6 +525,7 @@ export namespace Rev {
                         dirty = true;
                         notifyEvent({ WinEvent::Type::Paint });
                         dirty = false;
+                        flushPendingInvalidate();
                     }
                     break;
 

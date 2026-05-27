@@ -77,8 +77,17 @@ export namespace Rev {
         }
 
         void requestFrame() {
-            if (dirty) { return; }
+            if (dirty) {
+                invalidatePending = true;
+                return;
+            }
             dirty = true;
+            rev_mac_window_request_frame(handle);
+        }
+
+        void flushPendingInvalidate() {
+            if (!invalidatePending) { return; }
+            invalidatePending = false;
             rev_mac_window_request_frame(handle);
         }
 
@@ -93,6 +102,7 @@ export namespace Rev {
 
         void swapBuffers() {
             this->dirty = false;
+            flushPendingInvalidate();
         };
 
         Size size;
@@ -100,6 +110,7 @@ export namespace Rev {
         Element::Cursor cursor;
 
         bool dirty = false;
+        bool invalidatePending = false;
 
         EventCallback callback;
         void* windowImpl = nullptr; // Opaque Cocoa types

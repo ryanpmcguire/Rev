@@ -8,6 +8,7 @@ module;
 export module Rev.Application;
 
 import Rev.Window;
+import Rev.Core.Process;
 
 export namespace Rev {
 
@@ -26,13 +27,23 @@ export namespace Rev {
             // Nothing to do here yet, unless we global-cleanup something.
         }
 
+        void pumpProcessDue() {
+
+            auto& process = Rev::Core::Process::instance();
+
+            while (process.hasScheduledTicks() && process.msUntilNextTick() == 0) {
+                Rev::Core::Process::instance().tick();
+            }
+        }
+
         void run() {
-        
+
             while (!windows.empty()) {
 
                 rev_mac_wait_event();
-    
-                // Cleanup closed windows
+
+                pumpProcessDue();
+
                 for (auto it = windows.begin(); it != windows.end();) {
 
                     Window* w = static_cast<Window*>(*it);
@@ -41,7 +52,7 @@ export namespace Rev {
                         it = windows.erase(it);
                         delete w;
                     }
-                    
+
                     else { ++it; }
                 }
             }

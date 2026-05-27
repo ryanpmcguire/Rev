@@ -475,6 +475,7 @@ export namespace Rev {
         Element::Cursor cursor;
 
         bool dirty = false;
+        bool invalidatePending = false;
         bool destroyed = false;
         Relationship relationship = Relationship::EmbeddedChild;
 
@@ -826,13 +827,22 @@ export namespace Rev {
         
 
         void requestFrame() {
-            
-            // If already dirty, do not re-dirty
+
             if (dirty) {
+                invalidatePending = true;
                 return;
             }
-            
+
             dirty = true;
+
+            InvalidateRect(handle, nullptr, FALSE);
+        }
+
+        void flushPendingInvalidate() {
+
+            if (!invalidatePending) { return; }
+
+            invalidatePending = false;
 
             InvalidateRect(handle, nullptr, FALSE);
         }
@@ -1082,7 +1092,8 @@ export namespace Rev {
                     EndPaint(h, &ps);
 
                     self->dirty = false;
-                    
+                    self->flushPendingInvalidate();
+
                     return 0;
                 }
 

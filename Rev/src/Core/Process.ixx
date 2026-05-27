@@ -3,6 +3,7 @@ module;
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <vector>
 
 export module Rev.Core.Process;
@@ -34,7 +35,7 @@ export namespace Rev::Core {
 
             GlobalTime::Update();
 
-            const uint64_t now = GlobalTime::CurrentMs();
+            const uint64_t now = GlobalTime::now;
 
             schedules.push_back({
                 owner,
@@ -77,32 +78,72 @@ export namespace Rev::Core {
 
             GlobalTime::Update();
 
-            const uint64_t now = GlobalTime::CurrentMs();
+            const uint64_t now = GlobalTime::now;
 
-            std::vector<ScheduledTick> snapshot = schedules;
+            std::vector<void*> dueOwners;
 
-            for (ScheduledTick& entry : snapshot) {
+            for (const ScheduledTick& entry : schedules) {
+                if (now >= entry.nextWakeMs) {
+                    dueOwners.push_back(entry.owner);
+                }
+            }
 
-                if (now < entry.nextWakeMs) { continue; }
+            for (void* owner : dueOwners) {
 
                 auto live = std::find_if(
                     schedules.begin(),
                     schedules.end(),
-                    [&](const ScheduledTick& scheduled) {
-                        return scheduled.owner == entry.owner;
+                    [owner](const ScheduledTick& scheduled) {
+                        return scheduled.owner == owner;
                     }
                 );
 
                 if (live == schedules.end()) { continue; }
 
-                live->callback(now);
+                const uint64_t intervalMs = live->intervalMs;
+                const TickCallback callback = live->callback;
 
-                live->nextWakeMs = now + live->intervalMs;
+                callback(now);
+
+                live = std::find_if(
+                    schedules.begin(),
+                    schedules.end(),
+                    [owner](const ScheduledTick& scheduled) {
+                        return scheduled.owner == owner;
+                    }
+                );
+
+                if (live == schedules.end()) { continue; }
+
+                live->nextWakeMs = now + intervalMs;
             }
         }
 
-        bool needsFrame() const {
+        bool hasScheduledTicks() const {
             return !schedules.empty();
+        }
+
+        // Milliseconds until the next scheduled tick (0 if due now).
+        uint64_t msUntilNextTick() const {
+
+            GlobalTime::Update();
+
+            const uint64_t now = GlobalTime::now;
+
+            uint64_t waitMs = std::numeric_limits<uint64_t>::max();
+
+            for (const ScheduledTick& entry : schedules) {
+                if (now >= entry.nextWakeMs) { return 0; }
+
+                const uint64_t remaining = entry.nextWakeMs - now;
+                waitMs = std::min(waitMs, remaining);
+            }
+
+            if (waitMs == std::numeric_limits<uint64_t>::max()) {
+                return 0;
+            }
+
+            return waitMs;
         }
 
     private:

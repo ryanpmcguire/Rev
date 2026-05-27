@@ -326,14 +326,13 @@ export namespace Cam::Gui {
 
                 setToolPathPreviewPercent(
                     toolPathPreviewPercent + deltaPercent,
-                    e
+                    e,
+                    true
                 );
 
                 if (toolPathPreviewPercent >= 100.0f) {
                     toolPathPreviewAnimator.stop();
                 }
-
-                this->refresh(e);
             });
         }
 
@@ -341,7 +340,11 @@ export namespace Cam::Gui {
             return double(toolPathPreviewPercent) / 100.0;
         }
 
-        void setToolPathPreviewPercent(float percent, Event& e) {
+        void setToolPathPreviewPercent(
+            float percent,
+            Event& e,
+            bool requestRepaint = false
+        ) {
 
             toolPathPreviewPercent = std::clamp(percent, 0.0f, 100.0f);
 
@@ -351,6 +354,10 @@ export namespace Cam::Gui {
             }
 
             syncToolPathPreview(e);
+
+            if (requestRepaint) {
+                refresh(e);
+            }
         }
 
         void pauseToolPathPreview(Event& e) {

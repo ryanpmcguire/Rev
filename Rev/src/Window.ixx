@@ -13,7 +13,6 @@ module;
 export module Rev.Window;
 
 import Rev.Core.Pos;
-import Rev.Core.Process;
 
 import Rev.Element;
 import Rev.Element.Box;
@@ -467,7 +466,11 @@ export namespace Rev {
 
         void refresh(Event& e) override {
             this->dirty.draw = true;
-            window->requestFrame();
+            requestNextFrame();
+        }
+
+        void requestNextFrame() {
+            if (window) { window->requestFrame(); }
         }
 
         void computeChildrenTopDown(Event& e, Element* parent) {
@@ -527,10 +530,8 @@ export namespace Rev {
                 animate.end()
             );
 
-            Core::Process::instance().tick();
-
-            if (Core::Process::instance().needsFrame()) {
-                window->requestFrame();
+            if (!animate.empty()) {
+                requestNextFrame();
             }
 
             // Visibility and layout
