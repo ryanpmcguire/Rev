@@ -157,6 +157,7 @@ export namespace Rev {
         GLXContext glContext = nullptr;
         Colormap colormap = 0;
         XVisualInfo* visual = nullptr;
+        bool ownsVisual = true;
         EventCallback callback;
         XIC inputContext = nullptr;
         ::Cursor xCursor = 0;
@@ -188,19 +189,8 @@ export namespace Rev {
 
             ensureDisplay();
 
-            int attrs[] = {
-                GLX_RGBA,
-                GLX_DOUBLEBUFFER,
-                GLX_DEPTH_SIZE, 24,
-                GLX_STENCIL_SIZE, 8,
-                GLX_RED_SIZE, 8,
-                GLX_GREEN_SIZE, 8,
-                GLX_BLUE_SIZE, 8,
-                None
-            };
-
-            visual = glXChooseVisual(xDisplay, screen, attrs);
-            if (!visual) throw std::runtime_error("[NativeWindow] glXChooseVisual failed");
+            visual = chooseVisual();
+            if (!visual) throw std::runtime_error("[NativeWindow] failed to choose GLX visual");
 
             ::Window root = RootWindow(xDisplay, screen);
             colormap = XCreateColormap(xDisplay, root, visual->visual, AllocNone);
@@ -462,6 +452,36 @@ export namespace Rev {
             if (!(GLEW_VERSION_4_4 || GLEW_ARB_buffer_storage)) {
                 throw std::runtime_error("[NativeWindow] OpenGL backend requires OpenGL 4.4 or GL_ARB_buffer_storage");
             }
+        }
+
+        static XVisualInfo* chooseVisual() {
+            int preferred[] = {
+                GLX_RGBA,
+                GLX_DOUBLEBUFFER,
+                GLX_DEPTH_SIZE, 24,
+                GLX_STENCIL_SIZE, 8,
+                GLX_RED_SIZE, 8,
+                GLX_GREEN_SIZE, 8,
+                GLX_BLUE_SIZE, 8,
+                GLX_ALPHA_SIZE, 8,
+                None
+            };
+
+            XVisualInfo* selected = glXChooseVisual(xDisplay, screen, preferred);
+            if (selected) return selected;
+
+            int fallback[] = {
+                GLX_RGBA,
+                GLX_DOUBLEBUFFER,
+                GLX_DEPTH_SIZE, 24,
+                GLX_STENCIL_SIZE, 8,
+                GLX_RED_SIZE, 8,
+                GLX_GREEN_SIZE, 8,
+                GLX_BLUE_SIZE, 8,
+                None
+            };
+
+            return glXChooseVisual(xDisplay, screen, fallback);
         }
 
         static float displayScale() {
