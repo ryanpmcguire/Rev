@@ -41,8 +41,8 @@ export namespace Rev::Element::ControlTheme {
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .width = 1_px,
-            .radius = 4_px
+            .radius = 4_px,
+            .width = 1_px
         },
         .shadow = subtleShadow
     };
@@ -97,8 +97,8 @@ export namespace Rev::Element::ControlTheme {
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .width = 1_px,
-            .radius = 8_px
+            .radius = 8_px,
+            .width = 1_px
         },
         .shadow = subtleShadow,
         .zIndex = +2
@@ -125,13 +125,13 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonSecondary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 8_px, 12_px, 4_px, 4_px },
         .margin = { 4_px, 4_px, 4_px, 4_px },
+        .padding = { 8_px, 12_px, 4_px, 4_px },
         .background = { .color = rgba(255, 255, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(203, 213, 225, 1.0),
-            .width = 1_px,
-            .radius = 4_px
+            .radius = 4_px,
+            .width = 1_px
         },
         .cursor = Cursor::Hand
     };
@@ -148,8 +148,8 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonPrimary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 8_px, 12_px, 4_px, 4_px },
         .margin = { 4_px, 4_px, 4_px, 4_px },
+        .padding = { 8_px, 12_px, 4_px, 4_px },
         .background = { .color = rgba(79, 99, 255, 1.0), .transition = 120_ms },
         .border = { .radius = 4_px },
         .shadow = primaryButtonShadow,
@@ -172,8 +172,8 @@ export namespace Rev::Element::ControlTheme {
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .width = 1_px,
-            .radius = 6_px
+            .radius = 6_px,
+            .width = 1_px
         },
         .shadow = subtleShadow
     };

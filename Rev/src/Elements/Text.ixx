@@ -538,7 +538,7 @@ export namespace Rev::Element {
             struct Tracked {
                 float current = 0;
                 float max = 0;
-                float min = 99999999;
+                float min = 99999999.0f;
             };
 
             Font& fontRef = *font;
