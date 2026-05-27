@@ -42,4 +42,4 @@ endif()
 project(RevRoot)
 
 add_subdirectory(Rev)
-add_subdirectory(CAM)
+add_subdirectory(Demo)
