@@ -13,6 +13,7 @@ module;
 export module Rev.Window;
 
 import Rev.Core.Pos;
+import Rev.Core.Process;
 
 import Rev.Element;
 import Rev.Element.Box;
@@ -525,6 +526,12 @@ export namespace Rev {
                 ),
                 animate.end()
             );
+
+            Core::Process::instance().tick();
+
+            if (Core::Process::instance().needsFrame()) {
+                window->requestFrame();
+            }
 
             // Visibility and layout
             //--------------------------------------------------

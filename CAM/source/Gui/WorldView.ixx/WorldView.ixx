@@ -37,6 +37,8 @@ import Cam.App.MaterialState;
 import Cam.Gui.World.MaterialState;
 import Cam.Gui.Theme;
 
+import Rev.Core.Animator;
+
 export namespace Cam::Gui {
 
     using namespace Rev;
@@ -89,8 +91,7 @@ export namespace Cam::Gui {
         Slider* toolPathPreviewSlider = nullptr;
 
         float toolPathPreviewPercent = 100.0f;
-        bool toolPathPreviewPlaying = false;
-        uint64_t toolPathPreviewLastTimeMs = 0;
+        Rev::Core::Animator toolPathPreviewAnimator;
 
         static constexpr float ToolPathPreviewPlaySpeed = 12.0f;
         static constexpr float ToolPathPreviewStepPercent = 1.0f;
@@ -313,6 +314,27 @@ export namespace Cam::Gui {
 
             toolPathPreviewSlider->sliderContainer->onMouseDown(onPreviewChanged);
             toolPathPreviewSlider->sliderContainer->onDrag(onPreviewChanged);
+
+            toolPathPreviewAnimator.onFrame([this](Rev::Core::AnimationEvent& frame) {
+
+                if (!shared || !shared->event) { return; }
+
+                Event& e = *shared->event;
+
+                const float deltaPercent =
+                    (float(frame.deltaMs) / 1000.0f) * ToolPathPreviewPlaySpeed;
+
+                setToolPathPreviewPercent(
+                    toolPathPreviewPercent + deltaPercent,
+                    e
+                );
+
+                if (toolPathPreviewPercent >= 100.0f) {
+                    toolPathPreviewAnimator.stop();
+                }
+
+                this->refresh(e);
+            });
         }
 
         double toolPathPreviewProgress() const {
@@ -333,11 +355,9 @@ export namespace Cam::Gui {
 
         void pauseToolPathPreview(Event& e) {
 
-            if (!toolPathPreviewPlaying) { return; }
+            if (!toolPathPreviewAnimator.isPlaying()) { return; }
 
-            toolPathPreviewPlaying = false;
-            toolPathPreviewLastTimeMs = 0;
-            stopAnimateRequest();
+            toolPathPreviewAnimator.pause();
             refresh(e);
         }
 
@@ -347,9 +367,7 @@ export namespace Cam::Gui {
                 setToolPathPreviewPercent(0.0f, e);
             }
 
-            toolPathPreviewPlaying = true;
-            toolPathPreviewLastTimeMs = 0;
-            requestAnimate();
+            toolPathPreviewAnimator.play();
             refresh(e);
         }
 
@@ -369,33 +387,6 @@ export namespace Cam::Gui {
                 toolPathPreviewPercent + ToolPathPreviewStepPercent,
                 e
             );
-        }
-
-        void animate(Event& e) override {
-
-            Element::animate(e);
-
-            if (!toolPathPreviewPlaying) { return; }
-
-            if (toolPathPreviewLastTimeMs == 0) {
-                toolPathPreviewLastTimeMs = e.time;
-            }
-
-            const uint64_t elapsedMs = e.time - toolPathPreviewLastTimeMs;
-            toolPathPreviewLastTimeMs = e.time;
-
-            const float deltaPercent =
-                (float(elapsedMs) / 1000.0f) * ToolPathPreviewPlaySpeed;
-
-            setToolPathPreviewPercent(toolPathPreviewPercent + deltaPercent, e);
-
-            if (toolPathPreviewPercent >= 100.0f) {
-                pauseToolPathPreview(e);
-            }
-
-            else {
-                requestAnimate();
-            }
         }
 
         void syncToolPathPreview(Event& e) {
