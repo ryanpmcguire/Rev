@@ -25,9 +25,14 @@ export namespace Rev {
 
                 for (auto it = windows.begin(); it != windows.end();) {
                     Window* window = static_cast<Window*>(*it);
-                    if (window->shouldClose || (window->window && window->window->closed)) {
-                        delete window;
+                    if (!window) {
                         it = windows.erase(it);
+                        continue;
+                    }
+
+                    if (window->shouldClose || (window->window && window->window->closed)) {
+                        it = windows.erase(it);
+                        delete window;
                     }
                     else {
                         ++it;
@@ -42,8 +47,8 @@ export namespace Rev {
             void* handle = static_cast<void*>(target);
             auto it = std::find(windows.begin(), windows.end(), handle);
             if (it != windows.end()) {
-                delete target;
                 windows.erase(it);
+                delete target;
             }
         }
     };

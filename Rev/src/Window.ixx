@@ -348,6 +348,7 @@ export namespace Rev {
             }
 
             children.clear();
+            parent = nullptr;
 
             if (shared) {
                 delete shared->canvas;

@@ -187,12 +187,30 @@ export namespace Rev {
         ~NativeWindow() {
             if (xDisplay && xWindow) {
                 windows.erase(xWindow);
+
+                // Drop any pending X events for this window before releasing
+                // the C++ object. Otherwise queued Configure/Expose/Destroy
+                // events can be delivered later with stale NativeWindow* data.
+                XEvent pending{};
+                while (XCheckWindowEvent(
+                    xDisplay,
+                    xWindow,
+                    ExposureMask | StructureNotifyMask | FocusChangeMask |
+                    PointerMotionMask | ButtonPressMask | ButtonReleaseMask |
+                    KeyPressMask | KeyReleaseMask,
+                    &pending
+                )) {}
+
                 if (glContext) {
                     if (glXGetCurrentContext() == glContext) glXMakeCurrent(xDisplay, None, nullptr);
-                    glXDestroyContext(xDisplay, glContext);
+                    if (glContext != sharedRoot) {
+                        glXDestroyContext(xDisplay, glContext);
+                    }
                     glContext = nullptr;
                 }
+
                 XDestroyWindow(xDisplay, xWindow);
+                XFlush(xDisplay);
                 xWindow = 0; handle = nullptr;
             }
             if (visual) XFree(visual);
@@ -390,6 +408,10 @@ export namespace Rev {
                         }
                         break;
                     case DestroyNotify:
+                        self->closed = true;
+                        windows.erase(ev.xdestroywindow.window);
+                        self->xWindow = 0;
+                        self->handle = nullptr;
                         self->notifyEvent({ WinEvent::Type::Destroy });
                         break;
                     case FocusIn:
