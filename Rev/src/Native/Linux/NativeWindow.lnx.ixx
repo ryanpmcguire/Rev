@@ -574,19 +574,11 @@ export namespace Rev {
                 hints.max_height = details.size.h;
                 XSetWMNormalHints(xDisplay, xWindow, &hints);
             }
-            else if (details.size.minW > 0 || details.size.minH > 0 || details.size.maxW > 0 || details.size.maxH > 0) {
+            else if (details.size.minW > 0 || details.size.minH > 0) {
                 XSizeHints hints{};
-                hints.flags = 0;
-                if (details.size.minW > 0 || details.size.minH > 0) {
-                    hints.flags |= PMinSize;
-                    hints.min_width = details.size.minW;
-                    hints.min_height = details.size.minH;
-                }
-                if (details.size.maxW > 0 || details.size.maxH > 0) {
-                    hints.flags |= PMaxSize;
-                    hints.max_width = details.size.maxW;
-                    hints.max_height = details.size.maxH;
-                }
+                hints.flags = PMinSize;
+                hints.min_width = details.size.minW;
+                hints.min_height = details.size.minH;
                 XSetWMNormalHints(xDisplay, xWindow, &hints);
             }
 
