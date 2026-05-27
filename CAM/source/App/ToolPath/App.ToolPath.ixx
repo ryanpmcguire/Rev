@@ -183,6 +183,15 @@ export namespace Cam::App {
             }
         }
 
+        // Generation appends in reverse execution order; flip for display and preview.
+        void reversePointsForForwardDisplay() {
+
+            if (points.size() < 2) { return; }
+
+            std::reverse(points.begin(), points.end());
+            assignPointTimes();
+        }
+
         void addSegmentPoints(
             const Segment& segment,
             float depth,
@@ -400,7 +409,7 @@ export namespace Cam::App {
                 addApproachRetractLinks(axisAnchor, frame, &toAvoid);
             }
 
-            assignPointTimes();
+            reversePointsForForwardDisplay();
 
             if (hasAxisAnchor) {
                 buildAxisDebugLine(frame, axisAnchor, &toAvoid);
@@ -443,9 +452,8 @@ export namespace Cam::App {
         // Linking
         //--------------------------------------------------
 
-        // Connect this toolpath's execution end to the next path's execution start.
-        // Points are stored with t=0 at the approach side (front) and execution
-        // finishing at the back after retract.
+        // Connect this path's end (points.back()) to the next path's start (points.front()).
+        // Both paths must already be in forward display order from compute().
         bool link(const ToolPath& next) {
 
             if (points.empty() || next.points.empty()) {
@@ -478,6 +486,7 @@ export namespace Cam::App {
         // Preview sampling
         //--------------------------------------------------
 
+        // Points are in forward execution order (see reversePointsForForwardDisplay).
         bool sampleAtProgress(double previewProgress, ToolPathPoint& out) const {
 
             if (points.empty()) { return false; }
