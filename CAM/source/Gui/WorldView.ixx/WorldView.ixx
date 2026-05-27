@@ -95,6 +95,7 @@ export namespace Cam::Gui {
 
         static constexpr float ToolPathPreviewPlaySpeed = 12.0f;
         static constexpr float ToolPathPreviewStepPercent = 1.0f;
+        static constexpr double ToolPathPreviewFrameRate = 150.0;
 
         Cam::App::Project* representedProject = nullptr;
         Cam::App::MaterialState* representedDisplayedState = nullptr;
@@ -334,6 +335,8 @@ export namespace Cam::Gui {
                     toolPathPreviewAnimator.stop();
                 }
             });
+
+            toolPathPreviewAnimator.setFrequency(ToolPathPreviewFrameRate);
         }
 
         double toolPathPreviewProgress() const {

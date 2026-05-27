@@ -27,9 +27,9 @@ export namespace Rev::Core {
 
         State state = State::Stopped;
         uint64_t lastTickMs = 0;
-        uint64_t tickIntervalMs = 16;
+        uint64_t tickPeriodMs = 16;
 
-        explicit Animator(uint64_t intervalMs = 16) : tickIntervalMs(intervalMs) {}
+        explicit Animator(uint64_t periodMs = 16) : tickPeriodMs(periodMs) {}
 
         Animator(const Animator&) = delete;
         Animator& operator=(const Animator&) = delete;
@@ -38,12 +38,32 @@ export namespace Rev::Core {
             Process::instance().unschedule(this);
         }
 
-        void setTickIntervalMs(uint64_t intervalMs) {
-            tickIntervalMs = intervalMs;
+        // Milliseconds between frame callbacks (~60 Hz at 16 ms).
+        void setPeriod(uint64_t periodMs) {
+
+            if (periodMs == 0) { return; }
+
+            tickPeriodMs = periodMs;
 
             if (state == State::Playing) {
                 requestTicksFromProcess();
             }
+        }
+
+        uint64_t getPeriod() const { return tickPeriodMs; }
+
+        // Target callback rate in frames per second (GlobalTime is ms resolution).
+        void setFrequency(double frequencyHz) {
+
+            if (frequencyHz <= 0.0) { return; }
+
+            const uint64_t periodMs = static_cast<uint64_t>(1000.0 / frequencyHz + 0.5);
+
+            setPeriod(std::max<uint64_t>(1, periodMs));
+        }
+
+        double getFrequency() const {
+            return 1000.0 / static_cast<double>(tickPeriodMs);
         }
 
         State getState() const { return state; }
@@ -122,7 +142,7 @@ export namespace Rev::Core {
 
             Process::instance().schedule(
                 this,
-                tickIntervalMs,
+                tickPeriodMs,
                 [this](uint64_t now) {
                     tickFromProcess(now);
                 }

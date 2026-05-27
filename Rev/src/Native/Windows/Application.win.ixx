@@ -49,7 +49,7 @@ export namespace Rev {
                     const uint64_t waitMs = Rev::Core::Process::instance().msUntilNextTick();
                     const uint64_t clamped = waitMs > 0 ? waitMs : 1;
 
-                    timeout = static_cast<DWORD>(std::min<uint64_t>(clamped, 16));
+                    timeout = static_cast<DWORD>(clamped);
                 }
 
                 MsgWaitForMultipleObjects(
