@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 #include <numeric>
@@ -75,12 +76,20 @@ export namespace Rev::Graphics {
             return static_cast<Vertex3*>(data);
         }
 
-        void set(std::vector<Vertex> newVertices) {
-            memcpy(data, newVertices.data(), size);
+        void set(const std::vector<Vertex>& newVertices) {
+            resize(newVertices.size());
+            if (!data || newVertices.empty()) { return; }
+
+            size_t bytes = std::min(size, newVertices.size() * sizeof(Vertex));
+            memcpy(data, newVertices.data(), bytes);
         }
 
-        void set3(std::vector<Vertex3> newVertices) {
-            memcpy(data, newVertices.data(), size);
+        void set3(const std::vector<Vertex3>& newVertices) {
+            resize(newVertices.size());
+            if (!data || newVertices.empty()) { return; }
+
+            size_t bytes = std::min(size, newVertices.size() * sizeof(Vertex3));
+            memcpy(data, newVertices.data(), bytes);
         }
 
         void resize(size_t newNum) {
@@ -106,36 +115,48 @@ export namespace Rev::Graphics {
                 glDeleteBuffers(1, &bufferID);
                 bufferID = 0;
             }
+
+            if (!size) {
+                glBindVertexArray(0);
+                return;
+            }
         
             glBindVertexArray(vaoID);
         
             glGenBuffers(1, &bufferID);
             glBindBuffer(GL_ARRAY_BUFFER, bufferID);
         
-            glBufferStorage(GL_ARRAY_BUFFER, size, nullptr,
+            glBufferStorage(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(size), nullptr,
                 GL_MAP_WRITE_BIT |
                 GL_MAP_PERSISTENT_BIT |
                 GL_MAP_COHERENT_BIT
             );
         
-            data = glMapBufferRange(GL_ARRAY_BUFFER, 0, size,
+            data = glMapBufferRange(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(size),
                 GL_MAP_WRITE_BIT |
                 GL_MAP_PERSISTENT_BIT |
                 GL_MAP_COHERENT_BIT
             );
+
+            if (!data) {
+                glDeleteBuffers(1, &bufferID);
+                bufferID = 0;
+                size = 0;
+                throw std::runtime_error("[VertexBuffer] Failed to map buffer");
+            }
 
             size_t idx = 0, offset = 0;
             for (size_t attrib : params.attribs) {
 
-                glVertexAttribPointer(idx, attrib, GL_FLOAT, GL_FALSE, vertSize, (void*)(offset * sizeof(float)));
-                glEnableVertexAttribArray(idx);
+                glVertexAttribPointer(static_cast<GLuint>(idx), static_cast<GLint>(attrib), GL_FLOAT, GL_FALSE, static_cast<GLsizei>(vertSize), (void*)(offset * sizeof(float)));
+                glEnableVertexAttribArray(static_cast<GLuint>(idx));
+
+                if (params.divisor) {
+                    glVertexAttribDivisor(static_cast<GLuint>(idx), static_cast<GLuint>(params.divisor));
+                }
 
                 idx += 1;
                 offset += attrib;
-            }
-        
-            if (params.divisor) {
-                glVertexAttribDivisor(0, params.divisor);
             }
         
             glBindVertexArray(0);
@@ -146,6 +167,7 @@ export namespace Rev::Graphics {
         }
 
         void unbind() {
+            glBindVertexArray(0);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
     };

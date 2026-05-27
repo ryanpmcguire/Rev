@@ -55,19 +55,26 @@ export namespace Rev::Graphics {
 
             // Determine format
             GLenum format = GL_RED;
-            if (channels == 3) { format = GL_RGB; }
-            else if (channels == 4) { format = GL_RGBA; }
+            GLenum internalFormat = GL_R8;
+            if (channels == 3) { format = GL_RGB; internalFormat = GL_RGB8; }
+            else if (channels == 4) { format = GL_RGBA; internalFormat = GL_RGBA8; }
+
+            GLint previousUnpackAlignment = 4;
+            glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
             // Generate and bind texture
             glGenTextures(1, &id);
             glBindTexture(GL_TEXTURE_2D, id);
 
             glTexImage2D(
-                GL_TEXTURE_2D, 0, format,
+                GL_TEXTURE_2D, 0, static_cast<GLint>(internalFormat),
                 static_cast<GLsizei>(width),
                 static_cast<GLsizei>(height),
                 0, format, GL_UNSIGNED_BYTE, data
             );
+
+            glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
 
             // Set swizzle to ensure correct mapping for single-channel textures
             if (channels == 1) {

@@ -28,19 +28,25 @@ export namespace Rev::Graphics {
             glGenBuffers(1, &bufferID);
             glBindBuffer(GL_UNIFORM_BUFFER, bufferID);
 
-            glBufferStorage(GL_UNIFORM_BUFFER, size, nullptr,
+            glBufferStorage(GL_UNIFORM_BUFFER, static_cast<GLsizeiptr>(size), nullptr,
                 GL_MAP_WRITE_BIT |
                 GL_MAP_PERSISTENT_BIT |
                 GL_MAP_COHERENT_BIT
             );
 
-            data = glMapBufferRange(GL_UNIFORM_BUFFER, 0, size,
+            data = glMapBufferRange(GL_UNIFORM_BUFFER, 0, static_cast<GLsizeiptr>(size),
                 GL_MAP_WRITE_BIT |
                 GL_MAP_PERSISTENT_BIT |
                 GL_MAP_COHERENT_BIT
             );
 
             glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+            if (!data) {
+                glDeleteBuffers(1, &bufferID);
+                bufferID = 0;
+                throw std::runtime_error("[UniformBuffer] Failed to map buffer");
+            }
         }
 
         ~UniformBuffer() {
@@ -59,6 +65,7 @@ export namespace Rev::Graphics {
         }
 
         void set(void* value) {
+            if (!data || !value || !size) { return; }
             memcpy(data, value, size);
         }
 

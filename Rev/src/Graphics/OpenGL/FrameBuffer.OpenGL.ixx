@@ -61,6 +61,15 @@ export namespace Rev::Graphics {
             if (!width) { width = 1; }
             if (!height) { height = 1; }
 
+            if (texture && stencil && params.width == width && params.height == height) {
+                return;
+            }
+
+            GLint previousFramebuffer = 0;
+            GLint previousRenderbuffer = 0;
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+            glGetIntegerv(GL_RENDERBUFFER_BINDING, &previousRenderbuffer);
+
             // Update params
             params.width = width;
             params.height = height;
@@ -85,8 +94,8 @@ export namespace Rev::Graphics {
             glRenderbufferStorage(
                 GL_RENDERBUFFER,
                 GL_DEPTH24_STENCIL8,
-                width,
-                height
+                static_cast<GLsizei>(width),
+                static_cast<GLsizei>(height)
             );
 
             // Attach to framebuffer
@@ -109,11 +118,13 @@ export namespace Rev::Graphics {
 
             // Check completeness
             GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+            glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(previousRenderbuffer));
+
             if (status != GL_FRAMEBUFFER_COMPLETE) {
                 throw std::runtime_error("[FrameBuffer] Framebuffer incomplete on resize");
             }
-
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
 
         void bind() {
