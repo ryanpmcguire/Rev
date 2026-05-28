@@ -41,15 +41,15 @@ export namespace Rev::Element {
 
         void computePrimitives(Event& e) override {
 
-            Style& styleRef = resolved.style;
-            
-            // Box data
-            //--------------------------------------------------
+            if (resolved.hidden) { return; }
+
+            const Rect bounds = this->rect.rounded().translate({ 0.0, 0.0 });
+
+            if (bounds.w <= 0.0f || bounds.h <= 0.0f) { return; }
 
             Primitives::Svg::Data& data = *svg->data;
 
-            // Assign rect, fill color
-            data.rect = this->rect.rounded().translate({ 0.0, 0.0 });
+            data.rect = bounds;
             data.color = resolved.style.text.color;
             data.rotation = rotation;
             data.opacity = opacity;

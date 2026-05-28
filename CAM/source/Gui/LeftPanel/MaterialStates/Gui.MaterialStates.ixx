@@ -210,6 +210,36 @@ export namespace Cam::Gui {
             return "Material State " + std::to_string(index);
         }
 
+        void changeToolPathTool(
+            Cam::App::MaterialState* state,
+            const std::string& toolName,
+            Event& e
+        ) {
+
+            if (!app || !state || toolName.empty()) { return; }
+
+            Cam::App::Project* project = activeProject();
+
+            if (!project) { return; }
+
+            if (!app->saveToolPathSettings(
+                state,
+                state->toolPath.strategy,
+                toolName,
+                state->toolPath.stepDown,
+                state->toolPath.stepover,
+                state->toolPath.feedRate
+            )) {
+                return;
+            }
+
+            if (onToolPathEdited) {
+                onToolPathEdited(e);
+            }
+
+            refresh(e);
+        }
+
         void openToolPathSettings(Cam::App::MaterialState* state, Event& e) {
 
             if (!state || !state->parent) { return; }
@@ -289,7 +319,16 @@ export namespace Cam::Gui {
             }
 
             for (size_t i = 0; i < newSize; i++) {
+
                 rows[i]->setState(project->states[i], i);
+
+                rows[i]->onToolPathToolChanged = [this](
+                    Event& ev,
+                    Cam::App::MaterialState* state,
+                    const std::string& toolName
+                ) {
+                    this->changeToolPathTool(state, toolName, ev);
+                };
             }
 
             Box::computeChildren(e);

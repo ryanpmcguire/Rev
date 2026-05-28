@@ -16,11 +16,13 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Svg;
+import Rev.Element.Dropdown;
 
 import Cam.App;
 import Cam.App.Project;
 import Cam.App.MaterialState;
 import Cam.Gui.Theme;
+import Cam.Gui.ToolPathSettingsWindow;
 
 export namespace Cam::Gui {
 
@@ -84,6 +86,28 @@ export namespace Cam::Gui {
         Style DeleteIcon = {
             .size = { 15_px, 15_px }
         };
+
+        Style ToolDropdownHost = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .margin = { 0_px, 0_px, 0_px, 4_px },
+            .size = { .width = 152_px }
+        };
+
+        Style ToolDropdown = {
+            .size = { .width = 100_pct, .height = Grow() }
+        };
+
+        Style ToolDropdownLabelHidden = {
+            .visibility = Visibility::Hidden
+        };
+
+        Style ToolDropdownField = {
+            .padding = { 6_px, 8_px, 6_px, 8_px }
+        };
+
+        Style ToolDropdownFieldText = {
+            .text = { .wrap = Wrap::False }
+        };
     };
 
     using namespace MaterialStateStyle;
@@ -99,12 +123,15 @@ export namespace Cam::Gui {
         Box* content = nullptr;
         Text* label = nullptr;
         Text* subtitle = nullptr;
+        Box* toolDropdownHost = nullptr;
+        Dropdown* toolDropdown = nullptr;
         Box* settingsButton = nullptr;
         Svg* settingsIcon = nullptr;
         Box* deleteButton = nullptr;
         Svg* deleteIcon = nullptr;
 
         std::function<void(Event&, Cam::App::MaterialState*)> onSelect;
+        std::function<void(Event&, Cam::App::MaterialState*, const std::string&)> onToolPathToolChanged;
         std::function<void(Event&, Cam::App::MaterialState*)> onOpenToolPathSettings;
         std::function<void(Event&, Cam::App::MaterialState*)> onDelete;
 
@@ -143,6 +170,46 @@ export namespace Cam::Gui {
                     { &Theme::Styles::MutedText }
                 )
             );
+
+            toolDropdownHost = new Box(
+                this,
+                { &Styles::ToolDropdownHost },
+                "ToolPathToolHost"
+            );
+
+            toolDropdownHost->onClick([](Event& e) {
+                e.propagate = false;
+            });
+
+            toolDropdown = new Dropdown(
+                toolDropdownHost,
+                {
+                    .label = "Tool",
+                    .options = ToolPathSettingsWindow::toolOptions(app),
+                    .placeholder = "Tool",
+                    .value = ""
+                },
+                { &Styles::ToolDropdown }
+            );
+
+            toolDropdown->label->styles.add(&Styles::ToolDropdownLabelHidden);
+            toolDropdown->dropdown->styles.add(&Styles::ToolDropdownField);
+            toolDropdown->dropdownText->styles.add(&Styles::ToolDropdownFieldText);
+
+            toolDropdown->onChange = [this](Event& e) {
+
+                e.propagate = false;
+
+                if (!canEditToolPath() || !state || !toolDropdown) { return; }
+
+                const std::string toolName = toolDropdown->params.value;
+
+                if (toolName.empty() || toolName == state->toolPath.toolName) { return; }
+
+                if (onToolPathToolChanged) {
+                    onToolPathToolChanged(e, state, toolName);
+                }
+            };
 
             settingsButton = new Box(
                 this,
@@ -312,6 +379,42 @@ export namespace Cam::Gui {
 
             if (settingsIcon) {
                 settingsIcon->resolved.disabled = !canEditToolPath();
+            }
+
+            const bool showToolDropdown = canEditToolPath();
+
+            if (toolDropdownHost) {
+                toolDropdownHost->style->visibility = showToolDropdown
+                    ? Visibility::Visible
+                    : Visibility::Hidden;
+            }
+
+            if (toolDropdown && showToolDropdown) {
+
+                toolDropdown->params.options = ToolPathSettingsWindow::toolOptions(app);
+
+                const std::string toolName = state->toolPath.toolName;
+
+                if (!toolName.empty()) {
+
+                    const Dropdown::Item item = toolDropdown->getItemWithVal(toolName);
+
+                    if (item.value == toolName) {
+                        toolDropdown->params.value = toolName;
+                        toolDropdown->dropdownText->content = item.name;
+                    }
+                }
+
+                else {
+                    toolDropdown->params.value = "";
+                    toolDropdown->dropdownText->content = toolDropdown->params.placeholder;
+                }
+
+                toolDropdown->resolved.disabled = false;
+            }
+
+            else if (toolDropdown) {
+                toolDropdown->resolved.disabled = true;
             }
 
             if (selected) { styles.add(&Theme::Styles::RowSelected); }
