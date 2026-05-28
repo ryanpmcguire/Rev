@@ -1,5 +1,8 @@
 module;
 
+#include <iterator>
+#include <vector>
+
 export module Cam.App.Slicer.Strategy.Strategies.Hatch;
 
 import Cam.App.Model;

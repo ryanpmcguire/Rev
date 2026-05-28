@@ -45,9 +45,9 @@ export namespace Cam::Gui {
         };
 
         Style List = {
+            .overflow = Overflow::Hide,
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { 100_pct },
-            .overflow = Overflow::Hide
+            .size = { 100_pct }
         };
     };
 

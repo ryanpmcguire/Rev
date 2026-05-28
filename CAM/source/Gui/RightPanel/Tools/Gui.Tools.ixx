@@ -54,8 +54,8 @@ export namespace Cam::Gui {
             .margin = { 0_px, 0_px, 0_px, 4_px },
             .padding = { 6_px, 10_px, 6_px, 10_px },
             .border = {
-                .width = 1_px,
-                .radius = 5_px
+                .radius = 5_px,
+                .width = 1_px
             },
             .cursor = Cursor::Hand
         };
@@ -70,9 +70,9 @@ export namespace Cam::Gui {
         };
 
         Style List = {
+            .overflow = Overflow::Hide,
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { 100_pct },
-            .overflow = Overflow::Hide
+            .size = { 100_pct }
         };
     };
 

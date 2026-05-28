@@ -46,8 +46,8 @@ export namespace Cam::Gui {
             .margin = { 0_px, 0_px, 0_px, 4_px },
             .padding = { 6_px, 10_px, 6_px, 10_px },
             .border = {
-                .width = 1_px,
-                .radius = 5_px
+                .radius = 5_px,
+                .width = 1_px
             },
             .cursor = Cursor::Hand
         };

@@ -21,7 +21,12 @@ int main() {
 
     Cam::AppWindow* window = new Cam::AppWindow(application->windows, {
         .name = "CAM",
-        .size = { 1280, 720, .min = { 640, 480 }, .max = { 3840, 2160 } }
+        .size = {
+            .width = 1280,
+            .height = 720,
+            .min = { 640, 480 },
+            .max = { 3840, 2160 }
+        }
     });
     window->shared->state = static_cast<void*>(appState);
 
