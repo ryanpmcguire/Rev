@@ -188,6 +188,10 @@ export namespace Rev::OS {
             return std::system(test.c_str()) == 0;
         }
 
+        static void stripTrailingNewlines(std::string& value) {
+            while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) value.pop_back();
+        }
+
         static bool runCommandCapture(const std::string& command, std::string& out) {
             out.clear();
             FILE* pipe = popen(command.c_str(), "r");
@@ -199,8 +203,46 @@ export namespace Rev::OS {
             }
 
             int status = pclose(pipe);
-            while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+            stripTrailingNewlines(out);
             return status == 0 && !out.empty();
+        }
+
+        static int hexValue(char c) {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+            if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+            return -1;
+        }
+
+        static std::string percentDecode(const std::string& value) {
+            std::string out;
+            out.reserve(value.size());
+
+            for (size_t i = 0; i < value.size(); i++) {
+                if (value[i] == '%' && i + 2 < value.size()) {
+                    int hi = hexValue(value[i + 1]);
+                    int lo = hexValue(value[i + 2]);
+                    if (hi >= 0 && lo >= 0) {
+                        out.push_back(static_cast<char>((hi << 4) | lo));
+                        i += 2;
+                        continue;
+                    }
+                }
+                out.push_back(value[i]);
+            }
+
+            return out;
+        }
+
+        static std::string fileUriToPath(const std::string& uri) {
+            constexpr const char* prefix = "file://";
+            if (uri.rfind(prefix, 0) != 0) return uri;
+
+            std::string path = uri.substr(7);
+            if (path.rfind("localhost/", 0) == 0) path = path.substr(9);
+            if (path.empty() || path[0] != '/') path = "/" + path;
+
+            return percentDecode(path);
         }
 
         static std::string usableInitialDir(const std::string& initialDir) {
@@ -236,6 +278,31 @@ export namespace Rev::OS {
         static bool kdialogPickFolder(std::string& out, const std::string& title, const std::string& initialDir) {
             if (!commandExists("kdialog")) return false;
             std::string command = "kdialog --title=" + shellQuote(title) + " --getexistingdirectory " + shellQuote(usableInitialDir(initialDir));
+            return runCommandCapture(command, out);
+        }
+
+        static bool zenityOpenFile(std::string& out, const std::string& title, const std::string& initialDir) {
+            if (!commandExists("zenity")) return false;
+
+            std::string command = "zenity --file-selection --title=" + shellQuote(title);
+            command += " --filename=" + shellQuote((std::filesystem::path(usableInitialDir(initialDir)) / "").string());
+            return runCommandCapture(command, out);
+        }
+
+        static bool zenitySaveFile(std::string& out, const std::string& title, const std::string& initialDir, const std::string& initialFileName) {
+            if (!commandExists("zenity")) return false;
+
+            std::filesystem::path initial = std::filesystem::path(usableInitialDir(initialDir)) / initialFileName;
+            std::string command = "zenity --file-selection --save --confirm-overwrite --title=" + shellQuote(title);
+            command += " --filename=" + shellQuote(initial.string());
+            return runCommandCapture(command, out);
+        }
+
+        static bool zenityPickFolder(std::string& out, const std::string& title, const std::string& initialDir) {
+            if (!commandExists("zenity")) return false;
+
+            std::string command = "zenity --file-selection --directory --title=" + shellQuote(title);
+            command += " --filename=" + shellQuote((std::filesystem::path(usableInitialDir(initialDir)) / "").string());
             return runCommandCapture(command, out);
         }
 
@@ -438,31 +505,18 @@ export namespace Rev::OS {
             (void)filter;
             (void)initialFileName;
             if (kdialogOpenFile(out, title, initialDir)) return true;
-            if (!commandExists("zenity")) return false;
-
-            std::string command = "zenity --file-selection --title=" + shellQuote(title);
-            command += " --filename=" + shellQuote((std::filesystem::path(usableInitialDir(initialDir)) / "").string());
-            return runCommandCapture(command, out);
+            return zenityOpenFile(out, title, initialDir);
         }
 
         static bool saveDialog(std::string& out, std::string title, const char* filter, std::string initialDir = "", std::string initialFileName = "") {
             (void)filter;
             if (kdialogSaveFile(out, title, initialDir, initialFileName)) return true;
-            if (!commandExists("zenity")) return false;
-
-            std::filesystem::path initial = std::filesystem::path(usableInitialDir(initialDir)) / initialFileName;
-            std::string command = "zenity --file-selection --save --confirm-overwrite --title=" + shellQuote(title);
-            command += " --filename=" + shellQuote(initial.string());
-            return runCommandCapture(command, out);
+            return zenitySaveFile(out, title, initialDir, initialFileName);
         }
 
         static bool pickFolderDialog(std::string& out, std::string title, std::string initialDir = "") {
             if (kdialogPickFolder(out, title, initialDir)) return true;
-            if (!commandExists("zenity")) return false;
-
-            std::string command = "zenity --file-selection --directory --title=" + shellQuote(title);
-            command += " --filename=" + shellQuote((std::filesystem::path(usableInitialDir(initialDir)) / "").string());
-            return runCommandCapture(command, out);
+            return zenityPickFolder(out, title, initialDir);
         }
 
         operator bool() const { return valid; }
