@@ -42,6 +42,17 @@ export namespace Rev::OS {
             return std::system(test.c_str()) == 0;
         }
 
+        static int exitCode(int status) {
+            if (status < 0) return status;
+            return (status >> 8) & 0xff;
+        }
+
+        static bool runKDialogMessage(const std::string& kind, const std::string& title, const std::string& message) {
+            if (!commandExists("kdialog")) return false;
+            std::string command = "kdialog --title=" + shellQuote(title) + " --" + kind + " " + shellQuote(message) + " >/dev/null 2>&1";
+            return std::system(command.c_str()) == 0;
+        }
+
         static bool runZenity(const std::string& kind, const std::string& title, const std::string& message) {
             if (!commandExists("zenity")) return false;
             std::string command = "zenity --" + kind + " --title=" + shellQuote(title) + " --text=" + shellQuote(message) + " >/dev/null 2>&1";
@@ -54,6 +65,7 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
+            if (runKDialogMessage("msgbox", title, message)) return DialogResult::Ok;
             if (runZenity("info", title, message)) return DialogResult::Ok;
             std::fprintf(stderr, "[Info] %s: %s\n", title.c_str(), message.c_str());
             return DialogResult::Ok;
@@ -65,6 +77,7 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
+            if (runKDialogMessage("sorry", title, message)) return DialogResult::Ok;
             if (runZenity("warning", title, message)) return DialogResult::Ok;
             std::fprintf(stderr, "[Warning] %s: %s\n", title.c_str(), message.c_str());
             return DialogResult::Ok;
@@ -76,6 +89,7 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
+            if (runKDialogMessage("error", title, message)) return DialogResult::Ok;
             if (runZenity("error", title, message)) return DialogResult::Ok;
             std::fprintf(stderr, "[Error] %s: %s\n", title.c_str(), message.c_str());
             return DialogResult::Ok;
@@ -87,6 +101,10 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
+            if (commandExists("kdialog")) {
+                std::string command = "kdialog --title=" + shellQuote(title) + " --yesno " + shellQuote(message) + " >/dev/null 2>&1";
+                return std::system(command.c_str()) == 0 ? DialogResult::Yes : DialogResult::No;
+            }
             if (commandExists("zenity")) {
                 std::string command = "zenity --question --title=" + shellQuote(title) + " --text=" + shellQuote(message) + " >/dev/null 2>&1";
                 return std::system(command.c_str()) == 0 ? DialogResult::Yes : DialogResult::No;
@@ -100,6 +118,21 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
+
+            if (commandExists("kdialog")) {
+                std::string command =
+                    "kdialog --title=" + shellQuote("Unsaved Changes") +
+                    " --warningyesnocancel " + shellQuote("Save changes to \"" + itemName + "\" before closing?") +
+                    " --yes-label=" + shellQuote("Save") +
+                    " --no-label=" + shellQuote("Discard") +
+                    " --cancel-label=" + shellQuote("Cancel") +
+                    " >/dev/null 2>&1";
+
+                int code = exitCode(std::system(command.c_str()));
+                if (code == 0) return UnsavedChangesResult::Save;
+                if (code == 1) return UnsavedChangesResult::Discard;
+                if (code == 2) return UnsavedChangesResult::Cancel;
+            }
 
             if (commandExists("zenity")) {
                 std::string output;

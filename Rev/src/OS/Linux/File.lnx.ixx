@@ -220,6 +220,25 @@ export namespace Rev::OS {
             return std::filesystem::current_path().string();
         }
 
+        static bool kdialogOpenFile(std::string& out, const std::string& title, const std::string& initialDir) {
+            if (!commandExists("kdialog")) return false;
+            std::string command = "kdialog --title=" + shellQuote(title) + " --getopenfilename " + shellQuote(usableInitialDir(initialDir));
+            return runCommandCapture(command, out);
+        }
+
+        static bool kdialogSaveFile(std::string& out, const std::string& title, const std::string& initialDir, const std::string& initialFileName) {
+            if (!commandExists("kdialog")) return false;
+            std::filesystem::path initial = std::filesystem::path(usableInitialDir(initialDir)) / initialFileName;
+            std::string command = "kdialog --title=" + shellQuote(title) + " --getsavefilename " + shellQuote(initial.string());
+            return runCommandCapture(command, out);
+        }
+
+        static bool kdialogPickFolder(std::string& out, const std::string& title, const std::string& initialDir) {
+            if (!commandExists("kdialog")) return false;
+            std::string command = "kdialog --title=" + shellQuote(title) + " --getexistingdirectory " + shellQuote(usableInitialDir(initialDir));
+            return runCommandCapture(command, out);
+        }
+
         static File Open(std::string title = "Open File", const char* filter = "All Files\0*.*\0", std::string initialDir = "") {
             File file;
             file.open(title, filter, initialDir);
@@ -418,6 +437,7 @@ export namespace Rev::OS {
         static bool openDialog(std::string& out, std::string title, const char* filter, std::string initialDir = "", std::string initialFileName = "") {
             (void)filter;
             (void)initialFileName;
+            if (kdialogOpenFile(out, title, initialDir)) return true;
             if (!commandExists("zenity")) return false;
 
             std::string command = "zenity --file-selection --title=" + shellQuote(title);
@@ -427,6 +447,7 @@ export namespace Rev::OS {
 
         static bool saveDialog(std::string& out, std::string title, const char* filter, std::string initialDir = "", std::string initialFileName = "") {
             (void)filter;
+            if (kdialogSaveFile(out, title, initialDir, initialFileName)) return true;
             if (!commandExists("zenity")) return false;
 
             std::filesystem::path initial = std::filesystem::path(usableInitialDir(initialDir)) / initialFileName;
@@ -436,6 +457,7 @@ export namespace Rev::OS {
         }
 
         static bool pickFolderDialog(std::string& out, std::string title, std::string initialDir = "") {
+            if (kdialogPickFolder(out, title, initialDir)) return true;
             if (!commandExists("zenity")) return false;
 
             std::string command = "zenity --file-selection --directory --title=" + shellQuote(title);
