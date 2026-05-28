@@ -100,7 +100,8 @@ export namespace Cam::Gui {
         Style ToolDropdownHost = {
             .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 118_px },
-            .margin = { .left = 6_px, .right = 4_px }
+            .margin = { .left = 6_px, .right = 4_px, .top = 1_px, .bottom = 1_px },
+            .overflow = Overflow::Show
         };
 
         Style ToolDropdown = {
@@ -205,6 +206,8 @@ export namespace Cam::Gui {
 
                 toolDropdown->label->styles.add(&Styles::ToolDropdownLabelHidden);
                 toolDropdown->dropdown->styles.add(&Styles::ToolDropdownField);
+                toolDropdown->dropdownArrow->styles.add(&Theme::Styles::Icon);
+                toolDropdown->dropdownArrow->styles.add(&Theme::Styles::IconHover);
                 toolDropdown->dropdownText->styles.add(&Styles::ToolDropdownFieldText);
 
                 toolDropdown->onChange = [this](Event& e) {

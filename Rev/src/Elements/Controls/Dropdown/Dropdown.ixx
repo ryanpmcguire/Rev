@@ -410,9 +410,48 @@ export namespace Rev::Element {
                     options[i]->dirty.style = true;
                 }
             }
+
+            syncOptionStyles();
+        }
+
+        void syncOptionStyles() {
+
+            const int selectedIndex = indexOfValue(params.value);
+
+            for (size_t i = 0; i < options.size(); i++) {
+
+                Text* option = options[i];
+                const bool showSelected =
+                    !params.value.empty() &&
+                    selectedIndex >= 0 &&
+                    (int)i == selectedIndex;
+
+                const bool showMenuHighlight =
+                    open &&
+                    menuHighlight >= 0 &&
+                    (int)i == menuHighlight;
+
+                if (showSelected) {
+                    option->styles.add(&OptionSelected);
+                }
+                else {
+                    option->styles.remove(&OptionSelected);
+                }
+
+                if (showMenuHighlight) {
+                    option->styles.add(&OptionMenuHighlight);
+                }
+                else {
+                    option->styles.remove(&OptionMenuHighlight);
+                }
+
+                option->dirty.style = true;
+            }
         }
 
         void computeStyle(Event& e) override {
+
+            syncOptionStyles();
             Element::computeStyle(e);
         }
     };

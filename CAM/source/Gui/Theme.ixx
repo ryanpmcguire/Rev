@@ -6,6 +6,7 @@ module;
 export module Cam.Gui.Theme;
 
 import Rev.Element.Style;
+import Rev.Element.ControlTheme;
 
 export namespace Cam::Gui::Theme {
 
@@ -42,6 +43,11 @@ export namespace Cam::Gui::Theme {
         Color buttonHover;
         Color buttonPress;
         Color buttonLabel;
+
+        Color solidButtonSurface;
+        Color solidButtonHover;
+        Color solidButtonPress;
+        Color solidButtonShadow;
 
         Color icon;
         Color iconHover;
@@ -89,6 +95,11 @@ export namespace Cam::Gui::Theme {
         .buttonHover = rgba(255, 255, 255, 0.42),
         .buttonPress = rgba(255, 255, 255, 0.56),
         .buttonLabel = rgba(0, 0, 0, 0.74),
+
+        .solidButtonSurface = rgba(255, 255, 255, 1.0),
+        .solidButtonHover = rgba(248, 250, 252, 1.0),
+        .solidButtonPress = rgba(241, 245, 249, 1.0),
+        .solidButtonShadow = rgba(0, 0, 0, 0.10),
 
         .icon = rgba(148, 163, 184, 1.0),
         .iconHover = rgba(79, 99, 255, 1.0),
@@ -179,6 +190,41 @@ export namespace Cam::Gui::Theme {
             .applies = { .press = true },
             .background = { .color = palette.buttonPress },
             .border = { .color = palette.buttonBorder }
+        };
+
+        Style SolidButton = {
+            .background = { .color = palette.solidButtonSurface, .transition = 100_ms },
+            .border = { .color = palette.buttonBorder, .width = 0_px },
+            .shadow = {
+                .color = palette.solidButtonShadow,
+                .size = Px(-2),
+                .blur = 6_px,
+                .y = 1_px
+            }
+        };
+
+        Style SolidButtonHover = {
+            .applies = { .hover = true, .focus = true },
+            .background = { .color = palette.solidButtonHover },
+            .border = { .color = palette.buttonBorder, .width = 0_px },
+            .shadow = {
+                .color = palette.solidButtonShadow,
+                .size = Px(-2),
+                .blur = 8_px,
+                .y = 1_px
+            }
+        };
+
+        Style SolidButtonPress = {
+            .applies = { .press = true },
+            .background = { .color = palette.solidButtonPress },
+            .border = { .color = palette.buttonBorder, .width = 0_px },
+            .shadow = {
+                .color = palette.solidButtonShadow,
+                .size = Px(-1),
+                .blur = 4_px,
+                .y = 1_px
+            }
         };
 
         Style ButtonLabel = {
@@ -311,6 +357,11 @@ export namespace Cam::Gui::Theme {
                 .buttonPress = rgba(62, 62, 62, 1.0),
                 .buttonLabel = rgba(204, 204, 204, 1.0),
 
+                .solidButtonSurface = rgba(45, 45, 45, 1.0),
+                .solidButtonHover = rgba(55, 55, 55, 1.0),
+                .solidButtonPress = rgba(62, 62, 62, 1.0),
+                .solidButtonShadow = rgba(0, 0, 0, 0.0),
+
                 .icon = rgba(150, 150, 150, 1.0),
                 .iconHover = rgba(224, 224, 224, 1.0),
                 .iconDisabled = rgba(90, 90, 90, 1.0),
@@ -359,6 +410,11 @@ export namespace Cam::Gui::Theme {
             .buttonPress = rgba(255, 255, 255, 0.56),
             .buttonLabel = rgba(0, 0, 0, 0.74),
 
+            .solidButtonSurface = rgba(255, 255, 255, 1.0),
+            .solidButtonHover = rgba(248, 250, 252, 1.0),
+            .solidButtonPress = rgba(241, 245, 249, 1.0),
+            .solidButtonShadow = rgba(0, 0, 0, 0.10),
+
             .icon = rgba(148, 163, 184, 1.0),
             .iconHover = rgba(79, 99, 255, 1.0),
             .iconDisabled = rgba(203, 213, 225, 1.0),
@@ -383,6 +439,71 @@ export namespace Cam::Gui::Theme {
         };
     }
 
+    inline Rev::Element::ControlTheme::Palette controlPaletteFor(const Palette& value) {
+
+        if (value.useShadow) {
+            return Rev::Element::ControlTheme::Palette {
+                .fieldSurface = rgba(255, 255, 255, 1.0),
+                .fieldBorder = rgba(226, 232, 240, 1.0),
+                .fieldText = value.text,
+                .labelText = value.textMuted,
+                .placeholderText = rgba(148, 163, 184, 1.0),
+                .focusBorder = rgba(79, 99, 255, 1.0),
+                .dropdownArrow = rgba(100, 116, 139, 1.0),
+                .optionHover = value.rowHover,
+                .optionSelected = value.rowSelected,
+                .optionDisabledText = rgba(148, 163, 184, 1.0),
+                .sliderTrack = rgba(203, 213, 225, 1.0),
+                .sliderThumb = rgba(79, 99, 255, 1.0),
+                .sliderHoverBorder = rgba(79, 99, 255, 0.35),
+                .sliderValueText = value.text,
+                .checkboxSurface = rgba(255, 255, 255, 1.0),
+                .checkboxBorder = rgba(226, 232, 240, 1.0),
+                .checkboxChecked = rgba(79, 99, 255, 1.0),
+                .checkboxPress = rgba(67, 85, 220, 1.0),
+                .checkboxMark = rgba(255, 255, 255, 1.0),
+                .buttonSecondarySurface = rgba(255, 255, 255, 1.0),
+                .buttonSecondaryBorder = rgba(203, 213, 225, 1.0),
+                .buttonSecondaryHover = rgba(248, 250, 252, 1.0),
+                .buttonSecondaryLabel = rgba(51, 65, 85, 1.0),
+                .buttonPrimarySurface = rgba(79, 99, 255, 1.0),
+                .buttonPrimaryHover = rgba(96, 117, 255, 1.0),
+                .buttonPrimaryLabel = rgba(255, 255, 255, 0.98),
+                .shadowColor = rgba(15, 23, 42, 0.06)
+            };
+        }
+
+        return Rev::Element::ControlTheme::Palette {
+            .fieldSurface = value.solidButtonSurface,
+            .fieldBorder = value.buttonBorder,
+            .fieldText = value.text,
+            .labelText = value.textMuted,
+            .placeholderText = value.textMuted,
+            .focusBorder = rgba(110, 110, 110, 1.0),
+            .dropdownArrow = value.icon,
+            .optionHover = value.solidButtonHover,
+            .optionSelected = value.rowSelected,
+            .optionDisabledText = value.iconDisabled,
+            .sliderTrack = value.buttonBorder,
+            .sliderThumb = value.accent,
+            .sliderHoverBorder = rgba(224, 224, 224, 0.35),
+            .sliderValueText = value.text,
+            .checkboxSurface = value.solidButtonSurface,
+            .checkboxBorder = value.buttonBorder,
+            .checkboxChecked = value.accent,
+            .checkboxPress = value.buttonPress,
+            .checkboxMark = value.textOnAccent,
+            .buttonSecondarySurface = value.solidButtonSurface,
+            .buttonSecondaryBorder = value.buttonBorder,
+            .buttonSecondaryHover = value.solidButtonHover,
+            .buttonSecondaryLabel = value.buttonLabel,
+            .buttonPrimarySurface = value.accentButton,
+            .buttonPrimaryHover = value.accentButtonHover,
+            .buttonPrimaryLabel = value.buttonLabel,
+            .shadowColor = rgba(15, 23, 42, 0.0)
+        };
+    }
+
     inline void applyPalette(const Palette& value) {
 
         palette = value;
@@ -394,25 +515,15 @@ export namespace Cam::Gui::Theme {
         Panel.background.color = value.panelSurface;
         PanelBorder.border.color = value.panelBorder;
 
-        if (value.useShadow) {
-            Panel.shadow.color = value.panelShadow;
-            Panel.shadow.size = Px(-8);
-            Panel.shadow.blur = 16_px;
-            PanelBorder.border.width = 0_px;
+        Panel.shadow.color = value.panelShadow;
+        Panel.shadow.size = Px(-8);
+        Panel.shadow.blur = 16_px;
+        PanelBorder.border.width = value.useShadow ? 0_px : 1_px;
 
-            TabBar.shadow.color = rgba(0, 0, 0, 0.10);
-            TabBar.shadow.size = Px(-4);
-            TabBar.shadow.blur = 8_px;
-            TabBar.shadow.y = 1_px;
-        }
-        else {
-            Panel.shadow.color = rgba(0, 0, 0, 0.0);
-            Panel.shadow.blur = 0_px;
-            PanelBorder.border.width = 1_px;
-
-            TabBar.shadow.color = rgba(0, 0, 0, 0.0);
-            TabBar.shadow.blur = 0_px;
-        }
+        TabBar.shadow.color = rgba(0, 0, 0, value.useShadow ? 0.10 : 0.0);
+        TabBar.shadow.size = Px(-4);
+        TabBar.shadow.blur = 8_px;
+        TabBar.shadow.y = 1_px;
 
         Row.background.color = value.rowSurface;
         RowHover.background.color = value.rowHover;
@@ -430,6 +541,31 @@ export namespace Cam::Gui::Theme {
         ButtonPress.background.color = value.buttonPress;
         ButtonPress.border.color = value.buttonBorder;
         ButtonLabel.text.color = value.buttonLabel;
+
+        SolidButton.background.color = value.solidButtonSurface;
+        SolidButton.border.color = value.buttonBorder;
+        SolidButtonHover.background.color = value.solidButtonHover;
+        SolidButtonHover.border.color = value.buttonBorder;
+        SolidButtonPress.background.color = value.solidButtonPress;
+        SolidButtonPress.border.color = value.buttonBorder;
+
+        SolidButton.border.width = value.useShadow ? 0_px : 1_px;
+        SolidButton.shadow.color = value.solidButtonShadow;
+        SolidButton.shadow.size = Px(-2);
+        SolidButton.shadow.blur = 6_px;
+        SolidButton.shadow.y = 1_px;
+
+        SolidButtonHover.border.width = value.useShadow ? 0_px : 1_px;
+        SolidButtonHover.shadow.color = value.solidButtonShadow;
+        SolidButtonHover.shadow.size = Px(-2);
+        SolidButtonHover.shadow.blur = 8_px;
+        SolidButtonHover.shadow.y = 1_px;
+
+        SolidButtonPress.border.width = value.useShadow ? 0_px : 1_px;
+        SolidButtonPress.shadow.color = value.solidButtonShadow;
+        SolidButtonPress.shadow.size = Px(-1);
+        SolidButtonPress.shadow.blur = 4_px;
+        SolidButtonPress.shadow.y = 1_px;
 
         Icon.text.color = value.icon;
         IconHover.text.color = value.iconHover;
@@ -474,6 +610,9 @@ export namespace Cam::Gui::Theme {
         markDirty(Button);
         markDirty(ButtonHover);
         markDirty(ButtonPress);
+        markDirty(SolidButton);
+        markDirty(SolidButtonHover);
+        markDirty(SolidButtonPress);
         markDirty(ButtonLabel);
         markDirty(Icon);
         markDirty(IconHover);
@@ -490,6 +629,8 @@ export namespace Cam::Gui::Theme {
         markDirty(ChromeHover);
         markDirty(ChromeIcon);
         markDirty(ChromeIconHover);
+
+        Rev::Element::ControlTheme::applyPalette(controlPaletteFor(value));
     }
 
     inline void applyMode(Mode value) {
@@ -553,6 +694,10 @@ export namespace Cam::Gui::Theme {
 
     inline StyleList withButton(std::initializer_list<Style*> component) {
         return layer(component, { &Styles::Button });
+    }
+
+    inline StyleList withSolidButton(std::initializer_list<Style*> component) {
+        return layer(component, { &Styles::SolidButton });
     }
 
     inline StyleList withTab(std::initializer_list<Style*> component) {

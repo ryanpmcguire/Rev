@@ -33,14 +33,6 @@ export namespace Rev::Element {
             .margin = { 0_px, 0_px, 6_px, 0_px }
         };
 
-        Style ValueText = {
-            .text = { .color = rgba(30, 41, 59, 1.0), .size = 12_px }
-        };
-
-        Style SliderHover = {
-            .applies = { .hover = true, .drag = true },
-            .border = { .color = rgba(79, 99, 255, 0.35), .width = 1_px }
-        };
     }
 
     struct Slider : public Element {
@@ -79,12 +71,12 @@ export namespace Rev::Element {
             textContainer = new Element(this, { &SliderStyle::TextRow });
                 
                 labelText = new Text(textContainer, "Value: ", { &Label });
-                valueText = new Text(textContainer, "", { &SliderStyle::ValueText });
+                valueText = new Text(textContainer, "", { &SliderValueText });
                 valueText->setContent(data.val);
                     
             sliderContainer = new Box(
                 this,
-                { &Field, &FieldFocus, &SliderStyle::SliderHover },
+                { &Field, &FieldFocus, &SliderFieldHover },
                 "SliderContainer"
             );
 

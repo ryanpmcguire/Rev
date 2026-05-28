@@ -856,7 +856,13 @@ export namespace Rev::Element {
                 if (cPosition.left) {
                     child.resolved.pos.l.val = cPosition.left.resolve(compareValW);
                 }
+                if (cPosition.right) {
+                    child.resolved.pos.r.val = cPosition.right.resolve(compareValW);
+                }
                 if (cPosition.top) { child.resolved.pos.t.val = cPosition.top.resolve(compareValH); }
+                if (cPosition.bottom) {
+                    child.resolved.pos.b.val = cPosition.bottom.resolve(compareValH);
+                }
 
                 float minWidthFromPadding = child.resolved.pad.l.min + child.resolved.pad.r.min;
                 float minHeightFromPadding = child.resolved.pad.t.min + child.resolved.pad.b.min;
@@ -1238,6 +1244,44 @@ export namespace Rev::Element {
             layout.rect.x = rect.x + layoutOffsetX;
             layout.rect.y = rect.y + layoutOffsetY;
 
+            auto placeAbsoluteMember = [&](Element* member) {
+
+                const float outerW =
+                    member->rect.w +
+                    member->resolved.mar.l.val +
+                    member->resolved.mar.r.val;
+
+                const float outerH =
+                    member->rect.h +
+                    member->resolved.mar.t.val +
+                    member->resolved.mar.b.val;
+
+                member->rect.x = rect.x + member->resolved.mar.l.val;
+                member->rect.y = rect.y + member->resolved.mar.t.val;
+
+                if (set(member->resolved.pos.l.val)) {
+                    member->rect.x += member->resolved.pos.l.val;
+                }
+                else if (set(member->resolved.pos.r.val)) {
+                    member->rect.x =
+                        rect.x +
+                        resolved.size.w.val -
+                        outerW -
+                        member->resolved.pos.r.val;
+                }
+
+                if (set(member->resolved.pos.t.val)) {
+                    member->rect.y += member->resolved.pos.t.val;
+                }
+                else if (set(member->resolved.pos.b.val)) {
+                    member->rect.y =
+                        rect.y +
+                        resolved.size.h.val -
+                        outerH -
+                        member->resolved.pos.b.val;
+                }
+            };
+
             if (resolved.style.layout.direction == Axis::Vertical) {
 
                 float runningX = 0;
@@ -1260,13 +1304,7 @@ export namespace Rev::Element {
                         if (member->resolved.hidden) { continue; }
 
                         if (member->resolved.style.layout.position == Position::Absolute) {
-
-                            member->rect.x = rect.x + member->resolved.mar.l.val;
-                            member->rect.y = rect.y + member->resolved.mar.t.val;
-                            
-                            member->rect.x += member->resolved.pos.l.val;
-                            member->rect.y += member->resolved.pos.t.val;
-
+                            placeAbsoluteMember(member);
                             continue;
                         }
 
@@ -1305,13 +1343,7 @@ export namespace Rev::Element {
                         if (member->resolved.hidden) { continue; }
 
                         if (member->resolved.style.layout.position == Position::Absolute) {
-
-                            member->rect.x = rect.x + member->resolved.mar.l.val;
-                            member->rect.y = rect.y + member->resolved.mar.t.val;
-
-                            member->rect.x += member->resolved.pos.l.val;
-                            member->rect.y += member->resolved.pos.t.val;
-
+                            placeAbsoluteMember(member);
                             continue;
                         }
 

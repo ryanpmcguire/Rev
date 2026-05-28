@@ -28,8 +28,16 @@ export namespace Cam::Gui {
     namespace PreviewBarStyle {
 
         Style Panel = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 100_pct }
+            .layout = {
+                Axis::Vertical,
+                Align::Start,
+                Align::Start,
+                Wrap::False,
+                Position::Absolute
+            },
+            .position = { .left = 0_px, .bottom = 0_px },
+            .size = { .width = 100_pct },
+            .zIndex = 1
         };
 
         Style Transport = {
@@ -85,13 +93,9 @@ export namespace Cam::Gui {
 
             this->styles.add(&PreviewBarStyle::Panel);
 
-            Box* transport = new Box(
+            Element* transport = new Element(
                 this,
-                Theme::withButton({
-                    &PreviewBarStyle::Transport,
-                    &Theme::Styles::ButtonHover,
-                    &Theme::Styles::ButtonPress
-                }),
+                { &PreviewBarStyle::Transport },
                 "PreviewBarTransport"
             );
 
@@ -107,10 +111,10 @@ export namespace Cam::Gui {
 
             Box* stepBackButton = new Box(
                 transport,
-                Theme::withButton({
+                Theme::withSolidButton({
                     &PreviewBarStyle::TransportButton,
-                    &Theme::Styles::ButtonHover,
-                    &Theme::Styles::ButtonPress
+                    &Theme::Styles::SolidButtonHover,
+                    &Theme::Styles::SolidButtonPress
                 }),
                 "PreviewBarStepBack"
             );
@@ -131,10 +135,10 @@ export namespace Cam::Gui {
 
             Box* playPauseButton = new Box(
                 transport,
-                Theme::withButton({
+                Theme::withSolidButton({
                     &PreviewBarStyle::TransportButton,
-                    &Theme::Styles::ButtonHover,
-                    &Theme::Styles::ButtonPress
+                    &Theme::Styles::SolidButtonHover,
+                    &Theme::Styles::SolidButtonPress
                 }),
                 "PreviewBarPlayPause"
             );
@@ -172,10 +176,10 @@ export namespace Cam::Gui {
 
             Box* stepForwardButton = new Box(
                 transport,
-                Theme::withButton({
+                Theme::withSolidButton({
                     &PreviewBarStyle::TransportButton,
-                    &Theme::Styles::ButtonHover,
-                    &Theme::Styles::ButtonPress
+                    &Theme::Styles::SolidButtonHover,
+                    &Theme::Styles::SolidButtonPress
                 }),
                 "PreviewBarStepForward"
             );
