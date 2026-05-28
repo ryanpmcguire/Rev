@@ -119,6 +119,41 @@
       "absolute": "/home/ace/src/creative3d/Rev/Rev/src/Elements/Controls/Dropdown/chevron-right.svg",
       "hash": "7aee1868548e6f712cc45ec2a8d641511c3fe63a1ad9132ac404a4a4919fe375",
       "mtime": 1779828742.5556672
+    },
+    "CAM/source/Gui/RightPanel/Choose-Folder.svg": {
+      "absolute": "/home/ace/src/creative3d/Rev/CAM/source/Gui/RightPanel/Choose-Folder.svg",
+      "hash": "4994d5a65d47225c5ba9ee4470d50710b51606d46817b1123053668b6f0912e4",
+      "mtime": 1779994868.7549047
+    },
+    "CAM/source/Gui/RightPanel/Tools/New-Tool.svg": {
+      "absolute": "/home/ace/src/creative3d/Rev/CAM/source/Gui/RightPanel/Tools/New-Tool.svg",
+      "hash": "d7b9c4f1bfa9dd982894e47b2c98f0b066e7c1e99971884a9c46c400b476b7ca",
+      "mtime": 1779994868.7550683
+    },
+    "CAM/source/Gui/RightPanel/Tools/Settings.svg": {
+      "absolute": "/home/ace/src/creative3d/Rev/CAM/source/Gui/RightPanel/Tools/Settings.svg",
+      "hash": "73ca0d4c7715f86a5d359bfc35f1b456a78896c7a92a9a1fda92766f5024997d",
+      "mtime": 1779994868.7550683
+    },
+    "CAM/source/Gui/LeftPanel/MaterialStates/ToolPath/Settings.svg": {
+      "absolute": "/home/ace/src/creative3d/Rev/CAM/source/Gui/LeftPanel/MaterialStates/ToolPath/Settings.svg",
+      "hash": "9ebf32167471389580eae5b75762b31aa6015418bd614177dedec4f1552fa7dd",
+      "mtime": 1779994868.7549047
+    },
+    "CAM/source/Gui/LeftPanel/MaterialStates/Close.svg": {
+      "absolute": "/home/ace/src/creative3d/Rev/CAM/source/Gui/LeftPanel/MaterialStates/Close.svg",
+      "hash": "d2e89a1e5311823519d1f41c7164a25c08361881336822a7f78443d286921838",
+      "mtime": 1779994868.7548866
+    },
+    "CAM/source/Gui/TabView/New.svg": {
+      "absolute": "/home/ace/src/creative3d/Rev/CAM/source/Gui/TabView/New.svg",
+      "hash": "e3e11748842330e0589e2f0bb060ea2ff450f98e15b6b9742a9d168f567a912d",
+      "mtime": 1779994868.7551887
+    },
+    "CAM/source/Gui/TabView/Close.svg": {
+      "absolute": "/home/ace/src/creative3d/Rev/CAM/source/Gui/TabView/Close.svg",
+      "hash": "649c2f7399f5c70e0564987626dbafaaf6f99f5b0b874faf777508cd00991b1c",
+      "mtime": 1779994868.7550683
     }
   },
   "project_root": "/home/ace/src/creative3d/Rev"
