@@ -32,10 +32,10 @@ export namespace Cam::Gui {
     namespace MaterialStateStyle::Styles {
 
         Style Self = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
             .margin = { .bottom = 2_px },
-            .padding = { 4_px, 8_px, 4_px, 8_px },
+            .padding = { 4_px, 6_px, 4_px, 6_px },
             .border = { .radius = 6_px },
             .cursor = Cursor::Hand
         };
@@ -51,12 +51,14 @@ export namespace Cam::Gui {
 
         Style Content = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .overflow = Overflow::Hide,
             .size = { .width = Grow() }
         };
 
         Style Label = {
+            .overflow = Overflow::Hide,
             .size = { .width = Grow() },
-            .text = { .size = 13_px }
+            .text = { .size = 13_px, .wrap = Wrap::False }
         };
 
         Style Subtitle = {
@@ -74,8 +76,9 @@ export namespace Cam::Gui {
 
         Style IconButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .width = 22_px, .height = 22_px },
             .margin = { 0_px, 0_px, 0_px, 2_px },
-            .padding = { 3_px, 4_px, 3_px, 4_px },
+            .padding = { 2_px, 3_px, 2_px, 3_px },
             .cursor = Cursor::Hand
         };
 
@@ -88,21 +91,22 @@ export namespace Cam::Gui {
         };
 
         Style ToolDropdownHost = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .margin = { 0_px, 0_px, 0_px, 4_px },
-            .size = { .width = 152_px }
+            .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = 118_px },
+            .margin = { .left = 4_px }
         };
 
         Style ToolDropdown = {
-            .size = { .width = 100_pct, .height = Grow() }
+            .size = { .width = 100_pct },
+            .margin = { 0_px, 0_px, 0_px, 0_px }
         };
 
         Style ToolDropdownLabelHidden = {
-            .visibility = Visibility::Hidden
+            .visibility = { Visibility::Hidden }
         };
 
         Style ToolDropdownField = {
-            .padding = { 6_px, 8_px, 6_px, 8_px }
+            .padding = { .left = 6_px, .right = 6_px, .top = 5_px, .bottom = 5_px }
         };
 
         Style ToolDropdownFieldText = {
@@ -154,22 +158,22 @@ export namespace Cam::Gui {
 
             content = new Box(this, { &Styles::Content }, "MaterialStateContent");
 
-            label = new Text(
-                content,
-                "",
-                Theme::layer(
-                    { &Styles::Label },
-                    { &Theme::Styles::Text }
-                )
-            );
-            subtitle = new Text(
-                content,
-                "",
-                Theme::layer(
-                    { &Styles::Subtitle },
-                    { &Theme::Styles::MutedText }
-                )
-            );
+                label = new Text(
+                    content,
+                    "",
+                    Theme::layer(
+                        { &Styles::Label },
+                        { &Theme::Styles::Text }
+                    )
+                );
+                subtitle = new Text(
+                    content,
+                    "",
+                    Theme::layer(
+                        { &Styles::Subtitle },
+                        { &Theme::Styles::MutedText }
+                    )
+                );
 
             toolDropdownHost = new Box(
                 this,
@@ -177,39 +181,39 @@ export namespace Cam::Gui {
                 "ToolPathToolHost"
             );
 
-            toolDropdownHost->onClick([](Event& e) {
-                e.propagate = false;
-            });
+                toolDropdownHost->onClick([](Event& e) {
+                    e.propagate = false;
+                });
 
-            toolDropdown = new Dropdown(
-                toolDropdownHost,
-                {
-                    .label = "Tool",
-                    .options = ToolPathSettingsWindow::toolOptions(app),
-                    .placeholder = "Tool",
-                    .value = ""
-                },
-                { &Styles::ToolDropdown }
-            );
+                toolDropdown = new Dropdown(
+                    toolDropdownHost,
+                    {
+                        .label = "Tool",
+                        .options = ToolPathSettingsWindow::toolOptions(app),
+                        .placeholder = "Tool",
+                        .value = ""
+                    },
+                    { &Styles::ToolDropdown }
+                );
 
-            toolDropdown->label->styles.add(&Styles::ToolDropdownLabelHidden);
-            toolDropdown->dropdown->styles.add(&Styles::ToolDropdownField);
-            toolDropdown->dropdownText->styles.add(&Styles::ToolDropdownFieldText);
+                toolDropdown->label->styles.add(&Styles::ToolDropdownLabelHidden);
+                toolDropdown->dropdown->styles.add(&Styles::ToolDropdownField);
+                toolDropdown->dropdownText->styles.add(&Styles::ToolDropdownFieldText);
 
-            toolDropdown->onChange = [this](Event& e) {
+                toolDropdown->onChange = [this](Event& e) {
 
-                e.propagate = false;
+                    e.propagate = false;
 
-                if (!canEditToolPath() || !state || !toolDropdown) { return; }
+                    if (!canEditToolPath() || !state || !toolDropdown) { return; }
 
-                const std::string toolName = toolDropdown->params.value;
+                    const std::string toolName = toolDropdown->params.value;
 
-                if (toolName.empty() || toolName == state->toolPath.toolName) { return; }
+                    if (toolName.empty() || toolName == state->toolPath.toolName) { return; }
 
-                if (onToolPathToolChanged) {
-                    onToolPathToolChanged(e, state, toolName);
-                }
-            };
+                    if (onToolPathToolChanged) {
+                        onToolPathToolChanged(e, state, toolName);
+                    }
+                };
 
             settingsButton = new Box(
                 this,
@@ -217,18 +221,26 @@ export namespace Cam::Gui {
                 "ToolPathSettingsButton"
             );
 
-            settingsIcon = new Svg(
-                settingsButton,
-                File("./ToolPath/Settings.svg"),
-                Theme::layer({
-                    &Styles::SettingsIcon,
-                    &Theme::Styles::IconHover,
-                    &Theme::Styles::IconDisabled
-                }, {
-                    &Theme::Styles::Icon
-                }),
-                "ToolPathSettingsIcon"
-            );
+                settingsIcon = new Svg(
+                    settingsButton,
+                    File("./ToolPath/Settings.svg"),
+                    Theme::layer({
+                        &Styles::SettingsIcon,
+                        &Theme::Styles::IconHover,
+                        &Theme::Styles::IconDisabled
+                    }, {
+                        &Theme::Styles::Icon
+                    }),
+                    "ToolPathSettingsIcon"
+                );
+
+                settingsButton->onClick([this](Event& e) {
+                    if (!canEditToolPath()) { return; }
+                    if (onOpenToolPathSettings && state) {
+                        onOpenToolPathSettings(e, state);
+                    }
+                    e.propagate = false;
+                });
 
             deleteButton = new Box(
                 this,
@@ -236,39 +248,31 @@ export namespace Cam::Gui {
                 "DeleteMaterialStateButton"
             );
 
-            deleteIcon = new Svg(
-                deleteButton,
-                File("./Close.svg"),
-                Theme::layer({
-                    &Styles::DeleteIcon,
-                    &Theme::Styles::DeleteIconHover,
-                    &Theme::Styles::IconDisabled
-                }, {
-                    &Theme::Styles::Icon
-                }),
-                "DeleteMaterialStateIcon"
-            );
+                deleteIcon = new Svg(
+                    deleteButton,
+                    File("./Close.svg"),
+                    Theme::layer({
+                        &Styles::DeleteIcon,
+                        &Theme::Styles::DeleteIconHover,
+                        &Theme::Styles::IconDisabled
+                    }, {
+                        &Theme::Styles::Icon
+                    }),
+                    "DeleteMaterialStateIcon"
+                );
 
-            settingsButton->onClick([this](Event& e) {
-                if (!canEditToolPath()) { return; }
-                if (onOpenToolPathSettings && state) {
-                    onOpenToolPathSettings(e, state);
-                }
-                e.propagate = false;
-            });
+                deleteButton->onClick([this](Event& e) {
 
-            deleteButton->onClick([this](Event& e) {
+                    if (!canDelete()) { return; }
 
-                if (!canDelete()) { return; }
+                    Cam::App::Project* project = activeProject();
 
-                Cam::App::Project* project = activeProject();
+                    if (onDelete && project && index < project->states.size()) {
+                        onDelete(e, project->states[index]);
+                    }
 
-                if (onDelete && project && index < project->states.size()) {
-                    onDelete(e, project->states[index]);
-                }
-
-                e.propagate = false;
-            });
+                    e.propagate = false;
+                });
 
             this->onClick([this](Event& e) {
                 if (onSelect && state) { onSelect(e, state); }

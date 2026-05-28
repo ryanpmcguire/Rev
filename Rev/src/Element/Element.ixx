@@ -240,7 +240,11 @@ export namespace Rev::Element {
             resolved.hidden = false;
             if (parent->resolved.hidden) { resolved.hidden = true; }
             if (resolved.style.visibility == Visibility::Hidden) { resolved.hidden = true; }
-            
+
+            if (resolved.hidden) {
+                resolved.affectsParentSize = false;
+            }
+
             // Set depth
             resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;            
 
@@ -806,6 +810,8 @@ export namespace Rev::Element {
 
                 Element& child = *pChild;
 
+                if (child.resolved.hidden) { continue; }
+
                 Size& cSize = child.resolved.style.size;
 
                 Dist& cWidth = cSize.width;
@@ -1251,6 +1257,8 @@ export namespace Rev::Element {
 
                     for (Element* member : row.members) {
 
+                        if (member->resolved.hidden) { continue; }
+
                         if (member->resolved.style.layout.position == Position::Absolute) {
 
                             member->rect.x = rect.x + member->resolved.mar.l.val;
@@ -1293,6 +1301,8 @@ export namespace Rev::Element {
                     Element* last = row.members.back();
 
                     for (Element* member : row.members) {
+
+                        if (member->resolved.hidden) { continue; }
 
                         if (member->resolved.style.layout.position == Position::Absolute) {
 
@@ -1387,6 +1397,10 @@ export namespace Rev::Element {
 
         TargetFlags targetFlags;
         bool tabStop = false;
+
+        // When true and this element contains the cursor, elements drawn behind it
+        // (earlier in draw order) do not receive hit for this frame.
+        bool interceptHits = false;
 
         // Default behavior is to ask our rect if it contains a position
         virtual bool contains(Pos& pos) {
@@ -1545,7 +1559,9 @@ export namespace Rev::Element {
 
             // Stop if listener does not pass "continue" flag
             dispatcher->tell(&Element::mouseMove, e);
-            if (!e.propagate) { return; }
+            if (!e.propagate) {
+                return;
+            }
             
             // Process children in reverse
             for (Element* pChild : std::views::reverse(children)) {
@@ -1559,7 +1575,9 @@ export namespace Rev::Element {
                 if (!containsEvent && isHoverTarget) { child.mouseLeave(e); }
                 if (containsEvent) { child.mouseMove(e); }
 
-                if (!e.propagate) { return; }
+                if (!e.propagate) {
+                    return;
+                }
             }
         }
 

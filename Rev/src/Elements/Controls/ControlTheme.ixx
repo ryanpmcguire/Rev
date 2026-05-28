@@ -26,7 +26,7 @@ export namespace Rev::Element::ControlTheme {
     Style Control = {
         .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
         .size = { Grow() },
-        .margin = { 0_px, 0_px, 12_px, 0_px }
+        .margin = { .top = 6_px, .bottom = 6_px }
     };
 
     Style Label = {
@@ -92,7 +92,7 @@ export namespace Rev::Element::ControlTheme {
         },
         .position = { .top = 100_pct },
         .size = { .width = Grow(), .max = { .width = 100_pct } },
-        .margin = { .top = 6_px },
+        //.margin = { .top = 6_px },
         .padding = { 4_px, 4_px, 4_px, 4_px },
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {

@@ -401,6 +401,8 @@ export namespace Rev {
 
             for (Element* element : topDown) { element->resetResolved(); }
 
+            this->cascadeStyle();
+
             // Resolve minima, then maxima, then layout
             for (Element* element : bottomUp) { element->resolveMinima(); }
             for (Element* element : topDown) { element->resolveMaxima(); }
@@ -512,8 +514,6 @@ export namespace Rev {
             this->resolveStyle(e);
             for (Element* element : shared->dirty.restyle) { element->resolveStyle(e); }
             shared->dirty.restyle.clear();
-
-            for (Element* child : children) { child->cascadeStyle(); }
 
             // Animate transitions
             //--------------------------------------------------
@@ -647,20 +647,65 @@ export namespace Rev {
         // Responding to window events
         //--------------------------------------------------
 
-        // We set targets from the bottom up, then dispatching the event from top down
+        static void markHitChain(Element* element) {
+
+            for (Element* chain = element; chain; chain = chain->parent) {
+
+                chain->targetFlags.hit = true;
+
+                if (chain->parent == chain) { break; }
+            }
+        }
+
+        // Mark hit targets. Uses draw order when available so interceptHits can
+        // block pointer hits on elements painted underneath.
         void setTargets(Event& e) {
 
             for (Element* element : topDown) {
                 element->targetFlags.hit = false;
             }
 
-            for (Element* element : bottomUp) {
-                
-                Element& elem = *element;
+            if (!topDown.empty()) {
+                calcDrawList();
+            }
+
+            if (drawList.empty()) {
+
+                for (Element* element : bottomUp) {
+
+                    Element& elem = *element;
+
+                    if (elem.resolved.hidden) { continue; }
+                    if (elem.contains(e.mouse.pos)) { markHitChain(element); }
+                }
+
+                return;
+            }
+
+            int blockBefore = -1;
+
+            for (size_t i = 0; i < drawList.size(); i++) {
+
+                Element& elem = *drawList[i];
 
                 if (elem.resolved.hidden) { continue; }
-                if (elem.contains(e.mouse.pos)) { elem.targetFlags.hit = true; }
-                if (elem.targetFlags.hit) { elem.parent->targetFlags.hit = true; }
+                if (!elem.contains(e.mouse.pos)) { continue; }
+
+                if (elem.interceptHits && (int)i > blockBefore) {
+                    blockBefore = (int)i;
+                }
+            }
+
+            for (size_t i = 0; i < drawList.size(); i++) {
+
+                if (blockBefore >= 0 && (int)i < blockBefore) { continue; }
+
+                Element& elem = *drawList[i];
+
+                if (elem.resolved.hidden) { continue; }
+                if (!elem.contains(e.mouse.pos)) { continue; }
+
+                markHitChain(drawList[i]);
             }
         }
 

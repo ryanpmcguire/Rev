@@ -105,6 +105,41 @@ export namespace Rev::Element {
             });
         }
 
+        void click(Event& e) override {
+            Element::click(e);
+            e.propagate = false;
+        }
+
+        void mouseDown(Event& e) override {
+            Element::mouseDown(e);
+            e.propagate = false;
+        }
+
+        void mouseUp(Event& e) override {
+            Element::mouseUp(e);
+            e.propagate = false;
+        }
+
+        void mouseMove(Event& e) override {
+            Element::mouseMove(e);
+            e.propagate = false;
+        }
+
+        void mouseDrag(Event& e) override {
+            Element::mouseDrag(e);
+            e.propagate = false;
+        }
+
+        void mouseEnter(Event& e) override {
+            Element::mouseEnter(e);
+            e.propagate = false;
+        }
+
+        void mouseLeave(Event& e) override {
+            Element::mouseLeave(e);
+            e.propagate = false;
+        }
+
         void keyDown(Event& e) override {
 
             tell(&Element::keyDown, e);
@@ -292,6 +327,8 @@ export namespace Rev::Element {
             );
 
             optionsContainer->style->visibility = Visibility::Visible;
+            optionsContainer->interceptHits = true;
+            interceptHits = true;
             open = true;
             menuHighlight = -1;
 
@@ -315,6 +352,8 @@ export namespace Rev::Element {
 
             open = false;
             menuHighlight = -1;
+            optionsContainer->interceptHits = false;
+            interceptHits = false;
 
             for (Text* option : options) {
 
