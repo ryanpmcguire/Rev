@@ -137,6 +137,34 @@ export namespace Rev::Element::View3d {
             }
         }
 
+        void insertActorBefore(Actor* actor, Actor* before) {
+
+            if (!actor || !before) { return; }
+
+            actors.erase(
+                std::remove(
+                    actors.begin(),
+                    actors.end(),
+                    actor
+                ),
+                actors.end()
+            );
+
+            auto it = std::find(actors.begin(), actors.end(), before);
+
+            if (it == actors.end()) {
+                actors.push_back(actor);
+            }
+
+            else {
+                actors.insert(it, actor);
+            }
+
+            if (shared && shared->event) {
+                refresh(*shared->event);
+            }
+        }
+
         void clearActors() {
 
             actors.clear();

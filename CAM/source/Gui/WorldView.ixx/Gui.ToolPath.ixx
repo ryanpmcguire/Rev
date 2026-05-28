@@ -29,10 +29,8 @@ export namespace Cam::Gui {
     struct ToolPath {
 
         View3d::Actor* actor = nullptr;
-        View3d::Actor* toolPreviewActor = nullptr;
 
         std::vector<Vertex3> lines;
-        std::vector<Vertex3> toolPreviewTriangles;
 
         // Create / destroy
         //--------------------------------------------------
@@ -56,25 +54,6 @@ export namespace Cam::Gui {
                 0.55f,
                 0.2f
             };
-
-            toolPreviewActor = new View3d::Actor();
-
-            toolPreviewActor->visible = false;
-            toolPreviewActor->selectable = false;
-            toolPreviewActor->ownsMesh = true;
-            toolPreviewActor->ownsTriangles = true;
-            toolPreviewActor->includeInFit = false;
-
-            toolPreviewActor->mesh = new Primitives::Mesh3d(canvas, {
-                .triangles = &toolPreviewTriangles
-            });
-
-            toolPreviewActor->mesh->color = {
-                0.92f,
-                0.78f,
-                0.35f,
-                0.85f
-            };
         }
 
         void destroy() {
@@ -82,11 +61,7 @@ export namespace Cam::Gui {
             delete actor;
             actor = nullptr;
 
-            delete toolPreviewActor;
-            toolPreviewActor = nullptr;
-
             lines.clear();
-            toolPreviewTriangles.clear();
         }
 
         // State
@@ -95,31 +70,16 @@ export namespace Cam::Gui {
         void clear() {
 
             lines.clear();
-            toolPreviewTriangles.clear();
 
-            if (actor && actor->lines) {
-                actor->visible = false;
-                actor->lines->dirty = true;
-            }
+            if (!actor || !actor->lines) { return; }
 
-            if (toolPreviewActor && toolPreviewActor->mesh) {
-                toolPreviewActor->visible = false;
-                toolPreviewActor->mesh->dirty = true;
-            }
+            actor->visible = false;
+            actor->lines->dirty = true;
         }
 
         void sync(
             Cam::App::MaterialState* state,
             double previewProgress = 1.0
-        ) {
-
-            syncPathLines(state, previewProgress);
-            syncToolPreview(state, previewProgress);
-        }
-
-        void syncPathLines(
-            Cam::App::MaterialState* state,
-            double previewProgress
         ) {
 
             if (!actor || !actor->lines) { return; }
@@ -138,20 +98,19 @@ export namespace Cam::Gui {
             actor->lines->dirty = true;
         }
 
-        void syncToolPreview(
+        // Shared tool preview mesh (one cylinder in the world view).
+        //--------------------------------------------------
+
+        static bool syncToolPreviewMesh(
+            std::vector<Vertex3>& triangles,
             Cam::App::MaterialState* state,
-            double previewProgress
+            double previewProgress,
+            const Color& color
         ) {
 
-            if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
+            triangles.clear();
 
-            toolPreviewTriangles.clear();
-
-            if (!state || !state->hasToolPath) {
-                toolPreviewActor->visible = false;
-                toolPreviewActor->mesh->dirty = true;
-                return;
-            }
+            if (!state || !state->hasToolPath) { return false; }
 
             const Cam::App::ToolPath& path = state->toolPath;
 
@@ -160,80 +119,30 @@ export namespace Cam::Gui {
                 path.toolLength <= 0.0 ||
                 path.points.empty()
             ) {
-                toolPreviewActor->visible = false;
-                toolPreviewActor->mesh->dirty = true;
-                return;
+                return false;
             }
 
             Cam::App::ToolPathPoint sample = {};
 
             if (!path.sampleAtProgress(previewProgress, sample)) {
-                toolPreviewActor->visible = false;
-                toolPreviewActor->mesh->dirty = true;
-                return;
+                return false;
             }
 
             const float radius = float(path.toolDiameter * 0.5);
             const float length = float(path.toolLength);
 
             buildToolCylinderMesh(
-                toolPreviewTriangles,
+                triangles,
                 sample.position,
                 sample.toolDirection,
                 radius,
                 length,
-                toolPreviewActor->mesh->color
+                color
             );
 
-            toolPreviewActor->visible = !toolPreviewTriangles.empty();
-            toolPreviewActor->mesh->dirty = true;
+            return !triangles.empty();
         }
 
-    private:
-
-        static void orthonormalFrameFromAxis(
-            const Pos3& axisIn,
-            Pos3& uOut,
-            Pos3& vOut
-        ) {
-
-            const Pos3 axis = axisIn.normalized();
-
-            const Pos3 reference = (
-                std::fabs(axis.z) < 0.9f
-                    ? Pos3(0.0f, 0.0f, 1.0f)
-                    : Pos3(1.0f, 0.0f, 0.0f)
-            );
-
-            uOut = reference.cross(axis);
-
-            const float uLen = uOut.pythag();
-
-            if (uLen <= 1e-6f) {
-                uOut = { 1.0f, 0.0f, 0.0f };
-            }
-            else {
-                uOut /= uLen;
-            }
-
-            vOut = axis.cross(uOut).normalized();
-        }
-
-        static void appendTriangle(
-            std::vector<Vertex3>& triangles,
-            Pos3 a,
-            Pos3 b,
-            Pos3 c,
-            const Color& color
-        ) {
-            triangles.push_back({ a.x, a.y, a.z, color });
-            triangles.push_back({ b.x, b.y, b.z, color });
-            triangles.push_back({ c.x, c.y, c.z, color });
-        }
-
-        // Solid cylinder with flat caps. Tip at tipPosition; body extends length mm
-        // along -toolDirection (toward the spindle). Path toolDirection points into
-        // the cut, so the displayed axis is flipped for preview geometry.
         static void buildToolCylinderMesh(
             std::vector<Vertex3>& triangles,
             const Pos3& tipPosition,
@@ -297,6 +206,48 @@ export namespace Cam::Gui {
                     color
                 );
             }
+        }
+
+    private:
+
+        static void orthonormalFrameFromAxis(
+            const Pos3& axisIn,
+            Pos3& uOut,
+            Pos3& vOut
+        ) {
+
+            const Pos3 axis = axisIn.normalized();
+
+            const Pos3 reference = (
+                std::fabs(axis.z) < 0.9f
+                    ? Pos3(0.0f, 0.0f, 1.0f)
+                    : Pos3(1.0f, 0.0f, 0.0f)
+            );
+
+            uOut = reference.cross(axis);
+
+            const float uLen = uOut.pythag();
+
+            if (uLen <= 1e-6f) {
+                uOut = { 1.0f, 0.0f, 0.0f };
+            }
+            else {
+                uOut /= uLen;
+            }
+
+            vOut = axis.cross(uOut).normalized();
+        }
+
+        static void appendTriangle(
+            std::vector<Vertex3>& triangles,
+            Pos3 a,
+            Pos3 b,
+            Pos3 c,
+            const Color& color
+        ) {
+            triangles.push_back({ a.x, a.y, a.z, color });
+            triangles.push_back({ b.x, b.y, b.z, color });
+            triangles.push_back({ c.x, c.y, c.z, color });
         }
     };
 }

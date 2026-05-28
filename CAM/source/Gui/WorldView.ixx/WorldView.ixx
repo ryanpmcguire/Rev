@@ -25,6 +25,7 @@ import Rev.Core.Color;
 import Rev.Core.Vertex3;
 
 import Rev.Primitive.Lines3d;
+import Rev.Primitive.Mesh3d;
 
 import Rev.Element.View3d;
 import Rev.Element.View3d.Actor3d;
@@ -35,6 +36,7 @@ import Cam.App.Model;
 import Cam.App.MaterialState;
 
 import Cam.Gui.World.MaterialState;
+import Cam.Gui.ToolPath;
 import Cam.Gui.Theme;
 
 import Rev.Core.Animator;
@@ -107,6 +109,9 @@ export namespace Cam::Gui {
         View3d::Actor* lineActor = nullptr;
         std::vector<Rev::Core::Vertex3> testLines;
 
+        View3d::Actor* toolPreviewActor = nullptr;
+        std::vector<Rev::Core::Vertex3> toolPreviewTriangles;
+
         bool partInView = false;
         bool representationDirty = true;
         bool clearMaterialViewsRequested = false;
@@ -141,6 +146,7 @@ export namespace Cam::Gui {
             createToolPathPreviewSlider();
 
             createAxisLineActor();
+            createToolPreviewActor();
             syncAxisLines();
 
             syncRepresentedProject();
@@ -209,6 +215,14 @@ export namespace Cam::Gui {
 
             delete lineActor;
             lineActor = nullptr;
+
+            if (view3d && toolPreviewActor) {
+                view3d->removeActor(toolPreviewActor);
+            }
+
+            delete toolPreviewActor;
+            toolPreviewActor = nullptr;
+            toolPreviewTriangles.clear();
         }
 
         // Axis lines
@@ -511,6 +525,188 @@ export namespace Cam::Gui {
             if (view3d) {
                 view3d->addActor(lineActor);
             }
+        }
+
+        void createToolPreviewActor() {
+
+            toolPreviewActor = new View3d::Actor();
+
+            toolPreviewActor->visible = false;
+            toolPreviewActor->selectable = false;
+            toolPreviewActor->ownsMesh = true;
+            toolPreviewActor->ownsTriangles = true;
+            toolPreviewActor->includeInFit = false;
+
+            toolPreviewActor->mesh = new Rev::Primitives::Mesh3d(shared->canvas, {
+                .triangles = &toolPreviewTriangles
+            });
+
+            toolPreviewActor->mesh->color = {
+                0.92f,
+                0.78f,
+                0.35f,
+                0.85f
+            };
+
+            if (view3d) {
+                view3d->addActor(toolPreviewActor);
+            }
+        }
+
+        struct ToolPreviewTarget {
+            Cam::App::MaterialState* state = nullptr;
+            double progress = 0.0;
+        };
+
+        Cam::App::MaterialState* materialStateWithToolPathForPreview(
+            Cam::App::Project* project
+        ) {
+
+            if (!project) { return nullptr; }
+
+            const std::vector<Cam::App::MaterialState*> sequence =
+                toolPathPreviewSequence(project);
+
+            if (!sequence.empty()) {
+                return sequence.front();
+            }
+
+            Cam::App::MaterialState* primary = project->primaryViewState();
+
+            if (primary && primary->hasToolPath) {
+                return primary;
+            }
+
+            for (Cam::App::MaterialState* state : project->viewSelection) {
+                if (state && state->hasToolPath) {
+                    return state;
+                }
+            }
+
+            for (Cam::App::MaterialState* state : project->states) {
+                if (state && state->hasToolPath) {
+                    return state;
+                }
+            }
+
+            return nullptr;
+        }
+
+        ToolPreviewTarget activeToolPreviewTarget(
+            Cam::App::Project* project,
+            double globalProgress
+        ) {
+
+            ToolPreviewTarget target = {};
+
+            if (!project) { return target; }
+
+            const std::vector<Cam::App::MaterialState*> sequence =
+                toolPathPreviewSequence(project);
+
+            if (!sequence.empty()) {
+
+                globalProgress = std::clamp(globalProgress, 0.0, 1.0);
+
+                for (size_t i = 0; i < sequence.size(); i++) {
+
+                    const double localProgress = sequentialToolPathPreviewProgress(
+                        globalProgress,
+                        i,
+                        sequence.size()
+                    );
+
+                    if (localProgress > 1e-9 && localProgress < 1.0 - 1e-9) {
+                        target.state = sequence[i];
+                        target.progress = localProgress;
+                        return target;
+                    }
+                }
+
+                if (globalProgress >= 1.0 - 1e-9) {
+                    target.state = sequence.back();
+                    target.progress = 1.0;
+                    return target;
+                }
+
+                target.state = sequence.front();
+                target.progress = 0.0;
+                return target;
+            }
+
+            target.state = materialStateWithToolPathForPreview(project);
+            target.progress = std::clamp(globalProgress, 0.0, 1.0);
+
+            return target;
+        }
+
+        View3d::Actor* deltaActorForToolPreviewDrawOrder(
+            Cam::App::MaterialState* activeState
+        ) {
+
+            if (!activeState) { return nullptr; }
+
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
+
+                if (!view || view->state != activeState) { continue; }
+
+                if (view->deltaActor) {
+                    return view->deltaActor;
+                }
+            }
+
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
+
+                if (view && view->deltaActor) {
+                    return view->deltaActor;
+                }
+            }
+
+            return nullptr;
+        }
+
+        void repositionToolPreviewDrawOrder(Cam::App::MaterialState* activeState) {
+
+            if (!view3d || !toolPreviewActor) { return; }
+
+            View3d::Actor* before = deltaActorForToolPreviewDrawOrder(activeState);
+
+            if (!before) { return; }
+
+            view3d->insertActorBefore(toolPreviewActor, before);
+        }
+
+        void syncSharedToolPreview(
+            Cam::App::Project* project,
+            double globalProgress
+        ) {
+
+            if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
+
+            toolPreviewTriangles.clear();
+            toolPreviewActor->visible = false;
+
+            const ToolPreviewTarget target = activeToolPreviewTarget(
+                project,
+                globalProgress
+            );
+
+            if (!target.state || !target.state->hasToolPath) {
+                toolPreviewActor->mesh->dirty = true;
+                return;
+            }
+
+            const bool hasMesh = Cam::Gui::ToolPath::syncToolPreviewMesh(
+                toolPreviewTriangles,
+                target.state,
+                target.progress,
+                toolPreviewActor->mesh->color
+            );
+
+            toolPreviewActor->visible = hasMesh;
+            toolPreviewActor->mesh->dirty = true;
+
+            repositionToolPreviewDrawOrder(target.state);
         }
 
         // App/project access
@@ -893,6 +1089,8 @@ export namespace Cam::Gui {
 
                 view->sync(previewProgress);
             }
+
+            syncSharedToolPreview(project, globalProgress);
         }
 
         void syncRepresentation() {

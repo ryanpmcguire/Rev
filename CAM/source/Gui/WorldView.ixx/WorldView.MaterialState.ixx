@@ -119,10 +119,9 @@ export namespace Cam::Gui::World {
             this->view = view;
 
             // Draw order:
-            // base model, toolpath, tool preview, transparent delta, invisible pick actor.
+            // base model, toolpath, transparent delta, invisible pick actor.
             view->addActor(partActor);
             view->addActor(toolPath.actor);
-            view->addActor(toolPath.toolPreviewActor);
             view->addActor(deltaActor);
             view->addActor(axisPickMarkerActor);
             view->addActor(pickActor);
@@ -139,7 +138,6 @@ export namespace Cam::Gui::World {
             if (axisPickMarkerActor) { view->removeActor(axisPickMarkerActor); }
             if (pickActor) { view->removeActor(pickActor); }
             if (toolPath.actor) { view->removeActor(toolPath.actor); }
-            if (toolPath.toolPreviewActor) { view->removeActor(toolPath.toolPreviewActor); }
 
             view = nullptr;
             attached = false;
@@ -572,13 +570,10 @@ export namespace Cam::Gui::World {
 
         void syncToolPath(double toolPathPreviewProgress = 1.0) {
 
-            const bool show = state && showToolPath;
+            if (!toolPath.actor) { return; }
 
-            if (!toolPath.actor && !toolPath.toolPreviewActor) { return; }
-
-            if (!show) {
-                if (toolPath.actor) { toolPath.actor->visible = false; }
-                if (toolPath.toolPreviewActor) { toolPath.toolPreviewActor->visible = false; }
+            if (!state || !showToolPath) {
+                toolPath.actor->visible = false;
                 return;
             }
 
