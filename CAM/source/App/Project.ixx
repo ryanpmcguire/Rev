@@ -5,6 +5,7 @@ module;
 #include <string>
 #include <fstream>
 #include <cstddef>
+#include <exception>
 
 #include <nlohmann/json.hpp>
 #include <dbg.hpp>
@@ -12,6 +13,7 @@ module;
 export module Cam.App.Project;
 
 import Rev.OS.File;
+import Rev.OS.Dialog;
 import Rev.Core.Pos3;
 
 import Cam.App.Model;
@@ -680,11 +682,28 @@ export namespace Cam::App {
             try {
                 newRoot = MaterialState::FromStep(selected);
             }
+            catch (const std::exception& ex) {
+                Rev::OS::Dialog::Error(
+                    "Failed to Load STEP File",
+                    "Could not load \"" + selected.pathname + "\".\n\n" + ex.what()
+                );
+                return false;
+            }
             catch (...) {
+                Rev::OS::Dialog::Error(
+                    "Failed to Load STEP File",
+                    "Could not load \"" + selected.pathname + "\"."
+                );
                 return false;
             }
 
-            if (!newRoot) { return false; }
+            if (!newRoot) {
+                Rev::OS::Dialog::Error(
+                    "Failed to Load STEP File",
+                    "Could not load \"" + selected.pathname + "\"."
+                );
+                return false;
+            }
 
             MaterialState* newWorking = MaterialState::FromPriorState(newRoot);
 
