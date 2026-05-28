@@ -35,13 +35,13 @@ export namespace Cam::Gui {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
             .margin = { .bottom = 2_px },
-            .padding = { 4_px, 6_px, 4_px, 6_px },
+            .padding = { .left = 4_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
             .border = { .radius = 6_px },
             .cursor = Cursor::Hand
         };
 
         Style IndexLabel = {
-            .margin = { 0_px, 8_px, 0_px, 0_px },
+            .margin = { .right = 4_px },
             .text = { .size = 11_px }
         };
 
@@ -52,17 +52,16 @@ export namespace Cam::Gui {
         Style Content = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .overflow = Overflow::Hide,
-            .size = { .width = Grow() }
+            .size = { .max = { .width = 150_px } }
         };
 
         Style Label = {
             .overflow = Overflow::Hide,
-            .size = { .width = Grow() },
             .text = { .size = 13_px, .wrap = Wrap::False }
         };
 
         Style Subtitle = {
-            .margin = { 1_px, 0_px, 0_px, 0_px },
+            .margin = { .top = 1_px },
             .text = { .size = 10_px }
         };
 
@@ -74,11 +73,19 @@ export namespace Cam::Gui {
             .text = { .size = 10_px }
         };
 
-        Style IconButton = {
+        Style SettingsButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .size = { .width = 22_px, .height = 22_px },
-            .margin = { 0_px, 0_px, 0_px, 2_px },
-            .padding = { 2_px, 3_px, 2_px, 3_px },
+            .margin = { .left = 10_px },
+            .padding = { .left = 2_px, .right = 2_px, .top = 2_px, .bottom = 2_px },
+            .cursor = Cursor::Hand
+        };
+
+        Style DeleteButton = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .width = 22_px, .height = 22_px },
+            .margin = { .left = 6_px },
+            .padding = { .left = 2_px, .right = 2_px, .top = 2_px, .bottom = 2_px },
             .cursor = Cursor::Hand
         };
 
@@ -93,7 +100,7 @@ export namespace Cam::Gui {
         Style ToolDropdownHost = {
             .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 118_px },
-            .margin = { .left = 4_px }
+            .margin = { .left = 6_px, .right = 4_px }
         };
 
         Style ToolDropdown = {
@@ -217,7 +224,7 @@ export namespace Cam::Gui {
 
             settingsButton = new Box(
                 this,
-                { &Styles::IconButton },
+                { &Styles::SettingsButton },
                 "ToolPathSettingsButton"
             );
 
@@ -244,7 +251,7 @@ export namespace Cam::Gui {
 
             deleteButton = new Box(
                 this,
-                { &Styles::IconButton },
+                { &Styles::DeleteButton },
                 "DeleteMaterialStateButton"
             );
 

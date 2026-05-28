@@ -18,6 +18,7 @@ import Cam.Gui.TabView;
 import Cam.Gui.LeftPanel;
 import Cam.Gui.RightPanel;
 import Cam.Gui.WorldView;
+export import Cam.Gui.PreviewBar;
 
 import Rev.Element.ControlTheme;
 import Cam.Gui.MaterialState;

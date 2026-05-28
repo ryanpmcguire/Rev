@@ -18,7 +18,6 @@ import Rev.Element.Event.GestureTracker;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
-import Rev.Element.Slider;
 
 import Rev.Core.Pos3;
 import Rev.Core.Color;
@@ -38,8 +37,7 @@ import Cam.App.MaterialState;
 import Cam.Gui.World.MaterialState;
 import Cam.Gui.ToolPath;
 import Cam.Gui.Theme;
-
-import Rev.Core.Animator;
+import Cam.Gui.PreviewBar;
 
 export namespace Cam::Gui {
 
@@ -58,46 +56,12 @@ export namespace Cam::Gui {
         DefineAxisZ
     };
 
-    namespace ToolPathPreviewStyle {
-
-        Style Panel = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 100_pct }
-        };
-
-        Style Transport = {
-            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
-            .margin = { 0_px, 0_px, 4_px, 0_px }
-        };
-
-        Style TransportButton = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 30_px, .height = 28_px },
-            .margin = { .right = 6_px },
-            .padding = { 4_px, 6_px, 4_px, 6_px },
-            .border = { .radius = 6_px },
-            .cursor = Cursor::Hand
-        };
-
-        Style TransportButtonLabel = {
-            .text = { .size = 13_px }
-        };
-    }
-
     struct WorldView : public Box {
 
         Cam::App::AppState* app = nullptr;
 
         View3d::View* view3d = nullptr;
-        Box* toolPathPreviewPanel = nullptr;
-        Slider* toolPathPreviewSlider = nullptr;
-
-        float toolPathPreviewPercent = 100.0f;
-        Rev::Core::Animator toolPathPreviewAnimator;
-
-        static constexpr float ToolPathPreviewPlaySpeed = 12.0f;
-        static constexpr float ToolPathPreviewStepPercent = 1.0f;
-        static constexpr double ToolPathPreviewFrameRate = 150.0;
+        PreviewBar* previewBar = nullptr;
 
         Cam::App::Project* representedProject = nullptr;
         Cam::App::MaterialState* representedDisplayedState = nullptr;
@@ -143,7 +107,7 @@ export namespace Cam::Gui {
 
             view3d = new View3d::View(this);
 
-            createToolPathPreviewSlider();
+            createPreviewBar();
 
             createAxisLineActor();
             createToolPreviewActor();
@@ -228,202 +192,26 @@ export namespace Cam::Gui {
         // Axis lines
         //--------------------------------------------------
 
-        void createToolPathPreviewSlider() {
+        void createPreviewBar() {
 
-            toolPathPreviewPanel = new Box(
-                this,
-                { &ToolPathPreviewStyle::Panel },
-                "ToolPathPreviewPanel"
-            );
+            previewBar = new PreviewBar(this);
 
-            Box* transport = new Box(
-                toolPathPreviewPanel,
-                Theme::withButton({
-                    &ToolPathPreviewStyle::Transport,
-                    &Theme::Styles::ButtonHover,
-                    &Theme::Styles::ButtonPress
-                }),
-                "ToolPathPreviewTransport"
-            );
+            previewBar->onPercentChanged = [this](Event& e) {
 
-            auto makeTransportButton = [&](
-                const char* label,
-                const char* name,
-                std::function<void(Event&)> onClick
-            ) -> Box* {
+                syncAllMaterialViews();
 
-                Box* button = new Box(
-                    transport,
-                    Theme::withButton({
-                        &ToolPathPreviewStyle::TransportButton,
-                        &Theme::Styles::ButtonHover,
-                        &Theme::Styles::ButtonPress
-                    }),
-                    name
-                );
-
-                new Text(
-                    button,
-                    label,
-                    Theme::layer(
-                        { &ToolPathPreviewStyle::TransportButtonLabel },
-                        { &Theme::Styles::ButtonLabel }
-                    )
-                );
-
-                button->onClick([onClick](Event& e) {
-                    onClick(e);
-                    e.propagate = false;
-                });
-
-                return button;
-            };
-
-            makeTransportButton(
-                "Play",
-                "ToolPathPreviewPlay",
-                [this](Event& e) { playToolPathPreview(e); }
-            );
-
-            makeTransportButton(
-                "Pause",
-                "ToolPathPreviewPause",
-                [this](Event& e) { pauseToolPathPreview(e); }
-            );
-
-            makeTransportButton(
-                "<",
-                "ToolPathPreviewStepBack",
-                [this](Event& e) { stepToolPathPreviewBack(e); }
-            );
-
-            makeTransportButton(
-                ">",
-                "ToolPathPreviewStepForward",
-                [this](Event& e) { stepToolPathPreviewForward(e); }
-            );
-
-            Slider::SliderData previewSliderData;
-            previewSliderData.min = 0.0f;
-            previewSliderData.max = 100.0f;
-            previewSliderData.def = 1.0f;
-            previewSliderData.val = 100.0f;
-
-            toolPathPreviewSlider = new Slider(
-                toolPathPreviewPanel,
-                previewSliderData,
-                {},
-                "ToolPathPreviewSlider"
-            );
-
-            toolPathPreviewSlider->labelText->setContent("Toolpath preview: ");
-            toolPathPreviewSlider->style->size = { .width = 100_pct };
-            toolPathPreviewSlider->style->padding = { 8_px, 12_px, 10_px, 12_px };
-            toolPathPreviewSlider->labelText->styles.add(&Theme::Styles::MutedText);
-            toolPathPreviewSlider->valueText->styles.add(&Theme::Styles::Text);
-
-            auto onPreviewChanged = [this](Event& e) {
-                pauseToolPathPreview(e);
-                syncToolPathPreview(e);
-            };
-
-            toolPathPreviewSlider->sliderContainer->onMouseDown(onPreviewChanged);
-            toolPathPreviewSlider->sliderContainer->onDrag(onPreviewChanged);
-
-            toolPathPreviewAnimator.onFrame([this](Rev::Core::AnimationEvent& frame) {
-
-                if (!shared || !shared->event) { return; }
-
-                Event& e = *shared->event;
-
-                const float deltaPercent =
-                    (float(frame.deltaMs) / 1000.0f) * ToolPathPreviewPlaySpeed;
-
-                setToolPathPreviewPercent(
-                    toolPathPreviewPercent + deltaPercent,
-                    e,
-                    true
-                );
-
-                if (toolPathPreviewPercent >= 100.0f) {
-                    toolPathPreviewAnimator.stop();
+                if (view3d) {
+                    view3d->refresh(e);
                 }
-            });
+            };
 
-            toolPathPreviewAnimator.setFrequency(ToolPathPreviewFrameRate);
+            previewBar->onRefresh = [this](Event& e) {
+                refresh(e);
+            };
         }
 
         double toolPathPreviewProgress() const {
-            return double(toolPathPreviewPercent) / 100.0;
-        }
-
-        void setToolPathPreviewPercent(
-            float percent,
-            Event& e,
-            bool requestRepaint = false
-        ) {
-
-            toolPathPreviewPercent = std::clamp(percent, 0.0f, 100.0f);
-
-            if (toolPathPreviewSlider) {
-                toolPathPreviewSlider->setVal(toolPathPreviewPercent);
-                toolPathPreviewSlider->refresh(e);
-            }
-
-            syncToolPathPreview(e);
-
-            if (requestRepaint) {
-                refresh(e);
-            }
-        }
-
-        void pauseToolPathPreview(Event& e) {
-
-            if (!toolPathPreviewAnimator.isPlaying()) { return; }
-
-            toolPathPreviewAnimator.pause();
-            refresh(e);
-        }
-
-        void playToolPathPreview(Event& e) {
-
-            if (toolPathPreviewPercent >= 100.0f) {
-                setToolPathPreviewPercent(0.0f, e);
-            }
-
-            toolPathPreviewAnimator.play();
-            refresh(e);
-        }
-
-        void stepToolPathPreviewBack(Event& e) {
-
-            pauseToolPathPreview(e);
-            setToolPathPreviewPercent(
-                toolPathPreviewPercent - ToolPathPreviewStepPercent,
-                e
-            );
-        }
-
-        void stepToolPathPreviewForward(Event& e) {
-
-            pauseToolPathPreview(e);
-            setToolPathPreviewPercent(
-                toolPathPreviewPercent + ToolPathPreviewStepPercent,
-                e
-            );
-        }
-
-        void syncToolPathPreview(Event& e) {
-
-            if (toolPathPreviewSlider) {
-                toolPathPreviewPercent = toolPathPreviewSlider->data.val;
-            }
-
-            syncAllMaterialViews();
-
-            if (view3d) {
-                view3d->refresh(e);
-            }
+            return previewBar ? previewBar->progress() : 1.0;
         }
 
         void appendAxisLine(

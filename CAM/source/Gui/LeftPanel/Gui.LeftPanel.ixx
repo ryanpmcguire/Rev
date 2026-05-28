@@ -30,9 +30,9 @@ export namespace Cam::Gui {
 
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 340_px, .height = Grow() },
-            .margin = { 12_px, 12_px, 12_px, 12_px },
-            .padding = { 8_px, 8_px, 8_px, 8_px },
+            .size = { .width = 300_px, .height = Grow() },
+            .margin = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
+            .padding = { .left = 8_px, .right = 8_px, .top = 8_px, .bottom = 8_px },
             .border = { .radius = 6_px },
             .zIndex = +1
         };
@@ -40,8 +40,8 @@ export namespace Cam::Gui {
         Style FileButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .size = { .width = 100_pct, .height = 34_px },
-            .margin = { 0_px, 0_px, 0_px, 8_px },
-            .padding = { 10_px, 10_px, 3_px, 2_px },
+            .margin = { .bottom = 8_px },
+            .padding = { .left = 10_px, .right = 10_px, .top = 10_px, .bottom = 3_px },
             .border = {
                 .width = 1_px,
                 .radius = 5_px
