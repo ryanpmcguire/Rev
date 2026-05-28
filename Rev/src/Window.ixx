@@ -467,7 +467,11 @@ export namespace Rev {
 
         void refresh(Event& e) override {
             this->dirty.draw = true;
-            window->requestFrame();
+            requestNextFrame();
+        }
+
+        void requestNextFrame() {
+            if (window) { window->requestFrame(); }
         }
 
         void computeChildrenTopDown(Event& e, Element* parent) {
@@ -526,6 +530,10 @@ export namespace Rev {
                 ),
                 animate.end()
             );
+
+            if (!animate.empty()) {
+                requestNextFrame();
+            }
 
             // Visibility and layout
             //--------------------------------------------------

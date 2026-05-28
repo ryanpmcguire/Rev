@@ -1,12 +1,14 @@
 module;
 
 #include <vector>
-#include <windows.h>   // Win32 API
 #include <algorithm>
+#include <cstdint>
+#include <windows.h>
 
 export module Rev.Application;
 
 import Rev.Window;
+import Rev.Core.Process;
 
 export namespace Rev {
 
@@ -14,60 +16,89 @@ export namespace Rev {
 
         std::vector<void*> windows;
 
-        // Create
-        Application() {
-            // Win32 needs an HINSTANCE, but window creation
-            // will handle RegisterClass etc. at that layer.
+        Application() {}
+
+        ~Application() {}
+
+        void pumpProcess() {
+            Rev::Core::Process::instance().tick();
         }
 
-        // Destroy
-        ~Application() {
-            // Nothing to do here yet, unless we global-cleanup something.
+        // Run every due tick. Style transitions can queue several WM_PAINT
+        // messages per loop iteration; ticking only once after the batch stalls
+        // Process-driven animation until the transition chain ends.
+        void pumpProcessDue() {
+
+            auto& process = Rev::Core::Process::instance();
+
+            while (process.hasScheduledTicks() && process.msUntilNextTick() == 0) {
+                pumpProcess();
+            }
         }
 
         void run() {
 
-            MSG msg = {0};
+            MSG msg = { 0 };
 
             while (!windows.empty()) {
 
-                // This blocks until a message arrives
-                BOOL result = GetMessage(&msg, nullptr, 0, 0);
-                if (!result) { break; }
+                DWORD timeout = INFINITE;
 
-                if (msg.message == WM_QUIT) {
-                    for (void* handle : windows) {
-                        delete static_cast<Window*>(handle);
-                    }
-                    windows.clear();
-                    return;
+                if (Rev::Core::Process::instance().hasScheduledTicks()) {
+
+                    const uint64_t waitMs = Rev::Core::Process::instance().msUntilNextTick();
+                    const uint64_t clamped = waitMs > 0 ? waitMs : 1;
+
+                    timeout = static_cast<DWORD>(clamped);
                 }
 
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-    
-                // Cleanup closed windows (erase before delete so ~Window
-                // does not mutate the vector under this iterator).
-                for (auto it = windows.begin(); it != windows.end();) {
-                    Window* w = static_cast<Window*>(*it);
+                MsgWaitForMultipleObjects(
+                    0,
+                    nullptr,
+                    FALSE,
+                    timeout,
+                    QS_ALLINPUT
+                );
 
-                    if (w->shouldClose) {
-                        it = windows.erase(it);
-                        delete w;
+                pumpProcessDue();
+
+                while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+
+                    if (msg.message == WM_QUIT) {
+                        for (void* handle : windows) {
+                            delete static_cast<Window*>(handle);
+                        }
+                        windows.clear();
+                        return;
                     }
 
-                    else { ++it; }
+                    TranslateMessage(&msg);
+                    DispatchMessage(&msg);
+
+                    pumpProcessDue();
+
+                    for (auto it = windows.begin(); it != windows.end();) {
+                        Window* w = static_cast<Window*>(*it);
+
+                        if (w->shouldClose) {
+                            it = windows.erase(it);
+                            delete w;
+                        }
+
+                        else { ++it; }
+                    }
                 }
+
+                pumpProcessDue();
             }
         }
 
-        // Remove window from our list
         void removeWindow(Window* target) {
 
             void* handle = static_cast<void*>(target);
 
             auto it = std::find(windows.begin(), windows.end(), handle);
-            
+
             if (it != windows.end()) {
                 it = windows.erase(it);
                 delete target;
