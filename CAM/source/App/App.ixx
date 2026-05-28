@@ -63,6 +63,21 @@ export namespace Cam::App {
         // Projects
         //--------------------------------------------------
 
+        Project* ensureActiveProject(std::string name = "Untitled Project") {
+
+            if (activeProject) { return activeProject; }
+
+            if (!projects.empty()) {
+                activeProject = projects.front();
+                return activeProject;
+            }
+
+            activeProject = new Project(false, name);
+            projects.push_back(activeProject);
+
+            return activeProject;
+        }
+
         void loadSessionOrDefaults() {
 
             projects.clear();
@@ -72,13 +87,14 @@ export namespace Cam::App {
 
             if (Persist::load(projects, loadedActive)) {
                 activeProject = loadedActive;
+                ensureActiveProject();
                 return;
             }
 
             // No persist (or empty session): start with one empty project.
             projects.clear();
-            activeProject = new Project(false, "Untitled Project");
-            projects.push_back(activeProject);
+            activeProject = nullptr;
+            ensureActiveProject();
         }
 
         bool saveSession() {
@@ -406,7 +422,8 @@ export namespace Cam::App {
             delete project;
 
             if (projects.empty()) {
-                activeProject = nullptr;
+                ensureActiveProject();
+                loadTools();
                 saveSession();
                 return true;
             }
@@ -418,6 +435,7 @@ export namespace Cam::App {
                 }
 
                 activeProject = projects[index];
+                loadTools();
             }
 
             saveSession();
