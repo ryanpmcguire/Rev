@@ -676,7 +676,13 @@ export namespace Cam::App {
         bool loadStepFile(Rev::OS::File& selected) {
             if (!selected) { return false; }
 
-            MaterialState* newRoot = MaterialState::FromStep(selected);
+            MaterialState* newRoot = nullptr;
+            try {
+                newRoot = MaterialState::FromStep(selected);
+            }
+            catch (...) {
+                return false;
+            }
 
             if (!newRoot) { return false; }
 

@@ -195,14 +195,7 @@ export namespace Cam::Gui {
                 onBeforeSelectFile(e);
             }
 
-            if (!project->selectStepFile()) {
-
-                if (onSelectFile) {
-                    onSelectFile(e);
-                }
-
-                return;
-            }
+            project->selectStepFile();
 
             if (onSelectFile) {
                 onSelectFile(e);

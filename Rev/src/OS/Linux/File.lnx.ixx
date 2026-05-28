@@ -203,6 +203,23 @@ export namespace Rev::OS {
             return status == 0 && !out.empty();
         }
 
+        static std::string usableInitialDir(const std::string& initialDir) {
+            if (!initialDir.empty()) {
+                std::error_code ec;
+                if (std::filesystem::exists(initialDir, ec)) {
+                    if (std::filesystem::is_directory(initialDir, ec)) return initialDir;
+                    std::filesystem::path parent = std::filesystem::path(initialDir).parent_path();
+                    if (!parent.empty() && std::filesystem::exists(parent, ec)) return parent.string();
+                }
+            }
+
+            if (const char* home = std::getenv("HOME")) {
+                if (*home) return home;
+            }
+
+            return std::filesystem::current_path().string();
+        }
+
         static File Open(std::string title = "Open File", const char* filter = "All Files\0*.*\0", std::string initialDir = "") {
             File file;
             file.open(title, filter, initialDir);
@@ -404,7 +421,7 @@ export namespace Rev::OS {
             if (!commandExists("zenity")) return false;
 
             std::string command = "zenity --file-selection --title=" + shellQuote(title);
-            if (!initialDir.empty()) command += " --filename=" + shellQuote((std::filesystem::path(initialDir) / "").string());
+            command += " --filename=" + shellQuote((std::filesystem::path(usableInitialDir(initialDir)) / "").string());
             return runCommandCapture(command, out);
         }
 
@@ -412,9 +429,9 @@ export namespace Rev::OS {
             (void)filter;
             if (!commandExists("zenity")) return false;
 
-            std::filesystem::path initial = initialDir.empty() ? std::filesystem::path(initialFileName) : std::filesystem::path(initialDir) / initialFileName;
+            std::filesystem::path initial = std::filesystem::path(usableInitialDir(initialDir)) / initialFileName;
             std::string command = "zenity --file-selection --save --confirm-overwrite --title=" + shellQuote(title);
-            if (!initial.empty()) command += " --filename=" + shellQuote(initial.string());
+            command += " --filename=" + shellQuote(initial.string());
             return runCommandCapture(command, out);
         }
 
@@ -422,7 +439,7 @@ export namespace Rev::OS {
             if (!commandExists("zenity")) return false;
 
             std::string command = "zenity --file-selection --directory --title=" + shellQuote(title);
-            if (!initialDir.empty()) command += " --filename=" + shellQuote((std::filesystem::path(initialDir) / "").string());
+            command += " --filename=" + shellQuote((std::filesystem::path(usableInitialDir(initialDir)) / "").string());
             return runCommandCapture(command, out);
         }
 

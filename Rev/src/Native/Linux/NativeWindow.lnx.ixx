@@ -234,10 +234,11 @@ export namespace Rev {
                              PointerMotionMask | ButtonPressMask | ButtonReleaseMask |
                              KeyPressMask | KeyReleaseMask | PropertyChangeMask;
 
-            ::Window parentWindow = parent ? static_cast<::Window>(reinterpret_cast<uintptr_t>(parent)) : root;
+            ::Window ownerWindow = parent ? static_cast<::Window>(reinterpret_cast<uintptr_t>(parent)) : 0;
+            ::Window parentWindow = relationship == Relationship::EmbeddedChild && ownerWindow ? ownerWindow : root;
 
             auto [initialX, initialY] = initialWindowPosition(details.size);
-            if (relationship == Relationship::EmbeddedChild || parentWindow != root) {
+            if (relationship == Relationship::EmbeddedChild) {
                 initialX = 0;
                 initialY = 0;
             }
@@ -264,6 +265,9 @@ export namespace Rev {
             createSyncCounter();
             Atom protocols[] = { wmDeleteWindow };
             XSetWMProtocols(xDisplay, xWindow, protocols, 1);
+            if (relationship == Relationship::OwnedTopLevel && ownerWindow) {
+                XSetTransientForHint(xDisplay, xWindow, ownerWindow);
+            }
             applyWindowManagerHints(details);
             createInputContext();
 

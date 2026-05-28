@@ -1,5 +1,6 @@
 module;
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -99,6 +100,34 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
+
+            if (commandExists("zenity")) {
+                std::string output;
+                std::string command =
+                    "zenity --question"
+                    " --title=" + shellQuote("Unsaved Changes") +
+                    " --text=" + shellQuote("Save changes to \"" + itemName + "\" before closing?") +
+                    " --ok-label=" + shellQuote("Save") +
+                    " --cancel-label=" + shellQuote("Cancel") +
+                    " --extra-button=" + shellQuote("Discard") +
+                    " 2>/dev/null";
+
+                FILE* pipe = popen(command.c_str(), "r");
+                if (pipe) {
+                    std::array<char, 128> buffer{};
+                    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+                        output += buffer.data();
+                    }
+
+                    int status = pclose(pipe);
+                    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
+
+                    if (output == "Discard") return UnsavedChangesResult::Discard;
+                    if (status == 0) return UnsavedChangesResult::Save;
+                    return UnsavedChangesResult::Cancel;
+                }
+            }
+
             std::fprintf(stderr, "[UnsavedChanges] %s\n", itemName.c_str());
             return UnsavedChangesResult::Cancel;
         }

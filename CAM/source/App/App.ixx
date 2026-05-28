@@ -75,9 +75,10 @@ export namespace Cam::App {
                 return;
             }
 
-            // No persist (or empty session): start with no projects.
+            // No persist (or empty session): start with one empty project.
             projects.clear();
-            activeProject = nullptr;
+            activeProject = new Project(false, "Untitled Project");
+            projects.push_back(activeProject);
         }
 
         bool saveSession() {
@@ -295,11 +296,11 @@ export namespace Cam::App {
 
         bool selectToolFolder() {
 
+            if (!activeProject) { return false; }
+
             Rev::OS::File folder;
 
             if (!folder.selectFolder("Select Tool Folder", toolFolderPath)) { return false; }
-
-            if (!activeProject) { return false; }
 
             activeProject->toolFolderPath = folder.pathname;
             activeProject->dirty = true;

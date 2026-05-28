@@ -520,6 +520,12 @@ export namespace Cam::Gui {
                 ? static_cast<void*>(window->handle)
                 : nullptr;
 
+            if (isUnsavedNewTool) {
+                discardIfUnsaved();
+                close(event);
+                return;
+            }
+
             if (!hasUnsavedChanges(e)) {
                 close(event);
                 return;
