@@ -382,6 +382,24 @@ export namespace Cam::Gui::Theme {
                 }
             }
         };
+
+        // Brighter than SettingsFooter/Cancel (buttonSurface) when apply has pending edits.
+        Style SettingsApplyDirty = {
+            .background = { .color = palette.buttonHover, .transition = 100_ms },
+            .border = { .color = palette.buttonBorder }
+        };
+
+        Style SettingsApplyDirtyHover = {
+            .applies = { .hover = true, .focus = true },
+            .background = { .color = palette.buttonPress },
+            .border = { .color = palette.buttonBorder }
+        };
+
+        Style SettingsApplyDirtyPress = {
+            .applies = { .press = true },
+            .background = { .color = palette.buttonPress },
+            .border = { .color = palette.buttonBorder }
+        };
     }
 
     inline void markDirty(Style& style) {
@@ -572,9 +590,9 @@ export namespace Cam::Gui::Theme {
             .buttonSecondaryBorder = value.buttonBorder,
             .buttonSecondaryHover = value.solidButtonHover,
             .buttonSecondaryLabel = value.buttonLabel,
-            .buttonPrimarySurface = value.accentButton,
-            .buttonPrimaryHover = value.accentButtonHover,
-            .buttonPrimaryLabel = value.buttonLabel,
+            .buttonPrimarySurface = rgba(76, 120, 220, 1.0),
+            .buttonPrimaryHover = rgba(86, 135, 245, 1.0),
+            .buttonPrimaryLabel = value.textOnAccent,
             .shadowColor = rgba(15, 23, 42, 0.0)
         };
     }
@@ -685,6 +703,13 @@ export namespace Cam::Gui::Theme {
         SettingsFooter.background.color = value.settingsFooter;
         SettingsFooter.border.top.color = value.settingsDivider;
 
+        SettingsApplyDirty.background.color = value.buttonHover;
+        SettingsApplyDirty.border.color = value.buttonBorder;
+        SettingsApplyDirtyHover.background.color = value.buttonPress;
+        SettingsApplyDirtyHover.border.color = value.buttonBorder;
+        SettingsApplyDirtyPress.background.color = value.buttonPress;
+        SettingsApplyDirtyPress.border.color = value.buttonBorder;
+
         markDirty(Background);
         markDirty(Panel);
         markDirty(PanelBorder);
@@ -724,6 +749,9 @@ export namespace Cam::Gui::Theme {
         markDirty(SettingsSectionLabel);
         markDirty(SettingsBody);
         markDirty(SettingsFooter);
+        markDirty(SettingsApplyDirty);
+        markDirty(SettingsApplyDirtyHover);
+        markDirty(SettingsApplyDirtyPress);
 
         Rev::Element::ControlTheme::applyPalette(controlPaletteFor(value));
     }

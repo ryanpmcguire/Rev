@@ -16,13 +16,6 @@ export namespace Rev::Element::ControlTheme {
         .y = 2_px
     };
 
-    Shadow primaryButtonShadow = {
-        .color = rgba(79, 99, 255, 0.28),
-        .size = Px(-4),
-        .blur = 12_px,
-        .y = 2_px
-    };
-
     Style Control = {
         .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
         .size = { Grow() },
@@ -135,14 +128,14 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonSecondary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 8_px, 12_px, 4_px, 4_px },
-        .margin = { 4_px, 4_px, 4_px, 4_px },
+        .padding = { 16_px, 16_px, 8_px, 10_px },
         .background = { .color = rgba(255, 255, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(203, 213, 225, 1.0),
             .width = 1_px,
             .radius = 4_px
         },
+        .shadow = subtleShadow,
         .cursor = Cursor::Hand
     };
 
@@ -158,11 +151,13 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonPrimary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 8_px, 12_px, 4_px, 4_px },
-        .margin = { 4_px, 4_px, 4_px, 4_px },
+        .padding = { 16_px, 16_px, 8_px, 10_px },
         .background = { .color = rgba(79, 99, 255, 1.0), .transition = 120_ms },
-        .border = { .radius = 4_px },
-        .shadow = primaryButtonShadow,
+        .border = {
+            .color = rgba(79, 99, 255, 1.0),
+            .width = 1_px,
+            .radius = 4_px
+        },
         .cursor = Cursor::Hand
     };
 
@@ -331,6 +326,7 @@ export namespace Rev::Element::ControlTheme {
         applyFieldShadow(Field, colors.shadowColor);
         applyFieldShadow(OptionsContainer, colors.shadowColor);
         applyFieldShadow(CheckboxBox, colors.shadowColor);
+        applyFieldShadow(ButtonSecondary, colors.shadowColor);
 
         markDirty(Label);
         markDirty(Field);

@@ -1,5 +1,7 @@
 module;
 
+#include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 #include <functional>
@@ -69,23 +71,29 @@ export namespace Cam::Gui {
         };
 
         Style FooterButton = {
-            .margin = { 0_px, 0_px, 0_px, 10_px }
-        };
-
-        Style FooterButtonPrimary = {
-            .size = { .width = 128_px, .height = 40_px }
-        };
-
-        Style FooterButtonSecondary = {
-            .size = { .width = 96_px, .height = 40_px }
+            .margin = { .left = 6_px, .right = 6_px }
         };
     }
 
     struct ToolPathSettingsWindow : public Rev::Window {
 
+        struct SavedFields {
+            std::string strategy;
+            std::string toolName;
+            double stepDown = 0.0;
+            double stepoverPercent = 0.0;
+            double feedRate = 0.0;
+            bool climbMilling = true;
+            double rapidSpeedMmPerSec = 0.0;
+            double linkRetract = 0.0;
+        };
+
         Cam::App::AppState* app = nullptr;
         Cam::App::MaterialState* state = nullptr;
         std::string stateTitle;
+
+        SavedFields savedFields;
+        bool applyPendingAppearance = false;
 
         Text* headerTitle = nullptr;
         Dropdown* strategyDropdown = nullptr;
@@ -96,9 +104,14 @@ export namespace Cam::Gui {
         NumberInput* feedRateInput = nullptr;
         NumberInput* rapidSpeedInput = nullptr;
         NumberInput* linkRetractInput = nullptr;
+        Button* applyButton = nullptr;
 
         std::function<void(Event&)> onSaved;
         std::function<void(Event&)> onClosed;
+
+        static bool nearlyEqual(double a, double b) {
+            return std::fabs(a - b) < 1e-6;
+        }
 
         static Rev::Window* rootWindow(Element* from) {
 
@@ -160,6 +173,8 @@ export namespace Cam::Gui {
             style->size = { .width = 100_pct, .height = 100_pct };
 
             buildUi();
+            captureSavedFieldsFromForm(event);
+            updateApplyButtonAppearance(event);
 
             setTitle(stateTitle + " - Toolpath Settings");
 
@@ -249,6 +264,11 @@ export namespace Cam::Gui {
                 { &ToolPathSettingsLayout::RowField }
             );
 
+            strategyDropdown->onChange = [this](Event& e) {
+                updateApplyButtonAppearance(e);
+                refresh(e);
+            };
+
             toolDropdown = new Dropdown(
                 setupRow,
                 {
@@ -259,6 +279,11 @@ export namespace Cam::Gui {
                 },
                 { &ToolPathSettingsLayout::RowField }
             );
+
+            toolDropdown->onChange = [this](Event& e) {
+                updateApplyButtonAppearance(e);
+                refresh(e);
+            };
 
             new Text(
                 body,
@@ -303,6 +328,22 @@ export namespace Cam::Gui {
                 { &ToolPathSettingsLayout::RowField }
             );
 
+            auto onFieldEdited = [this](Event& e, std::optional<double>) {
+                updateApplyButtonAppearance(e);
+                refresh(e);
+            };
+
+            auto hookLiveNumberEdit = [this, onFieldEdited](NumberInput* input) {
+                input->onTextInput([this](Event& e) {
+                    updateApplyButtonAppearance(e);
+                    refresh(e);
+                });
+                input->onValueChange = onFieldEdited;
+            };
+
+            hookLiveNumberEdit(stepDownInput);
+            hookLiveNumberEdit(stepoverInput);
+
             NumberInput::Params feedRateParams;
             feedRateParams.label = "Feed rate (mm/min)";
             feedRateParams.placeholder = "1000";
@@ -334,6 +375,13 @@ export namespace Cam::Gui {
                 },
                 { &ToolPathSettingsLayout::RowField }
             );
+
+            cutDirectionDropdown->onChange = [this](Event& e) {
+                updateApplyButtonAppearance(e);
+                refresh(e);
+            };
+
+            hookLiveNumberEdit(feedRateInput);
 
             new Text(
                 body,
@@ -378,6 +426,9 @@ export namespace Cam::Gui {
                 { &ToolPathSettingsLayout::RowField }
             );
 
+            hookLiveNumberEdit(rapidSpeedInput);
+            hookLiveNumberEdit(linkRetractInput);
+
             stepDownInput->setValue(toolPath.stepDown);
             stepoverInput->setValue(toolPath.stepover * 100.0);
             feedRateInput->setValue(toolPath.feedRate);
@@ -393,18 +444,19 @@ export namespace Cam::Gui {
                 "Footer"
             );
 
+            const auto footerSecondaryStyles = Theme::layer({
+                &ToolPathSettingsLayout::FooterButton,
+                &Theme::Styles::ButtonHover,
+                &Theme::Styles::ButtonPress
+            }, {
+                &Theme::Styles::Button,
+                &Theme::Styles::ButtonLabel
+            });
+
             Button* cancelButton = new Button(
                 footer,
                 Button::Params::Secondary("Cancel"),
-                Theme::layer({
-                    &ToolPathSettingsLayout::FooterButton,
-                    &ToolPathSettingsLayout::FooterButtonSecondary,
-                    &Theme::Styles::ButtonHover,
-                    &Theme::Styles::ButtonPress
-                }, {
-                    &Theme::Styles::Button,
-                    &Theme::Styles::ButtonLabel
-                })
+                footerSecondaryStyles
             );
 
             cancelButton->onClick([this](Event& e) {
@@ -412,37 +464,155 @@ export namespace Cam::Gui {
                 e.propagate = false;
             });
 
-            Button* saveButton = new Button(
+            Button*             applyButton = new Button(
                 footer,
-                Button::Params::Primary("Save changes"),
-                Theme::layer({
-                    &ToolPathSettingsLayout::FooterButton,
-                    &ToolPathSettingsLayout::FooterButtonPrimary,
-                    &Theme::Styles::AccentButtonHover
-                }, {
-                    &Theme::Styles::AccentButton,
-                    &Theme::Styles::AccentButtonLabel
-                })
+                Button::Params::Secondary("Apply"),
+                footerSecondaryStyles
             );
 
-            saveButton->onClick([this](Event& e) {
-                save(e);
+            applyButton->onClick([this](Event& e) {
+                if (trySave(e)) {
+                    updateApplyButtonAppearance(e);
+                }
+                e.propagate = false;
+            });
+
+            Button* okButton = new Button(
+                footer,
+                Button::Params::Primary("OK"),
+                { &ToolPathSettingsLayout::FooterButton }
+            );
+
+            okButton->onClick([this](Event& e) {
+                if (trySave(e)) {
+                    updateApplyButtonAppearance(e);
+                    close(&e);
+                }
                 e.propagate = false;
             });
         }
 
-        void save(Event& e) {
+        void computeStyle(Event& e) override {
+            Rev::Window::computeStyle(e);
+            updateApplyButtonAppearance(e);
+        }
+
+        void captureSavedFieldsFromForm(Event& e) {
+
+            SavedFields snapshot;
+
+            if (readCurrentFields(e, true, snapshot)) {
+                savedFields = snapshot;
+                return;
+            }
+
+            if (!state) {
+                savedFields = {};
+                return;
+            }
+
+            const Cam::App::ToolPath& toolPath = state->toolPath;
+
+            savedFields = {
+                .strategy = toolPath.strategy,
+                .toolName = toolPath.toolName,
+                .stepDown = toolPath.stepDown,
+                .stepoverPercent = toolPath.stepover * 100.0,
+                .feedRate = toolPath.feedRate,
+                .climbMilling = toolPath.climbMilling,
+                .rapidSpeedMmPerSec = toolPath.rapidSpeedMmPerSec,
+                .linkRetract = double(toolPath.linkRetractDistance)
+            };
+        }
+
+        bool readCurrentFields(Event& e, bool commitInputs, SavedFields& out) const {
+
+            if (commitInputs) {
+                stepDownInput->commit(e);
+                stepoverInput->commit(e);
+                feedRateInput->commit(e);
+                rapidSpeedInput->commit(e);
+                linkRetractInput->commit(e);
+            }
+
+            out.strategy = strategyDropdown->params.value;
+            out.toolName = toolDropdown->params.value;
+            out.climbMilling = cutDirectionDropdown->params.value != "conventional";
+
+            if (!stepDownInput->tryGetValue(out.stepDown)) { return false; }
+            if (!stepoverInput->tryGetValue(out.stepoverPercent)) { return false; }
+            if (!feedRateInput->tryGetValue(out.feedRate)) { return false; }
+            if (!rapidSpeedInput->tryGetValue(out.rapidSpeedMmPerSec)) { return false; }
+            if (!linkRetractInput->tryGetValue(out.linkRetract)) { return false; }
+
+            return true;
+        }
+
+        bool hasUnsavedChanges(Event& e) const {
+
+            SavedFields current;
+
+            if (!readCurrentFields(e, false, current)) {
+                return true;
+            }
+
+            return (
+                current.strategy != savedFields.strategy ||
+                current.toolName != savedFields.toolName ||
+                !nearlyEqual(current.stepDown, savedFields.stepDown) ||
+                !nearlyEqual(current.stepoverPercent, savedFields.stepoverPercent) ||
+                !nearlyEqual(current.feedRate, savedFields.feedRate) ||
+                current.climbMilling != savedFields.climbMilling ||
+                !nearlyEqual(current.rapidSpeedMmPerSec, savedFields.rapidSpeedMmPerSec) ||
+                !nearlyEqual(current.linkRetract, savedFields.linkRetract)
+            );
+        }
+
+        void updateApplyButtonAppearance(Event& e) {
+
+            if (!applyButton) { return; }
+
+            const bool pending = hasUnsavedChanges(e);
+
+            if (pending == applyPendingAppearance) { return; }
+
+            applyPendingAppearance = pending;
+
+            applyButton->styles.remove(&Theme::Styles::Button);
+            applyButton->styles.remove(&Theme::Styles::ButtonHover);
+            applyButton->styles.remove(&Theme::Styles::ButtonPress);
+            applyButton->styles.remove(&Theme::Styles::ButtonLabel);
+            applyButton->styles.remove(&Theme::Styles::SettingsApplyDirty);
+            applyButton->styles.remove(&Theme::Styles::SettingsApplyDirtyHover);
+            applyButton->styles.remove(&Theme::Styles::SettingsApplyDirtyPress);
+
+            if (pending) {
+                applyButton->styles.add(&Theme::Styles::SettingsApplyDirty);
+                applyButton->styles.add(&Theme::Styles::SettingsApplyDirtyHover);
+                applyButton->styles.add(&Theme::Styles::SettingsApplyDirtyPress);
+            }
+            else {
+                applyButton->styles.add(&Theme::Styles::Button);
+                applyButton->styles.add(&Theme::Styles::ButtonHover);
+                applyButton->styles.add(&Theme::Styles::ButtonPress);
+            }
+
+            applyButton->styles.add(&Theme::Styles::ButtonLabel);
+            applyButton->dirty.style = true;
+        }
+
+        bool trySave(Event& e) {
 
             if (!app || !state) {
                 dbg("[ToolPathSettings] Missing app state or material state");
-                return;
+                return false;
             }
 
             const std::string toolName = toolDropdown->params.value;
 
             if (toolName.empty()) {
                 dbg("[ToolPathSettings] Tool is required");
-                return;
+                return false;
             }
 
             stepDownInput->commit(e);
@@ -459,27 +629,27 @@ export namespace Cam::Gui {
 
             if (!stepDownInput->tryGetValue(stepDown) || stepDown <= 0.0) {
                 dbg("[ToolPathSettings] Invalid stepdown");
-                return;
+                return false;
             }
 
             if (!stepoverInput->tryGetValue(stepoverPercent) || stepoverPercent <= 0.0) {
                 dbg("[ToolPathSettings] Invalid stepover");
-                return;
+                return false;
             }
 
             if (!feedRateInput->tryGetValue(feedRate) || feedRate <= 0.0) {
                 dbg("[ToolPathSettings] Invalid feed rate");
-                return;
+                return false;
             }
 
             if (!rapidSpeedInput->tryGetValue(rapidSpeed) || rapidSpeed <= 0.0) {
                 dbg("[ToolPathSettings] Invalid rapid speed");
-                return;
+                return false;
             }
 
             if (!linkRetractInput->tryGetValue(linkRetract) || linkRetract <= 0.0) {
                 dbg("[ToolPathSettings] Invalid link retract height");
-                return;
+                return false;
             }
 
             const std::string strategy = strategyDropdown->params.value;
@@ -497,16 +667,19 @@ export namespace Cam::Gui {
                 static_cast<float>(linkRetract)
             )) {
                 dbg("[ToolPathSettings] Failed to save toolpath settings");
-                return;
+                return false;
             }
 
             dbg("[ToolPathSettings] Saved toolpath settings for \"%s\"", stateTitle.c_str());
+
+            captureSavedFieldsFromForm(e);
 
             if (onSaved) {
                 onSaved(e);
             }
 
             refresh(e);
+            return true;
         }
 
         void notifyClosed(Event& e) {
