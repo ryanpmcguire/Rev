@@ -99,6 +99,32 @@ export namespace Rev::Element::ControlTheme {
         .zIndex = +5
     };
 
+    // Same as OptionsContainer but anchored upward:
+    // .bottom = 100_pct places the container's bottom at the field's top,
+    // so items (justified to Align::End = bottom of the container) stack
+    // upward out of the field rather than downward below it.
+    Style OptionsContainerUpward = {
+        .visibility = { Visibility::Hidden },
+        .overflow = Overflow::Hide,
+        .layout = {
+            .direction = Axis::Vertical,
+            .vertical = Align::End,
+            .wrap = Wrap::False,
+            .position = Position::Absolute
+        },
+        .position = { .bottom = 100_pct },
+        .size = { .width = Grow(), .max = { .width = 100_pct } },
+        .padding = { 4_px, 4_px, 4_px, 4_px },
+        .background = { .color = rgba(255, 255, 255, 1.0) },
+        .border = {
+            .color = rgba(226, 232, 240, 1.0),
+            .width = 1_px,
+            .radius = 8_px
+        },
+        .shadow = subtleShadow,
+        .zIndex = +5
+    };
+
     Style Option = {
         .size = { 100_pct },
         .padding = { 10_px, 12_px, 8_px, 10_px },
@@ -291,6 +317,9 @@ export namespace Rev::Element::ControlTheme {
         OptionsContainer.background.color = colors.fieldSurface;
         OptionsContainer.border.color = colors.fieldBorder;
 
+        OptionsContainerUpward.background.color = colors.fieldSurface;
+        OptionsContainerUpward.border.color = colors.fieldBorder;
+
         Option.background.color = colors.fieldSurface;
         Option.background.color.a = 0.0f;
         Option.text.color = colors.fieldText;
@@ -325,6 +354,7 @@ export namespace Rev::Element::ControlTheme {
         applyFieldShadow(subtleShadow, colors.shadowColor);
         applyFieldShadow(Field, colors.shadowColor);
         applyFieldShadow(OptionsContainer, colors.shadowColor);
+        applyFieldShadow(OptionsContainerUpward, colors.shadowColor);
         applyFieldShadow(CheckboxBox, colors.shadowColor);
         applyFieldShadow(ButtonSecondary, colors.shadowColor);
 
@@ -335,6 +365,7 @@ export namespace Rev::Element::ControlTheme {
         markDirty(Placeholder);
         markDirty(DropdownArrow);
         markDirty(OptionsContainer);
+        markDirty(OptionsContainerUpward);
         markDirty(Option);
         markDirty(OptionHover);
         markDirty(OptionSelected);

@@ -41,6 +41,11 @@ import Cam.Gui.Theme;
 import Cam.Gui.PreviewBar;
 import Cam.Gui.ToolPathPreview;
 
+import Cam.Machine.Pose;
+import Cam.Machine.Definition;
+import Cam.Machine.ToolPath;
+import Cam.Machine.IKSolver;
+
 export namespace Cam::Gui {
 
     using namespace Rev;
@@ -83,6 +88,15 @@ export namespace Cam::Gui {
         bool partInView = false;
         bool representationDirty = true;
         bool clearMaterialViewsRequested = false;
+
+        // Machine simulation
+        PreviewMode previewMode = PreviewMode::AbsoluteToolPath;
+        Cam::Machine::MachineToolPath machineToolPath;
+        Cam::Machine::MachinePose lastMachinePose;
+        bool lastMachinePoseValid  = false;
+        bool machineToolPathDirty  = true;
+        std::vector<Rev::Core::Vertex3> machineSimPartTriangles;
+        std::vector<Rev::Core::Vertex3> machineSimDeltaTriangles;
 
         std::function<void(Event&)> onStateChanged;
 
@@ -257,10 +271,17 @@ export namespace Cam::Gui {
             previewBar->onStepBack = [this](Event& e) {
                 stepPreviewBack(e);
             };
+
+            previewBar->onViewModeChanged = [this](PreviewMode mode, Event& e) {
+                previewMode = mode;
+                machineToolPathDirty = true;
+                if (view3d) { view3d->refresh(e); }
+            };
         }
 
         void markPreviewTimelineDirty() {
             previewTimelineDirty = true;
+            machineToolPathDirty = true;
         }
 
         void rebuildPreviewTimelineIfNeeded() {
@@ -1031,6 +1052,165 @@ export namespace Cam::Gui {
             applyVisibilityPolicy();
         }
 
+        // Machine simulation
+        //--------------------------------------------------
+
+        // (Re)run IKSolver on the active toolpath against a hard-coded
+        // 3+1 indexed A-axis machine.  Result cached in machineToolPath.
+        void rebuildMachineToolPathIfNeeded(Cam::App::Project* project) {
+
+            if (!machineToolPathDirty) { return; }
+
+            machineToolPath      = Cam::Machine::MachineToolPath{};
+            machineToolPathDirty = false;
+            lastMachinePoseValid = false;
+
+            Cam::App::MaterialState* state =
+                materialStateWithToolPathForPreview(project);
+
+            if (!state || !state->hasToolPath) { return; }
+
+            // Hard-coded 3+1 indexed A-axis (rotates around X) through world origin.
+            // TODO: read part origin from model->axisOrigin once that UI is wired.
+            Cam::Machine::MachineDefinition machine =
+                Cam::Machine::MachineDefinition::ThreePlusOneA();
+
+            machineToolPath = Cam::Machine::IKSolver::solve(
+                state->toolPath,
+                machine
+            );
+
+            dbg(
+                "[WorldView] Machine toolpath solved: %zu points, %zu invalid/unreachable",
+                machineToolPath.size(),
+                machineToolPath.invalidCount()
+            );
+        }
+
+        // Apply partWorldPose rotation to a flat Vertex3 buffer in-place.
+        void transformVertices(
+            std::vector<Rev::Core::Vertex3>& verts,
+            Cam::Machine::Pose const& partPose
+        ) {
+            for (Rev::Core::Vertex3& v : verts) {
+
+                Rev::Core::Pos3 p     = { v.x, v.y, v.z };
+                Rev::Core::Pos3 local = p - partPose.position;
+                Rev::Core::Pos3 world =
+                    partPose.transformDirection(local) + partPose.position;
+
+                v.x = world.x;
+                v.y = world.y;
+                v.z = world.z;
+            }
+        }
+
+        // Transform every actor in the material view: part mesh, delta mesh,
+        // and toolpath lines — all by the same part rotation.
+        void applyMachineActorTransform(
+            Cam::Gui::World::MaterialState* view,
+            Cam::Machine::MachinePose const& machinePose
+        ) {
+            if (!view) { return; }
+
+            Cam::Machine::Pose const& partPose = machinePose.partWorldPose;
+
+            // Only rotate if the part has actually moved from identity.
+            float alignment = partPose.direction.dot({ 0.0f, 0.0f, 1.0f });
+            bool  needsXform = alignment < 1.0f - 1e-5f;
+
+            // ── Part mesh ───────────────────────────────────────────────
+            if (view->partActor && view->partActor->mesh) {
+
+                Cam::App::Model* model = view->partModel();
+
+                if (model && !model->render.triangles.empty()) {
+                    machineSimPartTriangles = model->render.triangles;
+                    if (needsXform) { transformVertices(machineSimPartTriangles, partPose); }
+                    view->partActor->mesh->pTriangles = &machineSimPartTriangles;
+                    view->partActor->mesh->dirty      = true;
+                }
+            }
+
+            // ── Delta mesh (removed material) ───────────────────────────
+            if (view->deltaActor && view->deltaActor->mesh &&
+                view->state && view->state->hasDelta) {
+
+                machineSimDeltaTriangles = view->state->delta.render.triangles;
+                if (needsXform) { transformVertices(machineSimDeltaTriangles, partPose); }
+                view->deltaActor->mesh->pTriangles = &machineSimDeltaTriangles;
+                view->deltaActor->mesh->dirty      = true;
+            }
+
+            // ── Toolpath lines ──────────────────────────────────────────
+            // view->toolPath.lines was just rebuilt by view->sync() — mutate in-place.
+            if (view->toolPath.actor && view->toolPath.actor->lines && needsXform) {
+                transformVertices(view->toolPath.lines, partPose);
+                view->toolPath.actor->lines->dirty = true;
+            }
+        }
+
+        // Rebuild the tool preview cylinder at the machine's actual tool pose:
+        // position = machineXYZ, direction = machine's fixed tool axis {0,0,1}.
+        // This replaces whatever syncSharedToolPreview built, which used the
+        // toolpath's tool direction (potentially tilted for multi-axis cuts).
+        void applyMachineToolPosition(Cam::App::Project* project) {
+
+            if (!lastMachinePoseValid) { return; }
+            if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
+
+            Cam::App::MaterialState* state =
+                materialStateWithToolPathForPreview(project);
+
+            if (!state || !state->hasToolPath) { return; }
+
+            // Rebuild the cylinder at machine XYZ, always pointing along {0,0,1}.
+            const bool built = Cam::Gui::ToolPath::syncToolPreviewMeshAtPose(
+                toolPreviewTriangles,
+                state,
+                lastMachinePose.toolWorldPose.position,
+                lastMachinePose.toolWorldPose.direction,  // = {0,0,1} for 3+1
+                toolPreviewActor->mesh->color
+            );
+
+            toolPreviewActor->visible     = built;
+            toolPreviewActor->mesh->dirty = true;
+        }
+
+        // Sample the machine toolpath and apply every actor transform for the
+        // current preview clock position.
+        void applyMachineSimulation(Cam::App::Project* project) {
+
+            rebuildMachineToolPathIfNeeded(project);
+
+            if (machineToolPath.empty()) { return; }
+
+            const ToolPathPreviewTimeline::LocateResult here =
+                previewTimeline.locate();
+
+            if (!here.valid || previewTimeline.segments.empty()) { return; }
+
+            const PreviewSegment& segment =
+                previewTimeline.segments[here.segmentIndex];
+
+            Cam::Gui::World::MaterialState* view = viewForState(segment.state);
+
+            if (!view) { return; }
+
+            Cam::Machine::MachinePose machinePose;
+
+            if (!machineToolPath.sampleAtProgress(here.localProgress, machinePose)) {
+                return;
+            }
+
+            // Cache pose so applyMachineToolPosition can use it after
+            // syncSharedToolPreview runs.
+            lastMachinePose      = machinePose;
+            lastMachinePoseValid = true;
+
+            applyMachineActorTransform(view, machinePose);
+        }
+
         void syncAllMaterialViews() {
 
             rebuildPreviewTimelineIfNeeded();
@@ -1049,7 +1229,19 @@ export namespace Cam::Gui {
                 view->sync(previewProgress);
             }
 
+            // In machine simulation mode, transform all actors to reflect
+            // the real machine state (part rotates, everything follows).
+            if (previewMode == PreviewMode::MachineSimulation) {
+                applyMachineSimulation(project);
+            }
+
             syncSharedToolPreview(project);
+
+            // After the tool mesh is built at the absolute toolpath position,
+            // translate it to machine XYZ.
+            if (previewMode == PreviewMode::MachineSimulation) {
+                applyMachineToolPosition(project);
+            }
 
             if (previewBar && shared && shared->event) {
                 previewBar->syncTimeDisplay(
@@ -1277,6 +1469,41 @@ export namespace Cam::Gui {
             }
         }
 
+        // Copy the axis frame from one model to every state in the project.
+        // The axis/origin is a property of the physical part, not a machining
+        // step — all states share the same coordinate system.
+        void propagateAxisToAllStates(Cam::App::Model* source) {
+
+            Cam::App::Project* project = activeProject();
+
+            if (!project || !source) { return; }
+
+            for (Cam::App::MaterialState* state : project->states) {
+
+                if (!state) { continue; }
+
+                Cam::App::Model* dest = &state->model;
+
+                if (dest == source) { continue; }
+
+                dest->axisOrigin     = source->axisOrigin;
+                dest->hasAxisOrigin  = source->hasAxisOrigin;
+
+                dest->axisXDirection = source->axisXDirection;
+                dest->hasAxisX       = source->hasAxisX;
+
+                dest->axisYDirection = source->axisYDirection;
+                dest->hasAxisY       = source->hasAxisY;
+
+                dest->axisZDirection = source->axisZDirection;
+                dest->hasAxisZ       = source->hasAxisZ;
+            }
+
+            // Axis changed — invalidate the machine toolpath so IK re-solves
+            // with the updated frame on the next preview tick.
+            machineToolPathDirty = true;
+        }
+
         bool centerOriginFromSelection(Event& e) {
 
             if (!displayedModelIsEditable()) {
@@ -1291,6 +1518,8 @@ export namespace Cam::Gui {
             if (!editable->centerOriginFromSelectedPoints()) {
                 return false;
             }
+
+            propagateAxisToAllStates(editable);
 
             sync(e);
             notifyStateChanged(e);
@@ -1335,6 +1564,8 @@ export namespace Cam::Gui {
             if (!defined) {
                 return false;
             }
+
+            propagateAxisToAllStates(editable);
 
             sync(e);
             notifyStateChanged(e);

@@ -143,6 +143,37 @@ export namespace Cam::Gui {
             return !triangles.empty();
         }
 
+        // Rebuild the preview mesh at an explicit world pose — used by the
+        // machine simulation view where the tool always has a fixed direction.
+        static bool syncToolPreviewMeshAtPose(
+            std::vector<Vertex3>& triangles,
+            Cam::App::MaterialState* state,
+            const Pos3& tipPosition,
+            const Pos3& toolDirection,
+            const Color& color
+        ) {
+            triangles.clear();
+
+            if (!state || !state->hasToolPath) { return false; }
+
+            const Cam::App::ToolPath& path = state->toolPath;
+
+            if (path.toolDiameter <= 0.0 || path.toolLength <= 0.0) {
+                return false;
+            }
+
+            buildToolCylinderMesh(
+                triangles,
+                tipPosition,
+                toolDirection,
+                float(path.toolDiameter * 0.5),
+                float(path.toolLength),
+                color
+            );
+
+            return !triangles.empty();
+        }
+
         static void buildToolCylinderMesh(
             std::vector<Vertex3>& triangles,
             const Pos3& tipPosition,

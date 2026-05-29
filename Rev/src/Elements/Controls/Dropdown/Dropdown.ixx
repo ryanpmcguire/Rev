@@ -52,6 +52,7 @@ export namespace Rev::Element {
             std::vector<Item> options;
             std::string placeholder;
             std::string value;
+            bool openUpward = false;  // open the list above the field instead of below
 
             static Params Default() {
                 return {
@@ -91,7 +92,9 @@ export namespace Rev::Element {
                         { &DropdownArrow }
                     );
 
-                optionsContainer = new Box(dropdown, { &OptionsContainer });
+                optionsContainer = new Box(dropdown, {
+                    p.openUpward ? &OptionsContainerUpward : &OptionsContainer
+                });
                 optionsContainer->name = "OptionsContainer";
 
             dropdown->onLoseFocus([this](Event& e) {

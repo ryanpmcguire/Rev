@@ -426,6 +426,7 @@ export namespace Cam::Gui {
                 { "Machine Sim", "machine"  }
             };
             viewModeParams.value = "toolpath";
+            viewModeParams.openUpward = true;
 
             viewModeDropdown = new Dropdown(
                 viewModeGroup,
