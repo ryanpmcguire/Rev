@@ -477,36 +477,154 @@ export namespace Cam::App {
         // Linking
         //--------------------------------------------------
 
-        // Connect this path's end (points.back()) to the next path's start (points.front()).
-        // Both paths must already be in forward display order from compute().
-        bool link(const ToolPath& next) {
+        // Number of interpolated points generated for each cross-state link.
+        static constexpr int LinkSteps = 32;
 
-            if (points.empty() || next.points.empty()) {
-                return false;
-            }
+        // Straight-line link (fallback when no rotary axis is known).
+        // Interpolates both position and tool direction linearly.
+        bool link(const ToolPath& next) {
+            return linkPoints(next, nullptr, nullptr);
+        }
+
+        // Arc link — generates points that sweep around the rotary axis
+        // in polar coordinates, rather than cutting straight through space.
+        //
+        // The arc is computed as follows:
+        //   1. Both endpoints are decomposed into (axial, radius, angle)
+        //      relative to the pivot + rotaryAxis frame.
+        //   2. The angle is swept linearly from 0 → totalAngle using atan2
+        //      to find the short-path direction.  Radius and axial component
+        //      are lerped independently.
+        //   3. World positions are reconstructed: pivot + A*axial + r*(cos·u + sin·v)
+        //      where (u, v) form an orthonormal basis in the rotation plane.
+        //   4. Tool direction is lerped + renormalised at each step.
+        //
+        // Falls back to straight-line when the endpoints are on the axis or
+        // the tool directions are already parallel (no rotation needed).
+        bool link(const ToolPath& next, const Pos3& pivot, const Pos3& rotaryAxis) {
+            return linkPoints(next, &pivot, &rotaryAxis);
+        }
+
+    private:
+
+        bool linkPoints(
+            const ToolPath& next,
+            const Pos3* pivot,
+            const Pos3* rotaryAxis
+        ) {
+            if (points.empty() || next.points.empty()) { return false; }
 
             if (linkedPointCount > 0) {
                 points.resize(points.size() - linkedPointCount);
                 linkedPointCount = 0;
             }
 
-            const Pos3 from = points.back().position;
-            const Pos3 to = next.points.front().position;
+            const ToolPathPoint& fromPt = points.back();
+            const ToolPathPoint& toPt   = next.points.front();
 
-            addWorldPoint(to, true, false);
-            linkedPointCount = 1;
+            // ── Try to set up the polar arc ──────────────────────────────
+            bool  useArc     = false;
+            Pos3  A          = {};
+            Pos3  u          = {};
+            Pos3  v          = {};
+            float fromAxial  = 0.0f, toAxial  = 0.0f;
+            float fromRadius = 0.0f, toRadius = 0.0f;
+            float totalAngle = 0.0f;
 
+            if (pivot && rotaryAxis) {
+
+                A = rotaryAxis->normalized();
+
+                const Pos3 fromRel   = fromPt.position - *pivot;
+                fromAxial            = fromRel.dot(A);
+                const Pos3 fromRadial = fromRel - A * fromAxial;
+                fromRadius           = fromRadial.pythag();
+
+                const Pos3 toRel     = toPt.position - *pivot;
+                toAxial              = toRel.dot(A);
+                const Pos3 toRadial  = toRel - A * toAxial;
+                toRadius             = toRadial.pythag();
+
+                const bool hasRotation =
+                    (fromPt.toolDirection - toPt.toolDirection).pythag() > 1e-4f;
+
+                if (fromRadius > 1e-4f && toRadius > 1e-4f && hasRotation) {
+
+                    // Orthonormal basis in the rotation plane.
+                    u = fromRadial / fromRadius;         // radial direction at fromPt
+                    v = A.cross(u).normalized();          // completes the right-hand frame
+
+                    // Project toRadial onto (u, v) to find the sweep angle.
+                    // atan2 naturally gives the short-path angle in (-π, π].
+                    const float cosA = toRadial.dot(u) / toRadius;
+                    const float sinA = toRadial.dot(v) / toRadius;
+                    totalAngle = std::atan2(sinA, cosA);
+
+                    useArc = true;
+                }
+            }
+
+            // ── Generate interpolated link points ─────────────────────────
+            for (int i = 1; i <= LinkSteps; i++) {
+
+                const float alpha = float(i) / float(LinkSteps);
+
+                Pos3 pos;
+                Pos3 dir;
+
+                if (useArc) {
+                    const float axial    = fromAxial  + (toAxial  - fromAxial)  * alpha;
+                    const float radius   = fromRadius + (toRadius - fromRadius) * alpha;
+                    const float angle    = totalAngle * alpha;
+                    const Pos3 radialDir = u * std::cos(angle) + v * std::sin(angle);
+                    pos = *pivot + A * axial + radialDir * radius;
+
+                    // Direction: point from the arc position toward the pivot.
+                    // Smooth, antipodal-safe, requires no extra trig — the
+                    // direction simply follows the arc geometry naturally.
+                    dir = (*pivot - pos).normalized();
+                }
+                else {
+                    pos = fromPt.position + (toPt.position - fromPt.position) * alpha;
+
+                    // Lerp + renormalize is fine here since we only reach this
+                    // branch when directions are already parallel (no rotation).
+                    dir = (
+                        fromPt.toolDirection * (1.0f - alpha) +
+                        toPt.toolDirection   * alpha
+                    ).normalized();
+                }
+
+                ToolPathPoint pt;
+                pt.position      = pos;
+                pt.toolDirection = dir;
+                pt.rapid         = true;
+                pt.cutting       = false;
+                pt.spindleSpeed  = 0.0;
+                pt.t             = 0.0;   // assigned below
+
+                points.push_back(pt);
+            }
+
+            linkedPointCount = LinkSteps;
             assignPointTimes();
 
             dbg(
-                "[ToolPath] Linked paths: (%.3f, %.3f, %.3f) -> (%.3f, %.3f, %.3f) distance=%.3fmm",
-                from.x, from.y, from.z,
-                to.x, to.y, to.z,
-                from.distanceTo(to)
+                "[ToolPath] Link (%s) %d steps:"
+                " (%.1f,%.1f,%.1f)->(%.1f,%.1f,%.1f)"
+                " angle=%.1f° dist=%.1fmm",
+                useArc ? "arc" : "line",
+                LinkSteps,
+                fromPt.position.x, fromPt.position.y, fromPt.position.z,
+                toPt.position.x,   toPt.position.y,   toPt.position.z,
+                useArc ? double(totalAngle) * 57.2958 : 0.0,
+                fromPt.position.distanceTo(toPt.position)
             );
 
             return true;
         }
+
+    public:
 
         // Preview sampling
         //--------------------------------------------------

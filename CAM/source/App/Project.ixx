@@ -333,6 +333,37 @@ export namespace Cam::App {
                 if (state->hasDelta) { stateJson["delta"] = state->delta.getState(); }
                 else { stateJson["delta"] = ""; }
 
+                // Axis frame (stock center + orientation).
+                // Saved per-state so every setup can carry its own frame,
+                // and propagateAxisToAllStates keeps them in sync at runtime.
+                stateJson["axisOrigin"] = Json::array({
+                    state->model.axisOrigin.x,
+                    state->model.axisOrigin.y,
+                    state->model.axisOrigin.z
+                });
+                stateJson["hasAxisOrigin"] = state->model.hasAxisOrigin;
+
+                stateJson["axisXDirection"] = Json::array({
+                    state->model.axisXDirection.x,
+                    state->model.axisXDirection.y,
+                    state->model.axisXDirection.z
+                });
+                stateJson["hasAxisX"] = state->model.hasAxisX;
+
+                stateJson["axisYDirection"] = Json::array({
+                    state->model.axisYDirection.x,
+                    state->model.axisYDirection.y,
+                    state->model.axisYDirection.z
+                });
+                stateJson["hasAxisY"] = state->model.hasAxisY;
+
+                stateJson["axisZDirection"] = Json::array({
+                    state->model.axisZDirection.x,
+                    state->model.axisZDirection.y,
+                    state->model.axisZDirection.z
+                });
+                stateJson["hasAxisZ"] = state->model.hasAxisZ;
+
                 stateJson["toolPath"] = {
                     { "toolName", state->toolPath.toolName },
                     { "strategy", state->toolPath.strategy },
@@ -437,6 +468,37 @@ export namespace Cam::App {
 
                     if (state->hasDelta && stateJson.contains("delta") && stateJson["delta"].is_string()) {
                         state->delta.setState(stateJson["delta"].get<std::string>());
+                    }
+
+                    // Restore axis frame.
+                    auto readVec3 = [&](const char* key, Rev::Core::Pos3& out) {
+                        if (
+                            stateJson.contains(key) &&
+                            stateJson[key].is_array() &&
+                            stateJson[key].size() >= 3
+                        ) {
+                            out.x = stateJson[key][0].get<float>();
+                            out.y = stateJson[key][1].get<float>();
+                            out.z = stateJson[key][2].get<float>();
+                        }
+                    };
+
+                    readVec3("axisOrigin",     state->model.axisOrigin);
+                    readVec3("axisXDirection", state->model.axisXDirection);
+                    readVec3("axisYDirection", state->model.axisYDirection);
+                    readVec3("axisZDirection", state->model.axisZDirection);
+
+                    if (stateJson.contains("hasAxisOrigin") && stateJson["hasAxisOrigin"].is_boolean()) {
+                        state->model.hasAxisOrigin = stateJson["hasAxisOrigin"].get<bool>();
+                    }
+                    if (stateJson.contains("hasAxisX") && stateJson["hasAxisX"].is_boolean()) {
+                        state->model.hasAxisX = stateJson["hasAxisX"].get<bool>();
+                    }
+                    if (stateJson.contains("hasAxisY") && stateJson["hasAxisY"].is_boolean()) {
+                        state->model.hasAxisY = stateJson["hasAxisY"].get<bool>();
+                    }
+                    if (stateJson.contains("hasAxisZ") && stateJson["hasAxisZ"].is_boolean()) {
+                        state->model.hasAxisZ = stateJson["hasAxisZ"].get<bool>();
                     }
 
                     if (stateJson.contains("toolPath") && stateJson["toolPath"].is_object()) {
@@ -759,24 +821,24 @@ export namespace Cam::App {
         }
 
         // Connect each state's toolpath to the previous one in history (lower index).
-        // prior = states[i], next = states[i - 1].
+        // prior = states[i] (earlier operation), next = states[i-1] (later operation).
+        // Adds a rapid link move from prior's retract point to next's approach point
+        // so the preview plays as one continuous motion with correct timing.
         void linkMaterialStateToolPaths() {
 
             for (MaterialState* state : states) {
                 ensureToolPathComputed(state);
             }
 
-#if 0 // TEMP: stem linking disabled
             for (size_t i = 1; i < states.size(); i++) {
 
                 MaterialState* prior = states[i];
-                MaterialState* next = states[i - 1];
+                MaterialState* next  = states[i - 1];
 
                 if (!prior || !next) { continue; }
 
                 prior->link(next);
             }
-#endif
         }
 
         bool selectState(MaterialState* state, bool addToSelection = false) {

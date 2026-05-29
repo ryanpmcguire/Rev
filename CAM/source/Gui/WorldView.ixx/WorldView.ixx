@@ -6,6 +6,7 @@ module;
 #include <string>
 #include <vector>
 #include <functional>
+#include <map>
 
 #include <dbg.hpp>
 
@@ -91,10 +92,15 @@ export namespace Cam::Gui {
 
         // Machine simulation
         PreviewMode previewMode = PreviewMode::AbsoluteToolPath;
-        Cam::Machine::MachineToolPath machineToolPath;
+
+        // Per-state IK cache.  Keyed by MaterialState* so each state's
+        // solved path lives independently — different setups have different
+        // tool directions and require independent IK solves.
+        std::map<Cam::App::MaterialState*, Cam::Machine::MachineToolPath> machineToolPaths;
+        bool machineToolPathsDirty = true;
+
         Cam::Machine::MachinePose lastMachinePose;
         bool lastMachinePoseValid  = false;
-        bool machineToolPathDirty  = true;
         std::vector<Rev::Core::Vertex3> machineSimPartTriangles;
         std::vector<Rev::Core::Vertex3> machineSimDeltaTriangles;
 
@@ -273,15 +279,15 @@ export namespace Cam::Gui {
             };
 
             previewBar->onViewModeChanged = [this](PreviewMode mode, Event& e) {
-                previewMode = mode;
-                machineToolPathDirty = true;
+                previewMode           = mode;
+                machineToolPathsDirty = true;
                 if (view3d) { view3d->refresh(e); }
             };
         }
 
         void markPreviewTimelineDirty() {
-            previewTimelineDirty = true;
-            machineToolPathDirty = true;
+            previewTimelineDirty  = true;
+            machineToolPathsDirty = true;
         }
 
         void rebuildPreviewTimelineIfNeeded() {
@@ -1055,36 +1061,59 @@ export namespace Cam::Gui {
         // Machine simulation
         //--------------------------------------------------
 
-        // (Re)run IKSolver on the active toolpath against a hard-coded
-        // 3+1 indexed A-axis machine.  Result cached in machineToolPath.
-        void rebuildMachineToolPathIfNeeded(Cam::App::Project* project) {
+        // Build the machine definition for the current project setup:
+        // 3+1 indexed, using the user-defined axis origin as the A-axis pivot
+        // and the user-defined X direction as the rotary axis.
+        Cam::Machine::MachineDefinition buildMachineDefinition(
+            Cam::App::MaterialState* state
+        ) {
+            Rev::Core::Pos3 pivot      = {};
+            Rev::Core::Pos3 rotaryAxis = { 1.0f, 0.0f, 0.0f };  // world X default
 
-            if (!machineToolPathDirty) { return; }
+            if (state->model.hasAxisOrigin) {
+                pivot = state->model.axisOrigin;
+            }
 
-            machineToolPath      = Cam::Machine::MachineToolPath{};
-            machineToolPathDirty = false;
-            lastMachinePoseValid = false;
+            if (state->model.hasAxisX) {
+                rotaryAxis = state->model.axisXDirection;
+            }
 
-            Cam::App::MaterialState* state =
-                materialStateWithToolPathForPreview(project);
+            return Cam::Machine::MachineDefinition::ThreePlusOne(pivot, rotaryAxis);
+        }
 
-            if (!state || !state->hasToolPath) { return; }
+        // Return a reference to the solved MachineToolPath for a given state,
+        // solving it on-demand if not yet cached or if the cache is dirty.
+        Cam::Machine::MachineToolPath const* getMachineToolPath(
+            Cam::App::MaterialState* state
+        ) {
+            if (!state || !state->hasToolPath) { return nullptr; }
 
-            // Hard-coded 3+1 indexed A-axis (rotates around X) through world origin.
-            // TODO: read part origin from model->axisOrigin once that UI is wired.
-            Cam::Machine::MachineDefinition machine =
-                Cam::Machine::MachineDefinition::ThreePlusOneA();
+            if (machineToolPathsDirty) {
+                machineToolPaths.clear();
+                machineToolPathsDirty = false;
+            }
 
-            machineToolPath = Cam::Machine::IKSolver::solve(
-                state->toolPath,
-                machine
-            );
+            auto it = machineToolPaths.find(state);
 
-            dbg(
-                "[WorldView] Machine toolpath solved: %zu points, %zu invalid/unreachable",
-                machineToolPath.size(),
-                machineToolPath.invalidCount()
-            );
+            if (it == machineToolPaths.end()) {
+
+                Cam::Machine::MachineToolPath solved =
+                    Cam::Machine::IKSolver::solve(
+                        state->toolPath,
+                        buildMachineDefinition(state)
+                    );
+
+                dbg(
+                    "[WorldView] IK solved for '%s': %zu points, %zu invalid",
+                    state->name.c_str(),
+                    solved.size(),
+                    solved.invalidCount()
+                );
+
+                it = machineToolPaths.emplace(state, std::move(solved)).first;
+            }
+
+            return &it->second;
         }
 
         // Apply partWorldPose rotation to a flat Vertex3 buffer in-place.
@@ -1159,8 +1188,13 @@ export namespace Cam::Gui {
             if (!lastMachinePoseValid) { return; }
             if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
 
+            const ToolPathPreviewTimeline::LocateResult here =
+                previewTimeline.locate();
+
+            if (!here.valid || previewTimeline.segments.empty()) { return; }
+
             Cam::App::MaterialState* state =
-                materialStateWithToolPathForPreview(project);
+                previewTimeline.segments[here.segmentIndex].state;
 
             if (!state || !state->hasToolPath) { return; }
 
@@ -1178,12 +1212,11 @@ export namespace Cam::Gui {
         }
 
         // Sample the machine toolpath and apply every actor transform for the
-        // current preview clock position.
+        // current preview clock position.  Handles cross-state rotation:
+        // at the start of a new setup the part smoothly rotates from the
+        // previous setup's final orientation into the new one, over a
+        // fraction of the approach-rapid phase.
         void applyMachineSimulation(Cam::App::Project* project) {
-
-            rebuildMachineToolPathIfNeeded(project);
-
-            if (machineToolPath.empty()) { return; }
 
             const ToolPathPreviewTimeline::LocateResult here =
                 previewTimeline.locate();
@@ -1194,17 +1227,59 @@ export namespace Cam::Gui {
                 previewTimeline.segments[here.segmentIndex];
 
             Cam::Gui::World::MaterialState* view = viewForState(segment.state);
-
             if (!view) { return; }
 
-            Cam::Machine::MachinePose machinePose;
+            Cam::Machine::MachineToolPath const* path =
+                getMachineToolPath(segment.state);
 
-            if (!machineToolPath.sampleAtProgress(here.localProgress, machinePose)) {
-                return;
+            if (!path || path->empty()) { return; }
+
+            Cam::Machine::MachinePose machinePose;
+            if (!path->sampleAtProgress(here.localProgress, machinePose)) { return; }
+
+            // Cross-state rotation: smoothly rotate the part into the new setup
+            // orientation over a fixed wall-clock window at the start of each
+            // new segment.  Using absolute time (not fractional progress) keeps
+            // the rotation speed consistent regardless of how long the operation
+            // is — a 2-second rotation always takes 2 seconds.
+            static constexpr double kBlendSeconds = 2.0;
+
+            if (here.segmentIndex > 0 && segment.durationSeconds > 1e-9) {
+
+                const double localTimeSeconds =
+                    here.localProgress * segment.durationSeconds;
+
+                if (localTimeSeconds < kBlendSeconds) {
+
+                    const PreviewSegment& prevSeg =
+                        previewTimeline.segments[here.segmentIndex - 1];
+
+                    Cam::Machine::MachineToolPath const* prevPath =
+                        getMachineToolPath(prevSeg.state);
+
+                    if (prevPath && !prevPath->empty()) {
+
+                        Cam::Machine::MachinePose prevEnd;
+
+                        if (prevPath->sampleAtProgress(1.0, prevEnd)) {
+
+                            float t = float(localTimeSeconds / kBlendSeconds);
+
+                            // Lerp + renormalize — cheap slerp approximation,
+                            // good enough for a visual rotation blend.
+                            Rev::Core::Pos3 blended = (
+                                prevEnd.partWorldPose.direction * (1.0f - t) +
+                                machinePose.partWorldPose.direction * t
+                            ).normalized();
+
+                            machinePose.partWorldPose.direction = blended;
+                            machinePose.partWorldPose.position  =
+                                prevEnd.partWorldPose.position;
+                        }
+                    }
+                }
             }
 
-            // Cache pose so applyMachineToolPosition can use it after
-            // syncSharedToolPreview runs.
             lastMachinePose      = machinePose;
             lastMachinePoseValid = true;
 
@@ -1501,7 +1576,7 @@ export namespace Cam::Gui {
 
             // Axis changed — invalidate the machine toolpath so IK re-solves
             // with the updated frame on the next preview tick.
-            machineToolPathDirty = true;
+            machineToolPathsDirty = true;
         }
 
         bool centerOriginFromSelection(Event& e) {
@@ -1836,6 +1911,52 @@ export namespace Cam::Gui {
 
             if (e.keyboard.key == "r") {
                 recalculateToolPath(e);
+                e.propagate = false;
+                return;
+            }
+
+            // Preview transport shortcuts
+            //--------------------------------------------------
+
+            if (e.keyboard.key == " ") {
+                if (previewBar) {
+                    if (previewBar->isPlaying()) { previewBar->pause(e); }
+                    else                         { previewBar->play(e);  }
+                }
+                e.propagate = false;
+                return;
+            }
+
+            if (e.keyboard.arrows.left) {
+                if (previewBar) { previewBar->stepBack(e); }
+                e.propagate = false;
+                return;
+            }
+
+            if (e.keyboard.arrows.right) {
+                if (previewBar) { previewBar->stepForward(e); }
+                e.propagate = false;
+                return;
+            }
+
+            if (e.keyboard.arrows.up || e.keyboard.arrows.down) {
+                if (previewBar) {
+                    // Double or halve the speed, clamped to [min, max].
+                    const double current = previewBar->playbackSpeed;
+                    const double next = e.keyboard.arrows.up
+                        ? std::min(current * 2.0, PreviewBar::MaxPlaybackSpeed)
+                        : std::max(current / 2.0, PreviewBar::MinPlaybackSpeed);
+
+                    if (std::fabs(next - current) > 1e-9) {
+                        previewBar->playbackSpeed = next;
+
+                        if (previewBar->speedInput) {
+                            previewBar->speedInput->setValue(next);
+                        }
+
+                        refresh(e);
+                    }
+                }
                 e.propagate = false;
                 return;
             }

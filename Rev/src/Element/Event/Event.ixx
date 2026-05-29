@@ -93,6 +93,7 @@ export namespace Rev::Element {
             Button escape, tab, del, backspace;
 
             Button enter;
+            Button space;
 
             Arrows arrows;
 

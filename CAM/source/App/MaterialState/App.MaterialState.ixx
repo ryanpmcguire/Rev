@@ -281,6 +281,17 @@ export namespace Cam::App {
                 return false;
             }
 
+            // Pass the user-defined stock centre and rotary axis so the link
+            // generates a proper polar arc rather than a straight-line move.
+            // Both are propagated to all states, so reading from this model is fine.
+            if (model.hasAxisOrigin && model.hasAxisX) {
+                return toolPath.link(
+                    nextMaterialState->toolPath,
+                    model.axisOrigin,
+                    model.axisXDirection
+                );
+            }
+
             return toolPath.link(nextMaterialState->toolPath);
         }
 

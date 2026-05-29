@@ -57,5 +57,18 @@ export namespace Cam::Machine {
                 .part = { Pose{ partOrigin, {0,0,1} },   MachineDOF::RotaryB() }
             };
         }
+
+        // Indexed 3+1 with an arbitrary user-defined rotary axis.
+        // Use this when the A-axis direction is not aligned with world X —
+        // e.g. when the user has defined the part's own X axis (axisXDirection)
+        // which may differ from {1,0,0} in world space.
+        static MachineDefinition ThreePlusOne(Pos3 partOrigin, Pos3 rotaryAxis) {
+            MachineDOF partDOF;
+            partDOF.freeRotations = { rotaryAxis.normalized() };
+            return {
+                .tool = { Pose::identity(),             MachineDOF::XYZ() },
+                .part = { Pose{ partOrigin, {0,0,1} },  partDOF }
+            };
+        }
     };
 }

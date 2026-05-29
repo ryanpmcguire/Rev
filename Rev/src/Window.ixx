@@ -921,6 +921,7 @@ export namespace Rev {
                 case (NativeWindow::Key::Delete): { event.keyboard.del.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Escape): { event.keyboard.escape.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Tab): { event.keyboard.tab.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Space): { event.keyboard.space.set(action, event.mouse.pos); break; }
 
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.enter.set(action, event.mouse.pos); break; }
             }
@@ -947,6 +948,8 @@ export namespace Rev {
 
                 case (NativeWindow::Key::Enter):
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.key = "enter"; break; }
+
+                case (NativeWindow::Key::Space): { event.keyboard.key = " "; break; }
 
                 case (NativeWindow::Key::A): { event.keyboard.key = "a"; break; }
                 case (NativeWindow::Key::B): { event.keyboard.key = "b"; break; }
