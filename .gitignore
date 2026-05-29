@@ -1,2 +1,6 @@
 build/
 resources/.modules
+tools/ccache/
+tools/ccache.zip
+tools/sccache/
+tools/sccache.zip
