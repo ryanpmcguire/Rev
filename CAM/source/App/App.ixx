@@ -574,7 +574,17 @@ export namespace Cam::App {
             return activeProject->setDisplayedSlicePlaneFromFace(faceId, model);
         }
 
-        bool saveToolPathSettings(MaterialState* state, const std::string& strategy, const std::string& toolName, double stepDown, double stepover, double feedRate) {
+        bool saveToolPathSettings(
+            MaterialState* state,
+            const std::string& strategy,
+            const std::string& toolName,
+            double stepDown,
+            double stepover,
+            double feedRate,
+            double rapidSpeedMmPerSec,
+            bool climbMilling,
+            float linkRetractDistance
+        ) {
 
             if (!activeProject || !state || toolName.empty() || stepover <= 0.0) {
                 return false;
@@ -590,6 +600,9 @@ export namespace Cam::App {
             state->toolPath.stepDown = stepDown;
             state->toolPath.stepover = stepover;
             state->toolPath.feedRate = feedRate;
+            state->toolPath.rapidSpeedMmPerSec = rapidSpeedMmPerSec;
+            state->toolPath.climbMilling = climbMilling;
+            state->toolPath.linkRetractDistance = linkRetractDistance;
 
             if (state->hasDelta) {
                 state->computeToolPath(activeProject->toolLibrary, activeProject->selectedToolName);

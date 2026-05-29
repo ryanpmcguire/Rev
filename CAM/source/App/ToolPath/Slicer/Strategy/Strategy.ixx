@@ -42,6 +42,7 @@ export namespace Cam::App::Slicer::Strategy {
 
         float stepDown = 1.0f;
         float stepover = 0.25f;
+        bool climbMilling = true;
 
         CutFrame frame = CutFrame::fromAxis({ 0.0f, 0.0f, 1.0f });
     };

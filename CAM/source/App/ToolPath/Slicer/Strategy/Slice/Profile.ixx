@@ -403,10 +403,28 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
-        void appendSegments(std::vector<Segment>& out) const {
+        void appendSegments(
+            std::vector<Segment>& out,
+            bool climbMilling = true
+        ) const {
+
             for (const Entry& entry : entries) {
 
-                for (const Segment& s : entry.chain.segments) {
+                Chain chain = entry.chain;
+
+                if (!entry.open() && chain.closed()) {
+
+                    if (entry.role == ChainRole::Outer) {
+                        if (climbMilling) { chain.forceCounterClockwise(); }
+                        else { chain.forceClockwise(); }
+                    }
+                    else if (entry.role == ChainRole::Hole) {
+                        if (climbMilling) { chain.forceClockwise(); }
+                        else { chain.forceCounterClockwise(); }
+                    }
+                }
+
+                for (const Segment& s : chain.segments) {
                     out.push_back(s);
                 }
             }

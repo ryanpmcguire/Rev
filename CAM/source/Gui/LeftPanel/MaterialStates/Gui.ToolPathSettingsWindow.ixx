@@ -27,65 +27,45 @@ import Cam.App.Slicer.Strategy.Strategies.Hatch;
 import Cam.App.Tool;
 import Cam.App.ToolPath;
 
+import Cam.Gui.Theme;
+
 export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
 
-    namespace ToolPathSettingsStyle {
-
-        Shadow panelShadow = {
-            .color = rgba(15, 23, 42, 0.14),
-            .size = Px(-8),
-            .blur = 28_px
-        };
+    namespace ToolPathSettingsLayout {
 
         Style Root = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { 100_pct, 100_pct },
-            .background = { .color = rgba(246, 247, 251, 1.0) },
-            .border = { .radius = 10_px },
-            .shadow = panelShadow
+            .size = { 100_pct, 100_pct }
         };
 
         Style Header = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct },
-            .padding = { 22_px, 22_px, 18_px, 18_px },
-            .background = { .color = rgba(28, 34, 48, 1.0) }
-        };
-
-        Style HeaderEyebrow = {
-            .text = { .color = rgba(148, 163, 184, 1.0), .size = 11_px }
-        };
-
-        Style HeaderTitle = {
-            .margin = { 6_px, 0_px, 0_px, 0_px },
-            .text = { .color = rgba(248, 250, 252, 1.0), .size = 21_px }
+            .padding = { 22_px, 22_px, 18_px, 18_px }
         };
 
         Style Body = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { Grow() },
-            .padding = { 20_px, 22_px, 8_px, 22_px }
+            .size = { Grow() }
         };
 
-        Style SectionLabel = {
-            .margin = { 4_px, 0_px, 10_px, 0_px },
-            .text = { .color = rgba(100, 116, 139, 1.0), .size = 11_px }
+        Style Row = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
+            .size = { 100_pct }
+        };
+
+        Style RowField = {
+            .size = { Grow() },
+            .margin = { 0_px, 4_px, 0_px, 4_px }
         };
 
         Style Footer = {
             .layout = { Axis::Horizontal, Align::End, Align::Center, Wrap::False },
             .size = { 100_pct },
-            .padding = { 14_px, 22_px, 20_px, 22_px },
-            .background = { .color = rgba(255, 255, 255, 1.0) },
-            .border = {
-                .top = {
-                    .color = rgba(226, 232, 240, 1.0),
-                    .width = 1_px
-                }
-            }
+            .padding = { 14_px, 22_px, 20_px, 22_px }
         };
 
         Style FooterButton = {
@@ -110,9 +90,12 @@ export namespace Cam::Gui {
         Text* headerTitle = nullptr;
         Dropdown* strategyDropdown = nullptr;
         Dropdown* toolDropdown = nullptr;
+        Dropdown* cutDirectionDropdown = nullptr;
         NumberInput* stepDownInput = nullptr;
         NumberInput* stepoverInput = nullptr;
         NumberInput* feedRateInput = nullptr;
+        NumberInput* rapidSpeedInput = nullptr;
+        NumberInput* linkRetractInput = nullptr;
 
         std::function<void(Event&)> onSaved;
         std::function<void(Event&)> onClosed;
@@ -160,7 +143,7 @@ export namespace Cam::Gui {
             owner,
             {
                 .name = title + " - Toolpath Settings",
-                .size = { .width = 400, .height = 520 },
+                .size = { .width = 480, .height = 500 },
                 .minimizeButton = false,
                 .maximizeButton = false
             }
@@ -174,11 +157,7 @@ export namespace Cam::Gui {
 
             app = Cam::App::AppState::Get(shared->state);
 
-            style->layout = {
-                Axis::Vertical, Align::Start, Align::Start, Wrap::False
-            };
             style->size = { .width = 100_pct, .height = 100_pct };
-            styles.add(&ToolPathSettingsStyle::Root);
 
             buildUi();
 
@@ -186,7 +165,8 @@ export namespace Cam::Gui {
 
             if (owner) {
                 setPos(owner->details.x + 240, owner->details.y + 120);
-            } else {
+            }
+            else {
                 setPos(240, 120);
             }
 
@@ -202,32 +182,60 @@ export namespace Cam::Gui {
                 ? state->toolPath
                 : emptyToolPath;
 
-            Box* header = new Box(
+            Box* root = new Box(
                 this,
-                { &ToolPathSettingsStyle::Header },
+                Theme::withSettingsDialog({ &ToolPathSettingsLayout::Root }),
+                "SettingsRoot"
+            );
+
+            Box* header = new Box(
+                root,
+                Theme::layer(
+                    { &ToolPathSettingsLayout::Header },
+                    { &Theme::Styles::SettingsHeader }
+                ),
                 "Header"
             );
 
             new Text(
                 header,
                 "TOOLPATH",
-                { &ToolPathSettingsStyle::HeaderEyebrow }
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsHeaderEyebrow }
+                )
             );
 
             headerTitle = new Text(
                 header,
                 stateTitle,
-                { &ToolPathSettingsStyle::HeaderTitle }
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsHeaderTitle }
+                )
             );
 
             Box* body = new Box(
-                this,
-                { &ToolPathSettingsStyle::Body },
+                root,
+                Theme::layer(
+                    { &ToolPathSettingsLayout::Body, &Theme::Styles::SettingsBody },
+                    { &Theme::Styles::Text }
+                ),
                 "Body"
             );
 
+            auto settingsRow = [&](const char* name) {
+                return new Box(
+                    body,
+                    Theme::layer({ &ToolPathSettingsLayout::Row }, {}),
+                    name
+                );
+            };
+
+            Box* setupRow = settingsRow("SetupRow");
+
             strategyDropdown = new Dropdown(
-                body,
+                setupRow,
                 {
                     .label = "Strategy",
                     .options = {
@@ -237,27 +245,32 @@ export namespace Cam::Gui {
                     },
                     .placeholder = "Select strategy",
                     .value = toolPath.strategy
-                }
+                },
+                { &ToolPathSettingsLayout::RowField }
             );
 
             toolDropdown = new Dropdown(
-                body,
+                setupRow,
                 {
                     .label = "Tool",
                     .options = toolOptions(app),
                     .placeholder = "Select tool",
                     .value = toolPath.toolName
-                }
+                },
+                { &ToolPathSettingsLayout::RowField }
             );
 
             new Text(
                 body,
                 "MACHINING",
-                { &ToolPathSettingsStyle::SectionLabel }
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsSectionLabel }
+                )
             );
 
             NumberInput::Params stepDownParams;
-            stepDownParams.label = "Stepdown";
+            stepDownParams.label = "Stepdown (mm)";
             stepDownParams.placeholder = "1.0";
             stepDownParams.maxLength = 32;
             stepDownParams.selectAllOnFocus = true;
@@ -266,12 +279,8 @@ export namespace Cam::Gui {
             stepDownParams.allowEmpty = false;
             stepDownParams.maxDecimalPlaces = 4;
 
-            stepDownInput = new NumberInput(body, stepDownParams);
-
-            NumberInput::Params feedRateParams;
             NumberInput::Params stepoverParams;
-
-            stepoverParams.label = "Stepover (% diameter)";
+            stepoverParams.label = "Stepover (% dia.)";
             stepoverParams.placeholder = "25";
             stepoverParams.maxLength = 32;
             stepoverParams.selectAllOnFocus = true;
@@ -280,9 +289,22 @@ export namespace Cam::Gui {
             stepoverParams.allowEmpty = false;
             stepoverParams.maxDecimalPlaces = 4;
 
-            stepoverInput = new NumberInput(body, stepoverParams);
+            Box* machiningRow = settingsRow("MachiningRow");
 
-            feedRateParams.label = "Feed rate";
+            stepDownInput = new NumberInput(
+                machiningRow,
+                stepDownParams,
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            stepoverInput = new NumberInput(
+                machiningRow,
+                stepoverParams,
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            NumberInput::Params feedRateParams;
+            feedRateParams.label = "Feed rate (mm/min)";
             feedRateParams.placeholder = "1000";
             feedRateParams.maxLength = 32;
             feedRateParams.selectAllOnFocus = true;
@@ -291,25 +313,98 @@ export namespace Cam::Gui {
             feedRateParams.allowEmpty = false;
             feedRateParams.maxDecimalPlaces = 4;
 
-            feedRateInput = new NumberInput(body, feedRateParams);
+            Box* feedRow = settingsRow("FeedRow");
+
+            feedRateInput = new NumberInput(
+                feedRow,
+                feedRateParams,
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            cutDirectionDropdown = new Dropdown(
+                feedRow,
+                {
+                    .label = "Cut direction",
+                    .options = {
+                        { "Climb", "climb" },
+                        { "Conventional", "conventional" }
+                    },
+                    .placeholder = "Select direction",
+                    .value = toolPath.climbMilling ? "climb" : "conventional"
+                },
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            new Text(
+                body,
+                "RAPID MOTION",
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsSectionLabel }
+                )
+            );
+
+            NumberInput::Params rapidSpeedParams;
+            rapidSpeedParams.label = "Rapid speed (mm/s)";
+            rapidSpeedParams.placeholder = "10";
+            rapidSpeedParams.maxLength = 32;
+            rapidSpeedParams.selectAllOnFocus = true;
+            rapidSpeedParams.allowNegative = false;
+            rapidSpeedParams.allowDecimal = true;
+            rapidSpeedParams.allowEmpty = false;
+            rapidSpeedParams.maxDecimalPlaces = 4;
+
+            NumberInput::Params linkRetractParams;
+            linkRetractParams.label = "Link retract (mm)";
+            linkRetractParams.placeholder = "10";
+            linkRetractParams.maxLength = 32;
+            linkRetractParams.selectAllOnFocus = true;
+            linkRetractParams.allowNegative = false;
+            linkRetractParams.allowDecimal = true;
+            linkRetractParams.allowEmpty = false;
+            linkRetractParams.maxDecimalPlaces = 4;
+
+            Box* rapidRow = settingsRow("RapidRow");
+
+            rapidSpeedInput = new NumberInput(
+                rapidRow,
+                rapidSpeedParams,
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            linkRetractInput = new NumberInput(
+                rapidRow,
+                linkRetractParams,
+                { &ToolPathSettingsLayout::RowField }
+            );
 
             stepDownInput->setValue(toolPath.stepDown);
             stepoverInput->setValue(toolPath.stepover * 100.0);
             feedRateInput->setValue(toolPath.feedRate);
+            rapidSpeedInput->setValue(toolPath.rapidSpeedMmPerSec);
+            linkRetractInput->setValue(double(toolPath.linkRetractDistance));
 
             Box* footer = new Box(
-                this,
-                { &ToolPathSettingsStyle::Footer },
+                root,
+                Theme::layer(
+                    { &ToolPathSettingsLayout::Footer },
+                    { &Theme::Styles::SettingsFooter }
+                ),
                 "Footer"
             );
 
             Button* cancelButton = new Button(
                 footer,
                 Button::Params::Secondary("Cancel"),
-                {
-                    &ToolPathSettingsStyle::FooterButton,
-                    &ToolPathSettingsStyle::FooterButtonSecondary
-                }
+                Theme::layer({
+                    &ToolPathSettingsLayout::FooterButton,
+                    &ToolPathSettingsLayout::FooterButtonSecondary,
+                    &Theme::Styles::ButtonHover,
+                    &Theme::Styles::ButtonPress
+                }, {
+                    &Theme::Styles::Button,
+                    &Theme::Styles::ButtonLabel
+                })
             );
 
             cancelButton->onClick([this](Event& e) {
@@ -320,10 +415,14 @@ export namespace Cam::Gui {
             Button* saveButton = new Button(
                 footer,
                 Button::Params::Primary("Save changes"),
-                {
-                    &ToolPathSettingsStyle::FooterButton,
-                    &ToolPathSettingsStyle::FooterButtonPrimary
-                }
+                Theme::layer({
+                    &ToolPathSettingsLayout::FooterButton,
+                    &ToolPathSettingsLayout::FooterButtonPrimary,
+                    &Theme::Styles::AccentButtonHover
+                }, {
+                    &Theme::Styles::AccentButton,
+                    &Theme::Styles::AccentButtonLabel
+                })
             );
 
             saveButton->onClick([this](Event& e) {
@@ -349,10 +448,14 @@ export namespace Cam::Gui {
             stepDownInput->commit(e);
             stepoverInput->commit(e);
             feedRateInput->commit(e);
+            rapidSpeedInput->commit(e);
+            linkRetractInput->commit(e);
 
             double stepDown = 0.0;
             double stepoverPercent = 0.0;
             double feedRate = 0.0;
+            double rapidSpeed = 0.0;
+            double linkRetract = 0.0;
 
             if (!stepDownInput->tryGetValue(stepDown) || stepDown <= 0.0) {
                 dbg("[ToolPathSettings] Invalid stepdown");
@@ -369,7 +472,18 @@ export namespace Cam::Gui {
                 return;
             }
 
+            if (!rapidSpeedInput->tryGetValue(rapidSpeed) || rapidSpeed <= 0.0) {
+                dbg("[ToolPathSettings] Invalid rapid speed");
+                return;
+            }
+
+            if (!linkRetractInput->tryGetValue(linkRetract) || linkRetract <= 0.0) {
+                dbg("[ToolPathSettings] Invalid link retract height");
+                return;
+            }
+
             const std::string strategy = strategyDropdown->params.value;
+            const bool climbMilling = cutDirectionDropdown->params.value != "conventional";
 
             if (!app->saveToolPathSettings(
                 state,
@@ -377,7 +491,10 @@ export namespace Cam::Gui {
                 toolName,
                 stepDown,
                 stepoverPercent / 100.0,
-                feedRate
+                feedRate,
+                rapidSpeed,
+                climbMilling,
+                static_cast<float>(linkRetract)
             )) {
                 dbg("[ToolPathSettings] Failed to save toolpath settings");
                 return;
@@ -406,6 +523,5 @@ export namespace Cam::Gui {
                 notifyClosed(*event);
             }
         }
-
     };
 }

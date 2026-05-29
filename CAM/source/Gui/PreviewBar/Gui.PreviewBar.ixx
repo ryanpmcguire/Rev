@@ -326,6 +326,19 @@ export namespace Cam::Gui {
             }
         }
 
+        // Resume animation without resetting the preview clock (for chapter skips).
+        void resumePlaying(Event& e) {
+
+            if (animator.isPlaying()) { return; }
+
+            animator.play();
+            syncPlayPauseIcon(e);
+
+            if (onRefresh) {
+                onRefresh(e);
+            }
+        }
+
         void stepBack(Event& e) {
             if (onStepBack) {
                 onStepBack(e);

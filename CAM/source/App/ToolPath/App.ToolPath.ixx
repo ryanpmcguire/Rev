@@ -58,6 +58,8 @@ export namespace Cam::App {
         double stepDown = 1.0;
         double feedRate = 1000.0;
         double stepover = 0.25;
+        double rapidSpeedMmPerSec = 10.0;
+        bool climbMilling = true;
 
         // Cached from the tool used at last compute (for preview geometry).
         double toolDiameter = 0.0;
@@ -76,8 +78,7 @@ export namespace Cam::App {
         bool computed = false;
         size_t linkedPointCount = 0;
 
-        static constexpr float linkRetractDistance = 10.0f;
-        static constexpr double travelSpeedMmPerSec = 1.0;
+        float linkRetractDistance = 10.0f;
 
         // State
         //--------------------------------------------------
@@ -181,7 +182,7 @@ export namespace Cam::App {
                 return feedRate / 60.0;
             }
 
-            return travelSpeedMmPerSec;
+            return rapidSpeedMmPerSec > 0.0 ? rapidSpeedMmPerSec : 10.0;
         }
 
         void assignPointTimes() {
@@ -406,6 +407,7 @@ export namespace Cam::App {
                 .tool = &tool,
                 .stepDown = static_cast<float>(stepDown),
                 .stepover = static_cast<float>(stepover),
+                .climbMilling = climbMilling,
                 .frame = frame
             };
 

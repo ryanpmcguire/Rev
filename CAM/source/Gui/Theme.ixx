@@ -69,6 +69,14 @@ export namespace Cam::Gui::Theme {
         Color closeHover;
         Color warning;
 
+        Color settingsSurface;
+        Color settingsHeader;
+        Color settingsFooter;
+        Color settingsHeaderTitle;
+        Color settingsHeaderEyebrow;
+        Color settingsDivider;
+        Color settingsShadow;
+
         bool useShadow;
     };
 
@@ -120,6 +128,14 @@ export namespace Cam::Gui::Theme {
 
         .closeHover = rgba(0, 0, 0, 0.12),
         .warning = rgba(245, 158, 11, 1.0),
+
+        .settingsSurface = rgba(246, 247, 251, 1.0),
+        .settingsHeader = rgba(28, 34, 48, 1.0),
+        .settingsFooter = rgba(255, 255, 255, 1.0),
+        .settingsHeaderTitle = rgba(248, 250, 252, 1.0),
+        .settingsHeaderEyebrow = rgba(148, 163, 184, 1.0),
+        .settingsDivider = rgba(226, 232, 240, 1.0),
+        .settingsShadow = rgba(15, 23, 42, 0.14),
 
         .useShadow = true
     };
@@ -323,6 +339,49 @@ export namespace Cam::Gui::Theme {
             .applies = { .hover = true, .focus = true },
             .text = { .color = palette.textTabActive }
         };
+
+        Style SettingsRoot = {
+            .background = { .color = palette.settingsSurface },
+            .border = { .radius = 10_px },
+            .shadow = {
+                .color = palette.settingsShadow,
+                .size = Px(-8),
+                .blur = 28_px
+            }
+        };
+
+        Style SettingsHeader = {
+            .background = { .color = palette.settingsHeader }
+        };
+
+        Style SettingsHeaderEyebrow = {
+            .text = { .color = palette.settingsHeaderEyebrow, .size = 11_px }
+        };
+
+        Style SettingsHeaderTitle = {
+            .margin = { 6_px, 0_px, 0_px, 0_px },
+            .text = { .color = palette.settingsHeaderTitle, .size = 21_px }
+        };
+
+        Style SettingsBody = {
+            .padding = { 20_px, 22_px, 8_px, 22_px },
+            .background = { .color = palette.settingsSurface }
+        };
+
+        Style SettingsSectionLabel = {
+            .margin = { 4_px, 0_px, 10_px, 0_px },
+            .text = { .color = palette.textMuted, .size = 11_px }
+        };
+
+        Style SettingsFooter = {
+            .background = { .color = palette.settingsFooter },
+            .border = {
+                .top = {
+                    .color = palette.settingsDivider,
+                    .width = 1_px
+                }
+            }
+        };
     }
 
     inline void markDirty(Style& style) {
@@ -382,6 +441,14 @@ export namespace Cam::Gui::Theme {
                 .closeHover = rgba(255, 255, 255, 0.08),
                 .warning = rgba(220, 180, 80, 1.0),
 
+                .settingsSurface = rgba(37, 37, 38, 1.0),
+                .settingsHeader = rgba(30, 30, 30, 1.0),
+                .settingsFooter = rgba(37, 37, 38, 1.0),
+                .settingsHeaderTitle = rgba(224, 224, 224, 1.0),
+                .settingsHeaderEyebrow = rgba(133, 133, 133, 1.0),
+                .settingsDivider = rgba(69, 69, 69, 1.0),
+                .settingsShadow = rgba(0, 0, 0, 0.0),
+
                 .useShadow = false
             };
         }
@@ -434,6 +501,14 @@ export namespace Cam::Gui::Theme {
 
             .closeHover = rgba(0, 0, 0, 0.12),
             .warning = rgba(245, 158, 11, 1.0),
+
+            .settingsSurface = rgba(246, 247, 251, 1.0),
+            .settingsHeader = rgba(28, 34, 48, 1.0),
+            .settingsFooter = rgba(255, 255, 255, 1.0),
+            .settingsHeaderTitle = rgba(248, 250, 252, 1.0),
+            .settingsHeaderEyebrow = rgba(148, 163, 184, 1.0),
+            .settingsDivider = rgba(226, 232, 240, 1.0),
+            .settingsShadow = rgba(15, 23, 42, 0.14),
 
             .useShadow = true
         };
@@ -597,6 +672,19 @@ export namespace Cam::Gui::Theme {
         ChromeIcon.text.color = value.buttonLabel;
         ChromeIconHover.text.color = value.textTabActive;
 
+        SettingsRoot.background.color = value.settingsSurface;
+        SettingsRoot.shadow.color = value.settingsShadow;
+        SettingsRoot.shadow.size = value.useShadow ? Px(-8) : 0_px;
+        SettingsRoot.shadow.blur = value.useShadow ? 28_px : 0_px;
+
+        SettingsHeader.background.color = value.settingsHeader;
+        SettingsHeaderEyebrow.text.color = value.settingsHeaderEyebrow;
+        SettingsHeaderTitle.text.color = value.settingsHeaderTitle;
+        SettingsSectionLabel.text.color = value.textMuted;
+        SettingsBody.background.color = value.settingsSurface;
+        SettingsFooter.background.color = value.settingsFooter;
+        SettingsFooter.border.top.color = value.settingsDivider;
+
         markDirty(Background);
         markDirty(Panel);
         markDirty(PanelBorder);
@@ -629,6 +717,13 @@ export namespace Cam::Gui::Theme {
         markDirty(ChromeHover);
         markDirty(ChromeIcon);
         markDirty(ChromeIconHover);
+        markDirty(SettingsRoot);
+        markDirty(SettingsHeader);
+        markDirty(SettingsHeaderEyebrow);
+        markDirty(SettingsHeaderTitle);
+        markDirty(SettingsSectionLabel);
+        markDirty(SettingsBody);
+        markDirty(SettingsFooter);
 
         Rev::Element::ControlTheme::applyPalette(controlPaletteFor(value));
     }
@@ -714,6 +809,10 @@ export namespace Cam::Gui::Theme {
         std::vector<Style*> styles(component.begin(), component.end());
         styles.push_back(&Styles::MutedText);
         return StyleList(std::move(styles));
+    }
+
+    inline StyleList withSettingsDialog(std::initializer_list<Style*> component) {
+        return layer(component, { &Styles::SettingsRoot });
     }
 
     inline StyleList withIcon(std::initializer_list<Style*> component) {

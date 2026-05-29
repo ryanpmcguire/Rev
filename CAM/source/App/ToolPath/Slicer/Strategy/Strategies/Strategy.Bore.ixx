@@ -131,7 +131,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
         // Paths
         //--------------------------------------------------
 
-        void buildPaths(const StrategyContext&) {
+        void buildPaths(const StrategyContext& ctx) {
 
             paths_.clear();
 
@@ -141,7 +141,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                 layer.z = slice.z;
 
                 for (size_t i = 2; i < slice.profiles.size(); i++) {
-                    slice.profiles[i].appendSegments(layer.segments);
+                    slice.profiles[i].appendSegments(layer.segments, ctx.climbMilling);
                 }
 
                 if (layer.segments.empty()) { continue; }

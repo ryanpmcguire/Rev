@@ -296,9 +296,19 @@ export namespace Cam::Gui {
             }
         }
 
+        void keepPreviewPlayingIfItWas(Event& e, bool wasPlaying) {
+
+            if (!wasPlaying || !previewBar) { return; }
+
+            if (!previewBar->isPlaying()) {
+                previewBar->resumePlaying(e);
+            }
+        }
+
         bool selectMaterialStateForPreview(
             Cam::App::MaterialState* state,
-            Event& e
+            Event& e,
+            bool wasPlaying = false
         ) {
 
             Cam::App::Project* project = activeProject();
@@ -315,11 +325,14 @@ export namespace Cam::Gui {
             representationDirty = true;
             syncRepresentation();
             notifyStateChanged(e);
+            keepPreviewPlayingIfItWas(e, wasPlaying);
 
             return true;
         }
 
         void stepPreviewForward(Event& e) {
+
+            const bool wasPlaying = previewBar && previewBar->isPlaying();
 
             rebuildPreviewTimelineIfNeeded();
 
@@ -353,42 +366,47 @@ export namespace Cam::Gui {
                 const PreviewSegment& next =
                     previewTimeline.segments[here.segmentIndex + 1];
 
-                newElapsed = next.startSeconds + next.durationSeconds;
+                newElapsed = next.startSeconds;
                 targetState = next.state;
             }
             else {
                 targetState = project->nextStateAfterViewSelection();
 
                 if (targetState) {
-                    selectMaterialStateForPreview(targetState, e);
+                    selectMaterialStateForPreview(targetState, e, wasPlaying);
 
                     if (!previewTimeline.segments.empty()) {
                         const PreviewSegment& added =
                             previewTimeline.segments.back();
 
-                        newElapsed =
-                            added.startSeconds + added.durationSeconds;
+                        newElapsed = added.startSeconds;
                     }
 
                     previewTimeline.setElapsed(newElapsed);
                     applyPreviewClock(e);
+                    keepPreviewPlayingIfItWas(e, wasPlaying);
                     return;
                 }
             }
 
             if (targetState) {
-                selectMaterialStateForPreview(targetState, e);
+                selectMaterialStateForPreview(targetState, e, wasPlaying);
             }
 
             previewTimeline.setElapsed(newElapsed);
             applyPreviewClock(e);
+            keepPreviewPlayingIfItWas(e, wasPlaying);
         }
 
         void stepPreviewBack(Event& e) {
 
+            const bool wasPlaying = previewBar && previewBar->isPlaying();
+
             rebuildPreviewTimelineIfNeeded();
 
-            if (previewTimeline.segments.empty()) {
+            Cam::App::Project* project = activeProject();
+
+            if (!project || previewTimeline.segments.empty()) {
                 previewTimeline.setElapsed(0.0);
                 applyPreviewClock(e);
                 return;
@@ -411,6 +429,7 @@ export namespace Cam::Gui {
 
             if (here.localProgress > 1e-9) {
                 newElapsed = current.startSeconds;
+                targetState = current.state;
             }
             else if (here.segmentIndex > 0) {
 
@@ -421,16 +440,36 @@ export namespace Cam::Gui {
                 targetState = previous.state;
             }
             else {
+                targetState = project->previousStateBeforeViewSelection();
+
+                if (targetState) {
+                    selectMaterialStateForPreview(targetState, e, wasPlaying);
+
+                    if (!previewTimeline.segments.empty()) {
+                        newElapsed =
+                            previewTimeline.segments.front().startSeconds;
+                    }
+                    else {
+                        newElapsed = 0.0;
+                    }
+
+                    previewTimeline.setElapsed(newElapsed);
+                    applyPreviewClock(e);
+                    keepPreviewPlayingIfItWas(e, wasPlaying);
+                    return;
+                }
+
                 newElapsed = 0.0;
                 targetState = previewTimeline.segments.front().state;
             }
 
             if (targetState) {
-                selectMaterialStateForPreview(targetState, e);
+                selectMaterialStateForPreview(targetState, e, wasPlaying);
             }
 
             previewTimeline.setElapsed(newElapsed);
             applyPreviewClock(e);
+            keepPreviewPlayingIfItWas(e, wasPlaying);
         }
 
         void appendAxisLine(

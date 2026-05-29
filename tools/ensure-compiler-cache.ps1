@@ -48,6 +48,12 @@ $CcacheExe = Install-ArchiveTool `
     -ExePath (Join-Path $ToolsDir "ccache/ccache-$CcacheVersion-windows-x86_64/ccache.exe")
 
 & $CcacheExe -M 10G | Out-Null
+
+$env:SCCACHE_DIR = Join-Path (Split-Path -Parent $ToolsDir) ".sccache"
+New-Item -ItemType Directory -Force -Path $env:SCCACHE_DIR | Out-Null
+
+& $SccacheExe --stop-server 2>$null | Out-Null
 & $SccacheExe --start-server | Out-Null
 Write-Host "Installed sccache to $SccacheExe"
 Write-Host "Installed ccache to $CcacheExe"
+Write-Host "sccache cache dir: $env:SCCACHE_DIR"

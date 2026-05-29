@@ -228,7 +228,10 @@ export namespace Cam::Gui {
                 toolName,
                 state->toolPath.stepDown,
                 state->toolPath.stepover,
-                state->toolPath.feedRate
+                state->toolPath.feedRate,
+                state->toolPath.rapidSpeedMmPerSec,
+                state->toolPath.climbMilling,
+                state->toolPath.linkRetractDistance
             )) {
                 return;
             }

@@ -103,7 +103,7 @@ export namespace Rev::Element::ControlTheme {
             .radius = 8_px
         },
         .shadow = subtleShadow,
-        .zIndex = +2
+        .zIndex = +5
     };
 
     Style Option = {

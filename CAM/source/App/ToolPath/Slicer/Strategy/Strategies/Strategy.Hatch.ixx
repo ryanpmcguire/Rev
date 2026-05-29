@@ -42,7 +42,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
         // Paths
         //--------------------------------------------------
 
-        void buildPaths(const StrategyContext&) {
+        void buildPaths(const StrategyContext& ctx) {
 
             paths_.clear();
 
@@ -51,7 +51,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                 LayerPath layer;
                 layer.z = slice.z;
 
-                slice.boundaryProfile.appendSegments(layer.segments);
+                slice.boundaryProfile.appendSegments(layer.segments, ctx.climbMilling);
 
                 if (layer.segments.empty()) { continue; }
 

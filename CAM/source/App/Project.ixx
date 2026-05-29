@@ -340,6 +340,9 @@ export namespace Cam::App {
                     { "stepDown", state->toolPath.stepDown },
                     { "stepover", state->toolPath.stepover },
                     { "feedRate", state->toolPath.feedRate },
+                    { "rapidSpeedMmPerSec", state->toolPath.rapidSpeedMmPerSec },
+                    { "climbMilling", state->toolPath.climbMilling },
+                    { "linkRetractDistance", state->toolPath.linkRetractDistance },
                     { "sliceAxis", Json::array({
                         state->toolPath.sliceAxis.x,
                         state->toolPath.sliceAxis.y,
@@ -471,6 +474,20 @@ export namespace Cam::App {
 
                         if (toolPathJson.contains("stepover") && toolPathJson["stepover"].is_number()) {
                             state->toolPath.stepover = toolPathJson["stepover"].get<double>();
+                        }
+
+                        if (toolPathJson.contains("rapidSpeedMmPerSec") && toolPathJson["rapidSpeedMmPerSec"].is_number()) {
+                            state->toolPath.rapidSpeedMmPerSec = toolPathJson["rapidSpeedMmPerSec"].get<double>();
+                        }
+
+                        if (toolPathJson.contains("climbMilling") && toolPathJson["climbMilling"].is_boolean()) {
+                            state->toolPath.climbMilling = toolPathJson["climbMilling"].get<bool>();
+                        }
+
+                        if (toolPathJson.contains("linkRetractDistance") && toolPathJson["linkRetractDistance"].is_number()) {
+                            state->toolPath.linkRetractDistance = static_cast<float>(
+                                toolPathJson["linkRetractDistance"].get<double>()
+                            );
                         }
 
                         if (toolPathJson.contains("sliceAxis") && toolPathJson["sliceAxis"].is_array() && toolPathJson["sliceAxis"].size() >= 3) {
@@ -819,6 +836,43 @@ export namespace Cam::App {
             if (anchorIndex == 0) { return nullptr; }
 
             return states[anchorIndex - 1];
+        }
+
+        // Earlier material state before the highest index in viewSelection (forward-time back).
+        MaterialState* previousStateBeforeViewSelection() const {
+
+            if (states.empty()) { return nullptr; }
+
+            size_t anchorIndex = static_cast<size_t>(-1);
+
+            for (MaterialState* state : viewSelection) {
+
+                if (!state) { continue; }
+
+                const size_t index = indexOf(state);
+
+                if (index == static_cast<size_t>(-1)) { continue; }
+
+                if (
+                    anchorIndex == static_cast<size_t>(-1) ||
+                    index > anchorIndex
+                ) {
+                    anchorIndex = index;
+                }
+            }
+
+            if (anchorIndex == static_cast<size_t>(-1)) {
+
+                if (!displayedState) { return nullptr; }
+
+                anchorIndex = indexOf(displayedState);
+
+                if (anchorIndex == static_cast<size_t>(-1)) { return nullptr; }
+            }
+
+            if (anchorIndex + 1 >= states.size()) { return nullptr; }
+
+            return states[anchorIndex + 1];
         }
 
         // Material state editing
