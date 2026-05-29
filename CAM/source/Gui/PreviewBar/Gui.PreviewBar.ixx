@@ -21,6 +21,7 @@ import Rev.Element.Svg;
 import Rev.Element.Slider;
 import Rev.Element.Text;
 import Rev.Element.NumberInput;
+import Rev.Element.Dropdown;
 import Rev.Element.ControlTheme;
 
 import Cam.Gui.Theme;
@@ -29,6 +30,11 @@ export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
+
+    enum class PreviewMode {
+        AbsoluteToolPath,    // standard view: part static, tool traces path in world space
+        MachineSimulation    // IK view: part physically moves/rotates as the machine would
+    };
 
     namespace PreviewBarStyle {
 
@@ -131,6 +137,16 @@ export namespace Cam::Gui {
 
         // Behind transport + slider (out of layout flow). Blocks the 3D view for
         // empty areas while controls drawn later still receive hits.
+        Style ViewModeGroup = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size   = { .height = 32_px },
+            .margin = { 10_px, 0_px, 0_px, 0_px }
+        };
+
+        Style ViewModeDropdown = {
+            .size = { .width = 140_px }
+        };
+
         Style HitBackdrop = {
             .layout = {
                 Axis::Vertical,
@@ -151,9 +167,11 @@ export namespace Cam::Gui {
         Text* elapsedTimeText = nullptr;
         Text* totalTimeText = nullptr;
         NumberInput* speedInput = nullptr;
+        Dropdown* viewModeDropdown = nullptr;
 
         float percent = 100.0f;
         double playbackSpeed = 1.0;
+        PreviewMode previewMode = PreviewMode::AbsoluteToolPath;
         Rev::Core::Animator animator;
 
         static constexpr double FrameRate = 150.0;
@@ -166,6 +184,7 @@ export namespace Cam::Gui {
         std::function<void(Event&)> onStepBack;
         std::function<void(Event&)> onPlayRequested;
         std::function<void(Event&)> onPlaybackSpeedChanged;
+        std::function<void(PreviewMode, Event&)> onViewModeChanged;
         std::function<void(Rev::Core::AnimationEvent&, Event&)> onAnimateFrame;
 
         static void wireHitInterceptor(Element* element) {
@@ -390,6 +409,47 @@ export namespace Cam::Gui {
             speedInput->onTextInput([this](Event& e) {
                 updatePlaybackSpeedFromInput(e);
             });
+
+            // ── View mode dropdown ─────────────────────────────────────────
+            Element* viewModeGroup = new Element(
+                transport,
+                { &PreviewBarStyle::ViewModeGroup },
+                "PreviewBarViewModeGroup"
+            );
+
+            wireHitInterceptor(viewModeGroup);
+
+            Dropdown::Params viewModeParams;
+            viewModeParams.label = "";
+            viewModeParams.options = {
+                { "Toolpath",    "toolpath" },
+                { "Machine Sim", "machine"  }
+            };
+            viewModeParams.value = "toolpath";
+
+            viewModeDropdown = new Dropdown(
+                viewModeGroup,
+                viewModeParams,
+                { &PreviewBarStyle::ViewModeDropdown }
+            );
+
+            wireHitInterceptor(viewModeDropdown);
+
+            viewModeDropdown->onChange = [this](Event& e) {
+                if (!viewModeDropdown) { return; }
+
+                PreviewMode next = viewModeDropdown->params.value == "machine"
+                    ? PreviewMode::MachineSimulation
+                    : PreviewMode::AbsoluteToolPath;
+
+                if (next == previewMode) { return; }
+
+                previewMode = next;
+
+                if (onViewModeChanged) {
+                    onViewModeChanged(previewMode, e);
+                }
+            };
 
             Slider::SliderData sliderData;
             sliderData.min = 0.0f;
