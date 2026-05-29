@@ -768,19 +768,57 @@ export namespace Cam::App {
 
             if (!addToSelection) {
                 viewSelection = { state };
-                displayedState = state;
             }
             else if (!isViewSelected(state)) {
                 viewSelection.push_back(state);
                 sortViewSelection();
-                displayedState = state;
             }
+
+            displayedState = state;
 
             for (MaterialState* selected : viewSelection) {
                 ensureToolPathComputed(selected);
             }
 
             return true;
+        }
+
+        // States are stored with index 0 = most recent; higher index = earlier in time.
+        // Forward preview advances toward lower indices.
+        MaterialState* nextStateAfterViewSelection() const {
+
+            if (states.empty()) { return nullptr; }
+
+            size_t anchorIndex = static_cast<size_t>(-1);
+
+            for (MaterialState* state : viewSelection) {
+
+                if (!state) { continue; }
+
+                const size_t index = indexOf(state);
+
+                if (index == static_cast<size_t>(-1)) { continue; }
+
+                if (
+                    anchorIndex == static_cast<size_t>(-1) ||
+                    index < anchorIndex
+                ) {
+                    anchorIndex = index;
+                }
+            }
+
+            if (anchorIndex == static_cast<size_t>(-1)) {
+
+                if (!displayedState) { return nullptr; }
+
+                anchorIndex = indexOf(displayedState);
+
+                if (anchorIndex == static_cast<size_t>(-1)) { return nullptr; }
+            }
+
+            if (anchorIndex == 0) { return nullptr; }
+
+            return states[anchorIndex - 1];
         }
 
         // Material state editing

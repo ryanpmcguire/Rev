@@ -168,18 +168,41 @@ export namespace Cam::App {
             addWorldPoint(frame.uvToWorld(uv, depth), rapid, cutting);
         }
 
-        void assignPointTimes(double speedMmPerSec = travelSpeedMmPerSec) {
+        double durationSeconds() const {
+
+            if (points.empty()) { return 0.0; }
+
+            return points.back().t;
+        }
+
+        double speedMmPerSecForPoint(const ToolPathPoint& point) const {
+
+            if (point.cutting && !point.rapid && feedRate > 0.0) {
+                return feedRate / 60.0;
+            }
+
+            return travelSpeedMmPerSec;
+        }
+
+        void assignPointTimes() {
 
             if (points.empty()) { return; }
 
             points.front().t = 0.0;
 
-            if (speedMmPerSec <= 0.0) { return; }
-
             for (size_t i = 1; i < points.size(); i++) {
-                const float distance = points[i - 1].position.distanceTo(points[i].position);
 
-                points[i].t = points[i - 1].t + double(distance) / speedMmPerSec;
+                const float distance =
+                    points[i - 1].position.distanceTo(points[i].position);
+
+                const double speed = speedMmPerSecForPoint(points[i]);
+
+                if (speed <= 0.0) {
+                    points[i].t = points[i - 1].t;
+                    continue;
+                }
+
+                points[i].t = points[i - 1].t + double(distance) / speed;
             }
         }
 
@@ -487,46 +510,44 @@ export namespace Cam::App {
         //--------------------------------------------------
 
         // Points are in forward execution order (see reversePointsForForwardDisplay).
-        bool sampleAtProgress(double previewProgress, ToolPathPoint& out) const {
+        bool sampleAtTime(double previewTimeSeconds, ToolPathPoint& out) const {
 
             if (points.empty()) { return false; }
-
-            previewProgress = std::clamp(previewProgress, 0.0, 1.0);
 
             if (points.size() == 1) {
                 out = points.front();
                 return true;
             }
 
-            const double totalDuration = points.back().t;
+            const double totalDuration = durationSeconds();
+
+            previewTimeSeconds = std::clamp(previewTimeSeconds, 0.0, totalDuration);
 
             if (totalDuration <= 1e-12) {
                 out = points.front();
                 return true;
             }
 
-            if (previewProgress <= 0.0) {
+            if (previewTimeSeconds <= 0.0) {
                 out = points.front();
                 return true;
             }
 
-            if (previewProgress >= 1.0 - 1e-12) {
+            if (previewTimeSeconds >= totalDuration - 1e-12) {
                 out = points.back();
                 return true;
             }
-
-            const double previewTime = totalDuration * previewProgress;
 
             for (size_t i = 0; i + 1 < points.size(); i++) {
 
                 const double t0 = points[i].t;
                 const double t1 = points[i + 1].t;
 
-                if (previewTime > t1 + 1e-9) { continue; }
+                if (previewTimeSeconds > t1 + 1e-9) { continue; }
 
                 const double span = t1 - t0;
                 const float alpha = span > 1e-12
-                    ? float((previewTime - t0) / span)
+                    ? float((previewTimeSeconds - t0) / span)
                     : 0.0f;
 
                 const ToolPathPoint& a = points[i];
@@ -536,13 +557,20 @@ export namespace Cam::App {
                 out.position = a.position + (b.position - a.position) * alpha;
                 out.toolDirection = (a.toolDirection + (b.toolDirection - a.toolDirection) * alpha).normalized();
                 out.spindleSpeed = a.spindleSpeed + (b.spindleSpeed - a.spindleSpeed) * double(alpha);
-                out.t = previewTime;
+                out.t = previewTimeSeconds;
 
                 return true;
             }
 
             out = points.back();
             return true;
+        }
+
+        bool sampleAtProgress(double previewProgress, ToolPathPoint& out) const {
+
+            const double totalDuration = durationSeconds();
+
+            return sampleAtTime(totalDuration * std::clamp(previewProgress, 0.0, 1.0), out);
         }
 
         // Rendering
@@ -556,10 +584,8 @@ export namespace Cam::App {
 
             if (points.size() < 2) { return; }
 
-            previewProgress = std::clamp(previewProgress, 0.0, 1.0);
-
-            const double totalDuration = points.back().t;
-            const double previewTime = totalDuration * previewProgress;
+            const double totalDuration = durationSeconds();
+            const double previewTime = totalDuration * std::clamp(previewProgress, 0.0, 1.0);
 
             Color cutColor = { 1.0f, 0.0f, 1.0f, 1.0f };
             Color rapidColor = { 0.6f, 0.0f, 1.0f, 0.35f };

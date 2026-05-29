@@ -22,6 +22,7 @@ import Rev.Element.Text;
 import Rev.Core.Pos3;
 import Rev.Core.Color;
 import Rev.Core.Vertex3;
+import Rev.Core.Animator;
 
 import Rev.Primitive.Lines3d;
 import Rev.Primitive.Mesh3d;
@@ -38,6 +39,7 @@ import Cam.Gui.World.MaterialState;
 import Cam.Gui.ToolPath;
 import Cam.Gui.Theme;
 import Cam.Gui.PreviewBar;
+import Cam.Gui.ToolPathPreview;
 
 export namespace Cam::Gui {
 
@@ -62,6 +64,8 @@ export namespace Cam::Gui {
 
         View3d::View* view3d = nullptr;
         PreviewBar* previewBar = nullptr;
+        ToolPathPreviewTimeline previewTimeline;
+        bool previewTimelineDirty = true;
 
         Cam::App::Project* representedProject = nullptr;
         Cam::App::MaterialState* representedDisplayedState = nullptr;
@@ -198,20 +202,235 @@ export namespace Cam::Gui {
 
             previewBar->onPercentChanged = [this](Event& e) {
 
-                syncAllMaterialViews();
+                rebuildPreviewTimelineIfNeeded();
 
-                if (view3d) {
-                    view3d->refresh(e);
+                if (previewBar) {
+                    previewTimeline.setFromSliderPercent(previewBar->percent);
                 }
+
+                applyPreviewClock(e);
             };
 
             previewBar->onRefresh = [this](Event& e) {
                 refresh(e);
             };
+
+            previewBar->onPlayRequested = [this](Event& e) {
+                rebuildPreviewTimelineIfNeeded();
+
+                if (previewTimeline.atEnd()) {
+                    previewTimeline.setElapsed(0.0);
+                    syncPreviewSlider(e);
+                }
+            };
+
+            previewBar->onAnimateFrame = [this](
+                Rev::Core::AnimationEvent& frame,
+                Event& e
+            ) {
+                rebuildPreviewTimelineIfNeeded();
+
+                previewTimeline.setElapsed(
+                    previewTimeline.elapsedSeconds +
+                    double(frame.deltaMs) / 1000.0
+                );
+
+                if (previewTimeline.atEnd()) {
+                    previewTimeline.setElapsed(previewTimeline.totalDurationSeconds);
+
+                    if (previewBar) {
+                        previewBar->stop(e);
+                    }
+                }
+
+                applyPreviewClock(e);
+            };
+
+            previewBar->onStepForward = [this](Event& e) {
+                stepPreviewForward(e);
+            };
+
+            previewBar->onStepBack = [this](Event& e) {
+                stepPreviewBack(e);
+            };
         }
 
-        double toolPathPreviewProgress() const {
-            return previewBar ? previewBar->progress() : 1.0;
+        void markPreviewTimelineDirty() {
+            previewTimelineDirty = true;
+        }
+
+        void rebuildPreviewTimelineIfNeeded() {
+
+            if (!previewTimelineDirty) { return; }
+
+            const bool hadTimeline = !previewTimeline.segments.empty();
+            const double savedElapsed = previewTimeline.elapsedSeconds;
+
+            previewTimeline.rebuild(activeProject());
+
+            if (hadTimeline) {
+                previewTimeline.setElapsed(savedElapsed);
+            }
+            else if (previewBar) {
+                previewTimeline.setFromSliderPercent(previewBar->percent);
+            }
+
+            previewTimelineDirty = false;
+        }
+
+        void syncPreviewSlider(Event& e) {
+
+            if (!previewBar) { return; }
+
+            previewBar->percent = previewTimeline.sliderPercent();
+            previewBar->syncSliderDisplay(e);
+        }
+
+        void applyPreviewClock(Event& e) {
+
+            syncPreviewSlider(e);
+            syncAllMaterialViews();
+
+            if (view3d) {
+                view3d->refresh(e);
+            }
+        }
+
+        bool selectMaterialStateForPreview(
+            Cam::App::MaterialState* state,
+            Event& e
+        ) {
+
+            Cam::App::Project* project = activeProject();
+
+            if (!state || !project || !app) { return false; }
+
+            const bool addToSelection = project->viewSelection.size() > 1;
+
+            if (!app->selectState(state, addToSelection)) { return false; }
+
+            markPreviewTimelineDirty();
+            rebuildPreviewTimelineIfNeeded();
+
+            representationDirty = true;
+            syncRepresentation();
+            notifyStateChanged(e);
+
+            return true;
+        }
+
+        void stepPreviewForward(Event& e) {
+
+            rebuildPreviewTimelineIfNeeded();
+
+            Cam::App::Project* project = activeProject();
+
+            if (!project || previewTimeline.segments.empty()) {
+                applyPreviewClock(e);
+                return;
+            }
+
+            const ToolPathPreviewTimeline::LocateResult here =
+                previewTimeline.locate();
+
+            if (!here.valid) {
+                applyPreviewClock(e);
+                return;
+            }
+
+            const PreviewSegment& current =
+                previewTimeline.segments[here.segmentIndex];
+
+            Cam::App::MaterialState* targetState = nullptr;
+            double newElapsed = previewTimeline.elapsedSeconds;
+
+            if (!here.atSegmentEnd) {
+                newElapsed = current.startSeconds + current.durationSeconds;
+                targetState = current.state;
+            }
+            else if (here.segmentIndex + 1 < previewTimeline.segments.size()) {
+
+                const PreviewSegment& next =
+                    previewTimeline.segments[here.segmentIndex + 1];
+
+                newElapsed = next.startSeconds + next.durationSeconds;
+                targetState = next.state;
+            }
+            else {
+                targetState = project->nextStateAfterViewSelection();
+
+                if (targetState) {
+                    selectMaterialStateForPreview(targetState, e);
+
+                    if (!previewTimeline.segments.empty()) {
+                        const PreviewSegment& added =
+                            previewTimeline.segments.back();
+
+                        newElapsed =
+                            added.startSeconds + added.durationSeconds;
+                    }
+
+                    previewTimeline.setElapsed(newElapsed);
+                    applyPreviewClock(e);
+                    return;
+                }
+            }
+
+            if (targetState) {
+                selectMaterialStateForPreview(targetState, e);
+            }
+
+            previewTimeline.setElapsed(newElapsed);
+            applyPreviewClock(e);
+        }
+
+        void stepPreviewBack(Event& e) {
+
+            rebuildPreviewTimelineIfNeeded();
+
+            if (previewTimeline.segments.empty()) {
+                previewTimeline.setElapsed(0.0);
+                applyPreviewClock(e);
+                return;
+            }
+
+            const ToolPathPreviewTimeline::LocateResult here =
+                previewTimeline.locate();
+
+            if (!here.valid) {
+                previewTimeline.setElapsed(0.0);
+                applyPreviewClock(e);
+                return;
+            }
+
+            const PreviewSegment& current =
+                previewTimeline.segments[here.segmentIndex];
+
+            Cam::App::MaterialState* targetState = current.state;
+            double newElapsed = previewTimeline.elapsedSeconds;
+
+            if (here.localProgress > 1e-9) {
+                newElapsed = current.startSeconds;
+            }
+            else if (here.segmentIndex > 0) {
+
+                const PreviewSegment& previous =
+                    previewTimeline.segments[here.segmentIndex - 1];
+
+                newElapsed = previous.startSeconds;
+                targetState = previous.state;
+            }
+            else {
+                newElapsed = 0.0;
+                targetState = previewTimeline.segments.front().state;
+            }
+
+            if (targetState) {
+                selectMaterialStateForPreview(targetState, e);
+            }
+
+            previewTimeline.setElapsed(newElapsed);
+            applyPreviewClock(e);
         }
 
         void appendAxisLine(
@@ -353,7 +572,7 @@ export namespace Cam::Gui {
             if (!project) { return nullptr; }
 
             const std::vector<Cam::App::MaterialState*> sequence =
-                toolPathPreviewSequence(project);
+                ToolPathPreviewTimeline::previewSequence(project);
 
             if (!sequence.empty()) {
                 return sequence.front();
@@ -381,49 +600,35 @@ export namespace Cam::Gui {
         }
 
         ToolPreviewTarget activeToolPreviewTarget(
-            Cam::App::Project* project,
-            double globalProgress
+            Cam::App::Project* project
         ) {
 
             ToolPreviewTarget target = {};
 
             if (!project) { return target; }
 
-            const std::vector<Cam::App::MaterialState*> sequence =
-                toolPathPreviewSequence(project);
+            const ToolPathPreviewTimeline::LocateResult here =
+                previewTimeline.locate();
 
-            if (!sequence.empty()) {
+            if (here.valid && !previewTimeline.segments.empty()) {
 
-                globalProgress = std::clamp(globalProgress, 0.0, 1.0);
+                const PreviewSegment& segment =
+                    previewTimeline.segments[here.segmentIndex];
 
-                for (size_t i = 0; i < sequence.size(); i++) {
+                target.state = segment.state;
+                target.progress = here.localProgress;
 
-                    const double localProgress = sequentialToolPathPreviewProgress(
-                        globalProgress,
-                        i,
-                        sequence.size()
-                    );
-
-                    if (localProgress > 1e-9 && localProgress < 1.0 - 1e-9) {
-                        target.state = sequence[i];
-                        target.progress = localProgress;
-                        return target;
-                    }
-                }
-
-                if (globalProgress >= 1.0 - 1e-9) {
-                    target.state = sequence.back();
-                    target.progress = 1.0;
-                    return target;
-                }
-
-                target.state = sequence.front();
-                target.progress = 0.0;
                 return target;
             }
 
             target.state = materialStateWithToolPathForPreview(project);
-            target.progress = std::clamp(globalProgress, 0.0, 1.0);
+
+            if (target.state) {
+                target.progress = previewTimeline.pathProgressForState(
+                    target.state,
+                    project
+                );
+            }
 
             return target;
         }
@@ -465,8 +670,7 @@ export namespace Cam::Gui {
         }
 
         void syncSharedToolPreview(
-            Cam::App::Project* project,
-            double globalProgress
+            Cam::App::Project* project
         ) {
 
             if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
@@ -474,10 +678,7 @@ export namespace Cam::Gui {
             toolPreviewTriangles.clear();
             toolPreviewActor->visible = false;
 
-            const ToolPreviewTarget target = activeToolPreviewTarget(
-                project,
-                globalProgress
-            );
+            const ToolPreviewTarget target = activeToolPreviewTarget(project);
 
             if (!target.state || !target.state->hasToolPath) {
                 toolPreviewActor->mesh->dirty = true;
@@ -778,90 +979,9 @@ export namespace Cam::Gui {
             applyVisibilityPolicy();
         }
 
-        static double sequentialToolPathPreviewProgress(
-            double globalProgress,
-            size_t sequenceIndex,
-            size_t sequenceCount
-        ) {
-            if (sequenceCount <= 1) {
-                return globalProgress;
-            }
-
-            globalProgress = std::clamp(globalProgress, 0.0, 1.0);
-
-            const double segmentSize = 1.0 / double(sequenceCount);
-            const double segmentStart = segmentSize * double(sequenceIndex);
-            const double segmentEnd = segmentStart + segmentSize;
-
-            if (globalProgress <= segmentStart) { return 0.0; }
-            if (globalProgress >= segmentEnd) { return 1.0; }
-
-            return (globalProgress - segmentStart) / segmentSize;
-        }
-
-        std::vector<Cam::App::MaterialState*> toolPathPreviewSequence(
-            Cam::App::Project* project
-        ) {
-            std::vector<Cam::App::MaterialState*> sequence;
-
-            if (!project || project->viewSelection.size() <= 1) {
-                return sequence;
-            }
-
-            Cam::App::MaterialState* primary = project->primaryViewState();
-
-            if (!primary) { return sequence; }
-
-            const size_t primaryIndex = project->indexOf(primary);
-
-            for (Cam::App::MaterialState* state : project->viewSelection) {
-
-                if (!state) { continue; }
-
-                const size_t stateIndex = project->indexOf(state);
-
-                if (stateIndex < primaryIndex) { continue; }
-                if (!state->hasToolPath) { continue; }
-
-                sequence.push_back(state);
-            }
-
-            return sequence;
-        }
-
-        double toolPathPreviewProgressForState(
-            Cam::App::MaterialState* state,
-            Cam::App::Project* project,
-            double globalProgress
-        ) {
-            if (!state || !project) {
-                return globalProgress;
-            }
-
-            const std::vector<Cam::App::MaterialState*> sequence =
-                toolPathPreviewSequence(project);
-
-            if (sequence.size() <= 1) {
-                return globalProgress;
-            }
-
-            for (size_t i = 0; i < sequence.size(); i++) {
-
-                if (sequence[i] != state) { continue; }
-
-                return sequentialToolPathPreviewProgress(
-                    globalProgress,
-                    i,
-                    sequence.size()
-                );
-            }
-
-            return 0.0;
-        }
-
         void syncAllMaterialViews() {
 
-            const double globalProgress = toolPathPreviewProgress();
+            rebuildPreviewTimelineIfNeeded();
 
             Cam::App::Project* project = activeProject();
 
@@ -869,16 +989,15 @@ export namespace Cam::Gui {
 
                 if (!view) { continue; }
 
-                const double previewProgress = toolPathPreviewProgressForState(
+                const double previewProgress = previewTimeline.pathProgressForState(
                     view->state,
-                    project,
-                    globalProgress
+                    project
                 );
 
                 view->sync(previewProgress);
             }
 
-            syncSharedToolPreview(project, globalProgress);
+            syncSharedToolPreview(project);
         }
 
         void syncRepresentation() {
@@ -907,6 +1026,8 @@ export namespace Cam::Gui {
 
             project->linkMaterialStateToolPaths();
 
+            markPreviewTimelineDirty();
+
             applyVisibilityPolicy();
             syncAllMaterialViews();
             syncAxisLines();
@@ -918,6 +1039,7 @@ export namespace Cam::Gui {
         void sync(Event& e) {
 
             representationDirty = true;
+            markPreviewTimelineDirty();
 
             if (view3d) {
                 view3d->refresh(e);

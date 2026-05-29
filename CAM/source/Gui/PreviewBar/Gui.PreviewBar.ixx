@@ -2,7 +2,6 @@ module;
 
 #include <algorithm>
 #include <functional>
-
 #include <managed.hpp>
 
 export module Cam.Gui.PreviewBar;
@@ -82,12 +81,14 @@ export namespace Cam::Gui {
         float percent = 100.0f;
         Rev::Core::Animator animator;
 
-        static constexpr float PlaySpeed = 12.0f;
-        static constexpr float StepPercent = 1.0f;
         static constexpr double FrameRate = 150.0;
 
         std::function<void(Event&)> onPercentChanged;
         std::function<void(Event&)> onRefresh;
+        std::function<void(Event&)> onStepForward;
+        std::function<void(Event&)> onStepBack;
+        std::function<void(Event&)> onPlayRequested;
+        std::function<void(Rev::Core::AnimationEvent&, Event&)> onAnimateFrame;
 
         PreviewBar(Element* parent, StyleList styles = {}) : Box(parent, styles, "PreviewBar") {
 
@@ -230,35 +231,27 @@ export namespace Cam::Gui {
 
                 if (!shared || !shared->event) { return; }
 
-                Event& e = *shared->event;
-
-                const float deltaPercent =
-                    (float(frame.deltaMs) / 1000.0f) * PlaySpeed;
-
-                setPercent(percent + deltaPercent, e, true);
-
-                if (percent >= 100.0f) {
-                    animator.stop();
-                    syncPlayPauseIcon(e);
+                if (onAnimateFrame) {
+                    onAnimateFrame(frame, *shared->event);
                 }
             });
 
             animator.setFrequency(FrameRate);
         }
 
-        double progress() const {
-            return double(percent) / 100.0;
+        bool isPlaying() const {
+            return animator.isPlaying();
         }
 
-        void setPercent(float value, Event& e, bool requestRepaint = false) {
-
-            percent = std::clamp(value, 0.0f, 100.0f);
-
+        void syncSliderDisplay(Event& e) {
             if (slider) {
                 slider->setVal(percent);
                 slider->refresh(e);
             }
-
+        }
+        void setPercent(float value, Event& e, bool requestRepaint = false) {
+            percent = std::clamp(value, 0.0f, 100.0f);
+            syncSliderDisplay(e);
             if (onPercentChanged) {
                 onPercentChanged(e);
             }
@@ -307,10 +300,22 @@ export namespace Cam::Gui {
             }
         }
 
+        void stop(Event& e) {
+
+            if (!animator.isPlaying()) { return; }
+
+            animator.stop();
+            syncPlayPauseIcon(e);
+
+            if (onRefresh) {
+                onRefresh(e);
+            }
+        }
+
         void play(Event& e) {
 
-            if (percent >= 100.0f) {
-                setPercent(0.0f, e);
+            if (onPlayRequested) {
+                onPlayRequested(e);
             }
 
             animator.play();
@@ -322,15 +327,14 @@ export namespace Cam::Gui {
         }
 
         void stepBack(Event& e) {
-
-            pause(e);
-            setPercent(percent - StepPercent, e);
+            if (onStepBack) {
+                onStepBack(e);
+            }
         }
-
         void stepForward(Event& e) {
-
-            pause(e);
-            setPercent(percent + StepPercent, e);
+            if (onStepForward) {
+                onStepForward(e);
+            }
         }
     };
 }

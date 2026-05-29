@@ -50,7 +50,7 @@ export namespace Cam::Gui {
         };
 
         Style Content = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .layout = { Axis::Vertical, Align::Center, Align::Start, Wrap::False },
             .overflow = Overflow::Hide,
             .size = { .max = { .width = 150_px } }
         };
