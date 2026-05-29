@@ -230,9 +230,13 @@ export namespace Cam::Gui {
             ) {
                 rebuildPreviewTimelineIfNeeded();
 
+                const double speed = previewBar
+                    ? previewBar->playbackSpeedMultiplier()
+                    : 1.0;
+
                 previewTimeline.setElapsed(
                     previewTimeline.elapsedSeconds +
-                    double(frame.deltaMs) / 1000.0
+                    (double(frame.deltaMs) / 1000.0) * speed
                 );
 
                 if (previewTimeline.atEnd()) {
@@ -289,6 +293,15 @@ export namespace Cam::Gui {
         void applyPreviewClock(Event& e) {
 
             syncPreviewSlider(e);
+
+            if (previewBar) {
+                previewBar->syncTimeDisplay(
+                    previewTimeline.elapsedSeconds,
+                    previewTimeline.totalDurationSeconds,
+                    e
+                );
+            }
+
             syncAllMaterialViews();
 
             if (view3d) {
@@ -1037,6 +1050,14 @@ export namespace Cam::Gui {
             }
 
             syncSharedToolPreview(project);
+
+            if (previewBar && shared && shared->event) {
+                previewBar->syncTimeDisplay(
+                    previewTimeline.elapsedSeconds,
+                    previewTimeline.totalDurationSeconds,
+                    *shared->event
+                );
+            }
         }
 
         void syncRepresentation() {

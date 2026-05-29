@@ -99,12 +99,12 @@ export namespace Rev::Element {
         }
 
         // Set content as a string
-        void addContent(std::string content) {
-            content += content;
+        void addContent(std::string value) {
+            this->content = this->content.get() + std::move(value);
         }
 
-        void setContent(std::string content) {
-            content = content;
+        void setContent(std::string value) {
+            this->content = std::move(value);
         }
 
         void setContent(float val, int digits = 4) {

@@ -1,7 +1,10 @@
 module;
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <functional>
+#include <string>
 #include <managed.hpp>
 
 export module Cam.Gui.PreviewBar;
@@ -16,6 +19,9 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Svg;
 import Rev.Element.Slider;
+import Rev.Element.Text;
+import Rev.Element.NumberInput;
+import Rev.Element.ControlTheme;
 
 import Cam.Gui.Theme;
 
@@ -40,13 +46,32 @@ export namespace Cam::Gui {
         };
 
         Style Transport = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 100_pct },
+            .layout = {
+                Axis::Horizontal,
+                Align::Center,
+                Align::Center,
+                Wrap::False
+            },
+            .size = { .width = 100_pct, .height = 32_px },
+            .padding = { 12_px, 12_px, 4_px, 4_px },
             .margin = { .bottom = 2_px }
         };
 
-        Style TransportIconHidden = {
-            .visibility = { Visibility::Hidden }
+        Style TimeGroup = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size = { .height = 32_px }
+        };
+
+        Style TransportButtons = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .height = 32_px },
+            .margin = { 10_px, 0_px, 0_px, 0_px }
+        };
+
+        Style SpeedGroup = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size = { .height = 32_px },
+            .margin = { 10_px, 0_px, 0_px, 0_px }
         };
 
         Style TransportButton = {
@@ -70,29 +95,110 @@ export namespace Cam::Gui {
             .margin = { .bottom = 0_px },
             .padding = { .left = 12_px, .right = 12_px, .top = 0_px, .bottom = 8_px }
         };
+
+        Style TimeText = {
+            .text = { .size = 12_px }
+        };
+
+        Style TimeSeparator = {
+            .margin = { 2_px, 2_px, 0_px, 2_px },
+            .text = { .size = 12_px }
+        };
+
+        Style SpeedControl = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .width = 52_px, .height = 32_px },
+            .margin = { 0_px, 0_px, 0_px, 0_px }
+        };
+
+        Style SpeedContainerIdle = {
+            .padding = { 2_px, 4_px, 2_px, 4_px },
+            .background = { .color = rgba(0, 0, 0, 0.0) },
+            .border = { .radius = 4_px, .width = 0_px },
+            .shadow = {
+                .color = rgba(0, 0, 0, 0.0),
+                .size = 0_px,
+                .blur = 0_px,
+                .y = 0_px
+            }
+        };
+
+        Style LabelHidden = {
+            .visibility = { Visibility::Hidden },
+            .size = { 0_px, 0_px },
+            .margin = { 0_px, 0_px, 0_px, 0_px }
+        };
+
+        // Behind transport + slider (out of layout flow). Blocks the 3D view for
+        // empty areas while controls drawn later still receive hits.
+        Style HitBackdrop = {
+            .layout = {
+                Axis::Vertical,
+                Align::Start,
+                Align::Start,
+                Wrap::False,
+                Position::Absolute
+            },
+            .position = { .left = 0_px, .bottom = 0_px },
+            .size = { 100_pct, 100_pct }
+        };
     }
 
     struct PreviewBar : public Box {
 
         Slider* slider = nullptr;
-        Svg* playPausePlayIcon = nullptr;
-        Svg* playPausePauseIcon = nullptr;
+        Svg* playPauseIcon = nullptr;
+        Text* elapsedTimeText = nullptr;
+        Text* totalTimeText = nullptr;
+        NumberInput* speedInput = nullptr;
 
         float percent = 100.0f;
+        double playbackSpeed = 1.0;
         Rev::Core::Animator animator;
 
         static constexpr double FrameRate = 150.0;
+        static constexpr double MinPlaybackSpeed = 0.1;
+        static constexpr double MaxPlaybackSpeed = 32.0;
 
         std::function<void(Event&)> onPercentChanged;
         std::function<void(Event&)> onRefresh;
         std::function<void(Event&)> onStepForward;
         std::function<void(Event&)> onStepBack;
         std::function<void(Event&)> onPlayRequested;
+        std::function<void(Event&)> onPlaybackSpeedChanged;
         std::function<void(Rev::Core::AnimationEvent&, Event&)> onAnimateFrame;
+
+        static void wireHitInterceptor(Element* element) {
+            element->interceptHits = true;
+        }
+
+        static std::string formatMinutesSeconds(double seconds) {
+
+            if (!std::isfinite(seconds) || seconds < 0.0) {
+                seconds = 0.0;
+            }
+
+            const int total = (int)std::floor(seconds + 1e-9);
+            const int minutes = total / 60;
+            const int secs = total % 60;
+
+            char buffer[16] = {};
+            std::snprintf(buffer, sizeof(buffer), "%02d:%02d", minutes, secs);
+
+            return std::string(buffer);
+        }
 
         PreviewBar(Element* parent, StyleList styles = {}) : Box(parent, styles, "PreviewBar") {
 
             this->styles.add(&PreviewBarStyle::Panel);
+
+            Box* hitBackdrop = new Box(
+                this,
+                { &PreviewBarStyle::HitBackdrop },
+                "PreviewBarHitBackdrop"
+            );
+
+            wireHitInterceptor(hitBackdrop);
 
             Element* transport = new Element(
                 this,
@@ -100,10 +206,53 @@ export namespace Cam::Gui {
                 "PreviewBarTransport"
             );
 
+            Element* timeGroup = new Element(
+                transport,
+                { &PreviewBarStyle::TimeGroup },
+                "PreviewBarTimeGroup"
+            );
+
+            wireHitInterceptor(timeGroup);
+
+            elapsedTimeText = new Text(
+                timeGroup,
+                "00:00",
+                Theme::layer({}, { &PreviewBarStyle::TimeText, &Theme::Styles::Text })
+            );
+
+            new Text(
+                timeGroup,
+                " / ",
+                Theme::layer(
+                    { &PreviewBarStyle::TimeSeparator },
+                    { &PreviewBarStyle::TimeText, &Theme::Styles::MutedText }
+                )
+            );
+
+            totalTimeText = new Text(
+                timeGroup,
+                "00:00",
+                Theme::layer({}, { &PreviewBarStyle::TimeText, &Theme::Styles::MutedText })
+            );
+
+            Element* transportButtons = new Element(
+                transport,
+                { &PreviewBarStyle::TransportButtons },
+                "PreviewBarTransportButtons"
+            );
+
+            wireHitInterceptor(transportButtons);
+
             auto wireTransportButton = [&](
                 Box* button,
                 std::function<void(Event&)> onClick
             ) {
+                wireHitInterceptor(button);
+
+                button->onMouseDown([](Event& e) {
+                    e.propagate = false;
+                });
+
                 button->onClick([onClick](Event& e) {
                     onClick(e);
                     e.propagate = false;
@@ -111,7 +260,7 @@ export namespace Cam::Gui {
             };
 
             Box* stepBackButton = new Box(
-                transport,
+                transportButtons,
                 Theme::withSolidButton({
                     &PreviewBarStyle::TransportButton,
                     &Theme::Styles::SolidButtonHover,
@@ -135,7 +284,7 @@ export namespace Cam::Gui {
             wireTransportButton(stepBackButton, [this](Event& e) { stepBack(e); });
 
             Box* playPauseButton = new Box(
-                transport,
+                transportButtons,
                 Theme::withSolidButton({
                     &PreviewBarStyle::TransportButton,
                     &Theme::Styles::SolidButtonHover,
@@ -144,7 +293,7 @@ export namespace Cam::Gui {
                 "PreviewBarPlayPause"
             );
 
-            playPausePlayIcon = new Svg(
+            playPauseIcon = new Svg(
                 playPauseButton,
                 File("./Play.svg"),
                 Theme::layer({
@@ -153,22 +302,8 @@ export namespace Cam::Gui {
                 }, {
                     &Theme::Styles::Icon
                 }),
-                "PreviewBarPlayIcon"
+                "PreviewBarPlayPauseIcon"
             );
-
-            playPausePauseIcon = new Svg(
-                playPauseButton,
-                File("./Pause.svg"),
-                Theme::layer({
-                    &PreviewBarStyle::TransportIcon,
-                    &Theme::Styles::IconHover
-                }, {
-                    &Theme::Styles::Icon
-                }),
-                "PreviewBarPauseIcon"
-            );
-
-            playPausePauseIcon->styles.add(&PreviewBarStyle::TransportIconHidden);
 
             wireTransportButton(playPauseButton, [this](Event& e) {
                 if (animator.isPlaying()) { pause(e); }
@@ -176,7 +311,7 @@ export namespace Cam::Gui {
             });
 
             Box* stepForwardButton = new Box(
-                transport,
+                transportButtons,
                 Theme::withSolidButton({
                     &PreviewBarStyle::TransportButton,
                     &Theme::Styles::SolidButtonHover,
@@ -199,6 +334,63 @@ export namespace Cam::Gui {
 
             wireTransportButton(stepForwardButton, [this](Event& e) { stepForward(e); });
 
+            Element* speedGroup = new Element(
+                transport,
+                { &PreviewBarStyle::SpeedGroup },
+                "PreviewBarSpeedGroup"
+            );
+
+            wireHitInterceptor(speedGroup);
+
+            NumberInput::Params speedParams;
+            speedParams.label = "";
+            speedParams.placeholder = "1";
+            speedParams.maxLength = 8;
+            speedParams.selectAllOnFocus = true;
+            speedParams.allowNegative = false;
+            speedParams.allowDecimal = true;
+            speedParams.allowEmpty = false;
+            speedParams.maxDecimalPlaces = 2;
+            speedParams.min = MinPlaybackSpeed;
+            speedParams.max = MaxPlaybackSpeed;
+
+            speedInput = new NumberInput(
+                speedGroup,
+                speedParams,
+                { &PreviewBarStyle::SpeedControl }
+            );
+
+            if (speedInput->label) {
+                speedInput->label->styles.add(&PreviewBarStyle::LabelHidden);
+            }
+
+            speedInput->styles.remove(&ControlTheme::Control);
+
+            speedInput->container->styles.remove(&ControlTheme::Field);
+            speedInput->container->styles.remove(&ControlTheme::FieldFocus);
+            speedInput->container->styles.add(&PreviewBarStyle::SpeedContainerIdle);
+            speedInput->container->styles.add(&Theme::Styles::SolidButtonHover);
+
+            speedInput->text->styles.add(&PreviewBarStyle::TimeText);
+            speedInput->text->styles.add(&Theme::Styles::Text);
+
+            if (speedInput->placeholderText) {
+                speedInput->placeholderText->styles.add(&PreviewBarStyle::TimeText);
+                speedInput->placeholderText->styles.add(&Theme::Styles::MutedText);
+            }
+
+            wireHitInterceptor(speedInput);
+            wireHitInterceptor(speedInput->container);
+
+            speedInput->setValue(playbackSpeed);
+            speedInput->onValueChange = [this](Event& e, std::optional<double> value) {
+                applyPlaybackSpeedFromInput(e, value);
+            };
+
+            speedInput->onTextInput([this](Event& e) {
+                updatePlaybackSpeedFromInput(e);
+            });
+
             Slider::SliderData sliderData;
             sliderData.min = 0.0f;
             sliderData.max = 100.0f;
@@ -212,6 +404,9 @@ export namespace Cam::Gui {
                 "PreviewBarSlider"
             );
 
+            wireHitInterceptor(slider);
+            wireHitInterceptor(slider->sliderContainer);
+
             slider->style->size = { .width = 100_pct };
             slider->styles.add(&PreviewBarStyle::SliderCompact);
 
@@ -222,6 +417,7 @@ export namespace Cam::Gui {
             auto onSliderChanged = [this](Event& e) {
                 pause(e);
                 applyPercentFromSlider(e);
+                e.propagate = false;
             };
 
             slider->sliderContainer->onMouseDown(onSliderChanged);
@@ -241,6 +437,68 @@ export namespace Cam::Gui {
 
         bool isPlaying() const {
             return animator.isPlaying();
+        }
+
+        double playbackSpeedMultiplier() const {
+            return playbackSpeed;
+        }
+
+        void syncTimeDisplay(double elapsedSeconds, double totalSeconds, Event& e) {
+
+            if (elapsedTimeText) {
+                elapsedTimeText->setContent(formatMinutesSeconds(elapsedSeconds));
+            }
+
+            if (totalTimeText) {
+                totalTimeText->setContent(formatMinutesSeconds(totalSeconds));
+            }
+
+            refresh(e);
+        }
+
+        void applyPlaybackSpeedFromInput(
+            Event& e,
+            std::optional<double> value
+        ) {
+
+            if (!value || *value <= 0.0) { return; }
+
+            const double clamped = std::clamp(
+                *value,
+                MinPlaybackSpeed,
+                MaxPlaybackSpeed
+            );
+
+            if (std::fabs(clamped - playbackSpeed) < 1e-9) { return; }
+
+            playbackSpeed = clamped;
+
+            if (onPlaybackSpeedChanged) {
+                onPlaybackSpeedChanged(e);
+            }
+        }
+
+        void updatePlaybackSpeedFromInput(Event& e) {
+
+            if (!speedInput) { return; }
+
+            double value = 0.0;
+
+            if (!speedInput->tryGetValue(value) || value <= 0.0) { return; }
+
+            const double clamped = std::clamp(
+                value,
+                MinPlaybackSpeed,
+                MaxPlaybackSpeed
+            );
+
+            if (std::fabs(clamped - playbackSpeed) < 1e-9) { return; }
+
+            playbackSpeed = clamped;
+
+            if (onPlaybackSpeedChanged) {
+                onPlaybackSpeedChanged(e);
+            }
         }
 
         void syncSliderDisplay(Event& e) {
@@ -274,16 +532,11 @@ export namespace Cam::Gui {
 
         void syncPlayPauseIcon(Event& e) {
 
-            if (!playPausePlayIcon || !playPausePauseIcon) { return; }
+            if (!playPauseIcon) { return; }
 
-            if (animator.isPlaying()) {
-                playPausePlayIcon->styles.add(&PreviewBarStyle::TransportIconHidden);
-                playPausePauseIcon->styles.remove(&PreviewBarStyle::TransportIconHidden);
-            }
-            else {
-                playPausePauseIcon->styles.add(&PreviewBarStyle::TransportIconHidden);
-                playPausePlayIcon->styles.remove(&PreviewBarStyle::TransportIconHidden);
-            }
+            playPauseIcon->resource = animator.isPlaying()
+                ? File("./Pause.svg")
+                : File("./Play.svg");
 
             refresh(e);
         }
