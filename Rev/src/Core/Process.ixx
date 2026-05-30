@@ -45,6 +45,24 @@ export namespace Rev::Core {
             });
         }
 
+        // Override the next wake time for an already-scheduled owner,
+        // without changing its repeating intervalMs.
+        // Useful for one-shot delay adjustments from within a callback.
+        void rescheduleNext(void* owner, uint64_t delayMs) {
+
+            if (!owner) { return; }
+
+            auto it = std::find_if(
+                schedules.begin(), schedules.end(),
+                [owner](const ScheduledTick& e) { return e.owner == owner; }
+            );
+
+            if (it == schedules.end()) { return; }
+
+            GlobalTime::Update();
+            it->nextWakeMs = GlobalTime::now + delayMs;
+        }
+
         void unschedule(void* owner) {
 
             if (!owner) { return; }

@@ -11,8 +11,30 @@ import Rev.Element.Event;
 
 export namespace Rev::Element {
 
-    // Builds key sequences like "df" from successive keyDown events and
-    // fires a callback when a registered gesture is recognized.
+    // ------------------------------------------------------------------
+    // GestureTracker — matches key sequences and modifier combos.
+    //
+    // Each keyDown event is converted to a token and appended to a
+    // rolling buffer.  When the buffer matches a registered binding,
+    // onGesture fires.
+    //
+    // Token format:
+    //   Plain letter          →  "r"
+    //   Ctrl + letter         →  "ctrl+r"
+    //   Shift + letter        →  "shift+r"
+    //   Ctrl + Shift + letter →  "ctrl+shift+r"
+    //   Ctrl + Enter          →  "ctrl+enter"
+    //   (modifiers are sorted: ctrl → shift → alt → key)
+    //
+    // Example bindings:
+    //   { "rs",       Command::Reset      }   // type r then s
+    //   { "ctrl+r",   Command::Reset      }   // Ctrl+R in one step
+    //   { "ctrl+cn",  Command::Connect    }   // Ctrl held, type c then n
+    //   { "ctrl+rctrl+s", Command::Save   }   // two ctrl-combos in sequence
+    //
+    // Escape always clears the buffer without consuming the event.
+    // ------------------------------------------------------------------
+
     template<typename Command>
     struct GestureTracker {
 
@@ -21,12 +43,12 @@ export namespace Rev::Element {
             Command command;
         };
 
-        using GestureCallback = std::function<void(Command, Event&)>;
+        using GestureCallback   = std::function<void(Command, Event&)>;
         using SpamDetectCallback = std::function<void(Event&)>;
 
         std::vector<Binding> bindings;
-        GestureCallback onGesture;
-        SpamDetectCallback onSpamDetect;
+        GestureCallback      onGesture;
+        SpamDetectCallback   onSpamDetect;
 
         // Milliseconds before an incomplete sequence is discarded.
         uint64_t sequenceTimeoutMs = 1500;
@@ -38,26 +60,38 @@ export namespace Rev::Element {
 
         GestureTracker(std::initializer_list<Binding> init) : bindings(init) {}
 
-        // Feed a keyDown event. Returns true when the key was consumed as part
-        // of a matched, in-progress, or cooldown-blocked gesture.
+        // Feed a keyDown event.  Returns true when the key was consumed
+        // as part of a matched, in-progress, or cooldown-blocked gesture.
         bool track(Event& e) {
 
             if (!e.propagate) { return false; }
-            if (e.keyboard.ctrl || e.keyboard.alt) { return false; }
 
             const std::string& key = e.keyboard.key;
 
             if (key.empty()) { return false; }
 
+            // Escape always clears without consuming.
             if (key == "escape") {
                 buffer_.clear();
                 ignoredUntilMs_ = 0;
                 return false;
             }
 
-            // Gestures are lowercase letter sequences only.
-            if (key.size() != 1 || key[0] < 'a' || key[0] > 'z') {
-                return false;
+            // Build the token for this event.
+            // Modifier order: ctrl+ → shift+ → alt+ → key.
+            std::string token;
+            if (e.keyboard.ctrl)  token += "ctrl+";
+            if (e.keyboard.shift) token += "shift+";
+            if (e.keyboard.alt)   token += "alt+";
+            token += key;
+
+            // Without modifiers, only accept plain lowercase letters.
+            // With modifiers, accept any key name (enter, space, r, …).
+            bool hasModifier = e.keyboard.ctrl || e.keyboard.shift || e.keyboard.alt;
+            if (!hasModifier) {
+                if (key.size() != 1 || key[0] < 'a' || key[0] > 'z') {
+                    return false;
+                }
             }
 
             if (ignoredUntilMs_ && e.time < ignoredUntilMs_) {
@@ -73,20 +107,20 @@ export namespace Rev::Element {
             std::string previous = buffer_;
 
             lastKeyTimeMs_ = e.time;
-            buffer_ += key;
+            buffer_ += token;
 
             if (tryMatch(e)) { return true; }
 
             if (isPrefix(buffer_)) { return true; }
 
-            // Broke an in-progress prefix (e.g. d -> x when only df is valid).
+            // Broke an in-progress prefix — cooldown, then retry as fresh start.
             if (!previous.empty() && isPrefix(previous)) {
                 triggerSpamDetect(e);
                 return true;
             }
 
-            // Orphan key: see if it starts a new sequence on its own.
-            buffer_ = key;
+            // Orphan token: see if it starts a new sequence on its own.
+            buffer_ = token;
 
             if (tryMatch(e)) { return true; }
             if (isPrefix(buffer_)) { return true; }
@@ -98,22 +132,19 @@ export namespace Rev::Element {
     private:
 
         std::string buffer_;
-        uint64_t lastKeyTimeMs_ = 0;
-        uint64_t ignoredUntilMs_ = 0;
+        uint64_t    lastKeyTimeMs_  = 0;
+        uint64_t    ignoredUntilMs_ = 0;
 
         bool isPrefix(const std::string& sequence) const {
-
             for (const Binding& binding : bindings) {
                 if (binding.sequence.starts_with(sequence)) {
                     return true;
                 }
             }
-
             return false;
         }
 
         bool tryMatch(Event& e) {
-
             for (const Binding& binding : bindings) {
                 if (binding.sequence != buffer_) { continue; }
 
@@ -125,12 +156,10 @@ export namespace Rev::Element {
 
                 return true;
             }
-
             return false;
         }
 
         void triggerSpamDetect(Event& e) {
-
             buffer_.clear();
             ignoredUntilMs_ = e.time + spamCooldownMs;
 
