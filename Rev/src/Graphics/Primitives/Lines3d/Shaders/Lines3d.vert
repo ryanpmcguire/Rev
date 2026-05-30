@@ -17,10 +17,17 @@ layout(std140, binding = 2) uniform Camera {
     vec4 uEyePos;
 };
 
+// Per-actor transform stack: uViewProj × uWorld × uModel.
+// Both default to identity, so unset actors render exactly as before.
+layout(std140, binding = 3) uniform Model {
+    mat4 uWorld;
+    mat4 uModel;
+};
+
 out vec4 vColor;
 
 void main()
 {
     vColor = (aColor.a != 0.0) ? aColor : uColor;
-    gl_Position = uViewProj * vec4(aPos, 1.0);
+    gl_Position = uViewProj * uWorld * uModel * vec4(aPos, 1.0);
 }

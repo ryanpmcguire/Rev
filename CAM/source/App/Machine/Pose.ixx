@@ -41,6 +41,53 @@ export namespace Cam::Machine {
 
         static Pose identity() { return {}; }
 
+        // Column-major 4x4 identity (glm / shader layout).
+        static void identityMatrix(float out[16]) {
+            for (int i = 0; i < 16; i++) { out[i] = 0.0f; }
+            out[0] = out[5] = out[10] = out[15] = 1.0f;
+        }
+
+        // Column-major 4x4 for a rotation about unit `axis` by `angle`,
+        // pivoted at `pivot`:  M = T(pivot) · Rodrigues(axis, angle) · T(-pivot).
+        //
+        // This is the honest representation of an indexed rotary axis: the part
+        // rotates about a FIXED physical axis by a definite angle.  A vertex at
+        // `pivot` is a fixed point, so the part spins in place.
+        static void axisAngleMatrix(
+            Pos3 axis,
+            float angle,
+            Pos3 pivot,
+            float out[16]
+        ) {
+            Pos3 a = axis.normalized();
+
+            const float c = std::cos(angle);
+            const float s = std::sin(angle);
+            const float t = 1.0f - c;
+
+            // Rotation R (row-major maths; stored column-major below).
+            const float r00 = t*a.x*a.x + c;
+            const float r01 = t*a.x*a.y - s*a.z;
+            const float r02 = t*a.x*a.z + s*a.y;
+            const float r10 = t*a.x*a.y + s*a.z;
+            const float r11 = t*a.y*a.y + c;
+            const float r12 = t*a.y*a.z - s*a.x;
+            const float r20 = t*a.x*a.z - s*a.y;
+            const float r21 = t*a.y*a.z + s*a.x;
+            const float r22 = t*a.z*a.z + c;
+
+            // Translation = pivot − R·pivot  (keeps `pivot` fixed).
+            const float tx = pivot.x - (r00*pivot.x + r01*pivot.y + r02*pivot.z);
+            const float ty = pivot.y - (r10*pivot.x + r11*pivot.y + r12*pivot.z);
+            const float tz = pivot.z - (r20*pivot.x + r21*pivot.y + r22*pivot.z);
+
+            // Column-major: out[col*4 + row].
+            out[0]  = r00; out[1]  = r10; out[2]  = r20; out[3]  = 0.0f;
+            out[4]  = r01; out[5]  = r11; out[6]  = r21; out[7]  = 0.0f;
+            out[8]  = r02; out[9]  = r12; out[10] = r22; out[11] = 0.0f;
+            out[12] = tx;  out[13] = ty;  out[14] = tz;  out[15] = 1.0f;
+        }
+
         // -- Low-level rotation (Rodrigues, cross-product form) ----------
         //
         // Rotate v by the minimum-arc rotation from {0,0,1} → direction.

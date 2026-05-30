@@ -579,10 +579,13 @@ export namespace Cam::App {
                     const Pos3 radialDir = u * std::cos(angle) + v * std::sin(angle);
                     pos = *pivot + A * axial + radialDir * radius;
 
-                    // Direction: point from the arc position toward the pivot.
-                    // Smooth, antipodal-safe, requires no extra trig — the
-                    // direction simply follows the arc geometry naturally.
-                    dir = (*pivot - pos).normalized();
+                    // Direction: the OUTWARD unit radial (away from the rotary
+                    // axis).  toolDirection points up the tool axis, away from
+                    // the part — i.e. outward, not toward the pivot.  This is a
+                    // pure rotation of u about A, so it is smooth and never
+                    // passes through zero (antipodal-safe), and it matches the
+                    // cut directions at both arc endpoints.
+                    dir = radialDir;
                 }
                 else {
                     pos = fromPt.position + (toPt.position - fromPt.position) * alpha;

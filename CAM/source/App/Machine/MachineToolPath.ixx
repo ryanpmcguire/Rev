@@ -38,6 +38,13 @@ export namespace Cam::Machine {
         Pos3 directionResidual = {};
         bool singular          = false;   // degenerate configuration
 
+        // The signed rotary-axis angle (radians) that orients the part for this
+        // point: the rotation about the machine's fixed rotary axis that brings
+        // the cut direction under the (fixed, vertical) tool.  This is the
+        // honest, complete description of an indexed rotary axis — unlike the
+        // pose's direction vector, it captures the part's azimuth about the axis.
+        double rotaryAngle = 0.0;
+
         // Mirrors ToolPathPoint fields for timeline sampling.
         double t       = 0.0;
         bool   rapid   = false;
@@ -53,6 +60,12 @@ export namespace Cam::Machine {
     struct MachineToolPath {
 
         std::vector<MachinePose> points;
+
+        // The machine's fixed rotary axis and its pivot (stock centre), in
+        // world space.  Set once by the solver; used to rebuild the exact part
+        // transform (rotation about this axis by each point's rotaryAngle).
+        Pos3 rotaryAxis  = { 1.0f, 0.0f, 0.0f };
+        Pos3 rotaryPivot = {};
 
         bool   empty() const { return points.empty(); }
         size_t size()  const { return points.size(); }
@@ -121,10 +134,40 @@ export namespace Cam::Machine {
                      (b.partWorldPose.direction - a.partWorldPose.direction) * alpha)
                     .normalized();
 
+                // Linear angle lerp: points are dense (every cut step + 32 per
+                // link arc), so adjacent angles never differ enough to wrap.
+                out.rotaryAngle =
+                    a.rotaryAngle + (b.rotaryAngle - a.rotaryAngle) * double(alpha);
+
                 return true;
             }
 
             out = points.back();
+            return true;
+        }
+
+        // The EXACT part transform at a given progress: a rotation about the
+        // machine's fixed rotary axis by the interpolated rotary angle, pivoted
+        // at the stock centre.  Column-major 4x4 (glm / shader layout).
+        //
+        // This is precisely the transform the IK solver applied to produce the
+        // machine tool positions, so applying it to every actor reproduces the
+        // machine state with zero ambiguity.
+        bool partMatrixAtProgress(double progress, float out[16]) const {
+
+            Pose::identityMatrix(out);
+
+            MachinePose sample;
+
+            if (!sampleAtProgress(progress, sample)) { return false; }
+
+            Pose::axisAngleMatrix(
+                rotaryAxis,
+                float(sample.rotaryAngle),
+                rotaryPivot,
+                out
+            );
+
             return true;
         }
     };

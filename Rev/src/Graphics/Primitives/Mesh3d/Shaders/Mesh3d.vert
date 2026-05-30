@@ -17,13 +17,26 @@ layout(std140, binding = 2) uniform Camera {
     vec4 uEyePos;
 };
 
+// Per-actor transform stack.  Three levels total:
+//   uViewProj (camera)  ×  uWorld (group/track)  ×  uModel (local)
+// Both default to identity, so unset actors render exactly as before.
+layout(std140, binding = 3) uniform Model {
+    mat4 uWorld;
+    mat4 uModel;
+};
+
 out vec4 vColor;
 out vec3 vNormal;
 
 void main()
 {
     vColor = (aColor.a != 0.0) ? aColor : uColor;
-    vNormal = normalize(aNormal);
 
-    gl_Position = uViewProj * vec4(aPos, 1.0);
+    mat4 world = uWorld * uModel;
+
+    // Rigid transforms only — mat3(world) is a pure rotation, so it
+    // transforms normals correctly without an inverse-transpose.
+    vNormal = normalize(mat3(world) * aNormal);
+
+    gl_Position = uViewProj * world * vec4(aPos, 1.0);
 }

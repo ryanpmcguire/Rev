@@ -1,6 +1,7 @@
 module;
 
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 #include <managed.hpp>
@@ -56,13 +57,24 @@ export namespace Rev::Primitives {
             float pad3 = 0.0f;
         };
 
+        // Per-actor transform UBO (binding 3): world then model, column-major.
+        // Persistently mapped — write directly, no dirty flag needed.
+        static constexpr float Identity16[16] = {
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        };
+
         inline static Shared shared;
         inline static Pipeline* pipeline;
 
         UniformBuffer* databuff = nullptr;
+        UniformBuffer* xformBuff = nullptr;
         VertexBuffer* vertices = nullptr;
 
         Data* data = nullptr;
+        float* xform = nullptr;  // [0..15] world, [16..31] model
         bool dirty = true;
 
         Color color = { 1, 1, 1, 1 };
@@ -96,6 +108,11 @@ export namespace Rev::Primitives {
             vertices = new VertexBuffer(canvas->context, { .attribs = Vertex3::attribs });
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
             data = (Data*)databuff->data;
+
+            xformBuff = new UniformBuffer(canvas->context, sizeof(float) * 32);
+            xform = (float*)xformBuff->data;
+            std::memcpy(xform,      Identity16, sizeof(Identity16));
+            std::memcpy(xform + 16, Identity16, sizeof(Identity16));
         }
 
         // Destroy
@@ -106,6 +123,13 @@ export namespace Rev::Primitives {
 
             delete vertices;
             delete databuff;
+            delete xformBuff;
+        }
+
+        // Set the per-actor world / model transforms (column-major 4x4 each).
+        void setTransforms(const float* world16, const float* model16) {
+            std::memcpy(xform,      world16, sizeof(float) * 16);
+            std::memcpy(xform + 16, model16, sizeof(float) * 16);
         }
 
         std::vector<Vertex3>* getLines() {
@@ -155,8 +179,9 @@ export namespace Rev::Primitives {
             pipeline->bind();
 
             databuff->bind(1);
+            xformBuff->bind(3);
             vertices->bind();
-            
+
             canvas->drawArrays(Pipeline::Topology::LineList, 0, numVerts);
         }
     };

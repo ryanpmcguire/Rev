@@ -99,11 +99,6 @@ export namespace Cam::Gui {
         std::map<Cam::App::MaterialState*, Cam::Machine::MachineToolPath> machineToolPaths;
         bool machineToolPathsDirty = true;
 
-        Cam::Machine::MachinePose lastMachinePose;
-        bool lastMachinePoseValid  = false;
-        std::vector<Rev::Core::Vertex3> machineSimPartTriangles;
-        std::vector<Rev::Core::Vertex3> machineSimDeltaTriangles;
-
         std::function<void(Event&)> onStateChanged;
 
         GestureTracker<WorldViewCommand> gestures = {
@@ -1116,174 +1111,61 @@ export namespace Cam::Gui {
             return &it->second;
         }
 
-        // Apply partWorldPose rotation to a flat Vertex3 buffer in-place.
-        void transformVertices(
-            std::vector<Rev::Core::Vertex3>& verts,
-            Cam::Machine::Pose const& partPose
-        ) {
-            for (Rev::Core::Vertex3& v : verts) {
+        // Compute the part's world transform matrix for the current preview
+        // instant.  Returns false (and an identity matrix) when not applicable.
+        //
+        // KEY INSIGHT: the IK solver defines machineXYZ = M · (toolpath point),
+        // where M is exactly this part-pose matrix.  So applying M to EVERY
+        // actor built in absolute CAD space — part mesh, delta, toolpath lines,
+        // AND the tool cylinder — places each one precisely where the machine
+        // puts it.  There are not two tracks (part + tool); there is one rigid
+        // transform applied to the whole scene.  This is what makes the machine
+        // view exactly the IK output, with zero per-vertex CPU work.
+        bool currentPartMatrix(float outM[16]) {
 
-                Rev::Core::Pos3 p     = { v.x, v.y, v.z };
-                Rev::Core::Pos3 local = p - partPose.position;
-                Rev::Core::Pos3 world =
-                    partPose.transformDirection(local) + partPose.position;
-
-                v.x = world.x;
-                v.y = world.y;
-                v.z = world.z;
-            }
-        }
-
-        // Transform every actor in the material view: part mesh, delta mesh,
-        // and toolpath lines — all by the same part rotation.
-        void applyMachineActorTransform(
-            Cam::Gui::World::MaterialState* view,
-            Cam::Machine::MachinePose const& machinePose
-        ) {
-            if (!view) { return; }
-
-            Cam::Machine::Pose const& partPose = machinePose.partWorldPose;
-
-            // Only rotate if the part has actually moved from identity.
-            float alignment = partPose.direction.dot({ 0.0f, 0.0f, 1.0f });
-            bool  needsXform = alignment < 1.0f - 1e-5f;
-
-            // ── Part mesh ───────────────────────────────────────────────
-            if (view->partActor && view->partActor->mesh) {
-
-                Cam::App::Model* model = view->partModel();
-
-                if (model && !model->render.triangles.empty()) {
-                    machineSimPartTriangles = model->render.triangles;
-                    if (needsXform) { transformVertices(machineSimPartTriangles, partPose); }
-                    view->partActor->mesh->pTriangles = &machineSimPartTriangles;
-                    view->partActor->mesh->dirty      = true;
-                }
-            }
-
-            // ── Delta mesh (removed material) ───────────────────────────
-            if (view->deltaActor && view->deltaActor->mesh &&
-                view->state && view->state->hasDelta) {
-
-                machineSimDeltaTriangles = view->state->delta.render.triangles;
-                if (needsXform) { transformVertices(machineSimDeltaTriangles, partPose); }
-                view->deltaActor->mesh->pTriangles = &machineSimDeltaTriangles;
-                view->deltaActor->mesh->dirty      = true;
-            }
-
-            // ── Toolpath lines ──────────────────────────────────────────
-            // view->toolPath.lines was just rebuilt by view->sync() — mutate in-place.
-            if (view->toolPath.actor && view->toolPath.actor->lines && needsXform) {
-                transformVertices(view->toolPath.lines, partPose);
-                view->toolPath.actor->lines->dirty = true;
-            }
-        }
-
-        // Rebuild the tool preview cylinder at the machine's actual tool pose:
-        // position = machineXYZ, direction = machine's fixed tool axis {0,0,1}.
-        // This replaces whatever syncSharedToolPreview built, which used the
-        // toolpath's tool direction (potentially tilted for multi-axis cuts).
-        void applyMachineToolPosition(Cam::App::Project* project) {
-
-            if (!lastMachinePoseValid) { return; }
-            if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
+            Cam::Machine::Pose::identityMatrix(outM);
 
             const ToolPathPreviewTimeline::LocateResult here =
                 previewTimeline.locate();
 
-            if (!here.valid || previewTimeline.segments.empty()) { return; }
+            if (!here.valid || previewTimeline.segments.empty()) { return false; }
 
             Cam::App::MaterialState* state =
                 previewTimeline.segments[here.segmentIndex].state;
 
-            if (!state || !state->hasToolPath) { return; }
+            Cam::Machine::MachineToolPath const* path = getMachineToolPath(state);
 
-            // Rebuild the cylinder at machine XYZ, always pointing along {0,0,1}.
-            const bool built = Cam::Gui::ToolPath::syncToolPreviewMeshAtPose(
-                toolPreviewTriangles,
-                state,
-                lastMachinePose.toolWorldPose.position,
-                lastMachinePose.toolWorldPose.direction,  // = {0,0,1} for 3+1
-                toolPreviewActor->mesh->color
-            );
+            if (!path || path->empty()) { return false; }
 
-            toolPreviewActor->visible     = built;
-            toolPreviewActor->mesh->dirty = true;
+            // The exact IK transform: rotation about the machine's fixed rotary
+            // axis by the interpolated index angle, pivoted at the stock centre.
+            return path->partMatrixAtProgress(here.localProgress, outM);
         }
 
-        // Sample the machine toolpath and apply every actor transform for the
-        // current preview clock position.  Handles cross-state rotation:
-        // at the start of a new setup the part smoothly rotates from the
-        // previous setup's final orientation into the new one, over a
-        // fraction of the approach-rapid phase.
-        void applyMachineSimulation(Cam::App::Project* project) {
+        // Set one world matrix on every actor that belongs to the physical
+        // workpiece (all material views' meshes + toolpaths) and on the shared
+        // tool preview.  In absolute mode this is identity; in machine mode it
+        // is the current part pose.  Always set every frame — never stale.
+        void applyWorldTransforms() {
 
-            const ToolPathPreviewTimeline::LocateResult here =
-                previewTimeline.locate();
+            float M[16];
 
-            if (!here.valid || previewTimeline.segments.empty()) { return; }
+            const bool machine =
+                (previewMode == PreviewMode::MachineSimulation) &&
+                currentPartMatrix(M);
 
-            const PreviewSegment& segment =
-                previewTimeline.segments[here.segmentIndex];
+            if (!machine) { Cam::Machine::Pose::identityMatrix(M); }
 
-            Cam::Gui::World::MaterialState* view = viewForState(segment.state);
-            if (!view) { return; }
+            for (Cam::Gui::World::MaterialState* v : materialViews) {
 
-            Cam::Machine::MachineToolPath const* path =
-                getMachineToolPath(segment.state);
+                if (!v) { continue; }
 
-            if (!path || path->empty()) { return; }
-
-            Cam::Machine::MachinePose machinePose;
-            if (!path->sampleAtProgress(here.localProgress, machinePose)) { return; }
-
-            // Cross-state rotation: smoothly rotate the part into the new setup
-            // orientation over a fixed wall-clock window at the start of each
-            // new segment.  Using absolute time (not fractional progress) keeps
-            // the rotation speed consistent regardless of how long the operation
-            // is — a 2-second rotation always takes 2 seconds.
-            static constexpr double kBlendSeconds = 2.0;
-
-            if (here.segmentIndex > 0 && segment.durationSeconds > 1e-9) {
-
-                const double localTimeSeconds =
-                    here.localProgress * segment.durationSeconds;
-
-                if (localTimeSeconds < kBlendSeconds) {
-
-                    const PreviewSegment& prevSeg =
-                        previewTimeline.segments[here.segmentIndex - 1];
-
-                    Cam::Machine::MachineToolPath const* prevPath =
-                        getMachineToolPath(prevSeg.state);
-
-                    if (prevPath && !prevPath->empty()) {
-
-                        Cam::Machine::MachinePose prevEnd;
-
-                        if (prevPath->sampleAtProgress(1.0, prevEnd)) {
-
-                            float t = float(localTimeSeconds / kBlendSeconds);
-
-                            // Lerp + renormalize — cheap slerp approximation,
-                            // good enough for a visual rotation blend.
-                            Rev::Core::Pos3 blended = (
-                                prevEnd.partWorldPose.direction * (1.0f - t) +
-                                machinePose.partWorldPose.direction * t
-                            ).normalized();
-
-                            machinePose.partWorldPose.direction = blended;
-                            machinePose.partWorldPose.position  =
-                                prevEnd.partWorldPose.position;
-                        }
-                    }
-                }
+                if (v->partActor)        { v->partActor->setWorldTransform(M); }
+                if (v->deltaActor)       { v->deltaActor->setWorldTransform(M); }
+                if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(M); }
             }
 
-            lastMachinePose      = machinePose;
-            lastMachinePoseValid = true;
-
-            applyMachineActorTransform(view, machinePose);
+            if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
         }
 
         void syncAllMaterialViews() {
@@ -1304,19 +1186,14 @@ export namespace Cam::Gui {
                 view->sync(previewProgress);
             }
 
-            // In machine simulation mode, transform all actors to reflect
-            // the real machine state (part rotates, everything follows).
-            if (previewMode == PreviewMode::MachineSimulation) {
-                applyMachineSimulation(project);
-            }
-
             syncSharedToolPreview(project);
 
-            // After the tool mesh is built at the absolute toolpath position,
-            // translate it to machine XYZ.
-            if (previewMode == PreviewMode::MachineSimulation) {
-                applyMachineToolPosition(project);
-            }
+            // Every actor — part meshes, deltas, toolpath lines, tool cylinder —
+            // is built in absolute CAD space by the calls above.  Now apply a
+            // single world transform: identity in absolute mode, or the current
+            // part pose in machine sim mode, which rigidly places the entire
+            // scene exactly where the machine would have it.
+            applyWorldTransforms();
 
             if (previewBar && shared && shared->event) {
                 previewBar->syncTimeDisplay(

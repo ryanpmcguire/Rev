@@ -67,6 +67,35 @@ export namespace Rev::Element::View3d {
         bool ownsLines = false;
         bool ownsTriangles = false;
 
+        // World-space transform applied to this actor's geometry on the GPU
+        // (column-major 4x4).  Identity by default — the actor renders exactly
+        // where its vertices sit.  Used e.g. for machine simulation, where the
+        // whole part rotates rigidly.  modelTransform is a second local level
+        // (also identity by default), giving a three-level stack with the
+        // camera: viewProj × world × model.
+        //
+        // NOTE: hitTest / bounds operate on raw (untransformed) vertices, so
+        // picking and fit assume identity.  This is fine: picking only happens
+        // in edit mode where the transform is identity.
+        float worldTransform[16] = {
+            1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
+        };
+        float modelTransform[16] = {
+            1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
+        };
+
+        void setWorldTransform(const float* m16) {
+            for (int i = 0; i < 16; i++) { worldTransform[i] = m16[i]; }
+        }
+
+        void resetTransform() {
+            static const float I[16] = {
+                1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
+            };
+            setWorldTransform(I);
+            for (int i = 0; i < 16; i++) { modelTransform[i] = I[i]; }
+        }
+
         ~Actor() {
 
             if (ownsMesh) { delete mesh; }
@@ -222,8 +251,16 @@ export namespace Rev::Element::View3d {
 
         void draw() {
             if (!visible) { return; }
-            if (mesh) { mesh->draw(); }
-            if (lines) { lines->draw(); }
+
+            if (mesh) {
+                mesh->setTransforms(worldTransform, modelTransform);
+                mesh->draw();
+            }
+
+            if (lines) {
+                lines->setTransforms(worldTransform, modelTransform);
+                lines->draw();
+            }
         }
     };
 }
