@@ -66,10 +66,13 @@ export namespace Rev::Graphics {
 
             if (!success) {
 
-                char infoLog[512];
-                glGetProgramInfoLog(id, 512, nullptr, infoLog);
+                GLint logLength = 0;
+                glGetProgramiv(id, GL_INFO_LOG_LENGTH, &logLength);
+
+                std::string infoLog(static_cast<size_t>(logLength > 1 ? logLength : 1), '\0');
+                glGetProgramInfoLog(id, logLength, nullptr, infoLog.data());
                 
-                dbg("Pipeline link error:\n%s", infoLog);
+                dbg("Pipeline link error:\n%s", infoLog.c_str());
                 throw std::runtime_error(std::string("Pipeline link error: ") + infoLog);
             }
         }

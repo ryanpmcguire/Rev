@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <vector>

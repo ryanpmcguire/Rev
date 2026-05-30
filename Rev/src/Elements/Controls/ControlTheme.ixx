@@ -36,8 +36,8 @@ export namespace Rev::Element::ControlTheme {
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .width = 1_px,
-            .radius = 4_px
+            .radius = 4_px,
+            .width = 1_px
         },
         .shadow = subtleShadow
     };
@@ -158,8 +158,8 @@ export namespace Rev::Element::ControlTheme {
         .background = { .color = rgba(255, 255, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(203, 213, 225, 1.0),
-            .width = 1_px,
-            .radius = 4_px
+            .radius = 4_px,
+            .width = 1_px
         },
         .shadow = subtleShadow,
         .cursor = Cursor::Hand
@@ -203,8 +203,8 @@ export namespace Rev::Element::ControlTheme {
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .width = 1_px,
-            .radius = 6_px
+            .radius = 6_px,
+            .width = 1_px
         },
         .shadow = subtleShadow
     };

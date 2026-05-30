@@ -213,6 +213,7 @@ export namespace Rev::Primitives {
             switch (topology) {
                 case (Topology::Fan): { this->doFan(); break; }
                 case (Topology::Strip): { this->doStrip(); break; }
+                case (Topology::List): { break; }
             }
         }
 

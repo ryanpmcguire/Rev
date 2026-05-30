@@ -1,4 +1,4 @@
-build/
+build*/
 resources/.modules
 .sccache/
 .ccache/

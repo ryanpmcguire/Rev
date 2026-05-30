@@ -1183,6 +1183,8 @@ export namespace Rev::Element {
                 case (Align::Start): { return 0; break; }
                 case (Align::End): { return parent - child; break; }
                 case (Align::Center): { return (parent - child) / 2; break; }
+                case (Align::SpaceAround):
+                case (Align::SpaceBetween):
                 case (Align::Unset): { return 0; break; }
             }
 

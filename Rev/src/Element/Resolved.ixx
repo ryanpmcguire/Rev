@@ -62,12 +62,14 @@ export namespace Rev::Element {
         float getMax(Axis axis) {
             if (axis == Axis::Horizontal) { return w.max; }
             if (axis == Axis::Vertical) { return h.max; }
+            return -0.0f;
         }
 
         // Get minimum along axis
         float getMin(Axis axis) {
             if (axis == Axis::Horizontal) { return w.min; }
             if (axis == Axis::Vertical) { return h.min; }
+            return -0.0f;
         }
 
         // Get number of growable dims
@@ -104,6 +106,8 @@ export namespace Rev::Element {
                 if (!t.max || !b.max) { return -0.0f; }
                 return (t.max + b.max);
             }
+
+            return -0.0f;
         }
 
         // Get minimum along axis
@@ -120,6 +124,8 @@ export namespace Rev::Element {
                 if (!t.min && !b.min) { return 0; }
                 return (t.min + b.min);
             }
+
+            return 0;
         }
 
         // Get number of growable dims
@@ -206,36 +212,42 @@ export namespace Rev::Element {
         float getOuter(Axis axis) {
             if (axis == Axis::Horizontal) { return size.w.val + mar.l.val + mar.r.val; }
             if (axis == Axis::Vertical) { return size.h.val + mar.t.val + mar.b.val; }
+            return 0;
         }
 
         // Get max outer dimension along axis
         float getMaxOuter(Axis axis) {
             if (axis == Axis::Horizontal) { return size.w.max + mar.l.max + mar.r.max; }
             if (axis == Axis::Vertical) { return size.h.max + mar.t.max + mar.b.max; }
+            return 0;
         }
 
         // Get max outer dimension along axis
         float getMinOuter(Axis axis) {
             if (axis == Axis::Horizontal) { return size.w.min + mar.l.min + mar.r.min; }
             if (axis == Axis::Vertical) { return size.h.min + mar.t.min + mar.b.min; }
+            return 0;
         }
 
         // Get inner dimension along axis
         float getInner(Axis axis) {
             if (axis == Axis::Horizontal) { return size.w.val - pad.l.val - pad.r.val; }
             if (axis == Axis::Vertical) { return size.h.val - pad.t.val - pad.b.val; }
+            return 0;
         }
 
         // Get max inner dimension along axis
         float getMaxInner(Axis axis) {
             if (axis == Axis::Horizontal) { return std::max(size.w.max - pad.l.min - pad.r.min, 0.0f); }
             if (axis == Axis::Vertical) { return std::max(size.h.max - pad.t.min - pad.b.min, 0.0f); }
+            return 0;
         }
 
         // Get min inner dimension along axis
         float getMinInner(Axis axis) {
             if (axis == Axis::Horizontal) { return size.w.min - pad.l.max - pad.r.max; }
             if (axis == Axis::Vertical) { return size.h.min - pad.t.max - pad.b.max; }
+            return 0;
         }
 
         // Get maximum along axis

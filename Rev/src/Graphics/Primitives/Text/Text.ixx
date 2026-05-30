@@ -144,10 +144,10 @@ export namespace Rev::Primitives {
 
             for (Line& line : lines) {
 
-                char prev = 0;
+                unsigned char prev = 0;
                 x = line.rect.x; y = line.rect.y + font->ascent;
 
-                for (char c : line.content) {
+                for (unsigned char c : line.content) {
 
                     // Continue / break conditions
                     if (c < 32 || c >= 128) { continue; }
