@@ -76,6 +76,8 @@ export namespace Cam::Machine {
                 ));
             }
 
+            unwrapRotaryAngles(result.points);
+
             return result;
         }
 
@@ -116,6 +118,29 @@ export namespace Cam::Machine {
             float s  = A.dot(Dn.cross(Mn));   // signed via right-hand rule
 
             return vParallel + vPerp * c + A.cross(vPerp) * s;
+        }
+
+        // Make the per-point rotary angles continuous.
+        //
+        // Each angle is computed independently with atan2 → range (-π, π].  When
+        // the true angle crosses the ±180° boundary, adjacent points read e.g.
+        // +179° then -179° — a stored jump of ~358° that the interpolator would
+        // sweep the long way around, snapping the part a full turn.  Shift each
+        // angle by whole turns of 2π so every step stays within π of the prior
+        // point, yielding a smooth, monotone-where-physical sequence.
+        static void unwrapRotaryAngles(std::vector<MachinePose>& points) {
+
+            constexpr double twoPi = 6.283185307179586;
+
+            for (size_t i = 1; i < points.size(); i++) {
+
+                double delta = points[i].rotaryAngle - points[i - 1].rotaryAngle;
+
+                while (delta >  3.141592653589793) { delta -= twoPi; }
+                while (delta < -3.141592653589793) { delta += twoPi; }
+
+                points[i].rotaryAngle = points[i - 1].rotaryAngle + delta;
+            }
         }
 
         // The signed angle (about A, right-hand rule) of the rotation that maps
