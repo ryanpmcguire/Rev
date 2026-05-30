@@ -44,4 +44,4 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CCache.cmake)
 project(RevRoot)
 
 add_subdirectory(Rev)
-add_subdirectory(Demo)
+add_subdirectory(CAM)

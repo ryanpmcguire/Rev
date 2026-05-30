@@ -119,6 +119,8 @@ export namespace Carvera::Gui {
         };
     }
 
+    namespace Theme = Cam::Gui::Theme;
+
     // ------------------------------------------------------------------
     // Interface — portable CarveraAir control panel.
     //
@@ -156,17 +158,15 @@ export namespace Carvera::Gui {
 
         // -- Helpers -------------------------------------------------
 
-        namespace Namespace = Cam::Gui::Theme;
-
         Box* makeBtn(Element* parent, const std::string& label, Rev::Element::Style& btnStyle) {
 
             Box* btn = new Box(
                 parent,
-                Namespace::withButton({ &btnStyle, &Style::BtnHover, &Style::BtnPress }),
+                Theme::withButton({ &btnStyle, &Style::BtnHover, &Style::BtnPress }),
                 "Btn"
             );
 
-            new Text(btn, label, Namespace::withText({ &Style::Label }));
+            new Text(btn, label, Theme::withText({ &Style::Label }));
 
             return btn;
         }
@@ -175,11 +175,11 @@ export namespace Carvera::Gui {
 
             Box* btn = new Box(
                 parent,
-                Namespace::withButton({ &Style::JogBtn, &Style::BtnHover, &Style::BtnPress }),
+                Theme::withButton({ &Style::JogBtn, &Style::BtnHover, &Style::BtnPress }),
                 "JogBtn"
             );
 
-            new Text(btn, label, Namespace::withText({ &Style::Label }));
+            new Text(btn, label, Theme::withText({ &Style::Label }));
 
             return btn;
         }
@@ -188,10 +188,10 @@ export namespace Carvera::Gui {
 
         Interface(Element* parent) : Box(parent, {}, "CarveraInterface") {
 
-            Namespace::applyMode(Namespace::currentMode());
+            Theme::applyMode(Theme::currentMode());
 
             this->styles.add(&Style::Root);
-            this->styles.add(&Namespace::Styles::Background);
+            this->styles.add(&Theme::Styles::Background);
 
             buildConnectionSection();
             buildJogSection();
@@ -211,7 +211,7 @@ export namespace Carvera::Gui {
 
             Box* section = new Box(
                 this,
-                Namespace::withPanel({ &Style::Section }),
+                Theme::withPanel({ &Style::Section }),
                 "ConnectionSection"
             );
 
@@ -224,7 +224,7 @@ export namespace Carvera::Gui {
                 "StatusDot"
             );
 
-            new Text(titleRow, "Carvera Air", Namespace::withText({ &Style::Title }));
+            new Text(titleRow, "Carvera Air", Theme::withText({ &Style::Title }));
 
             // Status row
             Box* statusRow = new Box(section, { &Style::Row }, "StatusRow");
@@ -232,7 +232,7 @@ export namespace Carvera::Gui {
             statusLabel = new Text(
                 statusRow,
                 std::format("{}:{}", targetHost, targetPort),
-                Namespace::withMutedText({ &Style::MutedLabel })
+                Theme::withMutedText({ &Style::MutedLabel })
             );
 
             // Button row
@@ -264,11 +264,11 @@ export namespace Carvera::Gui {
 
             Box* section = new Box(
                 this,
-                Namespace::withPanel({ &Style::Section }),
+                Theme::withPanel({ &Style::Section }),
                 "JogSection"
             );
 
-            new Text(section, "Jog", Namespace::withText({ &Style::Label }));
+            new Text(section, "Jog", Theme::withText({ &Style::Label }));
 
             // +Y row
             Box* row0 = new Box(section, { &Style::JogRow }, "JogRow0");
@@ -299,14 +299,14 @@ export namespace Carvera::Gui {
 
             logBox = new Box(
                 this,
-                Namespace::withPanel({ &Style::LogBox }),
+                Theme::withPanel({ &Style::LogBox }),
                 "LogBox"
             );
 
             logText = new Text(
                 logBox,
                 "(no messages yet)",
-                Namespace::withMutedText({ &Style::LogLine })
+                Theme::withMutedText({ &Style::LogLine })
             );
         }
 
