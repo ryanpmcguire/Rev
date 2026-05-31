@@ -1051,7 +1051,7 @@ export namespace Cam::App {
             return true;
         }
 
-        bool offsetSelected(double distance = 0.05) {
+        bool extendSelected(double distance = 10.0) {
 
             if (!workingState) {
                 dbg("[Extend] failed: no working material state");
@@ -1061,7 +1061,7 @@ export namespace Cam::App {
             displayedState = workingState;
             syncViewSelectionToDisplayed();
 
-            bool ok = workingState->model.offsetSelected(distance);
+            bool ok = workingState->model.extendSelected(distance);
 
             if (!ok) { return false; }
 

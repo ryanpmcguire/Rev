@@ -546,11 +546,11 @@ export namespace Cam::App {
             return activeProject->defeatureSelected();
         }
 
-        bool offsetSelected(double distance = 0.05) {
+        bool extendSelected(double distance = 10.0) {
 
             if (!activeProject) { return false; }
 
-            return activeProject->offsetSelected(distance);
+            return activeProject->extendSelected(distance);
         }
 
         bool commitWorkingState() {

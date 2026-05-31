@@ -28,7 +28,9 @@ module;
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -1195,15 +1197,194 @@ export namespace Cam::App {
             }
         }
 
-        // Disabled while topology-preserving offset work is paused.
-        bool offsetSelected(double distance = 0.05) {
+        // Extend (grow) the selected face(s) outward along their normals by
+        // `distance`, adding material.  Each selected face is extruded into a
+        // prism and fused onto the body; the union is then healed (sewn and
+        // coplanar faces unified) so the extended sides merge into single faces.
+        bool extendSelected(double distance = 10.0) {
+            operationSerial++;
+
             logEvent(format(
-                "[Offset] disabled: requested distance=%.6f selectedCount=%zu selected={%s}",
+                "[Extend #%zu] requested: distance=%.6f loaded=%d changed=%d shapeNull=%d faceCount=%zu selectedCount=%zu selected={%s}",
+                operationSerial,
                 distance,
+                loaded,
+                changed,
+                shape.IsNull(),
+                faces.size(),
                 selectedFaceIds.size(),
                 selectedFaceIdList().c_str()
             ));
-            return false;
+
+            logShapeStats("[Extend] shape before", shape);
+
+            if (shape.IsNull()) {
+                logEvent(format("[Extend #%zu] failed: model shape is null", operationSerial));
+                return false;
+            }
+
+            if (selectedFaceIds.empty()) {
+                logEvent(format("[Extend #%zu] failed: selectedFaceIds is empty", operationSerial));
+                dumpRecentHistory("[Extend] recent history because selection was empty");
+                return false;
+            }
+
+            if (distance <= 0.0) {
+                logEvent(format("[Extend #%zu] failed: non-positive distance %.6f", operationSerial, distance));
+                return false;
+            }
+
+            std::vector<size_t> validFaceIds;
+
+            for (size_t faceId : selectedFaceIds) {
+                if (faceId >= faces.size()) {
+                    logEvent(format(
+                        "[Extend #%zu] skipping stale selected face id %zu (faceCount=%zu)",
+                        operationSerial,
+                        faceId,
+                        faces.size()
+                    ));
+                    continue;
+                }
+
+                validFaceIds.push_back(faceId);
+            }
+
+            if (validFaceIds.empty()) {
+                logEvent(format(
+                    "[Extend #%zu] failed: all selected face ids were stale; selected={%s}, faceCount=%zu",
+                    operationSerial,
+                    selectedFaceIdList().c_str(),
+                    faces.size()
+                ));
+                dumpRecentHistory("[Extend] recent history because all selected ids were stale");
+                return false;
+            }
+
+            try {
+                TopoDS_Shape accum = shape;
+                size_t fused = 0;
+
+                for (size_t faceId : validFaceIds) {
+                    const TopoDS_Face& face = faces[faceId];
+
+                    if (face.IsNull()) {
+                        logEvent(format("[Extend #%zu] skipping null face id %zu", operationSerial, faceId));
+                        continue;
+                    }
+
+                    Rev::Core::Pos3 normal = faceNormal(faceId);
+                    gp_Vec direction(normal.x, normal.y, normal.z);
+
+                    if (direction.Magnitude() <= 1e-9) {
+                        logEvent(format("[Extend #%zu] skipping face id %zu: degenerate normal", operationSerial, faceId));
+                        continue;
+                    }
+
+                    direction.Normalize();
+                    direction *= distance;
+
+                    logEvent(format(
+                        "[Extend #%zu] extruding face id %zu area=%.9f along normal=(%.4f %.4f %.4f) by %.4f",
+                        operationSerial,
+                        faceId,
+                        faceArea(face),
+                        normal.x,
+                        normal.y,
+                        normal.z,
+                        distance
+                    ));
+
+                    // Force FORWARD orientation so the swept prism is a
+                    // well-oriented solid.  faceNormal already returned the true
+                    // world-space outward normal, so the sweep direction is
+                    // unaffected by this re-orientation.
+                    TopoDS_Face forwardFace = TopoDS::Face(face.Oriented(TopAbs_FORWARD));
+
+                    BRepPrimAPI_MakePrism prism(forwardFace, direction);
+                    prism.Build();
+
+                    if (!prism.IsDone()) {
+                        logEvent(format("[Extend #%zu] failed: prism IsDone=false for face id %zu", operationSerial, faceId));
+                        return false;
+                    }
+
+                    TopoDS_Shape slab = prism.Shape();
+
+                    if (slab.IsNull()) {
+                        logEvent(format("[Extend #%zu] failed: prism produced null slab for face id %zu", operationSerial, faceId));
+                        return false;
+                    }
+
+                    BRepAlgoAPI_Fuse fuse(accum, slab);
+                    fuse.Build();
+
+                    if (!fuse.IsDone()) {
+                        logEvent(format("[Extend #%zu] failed: fuse IsDone=false for face id %zu", operationSerial, faceId));
+                        return false;
+                    }
+
+                    TopoDS_Shape fusedShape = fuse.Shape();
+
+                    if (fusedShape.IsNull()) {
+                        logEvent(format("[Extend #%zu] failed: fuse produced null shape for face id %zu", operationSerial, faceId));
+                        return false;
+                    }
+
+                    accum = fusedShape;
+                    fused++;
+                }
+
+                if (fused == 0) {
+                    logEvent(format("[Extend #%zu] failed: no valid faces were extruded/fused", operationSerial));
+                    dumpRecentHistory("[Extend] recent history because no faces were fused");
+                    return false;
+                }
+
+                logShapeStats("[Extend] raw fused result", accum);
+
+                // Heal: sew + unify coplanar faces so the extended sides merge
+                // back into single planar faces rather than seamed pairs.
+                TopoDS_Shape healed = healShape(accum);
+
+                TopoDS_Shape chosenResult = accum;
+
+                if (!healed.IsNull() && isShapeValid(healed)) {
+                    chosenResult = healed;
+                }
+                else if (!isShapeValid(accum)) {
+                    logEvent(format("[Extend #%zu] failed: fused result invalid and heal fallback invalid", operationSerial));
+                    dumpRecentHistory("[Extend] recent history because raw/healed were invalid");
+                    return false;
+                }
+
+                adoptShape(chosenResult, true, format("Extend #%zu", operationSerial));
+
+                logEvent(format(
+                    "[Extend #%zu] succeeded: newFaceCount=%zu renderTriangles=%zu selectedAfter=%zu",
+                    operationSerial,
+                    faces.size(),
+                    render.triangles.size() / 3,
+                    selectedFaceIds.size()
+                ));
+
+                return true;
+            }
+            catch (const Standard_Failure& failure) {
+                logEvent(format("[Extend #%zu] exception: %s", operationSerial, safeFailureMessage(failure)));
+                dumpRecentHistory("[Extend] recent history because Standard_Failure was caught");
+                return false;
+            }
+            catch (const std::exception& exception) {
+                logEvent(format("[Extend #%zu] std::exception: %s", operationSerial, exception.what()));
+                dumpRecentHistory("[Extend] recent history because std::exception was caught");
+                return false;
+            }
+            catch (...) {
+                logEvent(format("[Extend #%zu] unknown exception", operationSerial));
+                dumpRecentHistory("[Extend] recent history because unknown exception was caught");
+                return false;
+            }
         }
 
         std::string debugDump() const {

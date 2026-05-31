@@ -56,7 +56,7 @@ export namespace Cam::Gui {
 
     enum class WorldViewCommand {
         Defeature,
-        OffsetFaces,
+        ExtendFeature,
         AddTab,
         CenterOrigin,
         DefineAxisX,
@@ -103,7 +103,7 @@ export namespace Cam::Gui {
 
         GestureTracker<WorldViewCommand> gestures = {
             { "df", WorldViewCommand::Defeature },
-            { "ef", WorldViewCommand::OffsetFaces },
+            { "ef", WorldViewCommand::ExtendFeature },
             { "co", WorldViewCommand::CenterOrigin },
             { "ax", WorldViewCommand::DefineAxisX },
             { "ay", WorldViewCommand::DefineAxisY },
@@ -150,8 +150,8 @@ export namespace Cam::Gui {
                         break;
                     }
 
-                    case WorldViewCommand::OffsetFaces: {
-                        offsetSelected(e);
+                    case WorldViewCommand::ExtendFeature: {
+                        extendSelected(e);
                         break;
                     }
 
@@ -1592,16 +1592,16 @@ export namespace Cam::Gui {
             return true;
         }
 
-        bool offsetSelected(Event& e, double distance = 1) {
+        bool extendSelected(Event& e, double distance = 10.0) {
 
-            if (!app || !app->offsetSelected(distance)) {
-                dbg("offset faces failed — see [Offset] logs above");
+            if (!app || !app->extendSelected(distance)) {
+                dbg("extend feature failed — see [Extend] logs above");
                 return false;
             }
 
             sync(e);
 
-            dbg("offset selected faces");
+            dbg("extended selected feature");
 
             notifyStateChanged(e);
 
