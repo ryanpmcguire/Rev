@@ -13,6 +13,7 @@ export module Rev.Element.View3d;
 import Rev.Core.Pos;
 import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
+import Rev.Core.Animator;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -50,6 +51,7 @@ export namespace Rev::Element::View3d {
             glm::mat4 viewProj;
             glm::vec4 lightDir;
             glm::vec4 eyePos;
+            glm::vec4 lightDir2;
         };
 
         // View3d does NOT own these actors.
@@ -58,6 +60,30 @@ export namespace Rev::Element::View3d {
         Camera camera;
 
         Graphics::UniformBuffer* cameraBuff = nullptr;
+        Core::Animator zoomAnimator;
+
+        void stopZoomAnimation() {
+            zoomAnimator.stop();
+            camera.cancelZoomAnimation();
+        }
+
+        void setupZoomAnimator() {
+
+            zoomAnimator.setFrequency(100.0);
+
+            zoomAnimator.onFrame([this](Core::AnimationEvent& frame) {
+
+                if (!shared || !shared->event) { return; }
+
+                Event& e = *shared->event;
+
+                if (!camera.stepZoomAnimation(static_cast<float>(frame.deltaMs))) {
+                    zoomAnimator.stop();
+                }
+
+                refresh(e);
+            });
+        }
 
         // Create
         //--------------------------------------------------
@@ -74,9 +100,14 @@ export namespace Rev::Element::View3d {
                 shared->canvas->context,
                 sizeof(CameraData)
             );
+
+            camera.syncZoomGoalsFromCurrent();
+            setupZoomAnimator();
         }
 
         ~View() {
+
+            zoomAnimator.stop();
 
             actors.clear();
 
@@ -177,10 +208,7 @@ export namespace Rev::Element::View3d {
         // Fit
         //--------------------------------------------------
 
-        void fitToActors() {
-
-            Pos3 sceneMin;
-            Pos3 sceneMax;
+        bool sceneBounds(Pos3& sceneMin, Pos3& sceneMax) const {
 
             bool valid = false;
 
@@ -204,7 +232,32 @@ export namespace Rev::Element::View3d {
                 sceneMax = Pos3::max(sceneMax, actorMax);
             }
 
-            if (!valid) { return; }
+            return valid;
+        }
+
+        float sceneAverageDimension() const {
+
+            Pos3 sceneMin;
+            Pos3 sceneMax;
+
+            if (sceneBounds(sceneMin, sceneMax)) {
+
+                const float dx = sceneMax.x - sceneMin.x;
+                const float dy = sceneMax.y - sceneMin.y;
+                const float dz = sceneMax.z - sceneMin.z;
+
+                return (dx + dy + dz) / 3.0f;
+            }
+
+            return std::max(camera.orthoScale * 2.0f, camera.distance * 0.25f);
+        }
+
+        void fitToActors() {
+
+            Pos3 sceneMin;
+            Pos3 sceneMax;
+
+            if (!sceneBounds(sceneMin, sceneMax)) { return; }
 
             camera.fitBounds(
                 sceneMin,
@@ -297,16 +350,22 @@ export namespace Rev::Element::View3d {
 
             // Keep this as GLM because CameraData is uploaded directly to the
             // shader uniform buffer and must match the existing shader layout.
-            glm::vec3 light = glm::normalize(
+            glm::vec3 keyLight = glm::normalize(
                 glm::vec3(-0.4f, 0.8f, 0.6f)
+            );
+
+            // Fill from the opposite hemisphere so back-facing features still read.
+            glm::vec3 fillLight = glm::normalize(
+                glm::vec3(0.45f, -0.25f, -0.85f)
             );
 
             Pos3 eye = camera.eye();
 
             CameraData data = {
                 camera.viewProjMatrix(canvasWidth(), canvasHeight()),
-                { light.x, light.y, light.z, 0.0f },
-                { eye.x, eye.y, eye.z, 1.0f }
+                { keyLight.x, keyLight.y, keyLight.z, 0.0f },
+                { eye.x, eye.y, eye.z, 1.0f },
+                { fillLight.x, fillLight.y, fillLight.z, 0.0f }
             };
 
             cameraBuff->set(&data);
@@ -332,6 +391,8 @@ export namespace Rev::Element::View3d {
                 );
             }
 
+            stopZoomAnimation();
+
             camera.mouseDown(
                 e,
                 pivot,
@@ -339,10 +400,14 @@ export namespace Rev::Element::View3d {
                 canvasHeight()
             );
 
+            refresh(e);
+
             Box::mouseDown(e);
         }
 
         void mouseDrag(Event& e) override {
+
+            stopZoomAnimation();
 
             camera.mouseDrag(
                 e,
@@ -357,11 +422,18 @@ export namespace Rev::Element::View3d {
 
         void mouseWheel(Event& e) override {
 
-            camera.mouseWheel(
+            camera.applyWheelZoom(
                 e,
                 canvasWidth(),
-                canvasHeight()
+                canvasHeight(),
+                sceneAverageDimension()
             );
+
+            if (!e.keyboard.alt && std::abs(e.mouse.wheel.y) > 1e-6f) {
+                if (!zoomAnimator.isPlaying()) {
+                    zoomAnimator.play();
+                }
+            }
 
             refresh(e);
 

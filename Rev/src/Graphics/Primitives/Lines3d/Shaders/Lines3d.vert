@@ -15,6 +15,7 @@ layout(std140, binding = 2) uniform Camera {
     mat4 uViewProj;
     vec4 uLightDir;
     vec4 uEyePos;
+    vec4 uLightDir2;
 };
 
 // Per-actor transform stack: uViewProj × uWorld × uModel.

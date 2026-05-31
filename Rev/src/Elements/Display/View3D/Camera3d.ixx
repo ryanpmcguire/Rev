@@ -38,6 +38,25 @@ export namespace Rev::Element::View3d {
         float distance = 4.0f;
         float orthoScale = 2.2f;
 
+        // 0 = orthographic, 1 = wide perspective ("quake pro" FOV).
+        float perspectiveBlend = 0.0f;
+
+        static constexpr float kMaxPerspectiveFovY = 110.0f;
+        static constexpr float kMinPerspectiveFovY = 25.0f;
+        static constexpr float kPerspectiveBlendStep = 0.075f;
+
+        static constexpr float kPerspectiveFlyFraction = 0.05f;
+        static constexpr float kOrthoZoomInFactor = 0.94f;
+        static constexpr float kOrthoZoomOutFactor = 1.0f / kOrthoZoomInFactor;
+        static constexpr float kZoomSmoothRate = 24.0f;
+        static constexpr float kOrthoSettleEpsilon = 0.0001f;
+        static constexpr float kTargetSettleFraction = 0.001f;
+
+        float orthoScaleGoal = 2.2f;
+        Core::Pos3 targetGoal = { 0.0f, 0.0f, 0.0f };
+        bool zoomGoalsInitialized = false;
+        float zoomSceneScale = 1.0f;
+
         Core::Pos3 orbitPivot = { 0.0f, 0.0f, 0.0f };
         Core::Pos orbitMouse;
         Core::Pos orbitLastMouse;
@@ -72,6 +91,19 @@ export namespace Rev::Element::View3d {
 
         static float aspect(float width, float height) {
             return safeWidth(width) / safeHeight(height);
+        }
+
+        // Mouse wheels often report large deltas (e.g. ±120); trackpads report smaller values.
+        static float normalizeWheelStep(float wheelY) {
+            const float absWheel = std::abs(wheelY);
+
+            if (absWheel < 1e-6f) {
+                return 0.0f;
+            }
+
+            const float step = absWheel >= 1.0f ? 1.0f : absWheel;
+
+            return std::copysign(step, wheelY);
         }
 
         // Initialization
@@ -197,6 +229,7 @@ export namespace Rev::Element::View3d {
 
             distance = std::max(4.0f, radius * 2.0f);
 
+            syncZoomGoalsFromCurrent();
             pin();
         }
 
@@ -233,6 +266,73 @@ export namespace Rev::Element::View3d {
             return target - forward * distance;
         }
 
+        // Projection
+        //--------------------------------------------------
+
+        bool usesOrthographicProjection() const {
+            return perspectiveBlend <= 0.0001f;
+        }
+
+        float perspectiveFovDegrees() const {
+
+            float t = std::clamp(perspectiveBlend, 0.0f, 1.0f);
+
+            return kMinPerspectiveFovY + (kMaxPerspectiveFovY - kMinPerspectiveFovY) * t;
+        }
+
+        float perspectiveNearClip() const {
+            return 0.05f;
+        }
+
+        float perspectiveFarClip() const {
+            return std::max(2000.0f, distance * 25.0f);
+        }
+
+        // Visible half-height in world units at the view center.
+        float verticalHalfExtent() const {
+
+            float perspHalf = distance * std::tan(
+                glm::radians(perspectiveFovDegrees() * 0.5f)
+            );
+
+            float t = std::clamp(perspectiveBlend, 0.0f, 1.0f);
+
+            return glm::mix(orthoScale, perspHalf, t);
+        }
+
+        glm::mat4 orthographicProjection(float aspectRatio) const {
+            return glm::ortho(
+                -orthoScale * aspectRatio, orthoScale * aspectRatio,
+                -orthoScale, orthoScale,
+                nearClip, farClip
+            );
+        }
+
+        glm::mat4 perspectiveProjection(float aspectRatio) const {
+            return glm::perspective(
+                glm::radians(perspectiveFovDegrees()),
+                aspectRatio,
+                perspectiveNearClip(),
+                perspectiveFarClip()
+            );
+        }
+
+        static glm::mat4 mixProjection(
+            const glm::mat4& ortho,
+            const glm::mat4& persp,
+            float t
+        ) {
+            glm::mat4 out;
+
+            for (int c = 0; c < 4; ++c) {
+                for (int r = 0; r < 4; ++r) {
+                    out[c][r] = glm::mix(ortho[c][r], persp[c][r], t);
+                }
+            }
+
+            return out;
+        }
+
         // Matrices
         //--------------------------------------------------
 
@@ -259,11 +359,19 @@ export namespace Rev::Element::View3d {
         ) const {
             float a = aspect(width, height);
 
-            return glm::ortho(
-                -orthoScale * a, orthoScale * a,
-                -orthoScale, orthoScale,
-                nearClip, farClip
-            );
+            glm::mat4 orthoMat = orthographicProjection(a);
+
+            if (usesOrthographicProjection()) {
+                return orthoMat;
+            }
+
+            float t = std::clamp(perspectiveBlend, 0.0f, 1.0f);
+
+            if (t >= 0.9999f) {
+                return perspectiveProjection(a);
+            }
+
+            return mixProjection(orthoMat, perspectiveProjection(a), t);
         }
 
         glm::mat4 viewProjMatrixFor(
@@ -304,9 +412,21 @@ export namespace Rev::Element::View3d {
             float width,
             float height
         ) const {
+            return rayFromMouseFor(orientation, target, mousePos, width, height);
+        }
+
+        Ray rayFromMouseFor(
+            glm::quat q,
+            Core::Pos3 cameraTarget,
+            Core::Pos mousePos,
+            float width,
+            float height
+        ) const {
             Core::Pos ndc = ndcFromMouse(mousePos, width, height);
 
-            glm::mat4 invViewProj = glm::inverse(viewProjMatrix(width, height));
+            glm::mat4 invViewProj = glm::inverse(
+                viewProjMatrixFor(q, cameraTarget, width, height)
+            );
 
             glm::vec4 nearWorld = invViewProj * glm::vec4(ndc.x, ndc.y, -1.0f, 1.0f);
             glm::vec4 farWorld = invViewProj * glm::vec4(ndc.x, ndc.y, 1.0f, 1.0f);
@@ -320,6 +440,128 @@ export namespace Rev::Element::View3d {
             ray.direction = fromGlm(glm::normalize(glm::vec3(farWorld - nearWorld)));
 
             return ray;
+        }
+
+        Core::Pos projectWorldToNdc(
+            Core::Pos3 world,
+            glm::quat q,
+            Core::Pos3 cameraTarget,
+            float width,
+            float height
+        ) const {
+            glm::mat4 viewProj = viewProjMatrixFor(q, cameraTarget, width, height);
+            glm::vec4 clip = viewProj * glm::vec4(toGlm(world), 1.0f);
+
+            if (std::abs(clip.w) < 1e-8f) {
+                return { 0.0f, 0.0f };
+            }
+
+            clip /= clip.w;
+
+            return { clip.x, clip.y };
+        }
+
+        Core::Pos3 targetForScreenPointOrthographic(
+            Core::Pos3 worldPoint,
+            Core::Pos mousePos,
+            float width,
+            float height,
+            glm::quat q
+        ) const {
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
+            basisFor(q, right, up, forward);
+
+            float safeW = safeWidth(width);
+            float safeH = safeHeight(height);
+            float a = aspect(safeW, safeH);
+
+            Core::Pos ndc = ndcFromMouse(mousePos, safeW, safeH);
+
+            float halfY = orthoScale;
+            float halfX = halfY * a;
+
+            return (
+                worldPoint
+                - right * (ndc.x * halfX)
+                - up * (ndc.y * halfY)
+            );
+        }
+
+        Core::Pos3 targetForScreenPointPerspective(
+            Core::Pos3 worldPoint,
+            Core::Pos mousePos,
+            float width,
+            float height,
+            glm::quat q,
+            Core::Pos3 initialGuess
+        ) const {
+            Core::Pos3 right;
+            Core::Pos3 up;
+            Core::Pos3 forward;
+
+            basisFor(q, right, up, forward);
+
+            float safeW = safeWidth(width);
+            float safeH = safeHeight(height);
+
+            Core::Pos desiredNdc = ndcFromMouse(mousePos, safeW, safeH);
+
+            Core::Pos3 guess = initialGuess;
+
+            Core::Pos ndc = projectWorldToNdc(worldPoint, q, guess, width, height);
+            Core::Pos err = {
+                desiredNdc.x - ndc.x,
+                desiredNdc.y - ndc.y
+            };
+
+            if (err.x * err.x + err.y * err.y < 1e-8f) {
+                return guess;
+            }
+
+            constexpr int kMaxIter = 12;
+            constexpr float kEps = 0.001f;
+
+            for (int iter = 0; iter < kMaxIter; ++iter) {
+
+                ndc = projectWorldToNdc(worldPoint, q, guess, width, height);
+                err = {
+                    desiredNdc.x - ndc.x,
+                    desiredNdc.y - ndc.y
+                };
+
+                if (err.x * err.x + err.y * err.y < 1e-8f) {
+                    break;
+                }
+
+                Core::Pos ndcRight = projectWorldToNdc(
+                    worldPoint, q, guess + right * kEps, width, height
+                );
+
+                Core::Pos ndcUp = projectWorldToNdc(
+                    worldPoint, q, guess + up * kEps, width, height
+                );
+
+                float dNdx_dRx = (ndcRight.x - ndc.x) / kEps;
+                float dNdy_dRy = (ndcRight.y - ndc.y) / kEps;
+                float dNdx_dUx = (ndcUp.x - ndc.x) / kEps;
+                float dNdy_dUy = (ndcUp.y - ndc.y) / kEps;
+
+                float det = dNdx_dRx * dNdy_dUy - dNdx_dUx * dNdy_dRy;
+
+                if (std::abs(det) < 1e-8f) {
+                    break;
+                }
+
+                float dr = (err.x * dNdy_dUy - err.y * dNdx_dUx) / det;
+                float du = (-err.x * dNdy_dRy + err.y * dNdx_dRx) / det;
+
+                guess = guess + right * dr + up * du;
+            }
+
+            return guess;
         }
 
         Core::Pos3 worldOnTargetPlane(
@@ -351,22 +593,23 @@ export namespace Rev::Element::View3d {
             float height,
             glm::quat q
         ) const {
-            Core::Pos3 right;
-            Core::Pos3 up;
-            Core::Pos3 forward;
+            if (usesOrthographicProjection()) {
+                return targetForScreenPointOrthographic(
+                    worldPoint,
+                    mousePos,
+                    width,
+                    height,
+                    q
+                );
+            }
 
-            basisFor(q, right, up, forward);
-
-            float safeW = safeWidth(width);
-            float safeH = safeHeight(height);
-            float a = aspect(safeW, safeH);
-
-            Core::Pos ndc = ndcFromMouse(mousePos, safeW, safeH);
-
-            return (
-                worldPoint
-                - right * (ndc.x * orthoScale * a)
-                - up * (ndc.y * orthoScale)
+            return targetForScreenPointPerspective(
+                worldPoint,
+                mousePos,
+                width,
+                height,
+                q,
+                target
             );
         }
 
@@ -388,6 +631,133 @@ export namespace Rev::Element::View3d {
         // Interaction
         //--------------------------------------------------
 
+        void ensureZoomGoalsInitialized() {
+
+            if (!zoomGoalsInitialized) {
+                syncZoomGoalsFromCurrent();
+            }
+        }
+
+        void syncZoomGoalsFromCurrent() {
+
+            orthoScaleGoal = orthoScale;
+            targetGoal = target;
+            zoomGoalsInitialized = true;
+        }
+
+        void cancelZoomAnimation() {
+            syncZoomGoalsFromCurrent();
+        }
+
+        void applyWheelZoom(
+            Event& e,
+            float width,
+            float height,
+            float sceneAverageDimension
+        ) {
+            if (e.keyboard.alt) {
+
+                float direction = (e.mouse.wheel.y > 0.0f ? 1.0f : -1.0f);
+
+                perspectiveBlend += direction * kPerspectiveBlendStep;
+                perspectiveBlend = std::clamp(perspectiveBlend, 0.0f, 1.0f);
+
+                return;
+            }
+
+            if (std::abs(e.mouse.wheel.y) < 1e-6f) {
+                return;
+            }
+
+            ensureZoomGoalsInitialized();
+
+            zoomSceneScale = std::max(sceneAverageDimension, 0.01f);
+
+            if (usesOrthographicProjection()) {
+
+                Core::Pos3 savedTarget = target;
+                float savedScale = orthoScale;
+
+                target = targetGoal;
+                orthoScale = orthoScaleGoal;
+
+                Core::Pos3 before = worldOnTargetPlane(e.mouse.pos, width, height);
+
+                float zoom = (
+                    e.mouse.wheel.y > 0.0f
+                        ? kOrthoZoomInFactor
+                        : kOrthoZoomOutFactor
+                );
+
+                orthoScaleGoal *= zoom;
+                orthoScaleGoal = std::clamp(orthoScaleGoal, 0.05f, 100.0f);
+
+                orthoScale = orthoScaleGoal;
+
+                Core::Pos3 after = worldOnTargetPlane(e.mouse.pos, width, height);
+
+                targetGoal += before - after;
+
+                target = savedTarget;
+                orthoScale = savedScale;
+            }
+
+            else {
+
+                Ray ray = rayFromMouse(e.mouse.pos, width, height);
+
+                const float wheelStep = normalizeWheelStep(e.mouse.wheel.y);
+
+                const float flyStep =
+                    wheelStep *
+                    zoomSceneScale *
+                    kPerspectiveFlyFraction;
+
+                targetGoal += ray.direction * flyStep;
+            }
+        }
+
+        // Smooth toward zoom/fly goals. Returns false when settled.
+        bool stepZoomAnimation(float deltaMs) {
+
+            if (!zoomGoalsInitialized) {
+                return false;
+            }
+
+            if (deltaMs <= 0.0f) {
+                deltaMs = 10.0f;
+            }
+
+            const float dt = deltaMs / 1000.0f;
+            const float alpha = 1.0f - std::exp(-kZoomSmoothRate * dt);
+
+            const float scaleError = orthoScaleGoal - orthoScale;
+            orthoScale += scaleError * alpha;
+
+            const Core::Pos3 targetError = targetGoal - target;
+            target += targetError * alpha;
+
+            const float scaleSettleEpsilon =
+                std::max(kOrthoSettleEpsilon, zoomSceneScale * kTargetSettleFraction);
+
+            const float targetSettleEpsilon =
+                std::max(kOrthoSettleEpsilon, zoomSceneScale * kTargetSettleFraction);
+
+            const bool scaleSettled =
+                std::abs(orthoScaleGoal - orthoScale) < scaleSettleEpsilon;
+
+            const bool targetSettled =
+                targetError.pythag() < targetSettleEpsilon;
+
+            if (scaleSettled && targetSettled) {
+                orthoScale = orthoScaleGoal;
+                target = targetGoal;
+                return false;
+            }
+
+            return true;
+        }
+
         void pin() {
             pinOrientation = orientation;
             pinTarget = target;
@@ -399,6 +769,8 @@ export namespace Rev::Element::View3d {
             float width,
             float height
         ) {
+            cancelZoomAnimation();
+
             orbitPivot = hitPoint;
             orbitMouse = e.mouse.pos;
             orbitLastMouse = e.mouse.pos;
@@ -425,7 +797,7 @@ export namespace Rev::Element::View3d {
 
             basisFor(pinOrientation, right, up, forward);
 
-            float worldPerPixel = (2.0f * orthoScale) / safeHeight(height);
+            float worldPerPixel = (2.0f * verticalHalfExtent()) / safeHeight(height);
             Core::Pos3 pan = (
                 right * -e.mouse.diff.x +
                 up * e.mouse.diff.y
@@ -481,6 +853,8 @@ export namespace Rev::Element::View3d {
             float width,
             float height
         ) {
+            cancelZoomAnimation();
+
             if (e.keyboard.shift) { panFromPinned(e, width, height); }
             else { orbitIncremental(e, width, height); }
         }
@@ -488,18 +862,10 @@ export namespace Rev::Element::View3d {
         void mouseWheel(
             Event& e,
             float width,
-            float height
+            float height,
+            float sceneAverageDimension
         ) {
-            Core::Pos3 before = worldOnTargetPlane(e.mouse.pos, width, height);
-
-            float zoom = (e.mouse.wheel.y > 0.0f ? 0.9f : 1.1f);
-
-            orthoScale *= zoom;
-            orthoScale = std::clamp(orthoScale, 0.05f, 100.0f);
-
-            Core::Pos3 after = worldOnTargetPlane(e.mouse.pos, width, height);
-
-            target += before - after;
+            applyWheelZoom(e, width, height, sceneAverageDimension);
         }
     };
 }
