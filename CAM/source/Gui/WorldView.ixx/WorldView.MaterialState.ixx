@@ -47,6 +47,15 @@ export namespace Cam::Gui::World {
         static constexpr size_t NoAxisPickHover = static_cast<size_t>(-1);
         size_t axisPickHoveredCandidate = NoAxisPickHover;
 
+        static constexpr size_t NoHoveredFace = static_cast<size_t>(-1);
+        size_t hoveredFaceId = NoHoveredFace;
+
+        bool setHoveredFace(size_t faceId) {
+            if (hoveredFaceId == faceId) { return false; }
+            hoveredFaceId = faceId;
+            return true;
+        }
+
         Cam::Gui::ToolPath toolPath;
 
         bool attached = false;
@@ -436,8 +445,12 @@ export namespace Cam::Gui::World {
             return &state->model;
         }
 
-        // Part mesh: parent stock when inspecting, own model when editing faces.
+        // Part mesh: parent stock after any modification; own model only while selecting faces on unmodified geometry.
         Cam::App::Model* partModel() {
+
+            if (state && state->hasDelta) {
+                return displayModel();
+            }
 
             if (showPick || selectable) {
                 return selectionModel();
@@ -458,6 +471,7 @@ export namespace Cam::Gui::World {
 
             selectable = false;
             includeInFit = false;
+            hoveredFaceId = NoHoveredFace;
         }
 
         void showDisplayed() {
@@ -522,7 +536,8 @@ export namespace Cam::Gui::World {
             }
 
             partActor->mesh->pTriangles = &model->render.triangles;
-            partActor->mesh->dirty = true;
+            partActor->mesh->bvhBuilt   = false;  // geometry changed — invalidate accel
+            partActor->mesh->dirty      = true;
             partActor->visible = true;
             partActor->selectable = false;
             partActor->includeInFit = includeInFit;
@@ -542,7 +557,8 @@ export namespace Cam::Gui::World {
             }
 
             deltaActor->mesh->pTriangles = &state->delta.render.triangles;
-            deltaActor->mesh->dirty = true;
+            deltaActor->mesh->bvhBuilt   = false;  // geometry changed — invalidate accel
+            deltaActor->mesh->dirty      = true;
             deltaActor->visible = true;
             deltaActor->selectable = false;
             deltaActor->includeInFit = false;
@@ -707,6 +723,15 @@ export namespace Cam::Gui::World {
                 1.0f
             };
 
+            // 40 % blend from the base part colour (0.75, 0.75, 0.82) toward
+            // warm orange (1.0, 0.55, 0.1) — visibly distinct but not jarring.
+            Rev::Core::Color hover = {
+                0.85f,
+                0.67f,
+                0.53f,
+                1.0f
+            };
+
             Rev::Core::Color axisPick = {
                 0.55f,
                 0.95f,
@@ -720,6 +745,15 @@ export namespace Cam::Gui::World {
                 1.0f,
                 1.0f
             };
+
+            // Hover only makes sense when partActor and pickActor share the same
+            // geometry (no delta yet); after a defeature they diverge and face IDs
+            // from the pick actor no longer correspond to the displayed model.
+            const bool canShowHover = (
+                state &&
+                !state->hasDelta &&
+                hoveredFaceId != NoHoveredFace
+            );
 
             size_t sliceFaceId = Cam::App::ToolPath::NoSliceFaceId;
 
@@ -745,6 +779,9 @@ export namespace Cam::Gui::World {
                 }
                 else if (model->isFaceSelected(faceId)) {
                     color = selected;
+                }
+                else if (canShowHover && faceId == hoveredFaceId) {
+                    color = hover;
                 }
 
                 triangles[tri * 3 + 0].color = color;

@@ -1661,9 +1661,61 @@ export namespace Cam::Gui {
         // Events
         //--------------------------------------------------
 
+        void updateFaceHover(Event& e) {
+
+            if (!view3d) { return; }
+
+            const bool editing = displayedModelIsEditable();
+
+            Cam::Gui::World::MaterialState* worldState =
+                editing ? displayedMaterialView() : nullptr;
+
+            size_t newFaceId = Cam::Gui::World::MaterialState::NoHoveredFace;
+
+            if (worldState && worldState->pickActor) {
+
+                Cam::App::Model* model = selectionModel();
+
+                if (model && !model->render.triangleFaceIds.empty()) {
+
+                    bool wasSelectable = worldState->pickActor->selectable;
+                    worldState->pickActor->selectable = true;
+
+                    View3d::Hit hit;
+                    bool gotHit = view3d->hitTest(e.mouse.pos, hit);
+
+                    worldState->pickActor->selectable = wasSelectable;
+
+                    if (gotHit && hit.actor == worldState->pickActor) {
+                        size_t tri = hit.triangleId;
+                        if (tri < model->render.triangleFaceIds.size()) {
+                            newFaceId = model->render.triangleFaceIds[tri];
+                        }
+                    }
+                }
+            }
+
+            for (Cam::Gui::World::MaterialState* view : materialViews) {
+
+                if (!view) { continue; }
+
+                size_t faceId = (view == worldState)
+                    ? newFaceId
+                    : Cam::Gui::World::MaterialState::NoHoveredFace;
+
+                if (view->setHoveredFace(faceId)) {
+                    view->applyFaceColors();
+                    if (view->partActor && view->partActor->mesh) {
+                        view->partActor->mesh->dirty = true;
+                    }
+                }
+            }
+        }
+
         void mouseMove(Event& e) override {
 
             updateAxisPickHover(e);
+            updateFaceHover(e);
 
             Box::mouseMove(e);
         }

@@ -30,7 +30,7 @@ export namespace Cam::Gui {
 
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 300_px, .height = Grow() },
+            .size = { .width = 380_px, .height = Grow() },
             .margin = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
             .padding = { .left = 8_px, .right = 8_px, .top = 8_px, .bottom = 8_px },
             .border = { .radius = 6_px },
@@ -39,7 +39,7 @@ export namespace Cam::Gui {
 
         Style FileButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 100_pct, .height = 34_px },
+            .size = { .height = 34_px },
             .margin = { .bottom = 8_px },
             .padding = { .left = 10_px, .right = 10_px, .top = 10_px, .bottom = 3_px },
             .border = {
@@ -54,7 +54,7 @@ export namespace Cam::Gui {
         };
 
         Style MaterialStateHost = {
-            .size = { .width = 100_pct, .height = Grow() }
+            .size = { .height = Grow() }
         };
     }
 

@@ -153,41 +153,44 @@ export namespace Rev::Element::View3d {
             return t > eps;
         }
 
-        bool hitTest(
+        bool hitTestMesh(
             const Ray& ray,
             Hit& outHit
         ) {
-            outHit = Hit();
-
-            if (!selectable) { return false; }
             if (!mesh) { return false; }
 
+            if (mesh->hasAccel()) {
+                float t; size_t triId;
+                if (mesh->hitTestBVH(
+                    ray.origin.x, ray.origin.y, ray.origin.z,
+                    ray.direction.x, ray.direction.y, ray.direction.z,
+                    t, triId
+                )) {
+                    outHit.hit      = true;
+                    outHit.kind     = HitKind::Face;
+                    outHit.actor    = this;
+                    outHit.triangleId = triId;
+                    outHit.point    = ray.origin + ray.direction * t;
+                    outHit.t        = t;
+                    return true;
+                }
+                return false;
+            }
+
             std::vector<Core::Vertex3>* pTriangles = mesh->getTriangles();
-
             if (!pTriangles) { return false; }
-
             std::vector<Core::Vertex3>& triangles = *pTriangles;
 
             float bestT = std::numeric_limits<float>::max();
 
             for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
-
-                Core::Vertex3& va = triangles[i];
-                Core::Vertex3& vb = triangles[i + 1];
-                Core::Vertex3& vc = triangles[i + 2];
-
-                Core::Pos3 a = vertexPos(va);
-                Core::Pos3 b = vertexPos(vb);
-                Core::Pos3 c = vertexPos(vc);
-
+                Core::Pos3 a = vertexPos(triangles[i]);
+                Core::Pos3 b = vertexPos(triangles[i + 1]);
+                Core::Pos3 c = vertexPos(triangles[i + 2]);
                 float t = 0.0f;
-
                 if (!rayTriangle(ray, a, b, c, t)) { continue; }
-
                 if (t < bestT) {
-
                     bestT = t;
-
                     outHit.hit = true;
                     outHit.kind = HitKind::Face;
                     outHit.actor = this;
@@ -198,6 +201,26 @@ export namespace Rev::Element::View3d {
             }
 
             return outHit.hit;
+        }
+
+        // Orbit-pivot hit test: gates on visible rather than selectable so the
+        // pivot always lands on the geometry the user can actually see.
+        bool hitTestVisible(
+            const Ray& ray,
+            Hit& outHit
+        ) {
+            outHit = Hit();
+            if (!visible) { return false; }
+            return hitTestMesh(ray, outHit);
+        }
+
+        bool hitTest(
+            const Ray& ray,
+            Hit& outHit
+        ) {
+            outHit = Hit();
+            if (!selectable) { return false; }
+            return hitTestMesh(ray, outHit);
         }
 
         bool bounds(

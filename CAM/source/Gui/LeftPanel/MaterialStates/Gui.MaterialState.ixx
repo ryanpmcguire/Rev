@@ -34,6 +34,7 @@ export namespace Cam::Gui {
         Style Self = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
+            .overflow = Overflow::Hide,
             .margin = { .bottom = 2_px },
             .padding = { .left = 4_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
             .border = { .radius = 6_px },
@@ -52,7 +53,7 @@ export namespace Cam::Gui {
         Style Content = {
             .layout = { Axis::Vertical, Align::Center, Align::Start, Wrap::False },
             .overflow = Overflow::Hide,
-            .size = { .max = { .width = 150_px } }
+            //.size = { Grow() }
         };
 
         Style Label = {
@@ -97,16 +98,8 @@ export namespace Cam::Gui {
             .size = { 15_px, 15_px }
         };
 
-        Style ToolDropdownHost = {
-            .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 118_px },
-            .margin = { .left = 6_px, .right = 4_px, .top = 1_px, .bottom = 1_px },
-            .overflow = Overflow::Show
-        };
-
         Style ToolDropdown = {
-            .size = { .width = 100_pct },
-            .margin = { 0_px, 0_px, 0_px, 0_px }
+            .margin = { .left = 6_px, .top = 0_px, .bottom = 0_px, .right = 0_px }
         };
 
         Style ToolDropdownLabelHidden = {
@@ -114,11 +107,14 @@ export namespace Cam::Gui {
         };
 
         Style ToolDropdownField = {
-            .padding = { .left = 6_px, .right = 6_px, .top = 5_px, .bottom = 5_px }
+            .margin = { .top = 0_px, .bottom = 0_px },
+            .padding = { .left = 6_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
+            .overflow = Overflow::Hide
         };
 
         Style ToolDropdownFieldText = {
-            .text = { .wrap = Wrap::False }
+            .overflow = Overflow::Hide,
+            .text = { .size = 11_px, .wrap = Wrap::False }
         };
     };
 
@@ -135,7 +131,6 @@ export namespace Cam::Gui {
         Box* content = nullptr;
         Text* label = nullptr;
         Text* subtitle = nullptr;
-        Box* toolDropdownHost = nullptr;
         Dropdown* toolDropdown = nullptr;
         Box* settingsButton = nullptr;
         Svg* settingsIcon = nullptr;
@@ -183,47 +178,37 @@ export namespace Cam::Gui {
                     )
                 );
 
-            toolDropdownHost = new Box(
+            toolDropdown = new Dropdown(
                 this,
-                { &Styles::ToolDropdownHost },
-                "ToolPathToolHost"
+                {
+                    .label = "Tool",
+                    .options = ToolPathSettingsWindow::toolOptions(app),
+                    .placeholder = "Tool",
+                    .value = ""
+                },
+                { &Styles::ToolDropdown }
             );
 
-                toolDropdownHost->onClick([](Event& e) {
-                    e.propagate = false;
-                });
+            toolDropdown->label->styles.add(&Styles::ToolDropdownLabelHidden);
+            toolDropdown->dropdown->styles.add(&Styles::ToolDropdownField);
+            toolDropdown->dropdownArrow->styles.add(&Theme::Styles::Icon);
+            toolDropdown->dropdownArrow->styles.add(&Theme::Styles::IconHover);
+            toolDropdown->dropdownText->styles.add(&Styles::ToolDropdownFieldText);
 
-                toolDropdown = new Dropdown(
-                    toolDropdownHost,
-                    {
-                        .label = "Tool",
-                        .options = ToolPathSettingsWindow::toolOptions(app),
-                        .placeholder = "Tool",
-                        .value = ""
-                    },
-                    { &Styles::ToolDropdown }
-                );
+            toolDropdown->onChange = [this](Event& e) {
 
-                toolDropdown->label->styles.add(&Styles::ToolDropdownLabelHidden);
-                toolDropdown->dropdown->styles.add(&Styles::ToolDropdownField);
-                toolDropdown->dropdownArrow->styles.add(&Theme::Styles::Icon);
-                toolDropdown->dropdownArrow->styles.add(&Theme::Styles::IconHover);
-                toolDropdown->dropdownText->styles.add(&Styles::ToolDropdownFieldText);
+                e.propagate = false;
 
-                toolDropdown->onChange = [this](Event& e) {
+                if (!canEditToolPath() || !state || !toolDropdown) { return; }
 
-                    e.propagate = false;
+                const std::string toolName = toolDropdown->params.value;
 
-                    if (!canEditToolPath() || !state || !toolDropdown) { return; }
+                if (toolName.empty() || toolName == state->toolPath.toolName) { return; }
 
-                    const std::string toolName = toolDropdown->params.value;
-
-                    if (toolName.empty() || toolName == state->toolPath.toolName) { return; }
-
-                    if (onToolPathToolChanged) {
-                        onToolPathToolChanged(e, state, toolName);
-                    }
-                };
+                if (onToolPathToolChanged) {
+                    onToolPathToolChanged(e, state, toolName);
+                }
+            };
 
             settingsButton = new Box(
                 this,
@@ -397,8 +382,8 @@ export namespace Cam::Gui {
 
             const bool showToolDropdown = canEditToolPath();
 
-            if (toolDropdownHost) {
-                toolDropdownHost->style->visibility = showToolDropdown
+            if (toolDropdown) {
+                toolDropdown->style->visibility = showToolDropdown
                     ? Visibility::Visible
                     : Visibility::Hidden;
             }

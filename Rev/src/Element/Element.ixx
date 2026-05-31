@@ -709,7 +709,7 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             if (set(resolved.min.width)) { resolved.min.outerWidth = resolved.min.width + resolved.min.marginWidth; }
-            else { resolved.min.outerWidth = layout.size.w.min + resolved.min.paddingWidth + resolved.min.paddingHeight; }
+            else { resolved.min.outerWidth = layout.size.w.min + resolved.min.paddingWidth + resolved.min.marginWidth; }
 
             if (set(resolved.min.height)) { resolved.min.outerHeight = resolved.min.height + resolved.min.marginHeight; }
             else { resolved.min.outerHeight = layout.size.h.min + resolved.min.paddingHeight + resolved.min.marginHeight; }

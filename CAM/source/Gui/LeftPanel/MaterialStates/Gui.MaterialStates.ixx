@@ -32,7 +32,7 @@ export namespace Cam::Gui {
 
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 100_pct, .height = Grow() },
+            .size = { .width = 100_pct },
             .margin = { .top = 2_px, .bottom = 2_px },
             .padding = { .left = 2_px, .right = 2_px, .top = 4_px, .bottom = 4_px },
             .zIndex = +1
@@ -47,7 +47,7 @@ export namespace Cam::Gui {
         Style List = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .overflow = Overflow::Show,
-            .size = { 100_pct }
+            .size = { .width = 100_pct }
         };
     };
 

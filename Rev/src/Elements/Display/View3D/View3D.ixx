@@ -260,6 +260,36 @@ export namespace Rev::Element::View3d {
             return true;
         }
 
+        // Orbit-pivot hit test: tests visible actors regardless of selectable,
+        // so the pivot always lands on what is actually drawn on screen.
+        bool hitTestVisible(
+            Core::Pos mousePos,
+            Hit& outHit
+        ) {
+            Ray ray = camera.rayFromMouse(
+                mousePos,
+                canvasWidth(),
+                canvasHeight()
+            );
+
+            outHit = Hit();
+
+            for (Actor* actor : actors) {
+
+                if (!actor) { continue; }
+
+                Hit hit;
+
+                if (!actor->hitTestVisible(ray, hit)) { continue; }
+
+                if (!outHit.hit || hit.t < outHit.t) {
+                    outHit = hit;
+                }
+            }
+
+            return outHit.hit;
+        }
+
         // Camera
         //--------------------------------------------------
 
@@ -290,7 +320,7 @@ export namespace Rev::Element::View3d {
             Hit hit;
             Pos3 pivot;
 
-            if (hitTest(e.mouse.pos, hit)) {
+            if (hitTestVisible(e.mouse.pos, hit)) {
                 pivot = hit.point;
             }
 

@@ -78,7 +78,7 @@ export namespace Rev::Element {
             name = "Dropdown";
             params = p;
 
-            this->styles.add(&Control);
+            this->styles.prepend(&Control);
 
             label = new Text(this, p.label, { &Label });
 
