@@ -511,9 +511,10 @@ export namespace Rev::Element {
             if (!fontResource.data) { fontResource = File("Rev/resources/Fonts/Arial/Arial.ttf"); }
 
             font = text->fontAtlas->get(fontResource, fontSize, shared->canvas->details.scale);
-            
-            text->font = font;
-            text->fontSize = fontSize;
+
+            text->fontResource = fontResource;
+            text->font         = font;
+            text->fontSize     = fontSize;
             text->content = strContent;
 
             this->measureText();

@@ -124,11 +124,16 @@ export namespace Rev::Primitives {
             delete databuff;
         }
 
+        // The font resource to use — set by the element layer via resolveStyle.
+        // Falls back to Arial if not explicitly set.
+        Core::Resource fontResource;
+
         // Compute vertices
         void compute() override {
 
-            // Ensure font size matches
-            font = fontAtlas->get(Arial_ttf, fontSize, canvas->details.scale);
+            // Resolve font from the resource set by the element layer.
+            Core::Resource res = fontResource.data ? fontResource : Arial_ttf;
+            font = fontAtlas->get(res, fontSize, canvas->details.scale);
 
             // Prepare vertices
             //--------------------------------------------------

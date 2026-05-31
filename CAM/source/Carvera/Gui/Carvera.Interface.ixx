@@ -138,7 +138,28 @@ export namespace Carvera::Gui {
     enum class CarveraCommand { Connect, Disconnect, Unlock, Reset };
 
     // ------------------------------------------------------------------
-    // Interface
+    // Interface — Carvera Air control panel.
+    //
+    // Position display strategy:
+    //
+    //   - Telemetry is the single source of truth.  We chain-poll the
+    //     machine with "?", sending the next request only after the
+    //     previous response is parsed.  This guarantees we are always
+    //     reading fresh data, never queued-up stale frames.
+    //
+    //   - We track an "intent" (intentX/Y/Z/A) that accumulates every
+    //     commanded delta.  The display smoothly chases the intent at
+    //     a fixed rate, providing instant visual feedback for jogs.
+    //
+    //   - Whenever telemetry arrives, the display anchor snaps to the
+    //     confirmed position; the display then continues chasing the
+    //     intent from there.  This means the display always converges
+    //     to ground truth and never displays "phantom" motion after
+    //     the machine has physically stopped.
+    //
+    //   - The intent is reset to telemetry truth whenever the machine
+    //     reports as Idle, so spamming jogs at boundaries doesn't
+    //     accumulate fictional offsets.
     // ------------------------------------------------------------------
 
     struct Interface : public Box {
@@ -175,55 +196,59 @@ export namespace Carvera::Gui {
 
         // -- Animators -----------------------------------------------
 
-        Rev::Core::Animator keepalive   { 200 };  // 5 Hz status poll
-        Rev::Core::Animator interpolator {   7 };  // 140 fps dead reckoning
+        // Watchdog: re-issues "?" if a chain-polled response hasn't
+        // arrived in StatusTimeoutMs (network hiccup, packet loss).
+        Rev::Core::Animator watchdog { 500 };
 
-        // -- Thread-safe state (worker -> main) ----------------------
+        // Display chase loop — 140 fps.  Always running while connected.
+        Rev::Core::Animator displayLoop { 7 };
 
-        std::mutex              logMutex;
-        std::deque<std::string> pendingLog;
-        std::string             pendingState;
-        float  pendingPosX = 0, pendingPosY = 0, pendingPosZ = 0, pendingPosA = 0;
-        bool   pendingPosValid = false;
-
-        // -- Machine truth (main thread) -----------------------------
-
-        std::string machineState;
-        float posX = 0, posY = 0, posZ = 0, posA = 0;
-
-        // -- Dead-reckoning command queue ----------------------------
-        //
-        // Each entry describes one jog command we have issued.
-        // The interpolator walks this queue to produce a precise
-        // position estimate at any point in time, independent of
-        // how often telemetry arrives.
-        //
-        // Analogy: if you told the machine "move to X=5 at F=1000,
-        // starting now", you know exactly where it is 30ms later
-        // (X = 0.5) without asking it — the physics are deterministic.
+        // -- Chain polling state -------------------------------------
 
         using Clock = std::chrono::steady_clock;
 
-        struct JogCmd {
-            float sx, sy, sz, sa;        // position when command starts executing
-            float dx, dy, dz, da;        // commanded delta
-            Clock::time_point t0;        // expected start time
-            float durMs;                 // expected execution time (ms)
+        bool              statusInFlight = false;
+        Clock::time_point statusSentAt;
+        static constexpr int StatusTimeoutMs = 750;
 
-            float ex() const { return sx + dx; }
-            float ey() const { return sy + dy; }
-            float ez() const { return sz + dz; }
-            float ea() const { return sa + da; }
-        };
+        // -- Thread-safe handoff (worker -> main) --------------------
 
-        std::deque<JogCmd> jogQueue;
+        std::mutex              logMutex;
+        std::deque<std::string> pendingLog;
 
-        // Interpolated display position (what the text shows).
-        bool  dispReady = false;
+        // Latest pending telemetry — overwritten each time a frame arrives.
+        // We deliberately only keep the most recent; older frames are noise.
+        std::string pendingState;
+        float pendingPosX = 0, pendingPosY = 0, pendingPosZ = 0, pendingPosA = 0;
+        bool  pendingPosValid     = false;
+        bool  pendingResponseSeen = false;  // signal that a "?" reply was processed
+
+        // -- Confirmed machine state (main thread) -------------------
+
+        std::string machineState;
+        float confX = 0, confY = 0, confZ = 0, confA = 0;
+        bool  confValid = false;
+
+        // -- Intent — sum of commanded deltas ------------------------
+
+        float intentX = 0, intentY = 0, intentZ = 0, intentA = 0;
+
+        // -- Display position — chases intent, anchored to truth -----
+
         float dispX = 0, dispY = 0, dispZ = 0, dispA = 0;
+        bool  dispReady = false;
+
+        Clock::time_point lastFrameTime = Clock::now();
+
+        // Display chase rate: how quickly the display catches up to intent.
+        // Linear approach at this many mm/ms or deg/ms.  Tuned to feel
+        // immediate without being jumpy.  At F=1000 the machine moves at
+        // ~16.67 mm/s = 0.01667 mm/ms; we chase at ~0.04 mm/ms so we lead
+        // slightly, then telemetry pulls us back to truth continuously.
+        static constexpr float ChaseSpeedLinear  = 0.040f;  // mm/ms
+        static constexpr float ChaseSpeedAngular = 0.120f;  // deg/ms
 
         static constexpr size_t MaxLogLines = 64;
-        static constexpr size_t MaxQueueLen = 128; // safety cap
 
         // -- UI nodes ------------------------------------------------
 
@@ -275,60 +300,25 @@ export namespace Carvera::Gui {
             buildJogSection();
             buildLogSection();
 
-            // Keepalive: poll machine state + drive UI refresh.
-            keepalive.onFrame([this](Rev::Core::AnimationEvent&) {
-                sendStatus();
+            // Watchdog — refires "?" if we never got the reply.
+            watchdog.onFrame([this](Rev::Core::AnimationEvent&) {
+                if (!client || !client->isConnected.load()) return;
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    Clock::now() - statusSentAt).count();
+                if (statusInFlight && elapsed > StatusTimeoutMs) {
+                    // The previous request seems lost — issue a fresh one.
+                    statusInFlight = false;
+                    sendStatus();
+                }
+                if (!statusInFlight) sendStatus();
                 if (shared && shared->event) refresh(*shared->event);
             });
 
-            // Interpolator: dead-reckons position at 140 fps while the
-            // command queue has pending work; backs off when idle.
-            interpolator.onFrame([this](Rev::Core::AnimationEvent& frame) {
-
-                if (!dispReady) {
-                    frame.delayNext(500);
-                    return;
-                }
-
-                if (jogQueue.empty()) {
-                    // Nothing in flight — display is already at rest.
-                    frame.delayNext(200);
-                    return;
-                }
-
-                // Walk the queue, consuming completed commands and
-                // interpolating the current one.
-                auto now = Clock::now();
-
-                while (!jogQueue.empty()) {
-
-                    JogCmd& cmd = jogQueue.front();
-                    float elapsed = std::chrono::duration<float, std::milli>(now - cmd.t0).count();
-
-                    if (elapsed >= cmd.durMs) {
-                        // Command fully executed — advance to its end position.
-                        dispX = cmd.ex(); dispY = cmd.ey();
-                        dispZ = cmd.ez(); dispA = cmd.ea();
-                        jogQueue.pop_front();
-
-                    } else {
-                        // Command in progress — linear interpolation.
-                        float t = elapsed / cmd.durMs; // 0..1
-                        dispX = cmd.sx + t * cmd.dx;
-                        dispY = cmd.sy + t * cmd.dy;
-                        dispZ = cmd.sz + t * cmd.dz;
-                        dispA = cmd.sa + t * cmd.da;
-                        break;
-                    }
-                }
-
-                updatePosDisplay();
-
-                // Back off once the queue drains.
-                if (jogQueue.empty()) frame.delayNext(200);
+            // Display chase loop — 140 fps, anchors to truth + chases intent.
+            displayLoop.onFrame([this](Rev::Core::AnimationEvent& frame) {
+                tickDisplay();
+                if (shared && shared->event) refresh(*shared->event);
             });
-
-            interpolator.play();
 
             gestures.onGesture = [this](CarveraCommand cmd, Event& e) {
                 switch (cmd) {
@@ -396,7 +386,7 @@ export namespace Carvera::Gui {
             // -- Jog grid (right) -------------------------------------
             //
             //   [A-]    [+Y]    [A+]
-            //   [-X]   [+Z|-Z]  [+X]
+            //   [-X]   [+Z/-Z]  [+X]
             //  [step-]  [-Y]  [step+]
 
             Box* grid = new Box(body, { &Style::JogGrid }, "JogGrid");
@@ -447,53 +437,27 @@ export namespace Carvera::Gui {
 
             client->onConnect([this](Rev::Client::ConnectEvent& e) {
                 pushLog(std::format("Connected to {}", e.address));
-                dispReady = false;
-                jogQueue.clear();
-                sendStatus();
-                keepalive.play();
+                resetTelemetryState();
+                sendStatus();           // kick off the chain
+                watchdog.play();
+                displayLoop.play();
             });
 
             client->onDisconnect([this](Rev::Client::DisconnectEvent& e) {
-                keepalive.stop();
-                jogQueue.clear();
-                dispReady = false;
+                watchdog.stop();
+                displayLoop.stop();
                 pushLog("Connection closed by remote.");
                 std::lock_guard lock(logMutex);
-                pendingState = ""; pendingPosValid = false;
+                pendingState = "";
+                pendingPosValid     = false;
+                pendingResponseSeen = false;
             });
 
-            client->onData([this](Rev::Client::DataEvent& e) {
-
-                std::string msg(e.data.begin(), e.data.end());
-                while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) msg.pop_back();
-
-                if (msg.size() > 1 && msg.front() == '<') {
-                    size_t delim  = msg.find_first_of(",|>", 1);
-                    std::string state = (delim != std::string::npos) ? msg.substr(1, delim - 1) : "";
-                    float x = 0, y = 0, z = 0, a = 0;
-                    size_t mp  = msg.find("MPos:");
-                    bool posOk = (mp != std::string::npos) &&
-                                 sscanf(msg.c_str() + mp + 5, "%f,%f,%f,%f", &x, &y, &z, &a) >= 3;
-                    {
-                        std::lock_guard lock(logMutex);
-                        pendingState = state;
-                        if (posOk) {
-                            pendingPosX = x; pendingPosY = y;
-                            pendingPosZ = z; pendingPosA = a;
-                            pendingPosValid = true;
-                        }
-                    }
-                    return;
-                }
-
-                if (msg == "ok" || msg.starts_with("ok - ignore:")) return;
-                pushLog(std::format("< {}", msg));
-            });
+            client->onData([this](Rev::Client::DataEvent& e) { onData(e); });
 
             client->onError([this](Rev::Client::ErrorEvent& e) {
-                keepalive.stop();
-                jogQueue.clear();
-                dispReady = false;
+                watchdog.stop();
+                displayLoop.stop();
                 pushLog(std::format("Error: {}", e.reason));
             });
 
@@ -502,12 +466,73 @@ export namespace Carvera::Gui {
 
         void onDisconnectClick(Event& e) {
             if (!client) return;
-            keepalive.stop();
-            jogQueue.clear();
-            dispReady = false;
+            watchdog.stop();
+            displayLoop.stop();
             delete client; client = nullptr;
             pushLog("Disconnected.");
+            resetTelemetryState();
             refresh(e);
+        }
+
+        void resetTelemetryState() {
+            std::lock_guard lock(logMutex);
+            pendingState = "";
+            pendingPosValid     = false;
+            pendingResponseSeen = false;
+            confValid      = false;
+            dispReady      = false;
+            machineState.clear();
+            statusInFlight = false;
+        }
+
+        // Worker-thread callback.  Splits a TCP chunk on newlines and
+        // processes each complete line.  Critically, when multiple "<...>"
+        // status frames are present we keep only the freshest one — older
+        // frames are intentionally discarded.
+        std::string rxBuffer_;
+        void onData(Rev::Client::DataEvent& e) {
+
+            rxBuffer_.append(e.data.begin(), e.data.end());
+
+            size_t start = 0;
+            while (true) {
+                size_t nl = rxBuffer_.find_first_of("\r\n", start);
+                if (nl == std::string::npos) break;
+                if (nl > start) processLine(rxBuffer_.substr(start, nl - start));
+                start = nl + 1;
+            }
+
+            if (start > 0) rxBuffer_.erase(0, start);
+        }
+
+        void processLine(const std::string& msg) {
+
+            // Status frame — parse silently, never log.  Always overwrite
+            // pending fields so the *latest* frame wins.
+            if (msg.size() > 1 && msg.front() == '<') {
+
+                size_t delim  = msg.find_first_of(",|>", 1);
+                std::string state = (delim != std::string::npos) ? msg.substr(1, delim - 1) : "";
+
+                float x = 0, y = 0, z = 0, a = 0;
+                size_t mp = msg.find("MPos:");
+                bool posOk = (mp != std::string::npos) &&
+                             sscanf(msg.c_str() + mp + 5, "%f,%f,%f,%f", &x, &y, &z, &a) >= 3;
+
+                std::lock_guard lock(logMutex);
+                pendingState = state;
+                if (posOk) {
+                    pendingPosX = x; pendingPosY = y;
+                    pendingPosZ = z; pendingPosA = a;
+                    pendingPosValid = true;
+                }
+                pendingResponseSeen = true;
+                return;
+            }
+
+            if (msg == "ok" || msg.starts_with("ok - ignore:")) return;
+
+            pushLog(std::format("< {}", msg));
         }
 
         // -- Machine commands ----------------------------------------
@@ -521,32 +546,11 @@ export namespace Carvera::Gui {
         }
 
         void jog(float dx, float dy, float dz) {
+            if (!client || !client->isConnected.load() || !confValid) return;
 
-            if (!client || !client->isConnected.load() || !dispReady) return;
-            if (jogQueue.size() >= MaxQueueLen) return;
+            // Update intent immediately — the display will chase this.
+            intentX += dx; intentY += dy; intentZ += dz;
 
-            // Determine when this command will start and what position it begins from.
-            // Commands are chained: each starts when the previous one ends.
-            Clock::time_point t0;
-            float sx, sy, sz, sa;
-
-            if (jogQueue.empty()) {
-                t0 = Clock::now();
-                sx = dispX; sy = dispY; sz = dispZ; sa = dispA;
-            } else {
-                const JogCmd& last = jogQueue.back();
-                t0 = last.t0 + std::chrono::duration_cast<Clock::duration>(
-                    std::chrono::duration<float, std::milli>(last.durMs));
-                sx = last.ex(); sy = last.ey(); sz = last.ez(); sa = last.ea();
-            }
-
-            float feedMmMs = jogFeedRate / 60000.0f;
-            float dist     = std::sqrt(dx*dx + dy*dy + dz*dz);
-            float durMs    = (dist > 0.0f && feedMmMs > 0.0f) ? dist / feedMmMs : 1.0f;
-
-            jogQueue.push_back({ sx, sy, sz, sa, dx, dy, dz, 0.0f, t0, durMs });
-
-            // Send incremental command to machine.
             std::string cmd = "$J=G91";
             if (dx != 0.0f) cmd += std::format(" X{:.3f}", dx);
             if (dy != 0.0f) cmd += std::format(" Y{:.3f}", dy);
@@ -556,34 +560,19 @@ export namespace Carvera::Gui {
         }
 
         void jogA(float degrees) {
-
-            if (!client || !client->isConnected.load() || !dispReady) return;
-            if (jogQueue.size() >= MaxQueueLen) return;
-
-            Clock::time_point t0;
-            float sx, sy, sz, sa;
-
-            if (jogQueue.empty()) {
-                t0 = Clock::now();
-                sx = dispX; sy = dispY; sz = dispZ; sa = dispA;
-            } else {
-                const JogCmd& last = jogQueue.back();
-                t0 = last.t0 + std::chrono::duration_cast<Clock::duration>(
-                    std::chrono::duration<float, std::milli>(last.durMs));
-                sx = last.ex(); sy = last.ey(); sz = last.ez(); sa = last.ea();
-            }
-
-            float feedDegMs = jogFeedRateA / 60000.0f;
-            float durMs     = (feedDegMs > 0.0f) ? std::abs(degrees) / feedDegMs : 1.0f;
-
-            jogQueue.push_back({ sx, sy, sz, sa, 0.0f, 0.0f, 0.0f, degrees, t0, durMs });
-
+            if (!client || !client->isConnected.load() || !confValid) return;
+            intentA += degrees;
             client->send(std::format("$J=G91 A{:.3f} F{}\n", degrees, jogFeedRateA));
         }
 
+        // Chain-polling primitive — issues "?" exactly once.
+        // No-op if a previous request hasn't been answered.
         void sendStatus() {
             if (!client || !client->isConnected.load()) return;
+            if (statusInFlight) return;
             client->send("?");
+            statusSentAt   = Clock::now();
+            statusInFlight = true;
         }
 
         void unlock(Event& e) {
@@ -591,14 +580,6 @@ export namespace Carvera::Gui {
             client->send("$X\n");
             pushLog("> $X  (unlock)");
             refresh(e);
-        }
-
-        void updatePosDisplay() {
-            if (!dispReady) return;
-            if (posXText) posXText->content = std::format("{:.3f}", dispX);
-            if (posYText) posYText->content = std::format("{:.3f}", dispY);
-            if (posZText) posZText->content = std::format("{:.3f}", dispZ);
-            if (posAText) posAText->content = std::format("{:.3f}", dispA);
         }
 
         // -- Step size -----------------------------------------------
@@ -620,87 +601,132 @@ export namespace Carvera::Gui {
             pendingLog.push_back(std::move(msg));
         }
 
-        void drainLog() {
+        // Drain worker-thread state into main-thread state.
+        // Returns true if a fresh telemetry frame was committed.
+        bool drainTelemetry() {
 
-            bool logDirty = false;
-            bool posDirty = false;
+            bool        logDirty  = false;
+            bool        posDirty  = false;
+            bool        replySeen = false;
+            float       nx = 0, ny = 0, nz = 0, na = 0;
+            std::string nstate;
 
             {
                 std::lock_guard lock(logMutex);
 
                 while (!pendingLog.empty()) {
-                    logLines.push_back(std::move(pendingLog.front()));
+                    logLines_.push_back(std::move(pendingLog.front()));
                     pendingLog.pop_front();
                     logDirty = true;
                 }
 
-                machineState = pendingState;
-
+                nstate    = pendingState;
+                replySeen = pendingResponseSeen;
                 if (pendingPosValid) {
-                    posX = pendingPosX; posY = pendingPosY;
-                    posZ = pendingPosZ; posA = pendingPosA;
+                    nx = pendingPosX; ny = pendingPosY;
+                    nz = pendingPosZ; na = pendingPosA;
                     pendingPosValid = false;
                     posDirty = true;
                 }
+                pendingResponseSeen = false;
             }
 
-            while (logLines.size() > MaxLogLines) logLines.pop_front();
+            while (logLines_.size() > MaxLogLines) logLines_.pop_front();
 
             if (logDirty && logText) {
                 std::string combined;
-                for (auto& l : logLines) { combined += l; combined += '\n'; }
+                for (auto& l : logLines_) { combined += l; combined += '\n'; }
                 logText->content = combined;
             }
 
+            machineState = nstate;
+
+            if (replySeen) {
+                // The chain-poll cycle completes here: response was received,
+                // we may issue the next "?".
+                statusInFlight = false;
+            }
+
             if (posDirty) {
+                confX = nx; confY = ny; confZ = nz; confA = na;
+                confValid = true;
+            }
 
-                if (!dispReady) {
-                    // First telemetry report — initialize dead reckoning from machine truth.
-                    dispX = posX; dispY = posY; dispZ = posZ; dispA = posA;
-                    dispReady = true;
-                    updatePosDisplay();
+            return posDirty;
+        }
 
-                } else if (jogQueue.empty()) {
-                    // No commands in flight — machine is at rest.
-                    // Accept telemetry directly: it's the definitive source of truth.
-                    dispX = posX; dispY = posY; dispZ = posZ; dispA = posA;
-                    updatePosDisplay();
+        // Display tick — runs at 140 Hz.  Implements three rules:
+        //
+        //   1. Drain any pending telemetry; if a fresh frame arrived,
+        //      anchor display to that confirmed position.
+        //   2. If the machine reports Idle, reset intent to truth
+        //      (the machine has finished all commands).
+        //   3. Step the display toward intent at the chase rate.
+        void tickDisplay() {
 
-                } else {
-                    // Commands are in flight.
-                    // Treat telemetry as a calibration signal: compute the difference
-                    // between what the machine reports and where we expected it to be
-                    // at this moment, then shift the entire queue by that error.
-                    // This corrects for network latency and minor timing drift without
-                    // interrupting the smooth interpolation.
+            auto now = Clock::now();
+            float dtMs = std::chrono::duration<float, std::milli>(now - lastFrameTime).count();
+            lastFrameTime = now;
 
-                    auto  now     = Clock::now();
-                    float elapsedFront = std::chrono::duration<float, std::milli>(
-                        now - jogQueue.front().t0).count();
-                    float t = std::clamp(elapsedFront / jogQueue.front().durMs, 0.0f, 1.0f);
+            bool freshFrame = drainTelemetry();
 
-                    float predictedX = jogQueue.front().sx + t * jogQueue.front().dx;
-                    float predictedY = jogQueue.front().sy + t * jogQueue.front().dy;
-                    float predictedZ = jogQueue.front().sz + t * jogQueue.front().dz;
-                    float predictedA = jogQueue.front().sa + t * jogQueue.front().da;
+            // Issue the next status request — chain-polled.
+            if (!statusInFlight) sendStatus();
 
-                    float errX = posX - predictedX;
-                    float errY = posY - predictedY;
-                    float errZ = posZ - predictedZ;
-                    float errA = posA - predictedA;
+            if (!confValid) {
+                dispReady = false;
+                return;
+            }
 
-                    // Only apply correction if error is significant (not just noise).
-                    constexpr float kCorrThreshold = 0.5f; // mm
-                    if (std::abs(errX) > kCorrThreshold || std::abs(errY) > kCorrThreshold ||
-                        std::abs(errZ) > kCorrThreshold || std::abs(errA) > kCorrThreshold) {
+            if (!dispReady) {
+                // First telemetry — initialize all positions.
+                dispX = intentX = confX;
+                dispY = intentY = confY;
+                dispZ = intentZ = confZ;
+                dispA = intentA = confA;
+                dispReady = true;
+                updatePosDisplay();
+                return;
+            }
 
-                        for (JogCmd& cmd : jogQueue) {
-                            cmd.sx += errX; cmd.sy += errY;
-                            cmd.sz += errZ; cmd.sa += errA;
-                        }
-                    }
+            if (freshFrame) {
+                // Re-anchor display to confirmed truth, preserving any
+                // user intent above that.
+                dispX = confX;
+                dispY = confY;
+                dispZ = confZ;
+                dispA = confA;
+
+                // If the machine is idle, it has fully executed everything
+                // — reset intent to truth so a stray jog accumulated past
+                // a wall doesn't strand the display ahead forever.
+                if (machineState == "Idle" || machineState == "Alarm") {
+                    intentX = confX; intentY = confY;
+                    intentZ = confZ; intentA = confA;
                 }
             }
+
+            // Chase intent at a bounded rate per axis.
+            stepToward(dispX, intentX, ChaseSpeedLinear  * dtMs);
+            stepToward(dispY, intentY, ChaseSpeedLinear  * dtMs);
+            stepToward(dispZ, intentZ, ChaseSpeedLinear  * dtMs);
+            stepToward(dispA, intentA, ChaseSpeedAngular * dtMs);
+
+            updatePosDisplay();
+        }
+
+        static void stepToward(float& cur, float target, float maxStep) {
+            float diff = target - cur;
+            if (std::abs(diff) <= maxStep) { cur = target; return; }
+            cur += (diff > 0 ? maxStep : -maxStep);
+        }
+
+        void updatePosDisplay() {
+            if (!dispReady) return;
+            if (posXText) posXText->content = std::format("{:.3f}", dispX);
+            if (posYText) posYText->content = std::format("{:.3f}", dispY);
+            if (posZText) posZText->content = std::format("{:.3f}", dispZ);
+            if (posAText) posAText->content = std::format("{:.3f}", dispA);
         }
 
         // -- Keyboard ------------------------------------------------
@@ -727,11 +753,11 @@ export namespace Carvera::Gui {
                 if (ctrl)  step *=  0.1f;
 
                 if      (shift && arrows.up)   { activeJogBtn = btnPZ; jog(0, 0, +step); handled = true; }
-                else if (shift && arrows.down)  { activeJogBtn = btnNZ; jog(0, 0, -step); handled = true; }
-                else if (arrows.left)           { activeJogBtn = btnNX; jog(-step, 0, 0); handled = true; }
-                else if (arrows.right)          { activeJogBtn = btnPX; jog(+step, 0, 0); handled = true; }
-                else if (arrows.up)             { activeJogBtn = btnPY; jog(0, +step, 0); handled = true; }
-                else if (arrows.down)           { activeJogBtn = btnNY; jog(0, -step, 0); handled = true; }
+                else if (shift && arrows.down) { activeJogBtn = btnNZ; jog(0, 0, -step); handled = true; }
+                else if (arrows.left)          { activeJogBtn = btnNX; jog(-step, 0, 0); handled = true; }
+                else if (arrows.right)         { activeJogBtn = btnPX; jog(+step, 0, 0); handled = true; }
+                else if (arrows.up)            { activeJogBtn = btnPY; jog(0, +step, 0); handled = true; }
+                else if (arrows.down)          { activeJogBtn = btnNY; jog(0, -step, 0); handled = true; }
             }
 
             if (handled) { e.propagate = false; refresh(e); return; }
@@ -750,8 +776,6 @@ export namespace Carvera::Gui {
         // -- Compute / render ----------------------------------------
 
         void computeChildren(Event& e) override {
-
-            drainLog();
 
             bool isConnected = client && client->isConnected.load();
 
@@ -774,7 +798,7 @@ export namespace Carvera::Gui {
                 connectionSection->styles.remove(&Style::PanelBorderToolChange);
                 connectionSection->styles.remove(&Style::PanelBorderNone);
 
-                if      (!isConnected)            connectionSection->styles.add(&Style::PanelBorderNone);
+                if      (!isConnected)             connectionSection->styles.add(&Style::PanelBorderNone);
                 else if (machineState == "Alarm")  connectionSection->styles.add(&Style::PanelBorderAlarm);
                 else if (machineState == "Tool")   connectionSection->styles.add(&Style::PanelBorderToolChange);
                 else                               connectionSection->styles.add(&Style::PanelBorderConnected);
@@ -788,6 +812,6 @@ export namespace Carvera::Gui {
         }
 
     private:
-        std::deque<std::string> logLines;
+        std::deque<std::string> logLines_;
     };
 }
