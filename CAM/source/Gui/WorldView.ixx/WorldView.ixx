@@ -1595,7 +1595,7 @@ export namespace Cam::Gui {
         bool extendSelected(Event& e, double distance = 10.0) {
 
             if (!app || !app->extendSelected(distance)) {
-                dbg("extend feature failed — see [Extend] logs above");
+                dbg("extend feature failed - see [Extend] logs above");
                 return false;
             }
 

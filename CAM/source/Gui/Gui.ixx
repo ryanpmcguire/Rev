@@ -151,6 +151,11 @@ export namespace Cam::Gui {
                 refresh(e);
             };
 
+            leftPanel->onStockChanged = [this](Event& e) {
+                if (worldView) { worldView->sync(e); }
+                refresh(e);
+            };
+
             worldView->onStateChanged = [this](Event& e) {
 
                 if (leftPanel) {

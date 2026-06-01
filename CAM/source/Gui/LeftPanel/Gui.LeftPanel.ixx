@@ -19,6 +19,7 @@ import Cam.App;
 import Cam.App.Project;
 
 import Cam.Gui.MaterialStates;
+import Cam.Gui.StockMenu;
 import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
@@ -66,12 +67,14 @@ export namespace Cam::Gui {
         Text* fileButtonLabel = nullptr;
 
         MaterialStates* materialStates = nullptr;
+        StockMenu* stockMenu = nullptr;
 
         std::function<void(Event&)> onSelectFile;
         std::function<void(Event&)> onBeforeSelectFile;
         std::function<void(Event&)> onSelectState;
         std::function<void(Event&)> onDeleteState;
         std::function<void(Event&)> onToolPathEdited;
+        std::function<void(Event&)> onStockChanged;
 
         // Create
         //--------------------------------------------------
@@ -123,6 +126,16 @@ export namespace Cam::Gui {
 
             materialStates->onToolPathEdited = [this](Event& e) {
                 if (onToolPathEdited) { onToolPathEdited(e); }
+            };
+
+            stockMenu = new StockMenu(this);
+
+            stockMenu->onChanged = [this](Event& e) {
+
+                // Regenerated stock states must re-render in the list and 3D view.
+                if (materialStates) { materialStates->refresh(e); }
+
+                if (onStockChanged) { onStockChanged(e); }
             };
         }
 

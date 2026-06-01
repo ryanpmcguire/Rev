@@ -26,10 +26,14 @@ module;
 #include <TopTools_IndexedMapOfShape.hxx>
 
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
@@ -48,6 +52,7 @@ module;
 #include <dbg.hpp>
 
 #include <GeomAbs_SurfaceType.hxx>
+#include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
@@ -879,6 +884,244 @@ export namespace Cam::App {
             };
         }
 
+        // Stock definition
+        //--------------------------------------------------
+
+        // True when the solid is a rectangular prism (box): exactly six planar
+        // faces whose normals form three mutually-perpendicular antiparallel
+        // pairs.  Frame-independent and exact, so it holds for boxes at any
+        // orientation.
+        bool isRectangularPrism() const {
+
+            if (shape.IsNull()) { return false; }
+            if (faces.size() != 6) { return false; }
+
+            const double angTol = 0.0873;  // ~5 degrees
+
+            std::vector<gp_Dir> axes;
+
+            for (size_t i = 0; i < faces.size(); i++) {
+
+                BRepAdaptor_Surface surf(faces[i]);
+
+                if (surf.GetType() != GeomAbs_Plane) { return false; }
+
+                Rev::Core::Pos3 normal = faceNormal(i);
+                gp_Vec vec(normal.x, normal.y, normal.z);
+
+                if (vec.Magnitude() <= 1e-9) { return false; }
+
+                gp_Dir dir(vec);
+
+                bool matched = false;
+
+                for (const gp_Dir& axis : axes) {
+                    if (dir.IsParallel(axis, angTol)) { matched = true; break; }
+                }
+
+                if (!matched) {
+                    if (axes.size() == 3) { return false; }
+                    axes.push_back(dir);
+                }
+            }
+
+            if (axes.size() != 3) { return false; }
+
+            return (
+                axes[0].IsNormal(axes[1], angTol) &&
+                axes[0].IsNormal(axes[2], angTol) &&
+                axes[1].IsNormal(axes[2], angTol)
+            );
+        }
+
+        // Adopt an arbitrary shape into a fresh Model, healing it.
+        static Model FromShape(const TopoDS_Shape& input) {
+
+            Model model;
+
+            if (input.IsNull()) { return model; }
+
+            TopoDS_Shape healed = model.healShape(input);
+
+            if (!healed.IsNull() && isShapeValid(healed)) {
+                model.adoptShape(healed, false, "FromShape");
+            }
+            else if (isShapeValid(input)) {
+                model.adoptShape(input, false, "FromShape(raw)");
+            }
+
+            return model;
+        }
+
+        // Axis-frame bounds of this shape: min/max of every vertex projected
+        // onto the supplied orthonormal frame (origin + x/y/z unit directions).
+        void frameBounds(
+            const Rev::Core::Pos3& origin,
+            const Rev::Core::Pos3& xDir,
+            const Rev::Core::Pos3& yDir,
+            const Rev::Core::Pos3& zDir,
+            double& x0, double& x1,
+            double& y0, double& y1,
+            double& z0, double& z1
+        ) const {
+
+            bool first = true;
+
+            for (TopExp_Explorer ex(shape, TopAbs_VERTEX); ex.More(); ex.Next()) {
+
+                gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(ex.Current()));
+
+                Rev::Core::Pos3 rel = {
+                    static_cast<float>(p.X()) - origin.x,
+                    static_cast<float>(p.Y()) - origin.y,
+                    static_cast<float>(p.Z()) - origin.z
+                };
+
+                double lx = rel.dot(xDir);
+                double ly = rel.dot(yDir);
+                double lz = rel.dot(zDir);
+
+                if (first) {
+                    x0 = x1 = lx;
+                    y0 = y1 = ly;
+                    z0 = z1 = lz;
+                    first = false;
+                    continue;
+                }
+
+                x0 = std::min(x0, lx); x1 = std::max(x1, lx);
+                y0 = std::min(y0, ly); y1 = std::max(y1, ly);
+                z0 = std::min(z0, lz); z1 = std::max(z1, lz);
+            }
+
+            if (first) {
+                x0 = x1 = y0 = y1 = z0 = z1 = 0.0;
+            }
+        }
+
+        // Parameters describing the desired stock cross-section (the axis is
+        // always the part's X / rotary axis; length matches the part).
+        struct StockParams {
+            bool cylinder = false;
+            double radius = 0.0;       // cylinder cross-section radius
+            double halfWidth = 0.0;    // prism half extent along axis Y
+            double halfHeight = 0.0;   // prism half extent along axis Z
+        };
+
+        // Build the four incremental stock-step solids that grow this part,
+        // one side-face at a time (+Y, -Y, +Z, -Z around the axis), out to the
+        // full stock boundary.  The last solid equals the full stock.
+        //
+        // Each step is the running clip of the full stock against a box that
+        // has been extended on one more side — for a prism the clip is a no-op
+        // (so steps are plain slabs), for a cylinder it rounds each slab to the
+        // cylindrical surface.  All solids are returned in world space.
+        std::vector<TopoDS_Shape> buildStockStepShapes(const StockParams& sp) const {
+
+            std::vector<TopoDS_Shape> steps;
+
+            if (shape.IsNull()) { return steps; }
+
+            // Orthonormal axis frame.
+            Rev::Core::Pos3 xDir, yDir, zDir;
+            getOrthonormalAxisFrame(xDir, yDir, zDir);
+
+            // Part bounds in that frame.  Use the (arbitrary) world origin as
+            // the projection origin so vertex coordinates map cleanly; the
+            // resulting local extents are what we build against.
+            Rev::Core::Pos3 worldOrigin = { 0.0f, 0.0f, 0.0f };
+
+            double x0, x1, y0, y1, z0, z1;
+            frameBounds(worldOrigin, xDir, yDir, zDir, x0, x1, y0, y1, z0, z1);
+
+            const double cy = (y0 + y1) * 0.5;
+            const double cz = (z0 + z1) * 0.5;
+
+            // Cross-section extents of the full stock.
+            double Y0, Y1, Z0, Z1;
+
+            if (sp.cylinder) {
+                Y0 = cy - sp.radius; Y1 = cy + sp.radius;
+                Z0 = cz - sp.radius; Z1 = cz + sp.radius;
+            }
+            else {
+                Y0 = cy - sp.halfWidth;  Y1 = cy + sp.halfWidth;
+                Z0 = cz - sp.halfHeight; Z1 = cz + sp.halfHeight;
+            }
+
+            const gp_Dir gx(xDir.x, xDir.y, xDir.z);
+            const gp_Dir gy(yDir.x, yDir.y, yDir.z);
+            const gp_Dir gz(zDir.x, zDir.y, zDir.z);
+
+            auto worldPoint = [&](double lx, double ly, double lz) -> gp_Pnt {
+                return gp_Pnt(
+                    lx * xDir.x + ly * yDir.x + lz * zDir.x,
+                    lx * xDir.y + ly * yDir.y + lz * zDir.y,
+                    lx * xDir.z + ly * yDir.z + lz * zDir.z
+                );
+            };
+
+            // Axis-aligned (in the frame) box spanning the given local ranges.
+            auto makeBox = [&](
+                double bx0, double bx1,
+                double by0, double by1,
+                double bz0, double bz1
+            ) -> TopoDS_Shape {
+                gp_Ax2 ax(worldPoint(bx0, by0, bz0), gz, gx);
+                return BRepPrimAPI_MakeBox(
+                    ax,
+                    bx1 - bx0,
+                    by1 - by0,
+                    bz1 - bz0
+                ).Shape();
+            };
+
+            // Full stock solid.
+            TopoDS_Shape stockSolid;
+
+            if (sp.cylinder) {
+                gp_Ax2 ax(worldPoint(x0, cy, cz), gx, gy);
+                stockSolid = BRepPrimAPI_MakeCylinder(ax, sp.radius, x1 - x0).Shape();
+            }
+            else {
+                stockSolid = makeBox(x0, x1, Y0, Y1, Z0, Z1);
+            }
+
+            if (stockSolid.IsNull()) { return steps; }
+
+            // Four progressively-extended clip boxes.
+            const double clip[4][6] = {
+                { x0, x1, y0, Y1, z0, z1 },  // extend +Y
+                { x0, x1, Y0, Y1, z0, z1 },  // extend -Y
+                { x0, x1, Y0, Y1, z0, Z1 },  // extend +Z
+                { x0, x1, Y0, Y1, Z0, Z1 },  // extend -Z (full)
+            };
+
+            for (int i = 0; i < 4; i++) {
+
+                TopoDS_Shape box = makeBox(
+                    clip[i][0], clip[i][1],
+                    clip[i][2], clip[i][3],
+                    clip[i][4], clip[i][5]
+                );
+
+                if (box.IsNull()) { steps.clear(); return steps; }
+
+                BRepAlgoAPI_Common common(stockSolid, box);
+                common.Build();
+
+                if (!common.IsDone()) { steps.clear(); return steps; }
+
+                TopoDS_Shape result = common.Shape();
+
+                if (result.IsNull()) { steps.clear(); return steps; }
+
+                steps.push_back(result);
+            }
+
+            return steps;
+        }
+
         // STEP import
         //--------------------------------------------------
 
@@ -1262,7 +1505,9 @@ export namespace Cam::App {
             }
 
             try {
-                TopoDS_Shape accum = shape;
+                // Boolean fuse requires a solid; a prior heal may have left the
+                // working model as a shell, so restore solidity up front.
+                TopoDS_Shape accum = ensureSolid(shape);
                 size_t fused = 0;
 
                 for (size_t faceId : validFaceIds) {
@@ -1343,18 +1588,35 @@ export namespace Cam::App {
 
                 logShapeStats("[Extend] raw fused result", accum);
 
-                // Heal: sew + unify coplanar faces so the extended sides merge
-                // back into single planar faces rather than seamed pairs.
-                TopoDS_Shape healed = healShape(accum);
-
+                // Merge the coplanar faces the fuse leaves at each seam so the
+                // extended sides become single planar faces again.  Crucially we
+                // unify WITHOUT sewing: sewing demotes the solid to a shell,
+                // which makes the next fuse fail.  Keep the result a solid.
                 TopoDS_Shape chosenResult = accum;
 
-                if (!healed.IsNull() && isShapeValid(healed)) {
-                    chosenResult = healed;
+                try {
+                    ShapeUpgrade_UnifySameDomain unifier(accum, true, true, true);
+                    unifier.Build();
+
+                    TopoDS_Shape unified = unifier.Shape();
+
+                    if (!unified.IsNull() && isShapeValid(unified)) {
+                        chosenResult = unified;
+                    }
                 }
-                else if (!isShapeValid(accum)) {
-                    logEvent(format("[Extend #%zu] failed: fused result invalid and heal fallback invalid", operationSerial));
-                    dumpRecentHistory("[Extend] recent history because raw/healed were invalid");
+                catch (const Standard_Failure& failure) {
+                    logEvent(format(
+                        "[Extend #%zu] unify exception (keeping raw fuse): %s",
+                        operationSerial,
+                        safeFailureMessage(failure)
+                    ));
+                }
+
+                chosenResult = ensureSolid(chosenResult);
+
+                if (!isShapeValid(chosenResult)) {
+                    logEvent(format("[Extend #%zu] failed: result invalid after unify", operationSerial));
+                    dumpRecentHistory("[Extend] recent history because result was invalid");
                     return false;
                 }
 
@@ -1499,6 +1761,40 @@ export namespace Cam::App {
             catch (...) {
                 return false;
             }
+        }
+
+        // Promote a shell (or shells) to a solid.  Boolean ops require solids;
+        // sewing-based healing can demote a solid to a shell, so we restore it.
+        static TopoDS_Shape ensureSolid(const TopoDS_Shape& input) {
+            if (input.IsNull()) { return input; }
+
+            // Already has a solid — leave it alone.
+            for (TopExp_Explorer ex(input, TopAbs_SOLID); ex.More(); ex.Next()) {
+                return input;
+            }
+
+            try {
+                BRepBuilderAPI_MakeSolid maker;
+                bool anyShell = false;
+
+                for (TopExp_Explorer ex(input, TopAbs_SHELL); ex.More(); ex.Next()) {
+                    maker.Add(TopoDS::Shell(ex.Current()));
+                    anyShell = true;
+                }
+
+                if (anyShell) {
+                    maker.Build();
+
+                    if (maker.IsDone()) {
+                        TopoDS_Shape solid = maker.Solid();
+                        if (!solid.IsNull()) { return solid; }
+                    }
+                }
+            }
+            catch (...) {
+            }
+
+            return input;
         }
 
         static double faceArea(const TopoDS_Face& face) {

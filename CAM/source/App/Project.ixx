@@ -5,6 +5,9 @@ module;
 #include <string>
 #include <fstream>
 #include <cstddef>
+#include <cmath>
+
+#include <TopoDS_Shape.hxx>
 
 #include <nlohmann/json.hpp>
 #include <dbg.hpp>
@@ -21,6 +24,29 @@ import Cam.App.ToolLibrary;
 export namespace Cam::App {
 
     using Json = nlohmann::json;
+
+    enum class StockType {
+        RectangularPrism,
+        Cylinder
+    };
+
+    // User-defined raw stock that the final rectangular prism is machined from.
+    // The stock axis is always the part's X / rotary axis and its length equals
+    // the part length; only the cross-section (rectangular W×H or a radius) is
+    // user-controlled.
+    struct StockDefinition {
+        bool defined = false;       // stock is active (menu engaged)
+        bool initialized = false;   // defaults computed from the part yet
+        StockType type = StockType::RectangularPrism;
+        double radius = 0.0;        // cylinder cross-section radius
+        double width = 0.0;         // prism full extent along axis Y
+        double height = 0.0;        // prism full extent along axis Z
+        double length = 0.0;        // extent along the axis (== part length)
+
+        void reset() {
+            *this = StockDefinition();
+        }
+    };
 
     struct Project {
 
@@ -65,6 +91,9 @@ export namespace Cam::App {
         MaterialState* displayedState = nullptr;
         std::vector<MaterialState*> viewSelection;
 
+        // Raw stock definition (and its auto-generated states).
+        StockDefinition stock;
+
         // Create
         //--------------------------------------------------
 
@@ -105,6 +134,8 @@ export namespace Cam::App {
             workingState = nullptr;
             displayedState = nullptr;
             viewSelection.clear();
+
+            stock.reset();
 
             loaded = false;
         }
@@ -321,6 +352,7 @@ export namespace Cam::App {
                 stateJson["name"] = state->name;
                 stateJson["committed"] = state->committed;
                 stateJson["working"] = state->working;
+                stateJson["stockGenerated"] = state->stockGenerated;
                 stateJson["hasDelta"] = state->hasDelta;
 
                 size_t parentIndex = indexOf(state->parent);
@@ -399,6 +431,16 @@ export namespace Cam::App {
             json["workingState"] = indexOf(workingState);
             json["displayedState"] = indexOf(displayedState);
 
+            json["stock"] = {
+                { "defined", stock.defined },
+                { "initialized", stock.initialized },
+                { "type", stock.type == StockType::Cylinder ? "cylinder" : "prism" },
+                { "radius", stock.radius },
+                { "width", stock.width },
+                { "height", stock.height },
+                { "length", stock.length }
+            };
+
             return json;
         }
 
@@ -456,6 +498,10 @@ export namespace Cam::App {
 
                     if (stateJson.contains("working")) {
                         state->working = stateJson["working"].get<bool>();
+                    }
+
+                    if (stateJson.contains("stockGenerated")) {
+                        state->stockGenerated = stateJson["stockGenerated"].get<bool>();
                     }
 
                     if (stateJson.contains("hasDelta")) {
@@ -649,6 +695,37 @@ export namespace Cam::App {
 
                 loaded = rootState != nullptr;
                 dirty = false;
+
+                stock.reset();
+
+                if (json.contains("stock") && json["stock"].is_object()) {
+
+                    const Json& stockJson = json["stock"];
+
+                    if (stockJson.contains("defined") && stockJson["defined"].is_boolean()) {
+                        stock.defined = stockJson["defined"].get<bool>();
+                    }
+                    if (stockJson.contains("initialized") && stockJson["initialized"].is_boolean()) {
+                        stock.initialized = stockJson["initialized"].get<bool>();
+                    }
+                    if (stockJson.contains("type") && stockJson["type"].is_string()) {
+                        stock.type = stockJson["type"].get<std::string>() == "cylinder"
+                            ? StockType::Cylinder
+                            : StockType::RectangularPrism;
+                    }
+                    if (stockJson.contains("radius") && stockJson["radius"].is_number()) {
+                        stock.radius = stockJson["radius"].get<double>();
+                    }
+                    if (stockJson.contains("width") && stockJson["width"].is_number()) {
+                        stock.width = stockJson["width"].get<double>();
+                    }
+                    if (stockJson.contains("height") && stockJson["height"].is_number()) {
+                        stock.height = stockJson["height"].get<double>();
+                    }
+                    if (stockJson.contains("length") && stockJson["length"].is_number()) {
+                        stock.length = stockJson["length"].get<double>();
+                    }
+                }
 
                 loadToolLibrary();
 
@@ -956,6 +1033,19 @@ export namespace Cam::App {
                 states.end()
             );
 
+            // Deleting any generated stock state tears down the whole stock,
+            // so reset the definition and re-offer the "Generate Stock" button.
+            bool removedStock = false;
+
+            for (MaterialState* node : toDelete) {
+                if (node && node->stockGenerated) { removedStock = true; break; }
+            }
+
+            if (removedStock) {
+                stock.defined = false;
+                stock.initialized = false;
+            }
+
             auto isRemoved = [&toDelete](MaterialState* candidate) {
 
                 if (!candidate) { return true; }
@@ -1030,6 +1120,332 @@ export namespace Cam::App {
             dirty = true;
 
             return true;
+        }
+
+        // Stock definition
+        //--------------------------------------------------
+
+        // The deepest user (non-stock) state — the rectangular prism the stock
+        // grows out from.
+        MaterialState* stockBaseState() const {
+
+            if (workingState && !workingState->stockGenerated) {
+                return workingState;
+            }
+
+            for (auto it = states.rbegin(); it != states.rend(); ++it) {
+                if (*it && !(*it)->stockGenerated) { return *it; }
+            }
+
+            return nullptr;
+        }
+
+        // Stock can be defined once the base part is literally a box.
+        bool stockMenuAvailable() {
+
+            MaterialState* base = stockBaseState();
+
+            return base && base->model.isRectangularPrism();
+        }
+
+        // Axis-frame extents (X along axis, Y/Z cross-section) of the base part.
+        bool partFrameExtents(double& extX, double& extY, double& extZ) {
+
+            MaterialState* base = stockBaseState();
+
+            if (!base) { return false; }
+
+            Rev::Core::Pos3 x, y, z;
+            base->model.getOrthonormalAxisFrame(x, y, z);
+
+            double x0, x1, y0, y1, z0, z1;
+            base->model.frameBounds({ 0.0f, 0.0f, 0.0f }, x, y, z, x0, x1, y0, y1, z0, z1);
+
+            extX = x1 - x0;
+            extY = y1 - y0;
+            extZ = z1 - z0;
+
+            return true;
+        }
+
+        // True once stock has been generated.
+        bool stockGenerated() const {
+
+            for (MaterialState* s : states) {
+                if (s && s->stockGenerated) { return true; }
+            }
+
+            return false;
+        }
+
+        // Detach and delete an (empty) working-copy state, splicing it out of the
+        // history without spawning a replacement working state.
+        void removeWorkingCopyState(MaterialState* s) {
+
+            if (!s) { return; }
+
+            if (s->parent) {
+                auto& children = s->parent->children;
+                children.erase(
+                    std::remove(children.begin(), children.end(), s),
+                    children.end()
+                );
+            }
+
+            states.erase(std::remove(states.begin(), states.end(), s), states.end());
+
+            if (displayedState == s)        { displayedState = s->parent; }
+            if (latestCommittedState == s)  { latestCommittedState = s->parent; }
+
+            viewSelection.erase(
+                std::remove(viewSelection.begin(), viewSelection.end(), s),
+                viewSelection.end()
+            );
+
+            s->parent = nullptr;
+            s->children.clear();
+            s->model.clear();
+            s->clearDelta();
+
+            delete s;
+
+            if (!displayedState) {
+                displayedState = latestCommittedState ? latestCommittedState : rootState;
+            }
+
+            if (viewSelection.empty()) {
+                syncViewSelectionToDisplayed();
+            }
+        }
+
+        // One-time stock generation, driven by the "Generate Stock" button.
+        // Consumes the current working state (so no vestigial editable copy is
+        // left parenting the stock chain), fills default dimensions from the
+        // part bounding box, and builds the four stock states.
+        bool generateStock() {
+
+            if (stock.defined) { return false; }
+            if (!stockMenuAvailable()) { return false; }
+
+            MaterialState* base = stockBaseState();
+
+            if (!base) { return false; }
+
+            // Make sure the prism is a permanent, non-editable boundary rather
+            // than a trailing working state that would orphan the stock chain.
+            if (base == workingState) {
+
+                const bool emptyCopy =
+                    base->parent &&
+                    !base->hasDelta &&
+                    !base->model.changed;
+
+                if (emptyCopy) {
+                    // The part was already a prism; drop the redundant copy and
+                    // build stock off the committed parent prism.
+                    MaterialState* parent = base->parent;
+                    removeWorkingCopyState(base);
+                    base = parent;
+                }
+                else {
+                    // A real operation produced the prism; finalize it in place.
+                    base->working = false;
+                    base->committed = true;
+                    latestCommittedState = base;
+                }
+
+                workingState = nullptr;
+            }
+
+            double extX = 0.0, extY = 0.0, extZ = 0.0;
+
+            if (!partFrameExtents(extX, extY, extZ)) { return false; }
+
+            const double margin = 2.0;
+
+            stock.type   = StockType::RectangularPrism;
+            stock.length = extX;
+            stock.width  = extY + 2.0 * margin;
+            stock.height = extZ + 2.0 * margin;
+            stock.radius = 0.5 * std::sqrt(extY * extY + extZ * extZ) + margin;
+
+            stock.defined = true;
+            stock.initialized = true;
+
+            if (displayedState == nullptr) {
+                displayedState = base;
+                syncViewSelectionToDisplayed();
+            }
+
+            regenerateStockStates();
+
+            return true;
+        }
+
+        void copyAxisFrame(const Model& src, Model& dst) {
+
+            dst.axisOrigin    = src.axisOrigin;    dst.hasAxisOrigin = src.hasAxisOrigin;
+            dst.axisXDirection = src.axisXDirection; dst.hasAxisX = src.hasAxisX;
+            dst.axisYDirection = src.axisYDirection; dst.hasAxisY = src.hasAxisY;
+            dst.axisZDirection = src.axisZDirection; dst.hasAxisZ = src.hasAxisZ;
+        }
+
+        // Remove and delete all auto-generated stock states, restoring the
+        // user chain to its pristine pre-stock form.
+        void removeStockStates() {
+
+            std::vector<MaterialState*> stockStates;
+            std::vector<MaterialState*> kept;
+
+            for (MaterialState* s : states) {
+                if (s && s->stockGenerated) { stockStates.push_back(s); }
+                else { kept.push_back(s); }
+            }
+
+            if (stockStates.empty()) { return; }
+
+            states = kept;
+
+            // Drop child links from kept states into the (deleted) stock chain.
+            for (MaterialState* s : kept) {
+
+                if (!s) { continue; }
+
+                s->children.erase(
+                    std::remove_if(
+                        s->children.begin(),
+                        s->children.end(),
+                        [](MaterialState* c) { return c && c->stockGenerated; }
+                    ),
+                    s->children.end()
+                );
+            }
+
+            for (MaterialState* s : stockStates) {
+
+                if (displayedState == s) { displayedState = nullptr; }
+
+                s->parent = nullptr;
+                s->children.clear();
+                s->model.clear();
+                s->clearDelta();
+
+                delete s;
+            }
+
+            viewSelection.erase(
+                std::remove_if(
+                    viewSelection.begin(),
+                    viewSelection.end(),
+                    [&](MaterialState* c) {
+                        return std::find(kept.begin(), kept.end(), c) == kept.end();
+                    }
+                ),
+                viewSelection.end()
+            );
+
+            if (!displayedState) {
+                displayedState = workingState ? workingState : latestCommittedState;
+            }
+
+            if (viewSelection.empty()) {
+                syncViewSelectionToDisplayed();
+            }
+        }
+
+        // Rebuild the four stock states from the current stock definition.
+        void regenerateStockStates() {
+
+            removeStockStates();
+
+            if (!stock.defined) {
+                dirty = true;
+                return;
+            }
+
+            MaterialState* base = stockBaseState();
+
+            if (!base || !base->model.isRectangularPrism()) {
+                dirty = true;
+                return;
+            }
+
+            Model::StockParams sp;
+            sp.cylinder   = (stock.type == StockType::Cylinder);
+            sp.radius     = stock.radius;
+            sp.halfWidth  = stock.width  * 0.5;
+            sp.halfHeight = stock.height * 0.5;
+
+            std::vector<TopoDS_Shape> shapes = base->model.buildStockStepShapes(sp);
+
+            if (shapes.empty()) {
+                dbg("[Stock] failed: buildStockStepShapes produced no solids");
+                dirty = true;
+                return;
+            }
+
+            // Slice axis for each generated state = the outward normal of the
+            // face being extended.  Pre-setting it means the auto-generated
+            // toolpaths already cut along the correct face — no manual fixup.
+            Rev::Core::Pos3 fx, fy, fz;
+            base->model.getOrthonormalAxisFrame(fx, fy, fz);
+
+            double x0, x1, y0, y1, z0, z1;
+            base->model.frameBounds({ 0.0f, 0.0f, 0.0f }, fx, fy, fz, x0, x1, y0, y1, z0, z1);
+
+            const Rev::Core::Pos3 worldCenter =
+                fx * float((x0 + x1) * 0.5) +
+                fy * float((y0 + y1) * 0.5) +
+                fz * float((z0 + z1) * 0.5);
+
+            const Rev::Core::Pos3 sliceAxes[4] = {
+                fy, fy * -1.0f, fz, fz * -1.0f
+            };
+
+            static const char* faceNames[4] = {
+                "Stock (+Y)", "Stock (-Y)", "Stock (+Z)", "Stock (-Z)"
+            };
+
+            MaterialState* parent = base;
+
+            for (size_t i = 0; i < shapes.size(); i++) {
+
+                MaterialState* s = new MaterialState();
+
+                s->model = Model::FromShape(shapes[i]);
+
+                if (!s->model.loaded) {
+                    dbg("[Stock] step %zu produced an unusable solid; skipping", i);
+                    delete s;
+                    continue;
+                }
+
+                copyAxisFrame(base->model, s->model);
+
+                s->parent = parent;
+                parent->children.push_back(s);
+
+                s->committed = true;
+                s->working = false;
+                s->stockGenerated = true;
+
+                if (i < 4) {
+                    s->name = faceNames[i];
+                    s->toolPath.sliceAxis = sliceAxes[i];
+                    s->toolPath.sliceOrigin = worldCenter;
+                }
+                else {
+                    s->name = "Stock";
+                }
+
+                states.push_back(s);
+
+                s->computeDelta(toolLibrary, selectedToolName);
+
+                parent = s;
+            }
+
+            dirty = true;
         }
 
         bool defeatureSelected() {

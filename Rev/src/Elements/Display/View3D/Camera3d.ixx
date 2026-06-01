@@ -58,6 +58,7 @@ export namespace Rev::Element::View3d {
         float zoomSceneScale = 1.0f;
 
         Core::Pos3 orbitPivot = { 0.0f, 0.0f, 0.0f };
+        Core::Pos3 orbitEyeOffset = { 0.0f, 0.0f, 0.0f };
         Core::Pos orbitMouse;
         Core::Pos orbitLastMouse;
         bool hasOrbitPivot = false;
@@ -776,12 +777,18 @@ export namespace Rev::Element::View3d {
             orbitLastMouse = e.mouse.pos;
             hasOrbitPivot = true;
 
-            target = targetForScreenPoint(
-                orbitPivot,
-                orbitMouse,
-                width,
-                height
-            );
+            if (usesOrthographicProjection()) {
+                target = targetForScreenPoint(
+                    orbitPivot,
+                    orbitMouse,
+                    width,
+                    height
+                );
+            }
+
+            else {
+                orbitEyeOffset = eye() - orbitPivot;
+            }
 
             pin();
         }
@@ -835,15 +842,40 @@ export namespace Rev::Element::View3d {
                 toGlm(right)
             );
 
-            orientation = glm::normalize(pitch * yaw * orientation);
+            glm::quat delta = glm::normalize(pitch * yaw);
 
-            target = targetForScreenPointWithOrientation(
-                orbitPivot,
-                orbitMouse,
-                width,
-                height,
-                orientation
-            );
+            if (usesOrthographicProjection()) {
+
+                orientation = glm::normalize(delta * orientation);
+
+                target = targetForScreenPointWithOrientation(
+                    orbitPivot,
+                    orbitMouse,
+                    width,
+                    height,
+                    orientation
+                );
+            }
+
+            else {
+
+                orbitEyeOffset = fromGlm(delta * toGlm(orbitEyeOffset));
+
+                const float radius = orbitEyeOffset.pythag();
+
+                if (radius < 1e-6f) {
+                    orbitLastMouse = e.mouse.pos;
+                    return;
+                }
+
+                const Core::Pos3 lookForward = (-1.0f *orbitEyeOffset).normalized();
+
+                orientation = orientationFromForwardUp(lookForward, up);
+                target = orbitPivot;
+                distance = radius;
+
+                syncZoomGoalsFromCurrent();
+            }
 
             orbitLastMouse = e.mouse.pos;
         }

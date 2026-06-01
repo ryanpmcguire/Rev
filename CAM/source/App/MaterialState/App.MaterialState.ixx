@@ -42,6 +42,12 @@ export namespace Cam::App {
         bool committed = false;
         bool working = false;
 
+        // True for the auto-generated stock-definition states (the four faces
+        // that grow the final prism out to the defined raw stock).  These are
+        // regenerated when stock parameters change, but remain fully editable
+        // (tool / toolpath settings) like any other material state.
+        bool stockGenerated = false;
+
         std::string name = "";
 
         // Tool Path
