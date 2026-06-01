@@ -32,21 +32,36 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                 return;
             }
 
-            SliceProfile current = slice.geometricProfile;
-            float insetAmount = toolRadius(ctx);
+            slice.boundaryProfile =
+                slice.geometricProfile.inset(toolRadius(ctx));
+
+            slice.profiles.push_back(slice.geometricProfile);
+            slice.profiles.push_back(slice.boundaryProfile);
+
+            SliceProfile current = slice.boundaryProfile;
+            float stepover = stepoverDistance(ctx);
 
             for (int i = 0; i < 24; i++) {
 
-                SliceProfile next = current.inset(insetAmount);
+                // Stop bringing the offset in once the chain degenerates
+                // (collapsed / self-intersecting), so we never emit garbage.
+                if (current.empty() || current.hasDegenerateChain()) { break; }
 
-                slice.profiles.push_back(next);
+                slice.profiles.push_back(current);
 
-                if (i == 0) {
-                    slice.boundaryProfile = next;
+                SliceProfile next = current.inset(stepover);
+
+                if (next.empty()) { break; }
+
+                // A flipped (negative-area) inversion also ends the offsetting.
+                if (SliceProfile::signFlipped(
+                        current.signedAreaSum(),
+                        next.signedAreaSum()
+                )) {
+                    break;
                 }
 
                 current = next;
-                insetAmount = stepoverDistance(ctx);
             }
         }
 
@@ -62,10 +77,8 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                 LayerPath layer;
                 layer.z = slice.z;
 
-                slice.geometricProfile.appendSegments(layer.segments, ctx.climbMilling);
-
-                for (const SliceProfile& profile : slice.profiles) {
-                    profile.appendSegments(layer.segments, ctx.climbMilling);
+                for (size_t i = 2; i < slice.profiles.size(); i++) {
+                    slice.profiles[i].appendSegments(layer.segments, ctx.climbMilling);
                 }
 
                 if (layer.segments.empty()) { continue; }

@@ -488,6 +488,42 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             }
         }
 
+        // Degeneracy
+        //--------------------------------------------------
+
+        bool selfIntersects(float eps = 1e-4f) const {
+
+            if (segments.size() < 4) { return false; }
+
+            for (size_t i = 0; i < segments.size(); i++) {
+
+                for (size_t j = i + 1; j < segments.size(); j++) {
+
+                    if (adjacent(i, j)) { continue; }
+
+                    Pos p = segments[i].intersection(segments[j]);
+
+                    if (p) { return true; }
+                }
+            }
+
+            return false;
+        }
+
+        // A closed offset chain is degenerate once it has collapsed to ~zero
+        // area or folded over itself — i.e. the offset has been carried past
+        // the local feature size.  Open chains are not judged here (they pass
+        // through offsetting unchanged).
+        bool degenerate(float eps = 1e-4f) const {
+
+            if (empty()) { return true; }
+            if (!closed(eps)) { return false; }
+            if (std::abs(signedArea()) <= eps) { return true; }
+            if (selfIntersects(eps)) { return true; }
+
+            return false;
+        }
+
         // Sampling
         //--------------------------------------------------
 

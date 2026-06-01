@@ -337,6 +337,45 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return out;
         }
 
+        // Degeneracy
+        //--------------------------------------------------
+
+        // Sum of signed areas of all closed chains.  An inward offset that
+        // flips a region inside-out shows up as a sign change here.
+        float signedAreaSum() const {
+
+            float sum = 0.0f;
+
+            for (const Entry& entry : entries) {
+                if (!entry.closed()) { continue; }
+                sum += entry.chain.signedArea();
+            }
+
+            return sum;
+        }
+
+        bool hasDegenerateChain(float eps = 1e-4f) const {
+
+            for (const Entry& entry : entries) {
+
+                if (entry.open()) { continue; }
+
+                if (entry.chain.degenerate(eps)) { return true; }
+            }
+
+            return false;
+        }
+
+        // True when the total signed area flipped sign between two offsets
+        // (negative-area inversion), ignoring the collapse-to-zero case which
+        // hasDegenerateChain already covers.
+        static bool signFlipped(float a, float b, float eps = 1e-4f) {
+
+            if (std::abs(a) <= eps || std::abs(b) <= eps) { return false; }
+
+            return (a > 0.0f) != (b > 0.0f);
+        }
+
         // Scanline crossings
         //--------------------------------------------------
 
