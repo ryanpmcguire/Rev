@@ -296,7 +296,7 @@ export namespace Cam::Gui {
 
             NumberInput::Params stepDownParams;
             stepDownParams.label = "Stepdown (mm)";
-            stepDownParams.placeholder = "1.0";
+            stepDownParams.placeholder = "0.5";
             stepDownParams.maxLength = 32;
             stepDownParams.selectAllOnFocus = true;
             stepDownParams.allowNegative = false;
@@ -346,7 +346,7 @@ export namespace Cam::Gui {
 
             NumberInput::Params feedRateParams;
             feedRateParams.label = "Feed rate (mm/min)";
-            feedRateParams.placeholder = "1000";
+            feedRateParams.placeholder = "250";
             feedRateParams.maxLength = 32;
             feedRateParams.selectAllOnFocus = true;
             feedRateParams.allowNegative = false;

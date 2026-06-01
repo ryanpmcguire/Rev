@@ -491,37 +491,211 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Degeneracy
         //--------------------------------------------------
 
+        static float orient(const Pos& a, const Pos& b, const Pos& c) {
+            return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        }
+
+        // Proper crossing of segments (p1,p2) and (p3,p4): strict opposite
+        // orientations on both sides, so shared endpoints / collinear touches
+        // (legitimate at chain joins) are not counted.
+        static bool segmentsCross(
+            const Pos& p1, const Pos& p2,
+            const Pos& p3, const Pos& p4
+        ) {
+            float d1 = orient(p3, p4, p1);
+            float d2 = orient(p3, p4, p2);
+            float d3 = orient(p1, p2, p3);
+            float d4 = orient(p1, p2, p4);
+
+            return ((d1 > 0.0f && d2 < 0.0f) || (d1 < 0.0f && d2 > 0.0f)) &&
+                   ((d3 > 0.0f && d4 < 0.0f) || (d3 < 0.0f && d4 > 0.0f));
+        }
+
+        // Robust self-intersection test on the chain's sampled polyline.  This
+        // catches both crossings between distinct segments AND fold-back spikes
+        // between adjacent segments (the fold shows up as a crossing between
+        // non-consecutive sampled edges).  Exact for line offsets; sampling
+        // resolves arcs/beziers.  We can afford the O(n^2) sweep — paths
+        // generate near-instantly.
         bool selfIntersects(float eps = 1e-4f) const {
 
-            if (segments.size() < 4) { return false; }
+            if (segments.size() < 2) { return false; }
 
-            for (size_t i = 0; i < segments.size(); i++) {
+            std::vector<Pos> pts;
+            sample(pts, 4);
 
-                for (size_t j = i + 1; j < segments.size(); j++) {
+            const bool isClosed = closed(eps);
 
-                    if (adjacent(i, j)) { continue; }
+            // Drop the duplicated closing point so the wrap edge is genuine.
+            if (
+                isClosed &&
+                pts.size() >= 2 &&
+                pts.front().distanceTo(pts.back()) <= eps
+            ) {
+                pts.pop_back();
+            }
 
-                    Pos p = segments[i].intersection(segments[j]);
+            const size_t n = pts.size();
 
-                    if (p) { return true; }
+            if (n < 4) { return false; }
+
+            const size_t edgeCount = isClosed ? n : (n - 1);
+
+            for (size_t i = 0; i < edgeCount; i++) {
+
+                const Pos& a0 = pts[i];
+                const Pos& a1 = pts[(i + 1) % n];
+
+                // j starts at i+2 so we never test consecutive (vertex-sharing) edges.
+                for (size_t j = i + 2; j < edgeCount; j++) {
+
+                    // Skip the wrap pair that shares vertex 0 on a closed loop.
+                    if (isClosed && i == 0 && j == edgeCount - 1) { continue; }
+
+                    const Pos& b0 = pts[j];
+                    const Pos& b1 = pts[(j + 1) % n];
+
+                    if (segmentsCross(a0, a1, b0, b1)) {
+                        return true;
+                    }
                 }
             }
 
             return false;
         }
 
-        // A closed offset chain is degenerate once it has collapsed to ~zero
-        // area or folded over itself — i.e. the offset has been carried past
-        // the local feature size.  Open chains are not judged here (they pass
-        // through offsetting unchanged).
+        // An offset chain is degenerate once it has folded over itself or
+        // collapsed to ~zero area.  Self-intersection is judged regardless of
+        // closure: the naive offset can drift the endpoints apart so a folded
+        // ring reads as "open", and that must NOT hide the fold.
         bool degenerate(float eps = 1e-4f) const {
 
             if (empty()) { return true; }
-            if (!closed(eps)) { return false; }
-            if (std::abs(signedArea()) <= eps) { return true; }
             if (selfIntersects(eps)) { return true; }
+            if (closed(eps) && std::abs(signedArea()) <= eps) { return true; }
 
             return false;
+        }
+
+        // Proper crossing of (a,b) and (c,d): returns the crossing point, but
+        // only for a real interior crossing (strict 0<t<1, 0<u<1), so shared
+        // endpoints / collinear touches at legitimate joins are excluded.
+        static bool segmentIntersectionPoint(
+            const Pos& a, const Pos& b,
+            const Pos& c, const Pos& d,
+            Pos& out
+        ) {
+            const float rx = b.x - a.x, ry = b.y - a.y;
+            const float sx = d.x - c.x, sy = d.y - c.y;
+
+            const float denom = rx * sy - ry * sx;
+
+            if (std::abs(denom) < 1e-12f) { return false; }  // parallel / collinear
+
+            const float t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / denom;
+            const float u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / denom;
+
+            if (t <= 0.0f || t >= 1.0f || u <= 0.0f || u >= 1.0f) { return false; }
+
+            out = { a.x + t * rx, a.y + t * ry };
+
+            return true;
+        }
+
+        // Fractalize: split a (possibly self-intersecting) chain into its simple
+        // closed sub-loops.  At each self-intersection the loop is pinched into
+        // two: the part between the two crossing edges, and the remainder; both
+        // close at the crossing point.  We recurse until every piece is simple.
+        //
+        // A non-self-intersecting chain is returned unchanged (exact geometry,
+        // arcs preserved); only tangled offsets are linearised via sampling.
+        // Orientation/area filtering (dropping inverted pinch lobes) is left to
+        // the caller, which knows the source winding.
+        std::vector<Chain> splitSimpleLoops(float eps = 1e-4f) const {
+
+            if (!selfIntersects(eps)) {
+                return { *this };
+            }
+
+            std::vector<Pos> base;
+            sample(base, 8);
+
+            if (
+                base.size() >= 2 &&
+                base.front().distanceTo(base.back()) <= eps
+            ) {
+                base.pop_back();
+            }
+
+            std::vector<Chain> out;
+            std::vector<std::vector<Pos>> work;
+            work.push_back(base);
+
+            int guard = 0;
+            const int guardMax = 8192;
+
+            while (!work.empty() && guard++ < guardMax) {
+
+                std::vector<Pos> poly = work.back();
+                work.pop_back();
+
+                const size_t m = poly.size();
+
+                if (m < 3) { continue; }
+
+                bool found = false;
+                size_t fi = 0, fj = 0;
+                Pos p;
+
+                for (size_t i = 0; i < m && !found; i++) {
+
+                    const Pos& a0 = poly[i];
+                    const Pos& a1 = poly[(i + 1) % m];
+
+                    for (size_t j = i + 2; j < m; j++) {
+
+                        if (i == 0 && j == m - 1) { continue; }  // wrap-adjacent
+
+                        const Pos& b0 = poly[j];
+                        const Pos& b1 = poly[(j + 1) % m];
+
+                        if (segmentIntersectionPoint(a0, a1, b0, b1, p)) {
+                            found = true;
+                            fi = i;
+                            fj = j;
+                            break;
+                        }
+                    }
+                }
+
+                if (!found) {
+
+                    Chain loop;
+
+                    for (size_t k = 0; k < m; k++) {
+                        loop.push(Segment::Line(poly[k], poly[(k + 1) % m]));
+                    }
+
+                    out.push_back(loop);
+                    continue;
+                }
+
+                // Inner loop: crossing point + poly[fi+1 .. fj].
+                std::vector<Pos> loopA;
+                loopA.push_back(p);
+                for (size_t k = fi + 1; k <= fj; k++) { loopA.push_back(poly[k]); }
+
+                // Outer remainder: crossing point + poly[fj+1 ..] + poly[.. fi].
+                std::vector<Pos> loopB;
+                loopB.push_back(p);
+                for (size_t k = fj + 1; k < m; k++) { loopB.push_back(poly[k]); }
+                for (size_t k = 0; k <= fi; k++) { loopB.push_back(poly[k]); }
+
+                work.push_back(loopA);
+                work.push_back(loopB);
+            }
+
+            return out;
         }
 
         // Sampling

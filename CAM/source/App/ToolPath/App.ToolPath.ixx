@@ -55,8 +55,8 @@ export namespace Cam::App {
         std::string strategy = Hatch::name();
         bool strategyAuto = true;
 
-        double stepDown = 1.0;
-        double feedRate = 1000.0;
+        double stepDown = 0.5;
+        double feedRate = 250.0;
         double stepover = 0.25;
         double rapidSpeedMmPerSec = 10.0;
         bool climbMilling = true;
@@ -176,6 +176,12 @@ export namespace Cam::App {
             return points.back().t;
         }
 
+        // Carvera Air rotary (A) axis slew rate.  The real machine rotates the
+        // 4th axis at only ~10-20 deg/s, so any move that swings the tool
+        // direction (i.e. cross-setup links) is paced by this, not by the much
+        // faster linear rapid speed.  Midpoint of the observed range.
+        static constexpr double RotarySpeedDegPerSec = 15.0;
+
         double speedMmPerSecForPoint(const ToolPathPoint& point) const {
 
             if (point.cutting && !point.rapid && feedRate > 0.0) {
@@ -183,6 +189,26 @@ export namespace Cam::App {
             }
 
             return rapidSpeedMmPerSec > 0.0 ? rapidSpeedMmPerSec : 10.0;
+        }
+
+        // Time the rotary axis needs to swing the tool direction from a -> b.
+        // Tool direction only changes between setups, so this is ~0 within a
+        // single operation and only matters across links.
+        static double rotaryTimeBetween(const Pos3& a, const Pos3& b) {
+
+            const float la = a.pythag();
+            const float lb = b.pythag();
+
+            if (la <= 1e-6f || lb <= 1e-6f) { return 0.0; }
+
+            float cosA = a.dot(b) / (la * lb);
+            cosA = std::clamp(cosA, -1.0f, 1.0f);
+
+            const double degrees = std::acos(double(cosA)) * 57.29577951308232;
+
+            if (RotarySpeedDegPerSec <= 0.0) { return 0.0; }
+
+            return degrees / RotarySpeedDegPerSec;
         }
 
         void assignPointTimes() {
@@ -198,12 +224,18 @@ export namespace Cam::App {
 
                 const double speed = speedMmPerSecForPoint(points[i]);
 
-                if (speed <= 0.0) {
-                    points[i].t = points[i - 1].t;
-                    continue;
-                }
+                const double linearTime = speed > 0.0
+                    ? double(distance) / speed
+                    : 0.0;
 
-                points[i].t = points[i - 1].t + double(distance) / speed;
+                // A coordinated linear + rotary move takes as long as its
+                // slowest component; rotary dominates the cross-setup links.
+                const double rotaryTime = rotaryTimeBetween(
+                    points[i - 1].toolDirection,
+                    points[i].toolDirection
+                );
+
+                points[i].t = points[i - 1].t + std::max(linearTime, rotaryTime);
             }
         }
 

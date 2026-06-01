@@ -2,6 +2,7 @@ module;
 
 #include <vector>
 #include <cstddef>
+#include <cmath>
 
 #include <dbg.hpp>
 
@@ -17,6 +18,7 @@ import Cam.App.Tool;
 import Cam.App.Slicer.Strategy.CutFrame;
 import Cam.App.Slicer.Strategy.Slice.Slice;
 import Cam.App.Slicer.Strategy.Slice.Segment2;
+import Cam.App.Slicer.Strategy.Slice.Profile;
 import Cam.App.Slicer.Strategy.SliceSource;
 
 export namespace Cam::App::Slicer::Strategy {
@@ -25,6 +27,7 @@ export namespace Cam::App::Slicer::Strategy {
 
     using SliceLayer = Slice::Slice;
     using Segment = Slice::Segment;
+    using SliceProfile = Slice::Profile;
 
     struct LayerPath {
 
@@ -190,6 +193,83 @@ export namespace Cam::App::Slicer::Strategy {
             }
 
             return distance;
+        }
+
+        // Concentric clearing
+        //--------------------------------------------------
+
+        // Generous upper bound; real termination comes from the degeneracy /
+        // finality checks below, not this cap.
+        static constexpr int MaxOffsetPasses = 256;
+
+        // Append successive inward offsets of `start` to the slice.  Each pass
+        // is judged before it is emitted:
+        //
+        //   * Unfit (self-intersecting) ring — a bowtie / spike the naive
+        //     offset produced near the medial axis.  We do NOT emit it, but we
+        //     keep shrinking, because the next inset often recovers a clean
+        //     inner ring.  A short skip budget ends the slice if it never does.
+        //   * Collapsed (simple ring, ~zero area) — nothing meaningful left.
+        //     Terminal.
+        //   * Too little area — a fit ring smaller than one pass can clear is
+        //     kept as the final ring, then we stop.
+        //   * Negative-area inversion / stalled offset — also terminal.  (Area-
+        //     based tests are only trusted on a fit ring; a self-intersecting
+        //     ring has near-zero net area and would fool them.)
+        void appendConcentricInsets(
+            SliceLayer& slice,
+            const StrategyContext& ctx,
+            const SliceProfile& start
+        ) {
+            const float stepover = stepoverDistance(ctx);
+            const float minPassArea = stepover * stepover;
+
+            constexpr int MaxConsecutiveSkips = 4;
+            int skips = 0;
+
+            SliceProfile current = start;
+
+            for (int i = 0; i < MaxOffsetPasses; i++) {
+
+                if (current.empty()) { break; }
+
+                const bool fit = !current.hasSelfIntersectingChain();
+
+                if (fit) {
+
+                    // A fit ring with no area left is terminal.
+                    if (current.hasCollapsedChain()) { break; }
+
+                    skips = 0;
+                    slice.profiles.push_back(current);
+
+                    // Too little area to host another distinct pass — final ring.
+                    if (std::abs(current.signedAreaSum()) <= minPassArea) { break; }
+                }
+                else if (++skips > MaxConsecutiveSkips) {
+                    break;
+                }
+
+                SliceProfile next = current.inset(stepover);
+
+                if (next.empty()) { break; }
+
+                if (SliceProfile::signFlipped(
+                        current.signedAreaSum(),
+                        next.signedAreaSum()
+                )) {
+                    break;
+                }
+
+                // Stalled-offset progress check — only meaningful for a fit ring
+                // (a self-intersecting ring's lobes cancel to ~zero net area).
+                if (fit &&
+                    std::abs(next.signedAreaSum()) >= std::abs(current.signedAreaSum()) * 0.999f) {
+                    break;
+                }
+
+                current = next;
+            }
         }
 
         // Output

@@ -38,31 +38,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             slice.profiles.push_back(slice.geometricProfile);
             slice.profiles.push_back(slice.boundaryProfile);
 
-            SliceProfile current = slice.boundaryProfile;
-            float stepover = stepoverDistance(ctx);
-
-            for (int i = 0; i < 24; i++) {
-
-                // Stop bringing the offset in once the chain degenerates
-                // (collapsed / self-intersecting), so we never emit garbage.
-                if (current.empty() || current.hasDegenerateChain()) { break; }
-
-                slice.profiles.push_back(current);
-
-                SliceProfile next = current.inset(stepover);
-
-                if (next.empty()) { break; }
-
-                // A flipped (negative-area) inversion also ends the offsetting.
-                if (SliceProfile::signFlipped(
-                        current.signedAreaSum(),
-                        next.signedAreaSum()
-                )) {
-                    break;
-                }
-
-                current = next;
-            }
+            appendConcentricInsets(slice, ctx, slice.boundaryProfile);
         }
 
         // Paths

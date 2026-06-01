@@ -303,6 +303,31 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return entry.chain;
         }
 
+        // Split an offset chain into simple sub-loops and add the ones that are
+        // genuine regions: a lobe whose signed area has the OPPOSITE sign to its
+        // source is an inverted pinch (negative volume) and is dropped, as is a
+        // ~zero-area scrap.  This is the "fractalization" — a tangled offset
+        // bubbles off into independent children, each carried forward.
+        void addOffsetLoops(Profile& out, const Entry& entry, const Chain& offset, float eps = 1e-4f) const {
+
+            const int sourceSign = entry.chain.windingSign();
+
+            for (const Chain& loop : offset.splitSimpleLoops(eps)) {
+
+                // No segment-count gate: a valid loop may be just two arcs
+                // (a circle).  Area alone decides degeneracy.
+                const float area = loop.signedArea();
+
+                if (std::abs(area) <= eps) { continue; }                 // degenerate scrap
+
+                const int sign = area > 0.0f ? 1 : -1;
+
+                if (sourceSign != 0 && sign != sourceSign) { continue; }  // inverted pinch lobe
+
+                out.push(loop, entry.role);
+            }
+        }
+
         Profile inset(float amount) const {
             Profile out;
 
@@ -314,7 +339,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                     continue;
                 }
 
-                out.push(offsetTowardMaterial(entry, amount), entry.role);
+                addOffsetLoops(out, entry, offsetTowardMaterial(entry, amount));
             }
 
             return out;
@@ -331,7 +356,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                     continue;
                 }
 
-                out.push(offsetAwayFromMaterial(entry, amount), entry.role);
+                addOffsetLoops(out, entry, offsetAwayFromMaterial(entry, amount));
             }
 
             return out;
@@ -358,9 +383,35 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
             for (const Entry& entry : entries) {
 
-                if (entry.open()) { continue; }
-
                 if (entry.chain.degenerate(eps)) { return true; }
+            }
+
+            return false;
+        }
+
+        // Any chain (open OR closed) that folds over itself.  Such a ring is an
+        // offset artifact (a bowtie / spike) and is unfit to cut, but it may be
+        // transient — the next inset can recover a clean ring.
+        bool hasSelfIntersectingChain(float eps = 1e-4f) const {
+
+            for (const Entry& entry : entries) {
+                if (entry.chain.selfIntersects(eps)) { return true; }
+            }
+
+            return false;
+        }
+
+        // A simple ring has nothing meaningful left when a closed chain has
+        // collapsed to ~zero area (or a chain went empty).  Terminal.
+        bool hasCollapsedChain(float eps = 1e-4f) const {
+
+            for (const Entry& entry : entries) {
+
+                if (entry.chain.empty()) { return true; }
+
+                if (entry.closed() && std::abs(entry.chain.signedArea()) <= eps) {
+                    return true;
+                }
             }
 
             return false;
