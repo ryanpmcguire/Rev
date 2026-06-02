@@ -97,6 +97,10 @@ export namespace Cam::Gui {
         Cam::App::Tool* previewTool = nullptr;
         std::size_t previewToolRevision = 0;
 
+        // While in EXECUTE mode, poll machine telemetry so the tool tracks the
+        // real machine (incl. jogs), not the computed preview.
+        Rev::Core::Animator executePoll { 30 };
+
         bool partInView = false;
         bool representationDirty = true;
         bool clearMaterialViewsRequested = false;
@@ -152,6 +156,28 @@ export namespace Cam::Gui {
 
             partInView = true;
 
+            // Live telemetry polling for EXECUTE mode (tool follows the real
+            // machine, including jogs, rather than the computed preview).
+            executePoll.setFrequency(30.0);
+            executePoll.onFrame([this](Rev::Core::AnimationEvent&) {
+                if (previewMode != PreviewMode::Execute) { return; }
+                if (!Carvera::MachineLink::instance().connected()) { return; }
+                if (!shared || !shared->event) { return; }
+                syncSharedToolPreview(activeProject());
+                if (view3d) { view3d->refresh(*shared->event); }
+            });
+
+            // Push-based position updates: the machine link broadcasts every
+            // telemetry frame, so the tool tracks the real machine immediately
+            // (e.g. while jogging) without waiting on the poll.
+            Carvera::MachineLink::instance().onTelemetry =
+                [this](float, float, float, float) {
+                    if (previewMode != PreviewMode::Execute) { return; }
+                    if (!shared || !shared->event) { return; }
+                    syncSharedToolPreview(activeProject());
+                    if (view3d) { view3d->refresh(*shared->event); }
+                };
+
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
 
                 switch (command) {
@@ -200,6 +226,9 @@ export namespace Cam::Gui {
         //--------------------------------------------------
 
         ~WorldView() {
+
+            executePoll.stop();
+            Carvera::MachineLink::instance().onTelemetry = nullptr;
 
             clearMaterialViews();
 
@@ -298,6 +327,10 @@ export namespace Cam::Gui {
                 if (mode != PreviewMode::Execute) {
                     Carvera::MachineLink::instance().clearQueue();
                 }
+
+                // Poll telemetry only while showing the real machine.
+                if (mode == PreviewMode::Execute) { executePoll.play(); }
+                else { executePoll.stop(); }
 
                 if (view3d) { view3d->refresh(e); }
             };
@@ -800,23 +833,76 @@ export namespace Cam::Gui {
 
             toolPreviewActor->visible = false;
 
+            Carvera::MachineLink& link = Carvera::MachineLink::instance();
+
+            // In EXECUTE mode, register the CAD origin (stock-top centre) so the
+            // machine link can map telemetry MPos back into CAD space.
+            const bool executeMode = (previewMode == PreviewMode::Execute);
+
+            if (executeMode && project) {
+                const Rev::Core::Pos3 cad = beginWorkOrigin(project);
+                link.setCadOrigin(cad.x, cad.y, cad.z);
+
+                // If no precise origin has been set yet (via Set Origin), anchor
+                // to the current machine position so jogging shows relative
+                // motion immediately.  Set Origin later re-anchors precisely.
+                float tcx, tcy, tcz, tca;
+                float mx, my, mz, ocx2, ocy2, ocz2;
+
+                if (link.telemetry(tcx, tcy, tcz, tca) &&
+                    !link.workOrigin(mx, my, mz, ocx2, ocy2, ocz2)) {
+                    link.captureMachineOrigin(tcx, tcy, tcz);
+                }
+            }
+
             const ToolPreviewTarget target = activeToolPreviewTarget(project);
 
-            if (!target.state || !target.state->hasToolPath) { return; }
+            // Resolve which tool to show (the previewed op, or the displayed
+            // state when nothing is actively previewing — e.g. while jogging).
+            Cam::App::MaterialState* toolState = target.state;
 
-            const Cam::App::ToolPath& path = target.state->toolPath;
+            if (!toolState && project) { toolState = project->displayedState; }
 
-            // The tool's mesh lives on the tool itself (built once when its
-            // geometry changes); we only place it here.
-            Cam::App::Tool* tool = (app && app->toolLibrary())
-                ? app->toolLibrary()->find(path.toolName)
+            Cam::App::Tool* tool = (toolState && app && app->toolLibrary())
+                ? app->toolLibrary()->find(toolState->toolPath.toolName)
                 : nullptr;
 
             if (!tool || tool->mesh.empty()) { return; }
 
-            Cam::App::ToolPathPoint sample = {};
+            Rev::Core::Pos3 tip;
+            Rev::Core::Pos3 dir = { 0.0f, 0.0f, 1.0f };
+            bool haveTip = false;
 
-            if (!path.sampleAtProgress(target.progress, sample)) { return; }
+            // EXECUTE: show where the machine ACTUALLY is, from telemetry.
+            float tx, ty, tz, ta;
+            float omx, omy, omz, ocx, ocy, ocz;
+
+            if (executeMode &&
+                link.connected() &&
+                link.telemetry(tx, ty, tz, ta) &&
+                link.workOrigin(omx, omy, omz, ocx, ocy, ocz)) {
+
+                // machine WCS = MPos - machineOrigin; invert the CAD->machine
+                // axis map (machine X = world Y, machine Y = world X).
+                tip.x = (ty - omy) + ocx;   // world X
+                tip.y = (tx - omx) + ocy;   // world Y
+                tip.z = (tz - omz) + ocz;   // world Z
+                dir = { 0.0f, 0.0f, 1.0f };
+                haveTip = true;
+            }
+            else if (target.state && target.state->hasToolPath) {
+
+                // Otherwise: the computed preview sample.
+                Cam::App::ToolPathPoint sample = {};
+
+                if (target.state->toolPath.sampleAtProgress(target.progress, sample)) {
+                    tip = sample.position;
+                    dir = sample.toolDirection;
+                    haveTip = true;
+                }
+            }
+
+            if (!haveTip) { return; }
 
             toolPreviewActor->mesh->pTriangles = &tool->mesh;
 
@@ -830,15 +916,25 @@ export namespace Cam::Gui {
             // Placement goes in modelTransform so applyWorldTransforms can still
             // apply the machine pose through worldTransform.
             float placement[16];
-            toolPlacementMatrix(sample.position, sample.toolDirection, placement);
+            toolPlacementMatrix(tip, dir, placement);
 
             for (int i = 0; i < 16; i++) {
                 toolPreviewActor->modelTransform[i] = placement[i];
             }
 
+            // In EXECUTE the placement is absolute CAD (no machine-sim scene
+            // rotation), so clear any stale world transform left by Machine Sim.
+            if (executeMode) {
+                static const float identity[16] = {
+                    1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
+                };
+                toolPreviewActor->setWorldTransform(identity);
+            }
+
             toolPreviewActor->visible = true;
 
-            repositionToolPreviewDrawOrder(target.state);
+            if (target.state) { repositionToolPreviewDrawOrder(target.state); }
+            else if (toolState) { repositionToolPreviewDrawOrder(toolState); }
         }
 
         // App/project access
@@ -1237,6 +1333,62 @@ export namespace Cam::Gui {
             if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
         }
 
+        // The "begin work" origin: the centre of the top surface of the stock,
+        // in CAD world space.  The operator physically jogs the tool tip to this
+        // point (paper/shim) and zeroes there, so the program is streamed
+        // relative to it.  Falls back to the part, then the displayed state.
+        Rev::Core::Pos3 beginWorkOrigin(Cam::App::Project* project) {
+
+            Rev::Core::Pos3 origin = { 0.0f, 0.0f, 0.0f };
+
+            if (!project) { return origin; }
+
+            Cam::App::MaterialState* state = nullptr;
+
+            for (Cam::App::MaterialState* s : project->states) {
+                if (s && s->stockGenerated) { state = s; }  // last stock state = full stock
+            }
+
+            if (!state) { state = project->stockBaseState(); }
+            if (!state) { state = project->displayedState; }
+            if (!state) { return origin; }
+
+            const std::vector<Rev::Core::Vertex3>& tris = state->model.render.triangles;
+
+            if (tris.empty()) { return origin; }
+
+            Rev::Core::Pos3 mn = tris[0];
+            Rev::Core::Pos3 mx = tris[0];
+
+            for (const Rev::Core::Vertex3& v : tris) {
+                mn = Rev::Core::Pos3::min(mn, v);
+                mx = Rev::Core::Pos3::max(mx, v);
+            }
+
+            origin.x = (mn.x + mx.x) * 0.5f;
+            origin.y = (mn.y + mx.y) * 0.5f;
+            origin.z = mx.z;  // top surface
+
+            return origin;
+        }
+
+        // 1-based tool slot inferred from the library order (best effort, for
+        // M6 T<n>); 0 if the tool isn't found.
+        int toolNumber(const std::string& name) {
+
+            if (!app) { return 0; }
+
+            Cam::App::ToolLibrary* library = app->toolLibrary();
+
+            if (!library) { return 0; }
+
+            for (size_t i = 0; i < library->order.size(); i++) {
+                if (library->order[i] == name) { return static_cast<int>(i) + 1; }
+            }
+
+            return 0;
+        }
+
         // EXECUTE: build the machine program from the IK-solved path(s) of the
         // previewed states and hand it to the (flow-controlled) machine link.
         // Strictly gated: only ever sends when armed + connected.  Assumes the
@@ -1255,10 +1407,41 @@ export namespace Cam::Gui {
 
             if (!project) { return; }
 
+            // Stream relative to the begin-work origin (stock top centre).
+            const Rev::Core::Pos3 origin = beginWorkOrigin(project);
+
             std::vector<std::string> lines;
             lines.push_back("G90\n");  // absolute positioning
 
             const double radToDeg = 57.29577951308232;
+
+            std::string loadedTool;  // none loaded yet
+            bool spindleOn = false;
+            double maxMachineZ = -1.0e30;  // highest point reached (for the clearance lift)
+
+            auto emitToolChange = [&](const std::string& toolName) {
+
+                // Spindle must be off across a tool change.
+                if (spindleOn) {
+                    lines.push_back("M5\n");
+                    spindleOn = false;
+                }
+
+                char comment[96];
+                std::snprintf(comment, sizeof(comment), "(tool change: %s)\n", toolName.c_str());
+                lines.push_back(comment);
+
+                const int n = toolNumber(toolName);
+
+                if (n > 0) {
+                    char m[24];
+                    std::snprintf(m, sizeof(m), "M6 T%d\n", n);
+                    lines.push_back(m);
+                }
+                else {
+                    lines.push_back("M6\n");
+                }
+            };
 
             auto appendState = [&](Cam::App::MaterialState* state) {
 
@@ -1267,6 +1450,15 @@ export namespace Cam::Gui {
                 const Cam::Machine::MachineToolPath* path = getMachineToolPath(state);
 
                 if (!path || path->empty()) { return; }
+
+                // Tool change goes between the previous op's retract and this
+                // op's first move.  The very first op doesn't get one (the tool
+                // is already set up for the manual start), only transitions
+                // between operations that actually change tools.
+                if (!loadedTool.empty() && state->toolPath.toolName != loadedTool) {
+                    emitToolChange(state->toolPath.toolName);
+                }
+                loadedTool = state->toolPath.toolName;
 
                 const double feed = state->toolPath.feedRate > 0.0
                     ? state->toolPath.feedRate
@@ -1277,17 +1469,34 @@ export namespace Cam::Gui {
                     const Rev::Core::Pos3 pos = p.toolWorldPose.position;
                     const double aDeg = p.rotaryAngle * radToDeg;
 
+                    // Offset to the begin-work origin, then map CAD->machine:
+                    // the CAD world frame has X and Y transposed relative to the
+                    // Carvera's axes, so machine X = world Y and vice versa.
+                    const double machineX = pos.y - origin.y;
+                    const double machineY = pos.x - origin.x;
+                    const double machineZ = pos.z - origin.z;
+
+                    if (machineZ > maxMachineZ) { maxMachineZ = machineZ; }
+
+                    // Spin up just before the first real cut — but only if the
+                    // spindle is armed.  Unarmed = a motion-only dry run.
+                    if (!p.rapid && !spindleOn &&
+                        Carvera::MachineLink::instance().isSpindleArmed()) {
+                        lines.push_back("M3 S12000\n");
+                        spindleOn = true;
+                    }
+
                     char line[160];
 
                     if (p.rapid) {
                         std::snprintf(line, sizeof(line),
                             "G0 X%.3f Y%.3f Z%.3f A%.3f\n",
-                            pos.x, pos.y, pos.z, aDeg);
+                            machineX, machineY, machineZ, aDeg);
                     }
                     else {
                         std::snprintf(line, sizeof(line),
                             "G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f\n",
-                            pos.x, pos.y, pos.z, aDeg, feed);
+                            machineX, machineY, machineZ, aDeg, feed);
                     }
 
                     lines.push_back(line);
@@ -1306,9 +1515,25 @@ export namespace Cam::Gui {
                 appendState(materialStateWithToolPathForPreview(project));
             }
 
+            // Spindle off at the end of the program.
+            if (spindleOn) {
+                lines.push_back("M5\n");
+                spindleOn = false;
+            }
+
             if (lines.size() <= 1) {
                 dbg("[Execute] no machine path to stream");
                 return;
+            }
+
+            // From the touch point (stock surface, WCS Z0) the very first motion
+            // must lift UP clear of the whole path before any lateral move, not
+            // dive into the stock.  Insert it right after the G90 preamble.
+            {
+                const double clearance = std::max(maxMachineZ, 0.0) + 5.0;
+                char zline[48];
+                std::snprintf(zline, sizeof(zline), "G0 Z%.3f\n", clearance);
+                lines.insert(lines.begin() + 1, std::string(zline));
             }
 
             dbg("[Execute] streaming %zu lines to the machine", lines.size());

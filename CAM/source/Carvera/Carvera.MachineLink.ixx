@@ -3,6 +3,7 @@ module;
 #include <atomic>
 #include <cstdio>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -40,6 +41,7 @@ export namespace Carvera {
             client = c;
             if (!c) {
                 armed.store(false);
+                spindleArmed.store(false);
                 clearQueue();
             }
         }
@@ -63,6 +65,12 @@ export namespace Carvera {
             armed.store(false);
             clearQueue();
         }
+
+        // Spindle arming is an independent gate: motion can be armed (to dry-run
+        // a toolpath on the real machine) with the spindle left off.  The
+        // program only emits M3 when the spindle is armed.
+        bool isSpindleArmed() const { return spindleArmed.load(); }
+        void setSpindleArmed(bool value) { spindleArmed.store(value); }
 
         // -- Direct (unqueued) send — for one-off control lines -------
 
@@ -134,6 +142,51 @@ export namespace Carvera {
             return executing.load();
         }
 
+        // -- Telemetry mirror (machine MPos, pushed by the control panel) -----
+
+        // App-wide position broadcast: any part of the app can subscribe to
+        // live machine position (the CAM view uses it to track the real tool).
+        std::function<void(float, float, float, float)> onTelemetry;
+
+        void setTelemetry(float x, float y, float z, float a) {
+            telemX.store(x); telemY.store(y); telemZ.store(z); telemA.store(a);
+            telemValid.store(true);
+            if (onTelemetry) { onTelemetry(x, y, z, a); }
+        }
+
+        bool telemetry(float& x, float& y, float& z, float& a) const {
+            if (!telemValid.load()) { return false; }
+            x = telemX.load(); y = telemY.load(); z = telemZ.load(); a = telemA.load();
+            return true;
+        }
+
+        // -- Work origin reference --------------------------------------------
+        //
+        // captureMachineOrigin records the machine MPos at the "set origin"
+        // instant; setCadOrigin records the matching CAD point (the stock-top
+        // centre the CAM side streams relative to).  With both, telemetry MPos
+        // can be mapped back into CAD space for the live view.
+
+        void captureMachineOrigin(float mx, float my, float mz) {
+            originMx.store(mx); originMy.store(my); originMz.store(mz);
+            originValid.store(true);
+        }
+
+        void setCadOrigin(float cx, float cy, float cz) {
+            cadOriginX.store(cx); cadOriginY.store(cy); cadOriginZ.store(cz);
+            cadOriginValid.store(true);
+        }
+
+        bool workOrigin(
+            float& mx, float& my, float& mz,
+            float& cx, float& cy, float& cz
+        ) const {
+            if (!originValid.load() || !cadOriginValid.load()) { return false; }
+            mx = originMx.load(); my = originMy.load(); mz = originMz.load();
+            cx = cadOriginX.load(); cy = cadOriginY.load(); cz = cadOriginZ.load();
+            return true;
+        }
+
         Rev::Client* client = nullptr;
 
     private:
@@ -143,11 +196,21 @@ export namespace Carvera {
         static constexpr int MaxInFlight = 2;
 
         std::atomic<bool> armed { false };
+        std::atomic<bool> spindleArmed { false };
         std::atomic<bool> executing { false };
 
         std::mutex queueMutex;
         std::deque<std::string> queue;
         int inFlight = 0;
         std::atomic<int> pendingOk { 0 };
+
+        std::atomic<float> telemX { 0 }, telemY { 0 }, telemZ { 0 }, telemA { 0 };
+        std::atomic<bool>  telemValid { false };
+
+        std::atomic<float> originMx { 0 }, originMy { 0 }, originMz { 0 };
+        std::atomic<bool>  originValid { false };
+
+        std::atomic<float> cadOriginX { 0 }, cadOriginY { 0 }, cadOriginZ { 0 };
+        std::atomic<bool>  cadOriginValid { false };
     };
 }

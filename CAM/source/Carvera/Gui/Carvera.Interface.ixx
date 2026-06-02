@@ -138,10 +138,15 @@ export namespace Carvera::Gui {
         // button; armed it becomes a stark white-on-pastel-red banner.
         Rev::Element::Style ArmButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size   = { .width = 100_pct, .height = 48_px },
-            .margin = { .bottom = 6_px },
+            .size   = { .width = Grow(), .height = 46_px },
+            .margin = { .left = 3_px, .right = 3_px, .bottom = 6_px },
             .border = { .radius = 6_px },
             .cursor = Cursor::Hand
+        };
+
+        Rev::Element::Style ArmRow = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size   = { .width = 100_pct }
         };
 
         Rev::Element::Style ArmLabel = { .text = { .size = 15_px } };
@@ -284,6 +289,11 @@ export namespace Carvera::Gui {
         Box*  armBtn   = nullptr;
         Text* armLabel = nullptr;
 
+        Box*  spindleBtn   = nullptr;
+        Text* spindleLabel = nullptr;
+
+        Box*  setOriginBtn = nullptr;
+
         Text* posXText = nullptr, *posYText = nullptr;
         Text* posZText = nullptr, *posAText = nullptr;
         Text* stepText = nullptr;
@@ -393,15 +403,36 @@ export namespace Carvera::Gui {
 
             Box* section = new Box(this, Theme::withPanel({ &Style::Section }), "ArmSection");
 
+            // Both arm toggles live in one host, side by side.
+            Box* row = new Box(section, { &Style::ArmRow }, "ArmRow");
+
             armBtn = new Box(
-                section,
+                row,
                 Theme::withButton({ &Style::ArmButton, &Style::BtnHover, &Style::BtnPress }),
                 "ArmButton"
             );
-
             armLabel = new Text(armBtn, "ARM", Theme::withText({ &Style::ArmLabel }));
-
             armBtn->onClick([this](Event& e) { toggleArm(e); e.propagate = false; });
+
+            spindleBtn = new Box(
+                row,
+                Theme::withButton({ &Style::ArmButton, &Style::BtnHover, &Style::BtnPress }),
+                "SpindleArmButton"
+            );
+            spindleLabel = new Text(spindleBtn, "SPINDLE ARM", Theme::withText({ &Style::ArmLabel }));
+            spindleBtn->onClick([this](Event& e) { toggleSpindleArm(e); e.propagate = false; });
+        }
+
+        // Spindle ARM is a gate, not a manual on/off: armed motion can dry-run a
+        // toolpath; the spindle only spins during execution if it is also armed.
+        void toggleSpindleArm(Event& e) {
+
+            auto& link = Carvera::MachineLink::instance();
+
+            link.setSpindleArmed(!link.isSpindleArmed());
+            pushLog(link.isSpindleArmed() ? "SPINDLE ARMED." : "Spindle disarmed.");
+
+            refresh(e);
         }
 
         void toggleArm(Event& e) {
@@ -483,6 +514,31 @@ export namespace Carvera::Gui {
             btnStepM = makeJogBtn(r2, "-");  btnStepM->onClick([this](Event& e) { adjustStep(-1); e.propagate = false; });
             btnNY    = makeJogBtn(r2, "-Y"); btnNY->onClick([this](Event& e) { jog(0,-jogStepMm,0); e.propagate = false; });
             btnStepP = makeJogBtn(r2, "+");  btnStepP->onClick([this](Event& e) { adjustStep(+1); e.propagate = false; });
+
+            // Set the work origin (G54 zero) at the current position — used to
+            // mark the begin-work point on the stock surface.
+            Box* originRow = new Box(section, { &Style::Row }, "OriginRow");
+            setOriginBtn = makeBtn(originRow, "Set Origin", Style::Btn);
+            setOriginBtn->style->size = { .width = 120_px, .height = 30_px };
+            setOriginBtn->onClick([this](Event& e) { setWorkOrigin(e); e.propagate = false; });
+        }
+
+        void setWorkOrigin(Event& e) {
+
+            if (!client || !client->isConnected.load() || !confValid) {
+                pushLog("Connect and wait for position before setting origin.");
+                return;
+            }
+
+            // Zero the active work coordinate system at the current position.
+            sendLine("G10 L20 P1 X0 Y0 Z0\n");
+
+            // Record the machine position of this origin so the CAM view can map
+            // telemetry back into CAD space.
+            Carvera::MachineLink::instance().captureMachineOrigin(confX, confY, confZ);
+
+            pushLog("Work origin set at current position.");
+            refresh(e);
         }
 
         void buildLogSection() {
@@ -786,6 +842,11 @@ export namespace Carvera::Gui {
             stepToward(dispA, intentA, ChaseSpeedAngular * dtMs);
 
             updatePosDisplay();
+
+            // Mirror the live position to the CAM view (execute-mode preview).
+            if (dispReady) {
+                Carvera::MachineLink::instance().setTelemetry(dispX, dispY, dispZ, dispA);
+            }
         }
 
         static void stepToward(float& cur, float target, float maxStep) {
@@ -895,6 +956,23 @@ export namespace Carvera::Gui {
                 }
                 else {
                     armLabel->content = "ARM";
+                }
+            }
+
+            if (spindleBtn && spindleLabel) {
+
+                const bool spindleArmed = Carvera::MachineLink::instance().isSpindleArmed();
+
+                spindleBtn->styles.remove(&Style::ArmedBanner);
+                spindleLabel->styles.remove(&Style::ArmedLabel);
+
+                if (spindleArmed) {
+                    spindleBtn->styles.add(&Style::ArmedBanner);
+                    spindleLabel->styles.add(&Style::ArmedLabel);
+                    spindleLabel->content = "SPINDLE ARMED";
+                }
+                else {
+                    spindleLabel->content = "SPINDLE ARM";
                 }
             }
 
