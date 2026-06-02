@@ -35,6 +35,9 @@ import Cam.App;
 import Cam.App.Project;
 import Cam.App.Model;
 import Cam.App.MaterialState;
+import Cam.App.Tool;
+import Cam.App.ToolLibrary;
+import Cam.App.ToolPath;
 
 import Cam.Gui.World.MaterialState;
 import Cam.Gui.ToolPath;
@@ -85,6 +88,11 @@ export namespace Cam::Gui {
 
         View3d::Actor* toolPreviewActor = nullptr;
         std::vector<Rev::Core::Vertex3> toolPreviewTriangles;
+
+        // The tool whose cached mesh the preview actor currently points at;
+        // used to re-upload to the GPU only when the tool/geometry changes.
+        Cam::App::Tool* previewTool = nullptr;
+        std::size_t previewToolRevision = 0;
 
         bool partInView = false;
         bool representationDirty = true;
@@ -743,31 +751,77 @@ export namespace Cam::Gui {
             view3d->insertActorBefore(toolPreviewActor, before);
         }
 
+        // Column-major model matrix that places a local-space tool (tip at the
+        // origin, body along +Z) at `tip`, aligned to `directionIn`.
+        static void toolPlacementMatrix(
+            const Rev::Core::Pos3& tip,
+            const Rev::Core::Pos3& directionIn,
+            float out[16]
+        ) {
+            Rev::Core::Pos3 z = directionIn.normalized();
+
+            const Rev::Core::Pos3 reference =
+                std::fabs(z.z) < 0.9f
+                    ? Rev::Core::Pos3(0.0f, 0.0f, 1.0f)
+                    : Rev::Core::Pos3(1.0f, 0.0f, 0.0f);
+
+            Rev::Core::Pos3 x = reference.cross(z);
+            const float xLen = x.pythag();
+            x = xLen > 1e-6f ? x / xLen : Rev::Core::Pos3(1.0f, 0.0f, 0.0f);
+
+            const Rev::Core::Pos3 y = z.cross(x).normalized();
+
+            out[0]  = x.x; out[1]  = x.y; out[2]  = x.z; out[3]  = 0.0f;
+            out[4]  = y.x; out[5]  = y.y; out[6]  = y.z; out[7]  = 0.0f;
+            out[8]  = z.x; out[9]  = z.y; out[10] = z.z; out[11] = 0.0f;
+            out[12] = tip.x; out[13] = tip.y; out[14] = tip.z; out[15] = 1.0f;
+        }
+
         void syncSharedToolPreview(
             Cam::App::Project* project
         ) {
 
             if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
 
-            toolPreviewTriangles.clear();
             toolPreviewActor->visible = false;
 
             const ToolPreviewTarget target = activeToolPreviewTarget(project);
 
-            if (!target.state || !target.state->hasToolPath) {
+            if (!target.state || !target.state->hasToolPath) { return; }
+
+            const Cam::App::ToolPath& path = target.state->toolPath;
+
+            // The tool's mesh lives on the tool itself (built once when its
+            // geometry changes); we only place it here.
+            Cam::App::Tool* tool = (app && app->toolLibrary())
+                ? app->toolLibrary()->find(path.toolName)
+                : nullptr;
+
+            if (!tool || tool->mesh.empty()) { return; }
+
+            Cam::App::ToolPathPoint sample = {};
+
+            if (!path.sampleAtProgress(target.progress, sample)) { return; }
+
+            toolPreviewActor->mesh->pTriangles = &tool->mesh;
+
+            // Only re-upload when the tool (or its geometry) actually changed.
+            if (tool != previewTool || tool->meshRevision != previewToolRevision) {
                 toolPreviewActor->mesh->dirty = true;
-                return;
+                previewTool = tool;
+                previewToolRevision = tool->meshRevision;
             }
 
-            const bool hasMesh = Cam::Gui::ToolPath::syncToolPreviewMesh(
-                toolPreviewTriangles,
-                target.state,
-                target.progress,
-                toolPreviewActor->mesh->color
-            );
+            // Placement goes in modelTransform so applyWorldTransforms can still
+            // apply the machine pose through worldTransform.
+            float placement[16];
+            toolPlacementMatrix(sample.position, sample.toolDirection, placement);
 
-            toolPreviewActor->visible = hasMesh;
-            toolPreviewActor->mesh->dirty = true;
+            for (int i = 0; i < 16; i++) {
+                toolPreviewActor->modelTransform[i] = placement[i];
+            }
+
+            toolPreviewActor->visible = true;
 
             repositionToolPreviewDrawOrder(target.state);
         }

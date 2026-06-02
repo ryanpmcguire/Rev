@@ -2,7 +2,6 @@ module;
 
 #include <algorithm>
 #include <cmath>
-#include <utility>
 #include <vector>
 
 export module Cam.Gui.ToolPreview;
@@ -30,160 +29,136 @@ export namespace Cam::Gui {
 
         Style Self = {
             .overflow = Overflow::Hide,
-            .size = { 100_pct, Grow(), .min = { .height = 160_px } },
+            .size = { .width = 100_pct, .height = 240_px },
             .background = { .color = rgba(20, 26, 38, 1.0) },
             .border = { .radius = 8_px }
         };
     }
 
+    // 2D silhouette of the tool, drawn with the line primitive.  It mirrors the
+    // exact same Tool::profile() the 3D mesh revolves, so the two previews can
+    // never disagree.
     struct ToolPreview : public Box {
 
-        struct Geometry {
-            double cuttingRadius = 0.5;
-            double totalLength = 100.0;
-            double cuttingTaperAngle = 0.0;
-            double cuttingLength = 20.0;
-            double shoulderDiameter = 0.0;
-            double shoulderLength = 0.0;
-            double shoulderTaperAngle = 45.0;
-        };
-
-        Geometry geometry;
+        Cam::App::Tool tool;
 
         Lines* outline = nullptr;
-        Lines* axis = nullptr;
+        Lines* axisLine = nullptr;
 
         std::vector<Core::Vertex> outlinePts;
         std::vector<Core::Vertex> axisPts;
 
         ToolPreview(Element* parent, StyleList styles = {}) : Box(parent, styles, "ToolPreview") {
 
-            if (styles.styles.empty()) {
+            if (this->styles.styles.empty()) {
                 this->styles.add(&ToolPreviewStyle::Self);
             }
 
             Graphics::Canvas* canvas = shared->canvas;
 
-            axis = new Lines(canvas);
+            axisLine = new Lines(canvas);
             outline = new Lines(canvas);
         }
 
         ~ToolPreview() {
             delete outline;
-            delete axis;
+            delete axisLine;
         }
 
-        void setGeometry(const Geometry& g, Event& e) {
-            geometry = g;
+        void setTool(const Cam::App::Tool& t, Event& e) {
+            tool = t;
             refresh(e);
         }
 
-        static float panelDimension(float rectDim, float resolvedDim) {
+        // Mirror the right-hand profile into a closed 2D loop (tool space:
+        // x = radius from centerline, y = axial height from the tip).
+        std::vector<Core::Vertex> buildLoopToolSpace() const {
 
-            if (rectDim > 1.0f) { return rectDim; }
-            if (resolvedDim > 1.0f) { return resolvedDim; }
-            return 180.0f;
-        }
-
-        std::vector<Core::Vertex> buildProfileToolSpace() const {
-
-            std::vector<std::pair<float, float>> upper;
-
-            const float cuttingR = static_cast<float>(std::max(geometry.cuttingRadius, 0.0));
-            const float len = static_cast<float>(std::max(geometry.totalLength, 0.0));
-
-            if (cuttingR <= 1e-4f || len <= 1e-4f) { return {}; }
-
-            const float shoulderR = static_cast<float>(Cam::App::Tool::effectiveShoulderRadius(
-                cuttingR,
-                geometry.shoulderDiameter
-            ));
-
-            float tipH = static_cast<float>(Cam::App::Tool::tipTaperHeight(
-                cuttingR,
-                geometry.cuttingTaperAngle
-            ));
-
-            tipH = std::min(tipH, len);
-
-            float cutEnd = static_cast<float>(geometry.cuttingLength);
-            cutEnd = std::clamp(cutEnd, tipH, len);
-
-            const float transitionH = static_cast<float>(Cam::App::Tool::shoulderTransitionHeight(
-                cuttingR,
-                shoulderR,
-                geometry.shoulderTaperAngle
-            ));
-
-            float shoulderShankLen = static_cast<float>(std::max(geometry.shoulderLength, 0.0));
-
-            const float maxShoulderBlock = std::max(len - cutEnd, 0.0f);
-            const float shoulderBlock = transitionH + shoulderShankLen;
-
-            if (shoulderBlock > maxShoulderBlock + 1e-4f) {
-                shoulderShankLen = std::max(0.0f, maxShoulderBlock - transitionH);
-            }
-
-            const float taperEnd = cutEnd + transitionH;
-            const float shankEnd = std::min(taperEnd + shoulderShankLen, len);
-
-            const bool hasShoulderTaper =
-                transitionH > 1e-4f &&
-                std::fabs(shoulderR - cuttingR) > 1e-4f;
-
-            const bool hasShoulderShank =
-                shoulderShankLen > 1e-4f &&
-                std::fabs(shoulderR - cuttingR) > 1e-4f;
-
-            upper.push_back({ 0.0f, 0.0f });
-            upper.push_back({ tipH, cuttingR });
-            upper.push_back({ cutEnd, cuttingR });
-
-            if (hasShoulderTaper) {
-                upper.push_back({ taperEnd, shoulderR });
-            }
-
-            if (hasShoulderShank) {
-                upper.push_back({ shankEnd, shoulderR });
-            }
-
-            if (shankEnd < len - 1e-4f) {
-                const float tailR = hasShoulderShank || hasShoulderTaper
-                    ? shoulderR
-                    : cuttingR;
-
-                upper.push_back({ len, tailR });
-            }
-            else if (!hasShoulderShank && !hasShoulderTaper) {
-                upper.push_back({ len, cuttingR });
-            }
-
-            upper.push_back({ len, 0.0f });
+            const std::vector<Cam::App::Tool::ProfilePoint> p = tool.profile();
 
             std::vector<Core::Vertex> loop;
-            loop.reserve(upper.size() * 2);
 
-            for (const auto& p : upper) {
-                loop.push_back(Core::Vertex(p.first, p.second));
+            if (p.size() < 2) { return loop; }
+
+            loop.reserve(p.size() * 2);
+
+            for (const auto& pt : p) {
+                loop.push_back(Core::Vertex(float(pt.r), float(pt.y)));
             }
 
-            for (size_t i = upper.size(); i-- > 1;) {
-                if (i == 0) { break; }
-                loop.push_back(Core::Vertex(upper[i - 1].first, -upper[i - 1].second));
+            for (size_t i = p.size() - 1; i-- > 1;) {
+                loop.push_back(Core::Vertex(-float(p[i].r), float(p[i].y)));
             }
 
-            loop.push_back(Core::Vertex(upper.front().first, upper.front().second));
+            loop.push_back(Core::Vertex(float(p.front().r), float(p.front().y)));
 
             return loop;
         }
 
-        void updateLinePrimitive(
+        void computePrimitives(Event& e) override {
+
+            outlinePts.clear();
+            axisPts.clear();
+
+            const float panelW = rect.w > 1.0f ? rect.w : 180.0f;
+            const float panelH = rect.h > 1.0f ? rect.h : 220.0f;
+            const float originX = rect.x;
+            const float originY = rect.y;
+
+            const std::vector<Core::Vertex> loop = buildLoopToolSpace();
+
+            if (loop.size() >= 2) {
+
+                float minX = loop[0].x, maxX = loop[0].x;
+                float minY = loop[0].y, maxY = loop[0].y;
+
+                for (const Core::Vertex& v : loop) {
+                    minX = std::min(minX, v.x); maxX = std::max(maxX, v.x);
+                    minY = std::min(minY, v.y); maxY = std::max(maxY, v.y);
+                }
+
+                const float spanX = std::max(maxX - minX, 1e-3f);
+                const float spanY = std::max(maxY - minY, 1e-3f);
+
+                const float margin = 16.0f;
+                const float availW = std::max(panelW - 2.0f * margin, 1.0f);
+                const float availH = std::max(panelH - 2.0f * margin, 1.0f);
+
+                const float scale = std::min(availW / spanX, availH / spanY);
+
+                const float usedH = spanY * scale;
+                const float topY = originY + (panelH - usedH) * 0.5f;
+                const float cx = originX + panelW * 0.5f;
+
+                // Tool y grows from tip upward; screen y grows downward, so the
+                // tip lands at the bottom and the shank at the top.
+                auto toScreen = [&](float x, float y, Core::Color c) {
+                    return Core::Vertex(cx + x * scale, topY + (maxY - y) * scale, c);
+                };
+
+                const Core::Color outlineColor = { 0.62f, 0.78f, 1.0f, 1.0f };
+                const Core::Color axisColor = { 0.45f, 0.52f, 0.66f, 0.7f };
+
+                for (const Core::Vertex& v : loop) {
+                    outlinePts.push_back(toScreen(v.x, v.y, outlineColor));
+                }
+
+                axisPts.push_back(toScreen(0.0f, minY, axisColor));
+                axisPts.push_back(toScreen(0.0f, maxY, axisColor));
+            }
+
+            updateLine(axisLine, axisPts, { 0.45f, 0.52f, 0.66f, 0.7f }, 1.0f);
+            updateLine(outline, outlinePts, { 0.62f, 0.78f, 1.0f, 1.0f }, 2.0f);
+
+            Box::computePrimitives(e);
+        }
+
+        void updateLine(
             Lines* lines,
             std::vector<Core::Vertex>& points,
             const Core::Color& color,
             float strokeWidth
         ) {
-
             if (!lines) { return; }
 
             if (points.size() >= 2) {
@@ -204,83 +179,12 @@ export namespace Cam::Gui {
             lines->compute();
         }
 
-        void computePrimitives(Event& e) override {
-
-            outlinePts.clear();
-            axisPts.clear();
-
-            const float panelW = panelDimension(rect.w, resolved.size.w.val);
-            const float panelH = panelDimension(rect.h, resolved.size.h.val);
-            const float originX = rect.w > 1.0f ? rect.x : 0.0f;
-            const float originY = rect.h > 1.0f ? rect.y : 0.0f;
-
-            std::vector<Core::Vertex> tool = buildProfileToolSpace();
-
-            if (tool.size() >= 2) {
-
-                float minX = tool[0].x, maxX = tool[0].x;
-                float minY = tool[0].y, maxY = tool[0].y;
-
-                for (const Core::Vertex& v : tool) {
-                    minX = std::min(minX, v.x); maxX = std::max(maxX, v.x);
-                    minY = std::min(minY, v.y); maxY = std::max(maxY, v.y);
-                }
-
-                const float spanX = std::max(maxX - minX, 1e-3f);
-                const float spanY = std::max(maxY - minY, 1e-3f);
-
-                const float margin = 14.0f;
-                const float availW = std::max(panelW - 2.0f * margin, 1.0f);
-                const float availH = std::max(panelH - 2.0f * margin, 1.0f);
-
-                const float scale = std::min(availW / spanX, availH / spanY);
-
-                const float usedW = spanX * scale;
-                const float leftX = originX + (panelW - usedW) * 0.5f;
-                const float midY = originY + panelH * 0.5f;
-
-                auto toScreen = [&](const Core::Vertex& p, Core::Color c) {
-                    return Core::Vertex(
-                        leftX + (p.x - minX) * scale,
-                        midY - p.y * scale,
-                        c
-                    );
-                };
-
-                const Core::Color outlineColor = { 0.62f, 0.78f, 1.0f, 1.0f };
-                const Core::Color axisColor = { 0.45f, 0.52f, 0.66f, 0.7f };
-
-                for (const Core::Vertex& v : tool) {
-                    outlinePts.push_back(toScreen(v, outlineColor));
-                }
-
-                axisPts.push_back(toScreen(Core::Vertex(minX, 0.0f), axisColor));
-                axisPts.push_back(toScreen(Core::Vertex(maxX, 0.0f), axisColor));
-            }
-
-            updateLinePrimitive(
-                axis,
-                axisPts,
-                { 0.45f, 0.52f, 0.66f, 0.7f },
-                1.0f
-            );
-
-            updateLinePrimitive(
-                outline,
-                outlinePts,
-                { 0.62f, 0.78f, 1.0f, 1.0f },
-                2.0f
-            );
-
-            Box::computePrimitives(e);
-        }
-
         void draw(Event& e) override {
 
             Box::draw(e);
 
-            if (axis && axis->numVerts > 0) { axis->draw(); }
-            if (outline && outline->numVerts > 0) { outline->draw(); }
+            if (axisLine && axisPts.size() >= 2) { axisLine->draw(); }
+            if (outline && outlinePts.size() >= 2) { outline->draw(); }
         }
     };
 }

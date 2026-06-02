@@ -407,7 +407,7 @@ export namespace Cam::App {
 
             toolName = tool.name;
             toolDiameter = tool.diameter;
-            toolLength = tool.length;
+            toolLength = tool.totalLength();
 
             if (strategyAuto) {
 

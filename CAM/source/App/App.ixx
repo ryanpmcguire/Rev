@@ -175,7 +175,9 @@ export namespace Cam::App {
             tool.type = Tool::Type::EndMill;
             tool.diameter = 1.0;
             tool.radius = 0.5;
-            tool.length = 100.0;
+            tool.cuttingLength = 20.0;
+            tool.collarLength = 80.0;
+            tool.recomputeLength();
 
             if (!library.insertTool(tool)) { return false; }
 
@@ -245,6 +247,11 @@ export namespace Cam::App {
             updated.shoulderDiameter = src.shoulderDiameter;
             updated.shoulderLength = src.shoulderLength;
             updated.shoulderTaperAngle = src.shoulderTaperAngle;
+            updated.collarDiameter = src.collarDiameter;
+            updated.collarLength = src.collarLength;
+
+            // Overall length is derived from the profile.
+            updated.recomputeLength();
 
             updated.defaultFeedRate = src.defaultFeedRate;
             updated.defaultStepdown = src.defaultStepdown;

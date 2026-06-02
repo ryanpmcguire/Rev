@@ -206,6 +206,8 @@ export namespace Cam::App {
             json["shoulderDiameter"] = tool.shoulderDiameter;
             json["shoulderLength"] = tool.shoulderLength;
             json["shoulderTaperAngle"] = tool.shoulderTaperAngle;
+            json["collarDiameter"] = tool.collarDiameter;
+            json["collarLength"] = tool.collarLength;
 
             json["defaultFeedRate"] = tool.defaultFeedRate;
             json["defaultStepdown"] = tool.defaultStepdown;
@@ -298,6 +300,28 @@ export namespace Cam::App {
                 out.shoulderTaperAngle = json["shoulderTaperAngle"].get<double>();
             }
 
+            if (json.contains("collarDiameter") && json["collarDiameter"].is_number()) {
+                out.collarDiameter = json["collarDiameter"].get<double>();
+            }
+            if (json.contains("collarLength") && json["collarLength"].is_number()) {
+                out.collarLength = json["collarLength"].get<double>();
+            }
+            else {
+                // Older tools had no collar; absorb the remaining stickout (the
+                // file's `length`, if any) into the shank so total length holds.
+                double legacyLength = 0.0;
+                if (json.contains("length") && json["length"].is_number()) {
+                    legacyLength = json["length"].get<double>();
+                }
+                const double used = out.cuttingLength
+                    + Tool::shoulderTransitionHeight(
+                        out.diameter * 0.5,
+                        Tool::effectiveShoulderRadius(out.diameter * 0.5, out.shoulderDiameter),
+                        out.shoulderTaperAngle)
+                    + out.shoulderLength;
+                out.collarLength = std::max(legacyLength - used, 0.0);
+            }
+
             if (json.contains("defaultFeedRate") && json["defaultFeedRate"].is_number()) {
                 out.defaultFeedRate = json["defaultFeedRate"].get<double>();
             }
@@ -319,6 +343,9 @@ export namespace Cam::App {
                 out.axis.y = json["axis"][1].get<float>();
                 out.axis.z = json["axis"][2].get<float>();
             }
+
+            // Keep the cached overall length consistent with the profile.
+            out.recomputeLength();
 
             return true;
         }

@@ -287,7 +287,6 @@ export namespace Rev::Element {
             }
 
             bool seenDot = false;
-            int decimalDigits = 0;
             size_t index = 0;
 
             if (text[0] == '-') {
@@ -321,16 +320,8 @@ export namespace Rev::Element {
                     return false;
                 }
 
-                if (seenDot) {
-                    decimalDigits++;
-
-                    if (
-                        numberParams.maxDecimalPlaces >= 0 &&
-                        decimalDigits > numberParams.maxDecimalPlaces
-                    ) {
-                        return false;
-                    }
-                }
+                // Note: we do NOT reject extra decimal places while typing;
+                // the value is rounded to maxDecimalPlaces on commit.
             }
 
             return true;
@@ -342,21 +333,13 @@ export namespace Rev::Element {
                 return false;
             }
 
-            if (!isValidPartial(proposed)) {
-                return false;
-            }
-
-            if (!isCompleteNumber(proposed)) {
-                return true;
-            }
-
-            std::optional<double> parsed = tryParse(proposed);
-
-            if (!parsed) {
-                return false;
-            }
-
-            return satisfiesTypingBounds(*parsed, numberParams);
+            // Only reject text that can never become a valid number.  Range
+            // (min/max), decimal-place, and forbidden-value constraints are
+            // enforced on commit (commitOnLoseFocus -> interpretValue), NOT per
+            // keystroke: rejecting mid-entry blocks legitimate values whose
+            // partial form is transiently out of range (e.g. typing "12" when
+            // the minimum is 7).
+            return isValidPartial(proposed);
         }
 
         void commitOnLoseFocus(Event& e) {
