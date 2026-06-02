@@ -7,6 +7,7 @@ module;
 #include <vector>
 #include <functional>
 #include <map>
+#include <cstdio>
 
 #include <dbg.hpp>
 
@@ -49,6 +50,8 @@ import Cam.Machine.Pose;
 import Cam.Machine.Definition;
 import Cam.Machine.ToolPath;
 import Cam.Machine.IKSolver;
+
+import Carvera.MachineLink;
 
 export namespace Cam::Gui {
 
@@ -245,6 +248,11 @@ export namespace Cam::Gui {
                     previewTimeline.setElapsed(0.0);
                     syncPreviewSlider(e);
                 }
+
+                // EXECUTE: pressing play streams the program to the machine.
+                if (previewMode == PreviewMode::Execute) {
+                    streamExecuteProgram();
+                }
             };
 
             previewBar->onAnimateFrame = [this](
@@ -284,6 +292,13 @@ export namespace Cam::Gui {
             previewBar->onViewModeChanged = [this](PreviewMode mode, Event& e) {
                 previewMode           = mode;
                 machineToolPathsDirty = true;
+
+                // Leaving EXECUTE aborts any pending stream (already-buffered
+                // moves on the controller still run; use the machine's stop).
+                if (mode != PreviewMode::Execute) {
+                    Carvera::MachineLink::instance().clearQueue();
+                }
+
                 if (view3d) { view3d->refresh(e); }
             };
         }
@@ -1220,6 +1235,85 @@ export namespace Cam::Gui {
             }
 
             if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
+        }
+
+        // EXECUTE: build the machine program from the IK-solved path(s) of the
+        // previewed states and hand it to the (flow-controlled) machine link.
+        // Strictly gated: only ever sends when armed + connected.  Assumes the
+        // machine's work-coordinate zero matches the CAD frame (set up before
+        // the real run).
+        void streamExecuteProgram() {
+
+            Carvera::MachineLink& link = Carvera::MachineLink::instance();
+
+            if (!link.isArmed()) {
+                dbg("[Execute] not armed/connected — refusing to stream");
+                return;
+            }
+
+            Cam::App::Project* project = activeProject();
+
+            if (!project) { return; }
+
+            std::vector<std::string> lines;
+            lines.push_back("G90\n");  // absolute positioning
+
+            const double radToDeg = 57.29577951308232;
+
+            auto appendState = [&](Cam::App::MaterialState* state) {
+
+                if (!state || !state->hasToolPath) { return; }
+
+                const Cam::Machine::MachineToolPath* path = getMachineToolPath(state);
+
+                if (!path || path->empty()) { return; }
+
+                const double feed = state->toolPath.feedRate > 0.0
+                    ? state->toolPath.feedRate
+                    : 250.0;
+
+                for (const Cam::Machine::MachinePose& p : path->points) {
+
+                    const Rev::Core::Pos3 pos = p.toolWorldPose.position;
+                    const double aDeg = p.rotaryAngle * radToDeg;
+
+                    char line[160];
+
+                    if (p.rapid) {
+                        std::snprintf(line, sizeof(line),
+                            "G0 X%.3f Y%.3f Z%.3f A%.3f\n",
+                            pos.x, pos.y, pos.z, aDeg);
+                    }
+                    else {
+                        std::snprintf(line, sizeof(line),
+                            "G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f\n",
+                            pos.x, pos.y, pos.z, aDeg, feed);
+                    }
+
+                    lines.push_back(line);
+                }
+            };
+
+            const std::vector<Cam::App::MaterialState*> sequence =
+                ToolPathPreviewTimeline::previewSequence(project);
+
+            if (!sequence.empty()) {
+                for (Cam::App::MaterialState* state : sequence) {
+                    appendState(state);
+                }
+            }
+            else {
+                appendState(materialStateWithToolPathForPreview(project));
+            }
+
+            if (lines.size() <= 1) {
+                dbg("[Execute] no machine path to stream");
+                return;
+            }
+
+            dbg("[Execute] streaming %zu lines to the machine", lines.size());
+
+            link.enqueueProgram(lines);
         }
 
         void syncAllMaterialViews() {

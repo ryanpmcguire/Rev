@@ -5,6 +5,7 @@ module;
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <vector>
 #include <managed.hpp>
 
 export module Cam.Gui.PreviewBar;
@@ -26,6 +27,8 @@ import Rev.Element.ControlTheme;
 
 import Cam.Gui.Theme;
 
+import Carvera.MachineLink;
+
 export namespace Cam::Gui {
 
     using namespace Rev;
@@ -33,7 +36,8 @@ export namespace Cam::Gui {
 
     enum class PreviewMode {
         AbsoluteToolPath,    // standard view: part static, tool traces path in world space
-        MachineSimulation    // IK view: part physically moves/rotates as the machine would
+        MachineSimulation,   // IK view: part physically moves/rotates as the machine would
+        Execute              // armed: drive the physical machine to follow the preview
     };
 
     namespace PreviewBarStyle {
@@ -439,9 +443,18 @@ export namespace Cam::Gui {
             viewModeDropdown->onChange = [this](Event& e) {
                 if (!viewModeDropdown) { return; }
 
-                PreviewMode next = viewModeDropdown->params.value == "machine"
-                    ? PreviewMode::MachineSimulation
-                    : PreviewMode::AbsoluteToolPath;
+                const std::string& value = viewModeDropdown->params.value;
+
+                PreviewMode next =
+                    value == "machine" ? PreviewMode::MachineSimulation :
+                    value == "execute" ? PreviewMode::Execute :
+                                         PreviewMode::AbsoluteToolPath;
+
+                // EXECUTE is only selectable while the machine is armed.
+                if (next == PreviewMode::Execute &&
+                    !Carvera::MachineLink::instance().isArmed()) {
+                    next = PreviewMode::AbsoluteToolPath;
+                }
 
                 if (next == previewMode) { return; }
 
@@ -476,6 +489,15 @@ export namespace Cam::Gui {
             }
 
             auto onSliderChanged = [this](Event& e) {
+
+                // No scrubbing while executing: the preview must reflect what the
+                // machine is actually doing, so snap the slider back.
+                if (previewMode == PreviewMode::Execute) {
+                    syncSliderDisplay(e);
+                    e.propagate = false;
+                    return;
+                }
+
                 pause(e);
                 applyPercentFromSlider(e);
                 e.propagate = false;
@@ -494,6 +516,40 @@ export namespace Cam::Gui {
             });
 
             animator.setFrequency(FrameRate);
+        }
+
+        // Show the EXECUTE option only while the machine is armed, and fall back
+        // out of Execute if the machine disarms (e.g. it disconnects).
+        void computeChildren(Event& e) override {
+
+            if (viewModeDropdown) {
+
+                const bool armed = Carvera::MachineLink::instance().isArmed();
+
+                std::vector<Dropdown::Item> options = {
+                    { "Toolpath",    "toolpath" },
+                    { "Machine Sim", "machine"  }
+                };
+
+                if (armed) {
+                    options.push_back({ "EXECUTE", "execute" });
+                }
+
+                viewModeDropdown->params.options = options;
+
+                if (!armed && previewMode == PreviewMode::Execute) {
+                    previewMode = PreviewMode::AbsoluteToolPath;
+                    viewModeDropdown->params.value = "toolpath";
+                    if (viewModeDropdown->dropdownText) {
+                        viewModeDropdown->dropdownText->content = "Toolpath";
+                    }
+                    if (onViewModeChanged) {
+                        onViewModeChanged(previewMode, e);
+                    }
+                }
+            }
+
+            Box::computeChildren(e);
         }
 
         bool isPlaying() const {

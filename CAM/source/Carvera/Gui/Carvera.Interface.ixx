@@ -28,6 +28,8 @@ import Rev.Client;
 import Rev.Core.Animator;
 import Rev.Element.Event.GestureTracker;
 
+import Carvera.MachineLink;
+
 import Cam.Gui.Theme;
 
 export namespace Carvera::Gui {
@@ -131,6 +133,27 @@ export namespace Carvera::Gui {
         Rev::Element::Style PanelBorderAlarm      = { .border = { .color = rgba(239, 68,  68,  1.0), .width = 2_px, .radius = 6_px } };
         Rev::Element::Style PanelBorderToolChange = { .border = { .color = rgba(245, 158, 11,  1.0), .width = 2_px, .radius = 6_px } };
         Rev::Element::Style PanelBorderNone       = { .border = { .color = rgba(0,   0,   0,   0.0), .width = 0_px } };
+
+        // Arm control: a prominent full-width toggle.  Disarmed it is a normal
+        // button; armed it becomes a stark white-on-pastel-red banner.
+        Rev::Element::Style ArmButton = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size   = { .width = 100_pct, .height = 48_px },
+            .margin = { .bottom = 6_px },
+            .border = { .radius = 6_px },
+            .cursor = Cursor::Hand
+        };
+
+        Rev::Element::Style ArmLabel = { .text = { .size = 15_px } };
+
+        Rev::Element::Style ArmedBanner = {
+            .background = { .color = rgba(248, 113, 113, 1.0) },                 // pastel red
+            .border     = { .color = rgba(220, 38, 38, 1.0), .width = 2_px, .radius = 6_px }
+        };
+
+        Rev::Element::Style ArmedLabel = {
+            .text = { .color = rgba(255, 255, 255, 1.0), .size = 22_px }         // stark white, thick
+        };
     }
 
     namespace Theme = Cam::Gui::Theme;
@@ -258,6 +281,9 @@ export namespace Carvera::Gui {
         Box*  connectBtn        = nullptr;
         Text* connectBtnLabel   = nullptr;
 
+        Box*  armBtn   = nullptr;
+        Text* armLabel = nullptr;
+
         Text* posXText = nullptr, *posYText = nullptr;
         Text* posZText = nullptr, *posAText = nullptr;
         Text* stepText = nullptr;
@@ -297,6 +323,7 @@ export namespace Carvera::Gui {
             this->tabStop = true;
 
             buildConnectionSection();
+            buildArmSection();
             buildJogSection();
             buildLogSection();
 
@@ -317,6 +344,8 @@ export namespace Carvera::Gui {
             // Display chase loop — 140 fps, anchors to truth + chases intent.
             displayLoop.onFrame([this](Rev::Core::AnimationEvent& frame) {
                 tickDisplay();
+                // Drive flow-controlled program streaming on the main thread.
+                Carvera::MachineLink::instance().pump();
                 if (shared && shared->event) refresh(*shared->event);
             });
 
@@ -330,7 +359,10 @@ export namespace Carvera::Gui {
             };
         }
 
-        ~Interface() { if (client) { delete client; client = nullptr; } }
+        ~Interface() {
+            Carvera::MachineLink::instance().setClient(nullptr);
+            if (client) { delete client; client = nullptr; }
+        }
 
         // -- UI construction -----------------------------------------
 
@@ -355,6 +387,40 @@ export namespace Carvera::Gui {
             Box* ctrlRow = new Box(s, { &Style::Row }, "CtrlRow");
             makeBtn(ctrlRow, "Unlock", Style::Btn)->onClick([this](Event& e) { unlock(e);           e.propagate = false; });
             makeBtn(ctrlRow, "Reset",  Style::Btn)->onClick([this](Event& e) { sendLine("reset\n"); e.propagate = false; });
+        }
+
+        void buildArmSection() {
+
+            Box* section = new Box(this, Theme::withPanel({ &Style::Section }), "ArmSection");
+
+            armBtn = new Box(
+                section,
+                Theme::withButton({ &Style::ArmButton, &Style::BtnHover, &Style::BtnPress }),
+                "ArmButton"
+            );
+
+            armLabel = new Text(armBtn, "ARM", Theme::withText({ &Style::ArmLabel }));
+
+            armBtn->onClick([this](Event& e) { toggleArm(e); e.propagate = false; });
+        }
+
+        void toggleArm(Event& e) {
+
+            auto& link = Carvera::MachineLink::instance();
+
+            if (link.isArmed()) {
+                link.disarm();
+                pushLog("DISARMED.");
+            }
+            else if (link.setArmed(true)) {
+                link.beep();
+                pushLog("ARMED - execution enabled.");
+            }
+            else {
+                pushLog("Connect to the machine before arming.");
+            }
+
+            refresh(e);
         }
 
         void buildJogSection() {
@@ -437,6 +503,7 @@ export namespace Carvera::Gui {
 
             client->onConnect([this](Rev::Client::ConnectEvent& e) {
                 pushLog(std::format("Connected to {}", e.address));
+                Carvera::MachineLink::instance().setClient(client);
                 resetTelemetryState();
                 sendStatus();           // kick off the chain
                 watchdog.play();
@@ -446,6 +513,7 @@ export namespace Carvera::Gui {
             client->onDisconnect([this](Rev::Client::DisconnectEvent& e) {
                 watchdog.stop();
                 displayLoop.stop();
+                Carvera::MachineLink::instance().setClient(nullptr);
                 pushLog("Connection closed by remote.");
                 std::lock_guard lock(logMutex);
                 pendingState = "";
@@ -458,6 +526,7 @@ export namespace Carvera::Gui {
             client->onError([this](Rev::Client::ErrorEvent& e) {
                 watchdog.stop();
                 displayLoop.stop();
+                Carvera::MachineLink::instance().setClient(nullptr);
                 pushLog(std::format("Error: {}", e.reason));
             });
 
@@ -468,6 +537,7 @@ export namespace Carvera::Gui {
             if (!client) return;
             watchdog.stop();
             displayLoop.stop();
+            Carvera::MachineLink::instance().setClient(nullptr);
             delete client; client = nullptr;
             pushLog("Disconnected.");
             resetTelemetryState();
@@ -530,7 +600,10 @@ export namespace Carvera::Gui {
                 return;
             }
 
-            if (msg == "ok" || msg.starts_with("ok - ignore:")) return;
+            if (msg == "ok" || msg.starts_with("ok - ignore:")) {
+                Carvera::MachineLink::instance().notifyOk();
+                return;
+            }
 
             pushLog(std::format("< {}", msg));
         }
@@ -807,6 +880,23 @@ export namespace Carvera::Gui {
             Box* allBtns[] = { btnPX, btnNX, btnPY, btnNY, btnPZ, btnNZ, btnAP, btnAM };
             for (Box* btn : allBtns) if (btn) btn->styles.remove(&Style::JogBtnActive);
             if (activeJogBtn) activeJogBtn->styles.add(&Style::JogBtnActive);
+
+            if (armBtn && armLabel) {
+
+                const bool armed = Carvera::MachineLink::instance().isArmed();
+
+                armBtn->styles.remove(&Style::ArmedBanner);
+                armLabel->styles.remove(&Style::ArmedLabel);
+
+                if (armed) {
+                    armBtn->styles.add(&Style::ArmedBanner);
+                    armLabel->styles.add(&Style::ArmedLabel);
+                    armLabel->content = "ARMED";
+                }
+                else {
+                    armLabel->content = "ARM";
+                }
+            }
 
             Box::computeChildren(e);
         }
