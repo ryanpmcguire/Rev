@@ -835,13 +835,20 @@ export namespace Cam::Gui {
 
             Carvera::MachineLink& link = Carvera::MachineLink::instance();
 
-            // In EXECUTE mode, register the CAD origin (stock-top centre) so the
-            // machine link can map telemetry MPos back into CAD space.
+            // EXECUTE mode: register the CAD begin-work point as the reference,
+            // computed IN the user frame so it matches what the streamer emits.
             const bool executeMode = (previewMode == PreviewMode::Execute);
 
+            UserFrame frame;
+            Rev::Core::Pos3 beginWorkInFrame = {};
+            Rev::Core::Pos3 cadBeginWork = {};
+
             if (executeMode && project) {
-                const Rev::Core::Pos3 cad = beginWorkOrigin(project);
-                link.setCadOrigin(cad.x, cad.y, cad.z);
+                frame = currentUserFrame(project);
+                cadBeginWork = beginWorkOrigin(project, frame);
+                beginWorkInFrame = frame.toFrame(cadBeginWork);
+
+                link.setCadOrigin(cadBeginWork.x, cadBeginWork.y, cadBeginWork.z);
 
                 // If no precise origin has been set yet (via Set Origin), anchor
                 // to the current machine position so jogging shows relative
@@ -882,12 +889,24 @@ export namespace Cam::Gui {
                 link.telemetry(tx, ty, tz, ta) &&
                 link.workOrigin(omx, omy, omz, ocx, ocy, ocz)) {
 
-                // machine WCS = MPos - machineOrigin; invert the CAD->machine
-                // axis map (machine X = world Y, machine Y = world X).
-                tip.x = (ty - omy) + ocx;   // world X
-                tip.y = (tx - omx) + ocy;   // world Y
-                tip.z = (tz - omz) + ocz;   // world Z
-                dir = { 0.0f, 0.0f, 1.0f };
+                // MPos - machineOrigin = WCS coords in the user/machine frame.
+                // Add the begin-work offset (also in-frame) and rotate back into
+                // CAD world via frame.toWorld.  This is the exact inverse of the
+                // streamer's transform — no ad-hoc axis swaps.
+                const Rev::Core::Pos3 wcsInFrame = {
+                    tx - omx,
+                    ty - omy,
+                    tz - omz
+                };
+
+                const Rev::Core::Pos3 inFrame = {
+                    wcsInFrame.x + beginWorkInFrame.x,
+                    wcsInFrame.y + beginWorkInFrame.y,
+                    wcsInFrame.z + beginWorkInFrame.z
+                };
+
+                tip = frame.toWorld(inFrame);
+                dir = frame.Z;   // tool axis is the user's +Z
                 haveTip = true;
             }
             else if (target.state && target.state->hasToolPath) {
@@ -1333,15 +1352,60 @@ export namespace Cam::Gui {
             if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
         }
 
-        // The "begin work" origin: the centre of the top surface of the stock,
-        // in CAD world space.  The operator physically jogs the tool tip to this
-        // point (paper/shim) and zeroes there, so the program is streamed
-        // relative to it.  Falls back to the part, then the displayed state.
-        Rev::Core::Pos3 beginWorkOrigin(Cam::App::Project* project) {
-
+        // The single unified coordinate system: the user-defined axis frame.
+        //
+        // The frame is what the user established with the "co" (centre origin)
+        // and "ax" (define axis) gestures.  Every CAD point P is expressed in
+        // that frame as:
+        //   machineX = (P - axisOrigin) . X̂
+        //   machineY = (P - axisOrigin) . Ŷ
+        //   machineZ = (P - axisOrigin) . Ẑ
+        // This is what the IK solver uses for the rotary axis, what the machine
+        // physically sees, and what the streamer must emit.  When the user
+        // hasn't defined a frame yet we fall back to world axes.
+        struct UserFrame {
             Rev::Core::Pos3 origin = { 0.0f, 0.0f, 0.0f };
+            Rev::Core::Pos3 X = { 1.0f, 0.0f, 0.0f };
+            Rev::Core::Pos3 Y = { 0.0f, 1.0f, 0.0f };
+            Rev::Core::Pos3 Z = { 0.0f, 0.0f, 1.0f };
 
-            if (!project) { return origin; }
+            Rev::Core::Pos3 toFrame(const Rev::Core::Pos3& p) const {
+                const Rev::Core::Pos3 d = p - origin;
+                return { d.dot(X), d.dot(Y), d.dot(Z) };
+            }
+
+            Rev::Core::Pos3 toWorld(const Rev::Core::Pos3& f) const {
+                return origin + X * f.x + Y * f.y + Z * f.z;
+            }
+        };
+
+        UserFrame currentUserFrame(Cam::App::Project* project) {
+
+            UserFrame frame;
+
+            Cam::App::MaterialState* state = project ? project->displayedState : nullptr;
+
+            if (!state) { return frame; }
+
+            const Cam::App::Model& m = state->model;
+
+            // The axis/origin is shared across the project (propagateAxisToAllStates),
+            // so the displayed state's frame is the project's frame.
+            m.getOrthonormalAxisFrame(frame.X, frame.Y, frame.Z);
+
+            if (m.hasAxisOrigin) { frame.origin = m.axisOrigin; }
+
+            return frame;
+        }
+
+        // The "begin work" origin: the centre of the top surface of the stock,
+        // expressed in CAD world space but computed IN THE USER FRAME so it
+        // tracks the user's defined axes (the stock is built along those axes).
+        // The operator physically jogs the tool tip here and zeroes; the program
+        // is streamed in user-frame coordinates relative to it.
+        Rev::Core::Pos3 beginWorkOrigin(Cam::App::Project* project, const UserFrame& frame) {
+
+            if (!project) { return frame.origin; }
 
             Cam::App::MaterialState* state = nullptr;
 
@@ -1351,25 +1415,32 @@ export namespace Cam::Gui {
 
             if (!state) { state = project->stockBaseState(); }
             if (!state) { state = project->displayedState; }
-            if (!state) { return origin; }
+            if (!state) { return frame.origin; }
 
             const std::vector<Rev::Core::Vertex3>& tris = state->model.render.triangles;
 
-            if (tris.empty()) { return origin; }
+            if (tris.empty()) { return frame.origin; }
 
-            Rev::Core::Pos3 mn = tris[0];
-            Rev::Core::Pos3 mx = tris[0];
+            // Bounding box in the user frame: project every vertex onto X/Y/Z.
+            Rev::Core::Pos3 first = frame.toFrame(tris[0]);
+            Rev::Core::Pos3 mn = first;
+            Rev::Core::Pos3 mx = first;
 
             for (const Rev::Core::Vertex3& v : tris) {
-                mn = Rev::Core::Pos3::min(mn, v);
-                mx = Rev::Core::Pos3::max(mx, v);
+                const Rev::Core::Pos3 f = frame.toFrame(v);
+                mn = Rev::Core::Pos3::min(mn, f);
+                mx = Rev::Core::Pos3::max(mx, f);
             }
 
-            origin.x = (mn.x + mx.x) * 0.5f;
-            origin.y = (mn.y + mx.y) * 0.5f;
-            origin.z = mx.z;  // top surface
+            // Stock-top centre: centred in X/Y of the user frame, at max Z.
+            const Rev::Core::Pos3 frameCentre = {
+                (mn.x + mx.x) * 0.5f,
+                (mn.y + mx.y) * 0.5f,
+                mx.z
+            };
 
-            return origin;
+            // Express back in CAD world for callers that need a world point.
+            return frame.toWorld(frameCentre);
         }
 
         // 1-based tool slot inferred from the library order (best effort, for
@@ -1407,8 +1478,12 @@ export namespace Cam::Gui {
 
             if (!project) { return; }
 
-            // Stream relative to the begin-work origin (stock top centre).
-            const Rev::Core::Pos3 origin = beginWorkOrigin(project);
+            // Everything streamed to the machine is expressed in the USER FRAME:
+            // origin = user axisOrigin, axes = user X/Y/Z.  The begin-work
+            // origin (stock-top centre) is itself defined in that frame.
+            const UserFrame frame = currentUserFrame(project);
+            const Rev::Core::Pos3 cadBeginWork = beginWorkOrigin(project, frame);
+            const Rev::Core::Pos3 beginWorkInFrame = frame.toFrame(cadBeginWork);
 
             std::vector<std::string> lines;
             lines.push_back("G90\n");  // absolute positioning
@@ -1469,12 +1544,15 @@ export namespace Cam::Gui {
                     const Rev::Core::Pos3 pos = p.toolWorldPose.position;
                     const double aDeg = p.rotaryAngle * radToDeg;
 
-                    // Offset to the begin-work origin, then map CAD->machine:
-                    // the CAD world frame has X and Y transposed relative to the
-                    // Carvera's axes, so machine X = world Y and vice versa.
-                    const double machineX = pos.y - origin.y;
-                    const double machineY = pos.x - origin.x;
-                    const double machineZ = pos.z - origin.z;
+                    // CAD world -> user frame -> machine, in one step.  The
+                    // user frame IS the machine frame: machine X/Y/Z = the
+                    // user-defined X/Y/Z directions (set by the "co" / "ax"
+                    // gestures), with the begin-work point as the origin.
+                    const Rev::Core::Pos3 inFrame = frame.toFrame(pos);
+
+                    const double machineX = inFrame.x - beginWorkInFrame.x;
+                    const double machineY = inFrame.y - beginWorkInFrame.y;
+                    const double machineZ = inFrame.z - beginWorkInFrame.z;
 
                     if (machineZ > maxMachineZ) { maxMachineZ = machineZ; }
 

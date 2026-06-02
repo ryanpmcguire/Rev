@@ -152,12 +152,8 @@ export namespace Carvera::Gui {
         Rev::Element::Style ArmLabel = { .text = { .size = 15_px } };
 
         Rev::Element::Style ArmedBanner = {
-            .background = { .color = rgba(248, 113, 113, 1.0) },                 // pastel red
-            .border     = { .color = rgba(220, 38, 38, 1.0), .width = 2_px, .radius = 6_px }
-        };
-
-        Rev::Element::Style ArmedLabel = {
-            .text = { .color = rgba(255, 255, 255, 1.0), .size = 22_px }         // stark white, thick
+            .background = { .color = rgba(255, 0, 0, 0.25) },
+            .border     = { .color = rgba(255, 0, 0, 1.0), .width = 2_px, .radius = 6_px }
         };
     }
 
@@ -947,11 +943,9 @@ export namespace Carvera::Gui {
                 const bool armed = Carvera::MachineLink::instance().isArmed();
 
                 armBtn->styles.remove(&Style::ArmedBanner);
-                armLabel->styles.remove(&Style::ArmedLabel);
 
                 if (armed) {
                     armBtn->styles.add(&Style::ArmedBanner);
-                    armLabel->styles.add(&Style::ArmedLabel);
                     armLabel->content = "ARMED";
                 }
                 else {
@@ -964,11 +958,9 @@ export namespace Carvera::Gui {
                 const bool spindleArmed = Carvera::MachineLink::instance().isSpindleArmed();
 
                 spindleBtn->styles.remove(&Style::ArmedBanner);
-                spindleLabel->styles.remove(&Style::ArmedLabel);
 
                 if (spindleArmed) {
                     spindleBtn->styles.add(&Style::ArmedBanner);
-                    spindleLabel->styles.add(&Style::ArmedLabel);
                     spindleLabel->content = "SPINDLE ARMED";
                 }
                 else {
