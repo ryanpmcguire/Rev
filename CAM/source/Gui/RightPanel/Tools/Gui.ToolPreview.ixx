@@ -19,6 +19,8 @@ import Rev.Primitive.Lines;
 
 import Rev.Graphics.Canvas;
 
+import Cam.App.Tool;
+
 export namespace Cam::Gui {
 
     using namespace Rev;
@@ -28,24 +30,22 @@ export namespace Cam::Gui {
 
         Style Self = {
             .overflow = Overflow::Hide,
-            .size = { .width = Grow(), .height = Grow() },
+            .size = { 100_pct, Grow(), .min = { .height = 160_px } },
             .background = { .color = rgba(20, 26, 38, 1.0) },
             .border = { .radius = 8_px }
         };
     }
 
-    // A 2D silhouette of the tool's revolved cross-section, drawn with the
-    // line primitive (SolidWorks-style tool preview).  The window feeds it the
-    // current geometry; it fits the profile to its own rect.
     struct ToolPreview : public Box {
 
         struct Geometry {
-            double radius = 0.5;
-            double length = 100.0;
-            double taperAngle = 0.0;      // degrees from horizontal
-            double shoulderLength = 20.0;
-            double collarRadius = 0.0;
-            double collarDepth = 0.0;
+            double cuttingRadius = 0.5;
+            double totalLength = 100.0;
+            double cuttingTaperAngle = 0.0;
+            double cuttingLength = 20.0;
+            double shoulderDiameter = 0.0;
+            double shoulderLength = 0.0;
+            double shoulderTaperAngle = 45.0;
         };
 
         Geometry geometry;
@@ -64,8 +64,8 @@ export namespace Cam::Gui {
 
             Graphics::Canvas* canvas = shared->canvas;
 
-            axis = new Lines(canvas, { &axisPts });
-            outline = new Lines(canvas, { &outlinePts });
+            axis = new Lines(canvas);
+            outline = new Lines(canvas);
         }
 
         ~ToolPreview() {
@@ -78,105 +78,130 @@ export namespace Cam::Gui {
             refresh(e);
         }
 
-        // Build the right-half silhouette (x = radius from axis, y = up from
-        // tip), bottom -> top, then mirror it into a closed loop.
-        //
-        // Profile (per Cam::App::Tool):
-        //   tip + taper, cutting flutes to shoulderLength at `radius`,
-        //   optional neck at cutting radius, then collarRadius over the top
-        //   `collarDepth` (or shank at collarRadius from shoulder when depth=0).
+        static float panelDimension(float rectDim, float resolvedDim) {
+
+            if (rectDim > 1.0f) { return rectDim; }
+            if (resolvedDim > 1.0f) { return resolvedDim; }
+            return 180.0f;
+        }
+
         std::vector<Core::Vertex> buildProfileToolSpace() const {
 
-            std::vector<std::pair<float, float>> right;  // (x, y) in mm
+            std::vector<std::pair<float, float>> upper;
 
-            const float r = static_cast<float>(std::max(geometry.radius, 0.0));
-            const float len = static_cast<float>(std::max(geometry.length, 0.0));
+            const float cuttingR = static_cast<float>(std::max(geometry.cuttingRadius, 0.0));
+            const float len = static_cast<float>(std::max(geometry.totalLength, 0.0));
 
-            if (r <= 1e-4f || len <= 1e-4f) { return {}; }
+            if (cuttingR <= 1e-4f || len <= 1e-4f) { return {}; }
 
-            const float taper = static_cast<float>(geometry.taperAngle);
-            float tipH = 0.0f;
+            const float shoulderR = static_cast<float>(Cam::App::Tool::effectiveShoulderRadius(
+                cuttingR,
+                geometry.shoulderDiameter
+            ));
 
-            if (taper > 0.0f && taper < 89.9f) {
-                tipH = r * std::tan(taper * 3.14159265358979f / 180.0f);
-            }
+            float tipH = static_cast<float>(Cam::App::Tool::tipTaperHeight(
+                cuttingR,
+                geometry.cuttingTaperAngle
+            ));
 
             tipH = std::min(tipH, len);
 
-            float shoulder = static_cast<float>(geometry.shoulderLength);
-            shoulder = std::clamp(shoulder, tipH, len);
+            float cutEnd = static_cast<float>(geometry.cuttingLength);
+            cutEnd = std::clamp(cutEnd, tipH, len);
 
-            // 0 collar radius means "same as cutting radius" (Cam::App::Tool).
-            const float collarR = geometry.collarRadius > 1e-6
-                ? static_cast<float>(geometry.collarRadius)
-                : r;
+            const float transitionH = static_cast<float>(Cam::App::Tool::shoulderTransitionHeight(
+                cuttingR,
+                shoulderR,
+                geometry.shoulderTaperAngle
+            ));
 
-            const bool useCollarRadius = std::abs(collarR - r) > 1e-4f;
+            float shoulderShankLen = static_cast<float>(std::max(geometry.shoulderLength, 0.0));
 
-            float topCollarDepth = static_cast<float>(std::max(geometry.collarDepth, 0.0));
-            topCollarDepth = std::min(topCollarDepth, std::max(len - shoulder, 0.0f));
+            const float maxShoulderBlock = std::max(len - cutEnd, 0.0f);
+            const float shoulderBlock = transitionH + shoulderShankLen;
 
-            float collarStart = len - topCollarDepth;
-
-            if (collarStart < shoulder) {
-                collarStart = shoulder;
-                topCollarDepth = len - collarStart;
+            if (shoulderBlock > maxShoulderBlock + 1e-4f) {
+                shoulderShankLen = std::max(0.0f, maxShoulderBlock - transitionH);
             }
 
-            const bool topCollarBand =
-                useCollarRadius &&
-                topCollarDepth > 1e-4f &&
-                collarStart > shoulder + 1e-4f;
+            const float taperEnd = cutEnd + transitionH;
+            const float shankEnd = std::min(taperEnd + shoulderShankLen, len);
 
-            const bool shankAtCollarRadius =
-                useCollarRadius &&
-                !topCollarBand &&
-                (len - shoulder) > 1e-4f;
+            const bool hasShoulderTaper =
+                transitionH > 1e-4f &&
+                std::fabs(shoulderR - cuttingR) > 1e-4f;
 
-            // Tip center.
-            right.push_back({ 0.0f, 0.0f });
+            const bool hasShoulderShank =
+                shoulderShankLen > 1e-4f &&
+                std::fabs(shoulderR - cuttingR) > 1e-4f;
 
-            // Tip corner / taper end.
-            right.push_back({ r, tipH });
+            upper.push_back({ 0.0f, 0.0f });
+            upper.push_back({ tipH, cuttingR });
+            upper.push_back({ cutEnd, cuttingR });
 
-            // Flutes up to the shoulder.
-            right.push_back({ r, shoulder });
-
-            if (topCollarBand) {
-                // Neck at cutting radius, then step out to the top collar/shank.
-                right.push_back({ r, collarStart });
-                right.push_back({ collarR, collarStart });
-                right.push_back({ collarR, len });
-            }
-            else if (shankAtCollarRadius) {
-                // No top band: shank at collar radius from the shoulder up.
-                right.push_back({ collarR, shoulder });
-                right.push_back({ collarR, len });
-            }
-            else {
-                right.push_back({ r, len });
+            if (hasShoulderTaper) {
+                upper.push_back({ taperEnd, shoulderR });
             }
 
-            // Top center.
-            right.push_back({ 0.0f, len });
+            if (hasShoulderShank) {
+                upper.push_back({ shankEnd, shoulderR });
+            }
 
-            // Closed loop: right side then mirrored left side.
+            if (shankEnd < len - 1e-4f) {
+                const float tailR = hasShoulderShank || hasShoulderTaper
+                    ? shoulderR
+                    : cuttingR;
+
+                upper.push_back({ len, tailR });
+            }
+            else if (!hasShoulderShank && !hasShoulderTaper) {
+                upper.push_back({ len, cuttingR });
+            }
+
+            upper.push_back({ len, 0.0f });
+
             std::vector<Core::Vertex> loop;
-            loop.reserve(right.size() * 2);
+            loop.reserve(upper.size() * 2);
 
-            for (const auto& p : right) {
+            for (const auto& p : upper) {
                 loop.push_back(Core::Vertex(p.first, p.second));
             }
 
-            for (size_t i = right.size(); i-- > 1;) {
+            for (size_t i = upper.size(); i-- > 1;) {
                 if (i == 0) { break; }
-                loop.push_back(Core::Vertex(-right[i - 1].first, right[i - 1].second));
+                loop.push_back(Core::Vertex(upper[i - 1].first, -upper[i - 1].second));
             }
 
-            // Close back onto the tip.
-            loop.push_back(Core::Vertex(right.front().first, right.front().second));
+            loop.push_back(Core::Vertex(upper.front().first, upper.front().second));
 
             return loop;
+        }
+
+        void updateLinePrimitive(
+            Lines* lines,
+            std::vector<Core::Vertex>& points,
+            const Core::Color& color,
+            float strokeWidth
+        ) {
+
+            if (!lines) { return; }
+
+            if (points.size() >= 2) {
+                lines->color = color;
+                lines->strokeWidth = strokeWidth;
+                lines->smoothing = 1.0f;
+                lines->lines = {{
+                    .pPoints = &points,
+                    .color = color,
+                    .strokeWidth = strokeWidth,
+                    .smoothing = 1.0f
+                }};
+            }
+            else {
+                lines->lines.clear();
+            }
+
+            lines->compute();
         }
 
         void computePrimitives(Event& e) override {
@@ -184,9 +209,14 @@ export namespace Cam::Gui {
             outlinePts.clear();
             axisPts.clear();
 
+            const float panelW = panelDimension(rect.w, resolved.size.w.val);
+            const float panelH = panelDimension(rect.h, resolved.size.h.val);
+            const float originX = rect.w > 1.0f ? rect.x : 0.0f;
+            const float originY = rect.h > 1.0f ? rect.y : 0.0f;
+
             std::vector<Core::Vertex> tool = buildProfileToolSpace();
 
-            if (tool.size() >= 2 && rect.w > 1.0f && rect.h > 1.0f) {
+            if (tool.size() >= 2) {
 
                 float minX = tool[0].x, maxX = tool[0].x;
                 float minY = tool[0].y, maxY = tool[0].y;
@@ -199,22 +229,20 @@ export namespace Cam::Gui {
                 const float spanX = std::max(maxX - minX, 1e-3f);
                 const float spanY = std::max(maxY - minY, 1e-3f);
 
-                const float margin = 16.0f;
-                const float availW = std::max(rect.w - 2.0f * margin, 1.0f);
-                const float availH = std::max(rect.h - 2.0f * margin, 1.0f);
+                const float margin = 14.0f;
+                const float availW = std::max(panelW - 2.0f * margin, 1.0f);
+                const float availH = std::max(panelH - 2.0f * margin, 1.0f);
 
                 const float scale = std::min(availW / spanX, availH / spanY);
 
-                const float usedH = spanY * scale;
-                const float topY = rect.y + (rect.h - usedH) * 0.5f;
-                const float cx = rect.x + rect.w * 0.5f;
+                const float usedW = spanX * scale;
+                const float leftX = originX + (panelW - usedW) * 0.5f;
+                const float midY = originY + panelH * 0.5f;
 
-                // Tool y grows from tip upward; screen y grows downward, so the
-                // tip (y=0) lands at the bottom and the shank (y=max) at the top.
                 auto toScreen = [&](const Core::Vertex& p, Core::Color c) {
                     return Core::Vertex(
-                        cx + p.x * scale,
-                        topY + (maxY - p.y) * scale,
+                        leftX + (p.x - minX) * scale,
+                        midY - p.y * scale,
                         c
                     );
                 };
@@ -226,30 +254,23 @@ export namespace Cam::Gui {
                     outlinePts.push_back(toScreen(v, outlineColor));
                 }
 
-                // Centerline (tool axis).
-                axisPts.push_back(toScreen(Core::Vertex(0.0f, minY), axisColor));
-                axisPts.push_back(toScreen(Core::Vertex(0.0f, maxY), axisColor));
+                axisPts.push_back(toScreen(Core::Vertex(minX, 0.0f), axisColor));
+                axisPts.push_back(toScreen(Core::Vertex(maxX, 0.0f), axisColor));
             }
 
-            if (axis) {
-                axis->lines = {{
-                    .pPoints = &axisPts,
-                    .color = { 0.45f, 0.52f, 0.66f, 0.7f },
-                    .strokeWidth = 1.0f,
-                    .smoothing = 1.0f
-                }};
-                axis->compute();
-            }
+            updateLinePrimitive(
+                axis,
+                axisPts,
+                { 0.45f, 0.52f, 0.66f, 0.7f },
+                1.0f
+            );
 
-            if (outline) {
-                outline->lines = {{
-                    .pPoints = &outlinePts,
-                    .color = { 0.62f, 0.78f, 1.0f, 1.0f },
-                    .strokeWidth = 2.0f,
-                    .smoothing = 1.0f
-                }};
-                outline->compute();
-            }
+            updateLinePrimitive(
+                outline,
+                outlinePts,
+                { 0.62f, 0.78f, 1.0f, 1.0f },
+                2.0f
+            );
 
             Box::computePrimitives(e);
         }
@@ -258,8 +279,8 @@ export namespace Cam::Gui {
 
             Box::draw(e);
 
-            if (axis && axisPts.size() >= 2) { axis->draw(); }
-            if (outline && outlinePts.size() >= 2) { outline->draw(); }
+            if (axis && axis->numVerts > 0) { axis->draw(); }
+            if (outline && outline->numVerts > 0) { outline->draw(); }
         }
     };
 }

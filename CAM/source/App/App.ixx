@@ -241,9 +241,10 @@ export namespace Cam::App {
             updated.length = src.length;
 
             updated.taperAngle = src.taperAngle;
+            updated.cuttingLength = src.cuttingLength;
+            updated.shoulderDiameter = src.shoulderDiameter;
             updated.shoulderLength = src.shoulderLength;
-            updated.collarRadius = src.collarRadius;
-            updated.collarDepth = src.collarDepth;
+            updated.shoulderTaperAngle = src.shoulderTaperAngle;
 
             updated.defaultFeedRate = src.defaultFeedRate;
             updated.defaultStepdown = src.defaultStepdown;

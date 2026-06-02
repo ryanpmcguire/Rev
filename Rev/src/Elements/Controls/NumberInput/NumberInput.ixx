@@ -108,7 +108,7 @@ export namespace Rev::Element {
             const Params& p
         ) {
 
-            if (!p.allowNegative && value <= 0.0) {
+            if (!p.allowNegative && value < 0.0) {
                 return false;
             }
 

@@ -125,8 +125,15 @@ export namespace Rev::Primitives {
             // Calculate needed quads/joins/verts
             for (Line& line : lines) {
 
-                // Deref, disqualify if too small
                 std::vector<Vertex>& points = line.getPoints();
+
+                if (points.size() < 2) {
+                    line.segs = 0;
+                    line.quads = 0;
+                    line.joins = 0;
+                    line.verts = 0;
+                    continue;
+                }
 
                 // Calculate for line
                 line.segs = points.size() - 1;

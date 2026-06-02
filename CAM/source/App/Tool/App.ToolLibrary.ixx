@@ -202,9 +202,10 @@ export namespace Cam::App {
             json["length"] = tool.length;
 
             json["taperAngle"] = tool.taperAngle;
+            json["cuttingLength"] = tool.cuttingLength;
+            json["shoulderDiameter"] = tool.shoulderDiameter;
             json["shoulderLength"] = tool.shoulderLength;
-            json["collarRadius"] = tool.collarRadius;
-            json["collarDepth"] = tool.collarDepth;
+            json["shoulderTaperAngle"] = tool.shoulderTaperAngle;
 
             json["defaultFeedRate"] = tool.defaultFeedRate;
             json["defaultStepdown"] = tool.defaultStepdown;
@@ -263,14 +264,38 @@ export namespace Cam::App {
             if (json.contains("taperAngle") && json["taperAngle"].is_number()) {
                 out.taperAngle = json["taperAngle"].get<double>();
             }
-            if (json.contains("shoulderLength") && json["shoulderLength"].is_number()) {
+
+            if (json.contains("cuttingLength") && json["cuttingLength"].is_number()) {
+                out.cuttingLength = json["cuttingLength"].get<double>();
+            }
+            else if (json.contains("shoulderLength") && json["shoulderLength"].is_number()) {
+                // Legacy: shoulderLength stored flute / cutting length.
+                out.cuttingLength = json["shoulderLength"].get<double>();
+            }
+
+            if (json.contains("shoulderDiameter") && json["shoulderDiameter"].is_number()) {
+                out.shoulderDiameter = json["shoulderDiameter"].get<double>();
+            }
+            else if (json.contains("shoulderRadius") && json["shoulderRadius"].is_number()) {
+                out.shoulderDiameter = json["shoulderRadius"].get<double>() * 2.0;
+            }
+            else if (json.contains("collarRadius") && json["collarRadius"].is_number()) {
+                out.shoulderDiameter = json["collarRadius"].get<double>() * 2.0;
+            }
+
+            if (json.contains("shoulderLength") && json["shoulderLength"].is_number()
+                && json.contains("cuttingLength") && json["cuttingLength"].is_number()) {
                 out.shoulderLength = json["shoulderLength"].get<double>();
             }
-            if (json.contains("collarRadius") && json["collarRadius"].is_number()) {
-                out.collarRadius = json["collarRadius"].get<double>();
+            else if (json.contains("shoulderDepth") && json["shoulderDepth"].is_number()) {
+                out.shoulderLength = json["shoulderDepth"].get<double>();
             }
-            if (json.contains("collarDepth") && json["collarDepth"].is_number()) {
-                out.collarDepth = json["collarDepth"].get<double>();
+            else if (json.contains("collarDepth") && json["collarDepth"].is_number()) {
+                out.shoulderLength = json["collarDepth"].get<double>();
+            }
+
+            if (json.contains("shoulderTaperAngle") && json["shoulderTaperAngle"].is_number()) {
+                out.shoulderTaperAngle = json["shoulderTaperAngle"].get<double>();
             }
 
             if (json.contains("defaultFeedRate") && json["defaultFeedRate"].is_number()) {
