@@ -1,7 +1,9 @@
 module;
 
+#include <cmath>
 #include <string>
 #include <vector>
+#include <optional>
 #include <functional>
 
 #include <dbg.hpp>
@@ -23,106 +25,102 @@ import Rev.Element.Button;
 
 import Cam.App;
 import Cam.App.Tool;
+import Cam.Gui.ToolPreview;
+import Cam.Gui.Theme;
 
 export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
 
-    namespace ToolSettingsStyle {
-
-        Shadow panelShadow = {
-            .color = rgba(15, 23, 42, 0.14),
-            .size = Px(-8),
-            .blur = 28_px
-        };
+    namespace ToolSettingsLayout {
 
         Style Root = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { 100_pct, 100_pct },
-            .background = { .color = rgba(246, 247, 251, 1.0) },
-            .border = { .radius = 10_px },
-            .shadow = panelShadow
+            .size = { 100_pct, 100_pct }
         };
 
         Style Header = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct },
-            .padding = { 22_px, 22_px, 18_px, 18_px },
-            .background = { .color = rgba(28, 34, 48, 1.0) }
-        };
-
-        Style HeaderEyebrow = {
-            .text = { .color = rgba(148, 163, 184, 1.0), .size = 11_px }
-        };
-
-        Style HeaderTitle = {
-            .margin = { 6_px, 0_px, 0_px, 0_px },
-            .text = { .color = rgba(248, 250, 252, 1.0), .size = 21_px }
+            .padding = { 22_px, 22_px, 18_px, 18_px }
         };
 
         Style Body = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { Grow() },
-            .padding = { 20_px, 22_px, 8_px, 22_px }
+            .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
+            .size = { Grow() }
         };
 
-        Style SectionLabel = {
-            .margin = { 4_px, 0_px, 10_px, 0_px },
-            .text = { .color = rgba(100, 116, 139, 1.0), .size = 11_px }
+        Style LeftColumn = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = Grow() },
+            .margin = { 0_px, 18_px, 0_px, 0_px }
+        };
+
+        Style RightColumn = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = 220_px, .height = Grow() }
+        };
+
+        Style PreviewPanel = {
+            .size = { .width = Grow(), .height = Grow() }
+        };
+
+        Style Row = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
+            .size = { 100_pct }
+        };
+
+        Style RowField = {
+            .size = { Grow() },
+            .margin = { 0_px, 4_px, 0_px, 4_px }
         };
 
         Style Footer = {
             .layout = { Axis::Horizontal, Align::End, Align::Center, Wrap::False },
             .size = { 100_pct },
-            .padding = { 14_px, 22_px, 20_px, 22_px },
-            .background = { .color = rgba(255, 255, 255, 1.0) },
-            .border = {
-                .top = {
-                    .color = rgba(226, 232, 240, 1.0),
-                    .width = 1_px
-                }
-            }
+            .padding = { 14_px, 22_px, 20_px, 22_px }
         };
 
         Style FooterButton = {
-            .margin = { 0_px, 0_px, 0_px, 10_px }
-        };
-
-        Style FooterButtonPrimary = {
-            .size = { .width = 128_px, .height = 40_px }
-        };
-
-        Style FooterButtonSecondary = {
-            .size = { .width = 96_px, .height = 40_px }
+            .margin = { .left = 6_px, .right = 6_px }
         };
     }
 
     struct ToolSettingsWindow : public Rev::Window {
 
-        struct SavedFields {
-            std::string name;
-            Cam::App::Tool::Type type = Cam::App::Tool::Type::EndMill;
-            double diameter = 0.0;
-            double length = 0.0;
-        };
-
         Cam::App::AppState* app = nullptr;
         std::string toolName;
-        SavedFields savedFields;
+        Cam::App::Tool savedTool;
         bool isUnsavedNewTool = false;
+        bool savePendingAppearance = false;
 
         std::function<void(Event&)> onSaved;
         std::function<void(Event&)> onClosed;
 
         Text* headerEyebrow = nullptr;
         Text* headerTitle = nullptr;
+
         TextInput* nameInput = nullptr;
         Dropdown* typeDropdown = nullptr;
+
         NumberInput* diameterInput = nullptr;
         NumberInput* lengthInput = nullptr;
+        NumberInput* shoulderInput = nullptr;
+        NumberInput* taperInput = nullptr;
+        NumberInput* collarRadiusInput = nullptr;
+        NumberInput* collarDepthInput = nullptr;
 
-         static std::string windowTitleFor(const std::string& toolName) {
+        NumberInput* feedRateInput = nullptr;
+        NumberInput* stepdownInput = nullptr;
+        NumberInput* stepoverInput = nullptr;
+        NumberInput* rapidSpeedInput = nullptr;
+        Dropdown* cutDirectionDropdown = nullptr;
+
+        ToolPreview* preview = nullptr;
+        Button* saveButton = nullptr;
+
+        static std::string windowTitleFor(const std::string& toolName) {
             return toolName + " - Settings";
         }
 
@@ -137,24 +135,22 @@ export namespace Cam::Gui {
             return static_cast<Rev::Window*>(node);
         }
 
-        static Cam::App::Tool::Type typeFromDropdownValue(
-            const std::string& value
-        ) {
-            return Cam::App::Tool::typeFromKindString(value);
+        static bool nearlyEqual(double a, double b) {
+            return std::fabs(a - b) < 1e-6;
+        }
+
+        Cam::App::Tool::Type currentType() const {
+            return Cam::App::Tool::typeFromKindString(typeDropdown->params.value);
         }
 
         void updateHeaderEyebrow(Cam::App::Tool::Type type) {
-
-            if (!headerEyebrow) { return; }
-
-            headerEyebrow->content =
-                Cam::App::Tool::typeEyebrow(type);
+            if (headerEyebrow) {
+                headerEyebrow->content = Cam::App::Tool::typeEyebrow(type);
+            }
         }
 
         void applyWindowTitle() {
-
-            std::string title = windowTitleFor(toolName);
-            setTitle(title);
+            setTitle(windowTitleFor(toolName));
         }
 
         ToolSettingsWindow(
@@ -164,7 +160,7 @@ export namespace Cam::Gui {
             owner,
             {
                 .name = initialToolName + " - Settings",
-                .size = { .width = 400, .height = 480 },
+                .size = { .width = 640, .height = 580 },
                 .minimizeButton = false,
                 .maximizeButton = false
             }
@@ -179,63 +175,109 @@ export namespace Cam::Gui {
 
             isUnsavedNewTool = app && app->isUnsavedTool(toolName);
 
-            style->layout = {
-                Axis::Vertical, Align::Start, Align::Start, Wrap::False
-            };
             style->size = { .width = 100_pct, .height = 100_pct };
-            styles.add(&ToolSettingsStyle::Root);
 
             buildUi();
             captureSavedFields();
+            updateSaveButtonAppearance(event);
+            syncPreview(event);
 
             setTitle(toolName + " - Settings");
 
             if (owner) {
-                setPos(owner->details.x + 280, owner->details.y + 96);
-            } else {
-                setPos(280, 96);
+                setPos(owner->details.x + 240, owner->details.y + 80);
+            }
+            else {
+                setPos(240, 80);
             }
 
             show();
             refresh(event);
         }
 
+        static NumberInput::Params numberParams(
+            const char* label,
+            const char* placeholder
+        ) {
+            NumberInput::Params p;
+            p.label = label;
+            p.placeholder = placeholder;
+            p.maxLength = 32;
+            p.selectAllOnFocus = true;
+            p.allowNegative = false;
+            p.allowDecimal = true;
+            p.allowEmpty = false;
+            p.maxDecimalPlaces = 4;
+            return p;
+        }
+
         void buildUi() {
+
             Cam::App::Tool* tool = app
                 ? app->toolLibrary()->find(toolName)
                 : nullptr;
 
-            std::string displayName = tool ? tool->name : toolName;
-            Cam::App::Tool::Type selectedType = tool
+            const std::string displayName = tool ? tool->name : toolName;
+            const Cam::App::Tool::Type selectedType = tool
                 ? tool->type
                 : Cam::App::Tool::Type::EndMill;
 
-            Box* header = new Box(
+            Box* root = new Box(
                 this,
-                { &ToolSettingsStyle::Header },
+                Theme::withSettingsDialog({ &ToolSettingsLayout::Root }),
+                "SettingsRoot"
+            );
+
+            Box* header = new Box(
+                root,
+                Theme::layer(
+                    { &ToolSettingsLayout::Header },
+                    { &Theme::Styles::SettingsHeader }
+                ),
                 "Header"
             );
 
             headerEyebrow = new Text(
                 header,
                 Cam::App::Tool::typeEyebrow(selectedType),
-                { &ToolSettingsStyle::HeaderEyebrow }
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsHeaderEyebrow }
+                )
             );
 
             headerTitle = new Text(
                 header,
                 displayName,
-                { &ToolSettingsStyle::HeaderTitle }
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsHeaderTitle }
+                )
             );
 
             Box* body = new Box(
-                this,
-                { &ToolSettingsStyle::Body },
+                root,
+                Theme::layer(
+                    { &ToolSettingsLayout::Body, &Theme::Styles::SettingsBody },
+                    { &Theme::Styles::Text }
+                ),
                 "Body"
             );
 
-            nameInput = new TextInput(
+            Box* left = new Box(
                 body,
+                { &ToolSettingsLayout::LeftColumn },
+                "LeftColumn"
+            );
+
+            Box* right = new Box(
+                body,
+                { &ToolSettingsLayout::RightColumn },
+                "RightColumn"
+            );
+
+            nameInput = new TextInput(
+                left,
                 {
                     .label = "Name",
                     .placeholder = "Tool name",
@@ -245,28 +287,13 @@ export namespace Cam::Gui {
             );
 
             typeDropdown = new Dropdown(
-                body,
+                left,
                 {
                     .label = "Type",
                     .options = {
-                        {
-                            Cam::App::Tool::typeDisplayName(
-                                Cam::App::Tool::Type::EndMill
-                            ),
-                            "EndMill"
-                        },
-                        {
-                            Cam::App::Tool::typeDisplayName(
-                                Cam::App::Tool::Type::ThreadMill
-                            ),
-                            "ThreadMill"
-                        },
-                        {
-                            Cam::App::Tool::typeDisplayName(
-                                Cam::App::Tool::Type::Chamfer
-                            ),
-                            "Chamfer"
-                        }
+                        { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::EndMill), "EndMill" },
+                        { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::ThreadMill), "ThreadMill" },
+                        { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::Chamfer), "Chamfer" }
                     },
                     .placeholder = "Select type",
                     .value = Cam::App::Tool::typeToKindString(selectedType)
@@ -274,69 +301,210 @@ export namespace Cam::Gui {
             );
 
             typeDropdown->onChange = [this](Event& e) {
-                const auto type = Cam::App::Tool::typeFromKindString(
-                    typeDropdown->params.value
-                );
-
-                headerEyebrow->content = Cam::App::Tool::typeEyebrow(type);
+                updateHeaderEyebrow(currentType());
+                updateSaveButtonAppearance(e);
+                syncPreview(e);
                 refresh(e);
             };
 
             new Text(
-                body,
-                "GEOMETRY",
-                { &ToolSettingsStyle::SectionLabel }
+                left,
+                "TOOL DIMENSIONS",
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsSectionLabel }
+                )
             );
 
-            NumberInput::Params diameterParams;
-            diameterParams.label = "Diameter";
-            diameterParams.placeholder = "1.0";
-            diameterParams.maxLength = 32;
-            diameterParams.selectAllOnFocus = true;
-            diameterParams.allowNegative = false;
-            diameterParams.allowDecimal = true;
-            diameterParams.allowEmpty = false;
-            diameterParams.maxDecimalPlaces = 4;
+            Box* dimRow1 = new Box(
+                left,
+                Theme::layer({ &ToolSettingsLayout::Row }, {}),
+                "DimRow1"
+            );
 
-            diameterInput = new NumberInput(body, diameterParams);
+            diameterInput = new NumberInput(
+                dimRow1,
+                numberParams("Diameter (mm)", "1.0"),
+                { &ToolSettingsLayout::RowField }
+            );
 
-            NumberInput::Params lengthParams;
-            lengthParams.label = "Stickout length";
-            lengthParams.placeholder = "100";
-            lengthParams.maxLength = 32;
-            lengthParams.selectAllOnFocus = true;
-            lengthParams.allowNegative = false;
-            lengthParams.allowDecimal = true;
-            lengthParams.allowEmpty = false;
-            lengthParams.maxDecimalPlaces = 4;
+            lengthInput = new NumberInput(
+                dimRow1,
+                numberParams("Total length (mm)", "100"),
+                { &ToolSettingsLayout::RowField }
+            );
 
-            lengthInput = new NumberInput(body, lengthParams);
+            Box* dimRow2 = new Box(
+                left,
+                Theme::layer({ &ToolSettingsLayout::Row }, {}),
+                "DimRow2"
+            );
 
-            if (tool) {
-                nameInput->text->content = tool->name;
-                diameterInput->setValue(tool->diameter);
-                lengthInput->setValue(tool->length);
-            }
+            shoulderInput = new NumberInput(
+                dimRow2,
+                numberParams("Shoulder length (mm)", "20"),
+                { &ToolSettingsLayout::RowField }
+            );
 
-            else if (isUnsavedNewTool) {
-                nameInput->text->content = toolName;
-                diameterInput->setValue(1.0);
-                lengthInput->setValue(100.0);
-            }
+            taperInput = new NumberInput(
+                dimRow2,
+                numberParams("Taper angle (deg)", "0"),
+                { &ToolSettingsLayout::RowField }
+            );
+
+            Box* dimRow3 = new Box(
+                left,
+                Theme::layer({ &ToolSettingsLayout::Row }, {}),
+                "DimRow3"
+            );
+
+            collarRadiusInput = new NumberInput(
+                dimRow3,
+                numberParams("Collar radius (mm)", "0"),
+                { &ToolSettingsLayout::RowField }
+            );
+
+            collarDepthInput = new NumberInput(
+                dimRow3,
+                numberParams("Collar depth (mm)", "0"),
+                { &ToolSettingsLayout::RowField }
+            );
+
+            new Text(
+                left,
+                "TOOLPATH DEFAULTS",
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsSectionLabel }
+                )
+            );
+
+            Box* defRow1 = new Box(
+                left,
+                Theme::layer({ &ToolSettingsLayout::Row }, {}),
+                "DefRow1"
+            );
+
+            feedRateInput = new NumberInput(
+                defRow1,
+                numberParams("Feed rate (mm/min)", "250"),
+                { &ToolSettingsLayout::RowField }
+            );
+
+            stepdownInput = new NumberInput(
+                defRow1,
+                numberParams("Stepdown (mm)", "0.5"),
+                { &ToolSettingsLayout::RowField }
+            );
+
+            Box* defRow2 = new Box(
+                left,
+                Theme::layer({ &ToolSettingsLayout::Row }, {}),
+                "DefRow2"
+            );
+
+            stepoverInput = new NumberInput(
+                defRow2,
+                numberParams("Stepover (% dia.)", "25"),
+                { &ToolSettingsLayout::RowField }
+            );
+
+            rapidSpeedInput = new NumberInput(
+                defRow2,
+                numberParams("Rapid speed (mm/s)", "10"),
+                { &ToolSettingsLayout::RowField }
+            );
+
+            cutDirectionDropdown = new Dropdown(
+                left,
+                {
+                    .label = "Cut direction",
+                    .options = {
+                        { "Climb", "climb" },
+                        { "Conventional", "conventional" }
+                    },
+                    .placeholder = "Select direction",
+                    .value = "climb"
+                }
+            );
+
+            cutDirectionDropdown->onChange = [this](Event& e) {
+                updateSaveButtonAppearance(e);
+                refresh(e);
+            };
+
+            new Text(
+                right,
+                "PREVIEW",
+                Theme::layer(
+                    {},
+                    { &Theme::Styles::SettingsSectionLabel }
+                )
+            );
+
+            preview = new ToolPreview(
+                right,
+                Theme::layer(
+                    { &ToolSettingsLayout::PreviewPanel },
+                    { &Theme::Styles::SettingsPreview }
+                )
+            );
+
+            auto onFieldEdited = [this](Event& e, std::optional<double>) {
+                updateSaveButtonAppearance(e);
+                syncPreview(e);
+                refresh(e);
+            };
+
+            auto hookLiveNumberEdit = [this, onFieldEdited](NumberInput* input) {
+                input->onTextInput([this](Event& e) {
+                    updateSaveButtonAppearance(e);
+                    syncPreview(e);
+                    refresh(e);
+                });
+                input->onValueChange = onFieldEdited;
+            };
+
+            hookLiveNumberEdit(diameterInput);
+            hookLiveNumberEdit(lengthInput);
+            hookLiveNumberEdit(shoulderInput);
+            hookLiveNumberEdit(taperInput);
+            hookLiveNumberEdit(collarRadiusInput);
+            hookLiveNumberEdit(collarDepthInput);
+            hookLiveNumberEdit(feedRateInput);
+            hookLiveNumberEdit(stepdownInput);
+            hookLiveNumberEdit(stepoverInput);
+            hookLiveNumberEdit(rapidSpeedInput);
+
+            nameInput->onTextInput([this](Event& e) {
+                updateSaveButtonAppearance(e);
+                refresh(e);
+            });
+
+            populateFrom(tool);
 
             Box* footer = new Box(
-                this,
-                { &ToolSettingsStyle::Footer },
+                root,
+                Theme::layer(
+                    { &ToolSettingsLayout::Footer },
+                    { &Theme::Styles::SettingsFooter }
+                ),
                 "Footer"
             );
+
+            const auto footerSecondaryStyles = Theme::layer({
+                &ToolSettingsLayout::FooterButton,
+                &Theme::Styles::ButtonHover,
+                &Theme::Styles::ButtonPress
+            }, {
+                &Theme::Styles::Button,
+                &Theme::Styles::ButtonLabel
+            });
 
             Button* cancelButton = new Button(
                 footer,
                 Button::Params::Secondary("Cancel"),
-                {
-                    &ToolSettingsStyle::FooterButton,
-                    &ToolSettingsStyle::FooterButtonSecondary
-                }
+                footerSecondaryStyles
             );
 
             cancelButton->onClick([this](Event& e) {
@@ -344,21 +512,164 @@ export namespace Cam::Gui {
                 e.propagate = false;
             });
 
-            Button* saveButton = new Button(
+            saveButton = new Button(
                 footer,
-                Button::Params::Primary(
+                Button::Params::Secondary(
                     isUnsavedNewTool ? "Save tool" : "Save changes"
                 ),
-                {
-                    &ToolSettingsStyle::FooterButton,
-                    &ToolSettingsStyle::FooterButtonPrimary
-                }
+                footerSecondaryStyles
             );
 
             saveButton->onClick([this](Event& e) {
                 save(e);
                 e.propagate = false;
             });
+
+            Button* okButton = new Button(
+                footer,
+                Button::Params::Primary("OK"),
+                { &ToolSettingsLayout::FooterButton }
+            );
+
+            okButton->onClick([this](Event& e) {
+                if (save(e)) {
+                    close(&e);
+                }
+                e.propagate = false;
+            });
+        }
+
+        void computeStyle(Event& e) override {
+            Rev::Window::computeStyle(e);
+            updateSaveButtonAppearance(e);
+        }
+
+        void updateSaveButtonAppearance(Event& e) {
+
+            if (!saveButton) { return; }
+
+            const bool pending = hasUnsavedChanges(e);
+
+            if (pending == savePendingAppearance) { return; }
+
+            savePendingAppearance = pending;
+
+            saveButton->styles.remove(&Theme::Styles::Button);
+            saveButton->styles.remove(&Theme::Styles::ButtonHover);
+            saveButton->styles.remove(&Theme::Styles::ButtonPress);
+            saveButton->styles.remove(&Theme::Styles::ButtonLabel);
+            saveButton->styles.remove(&Theme::Styles::SettingsApplyDirty);
+            saveButton->styles.remove(&Theme::Styles::SettingsApplyDirtyHover);
+            saveButton->styles.remove(&Theme::Styles::SettingsApplyDirtyPress);
+
+            if (pending) {
+                saveButton->styles.add(&Theme::Styles::SettingsApplyDirty);
+                saveButton->styles.add(&Theme::Styles::SettingsApplyDirtyHover);
+                saveButton->styles.add(&Theme::Styles::SettingsApplyDirtyPress);
+            }
+            else {
+                saveButton->styles.add(&Theme::Styles::Button);
+                saveButton->styles.add(&Theme::Styles::ButtonHover);
+                saveButton->styles.add(&Theme::Styles::ButtonPress);
+            }
+
+            saveButton->styles.add(&Theme::Styles::ButtonLabel);
+            saveButton->dirty.style = true;
+        }
+
+        void populateFrom(Cam::App::Tool* tool) {
+
+            Cam::App::Tool t = tool ? *tool : Cam::App::Tool();
+
+            if (!tool && isUnsavedNewTool) {
+                t.name = toolName;
+            }
+
+            nameInput->text->content = tool ? tool->name : toolName;
+
+            diameterInput->setValue(t.diameter);
+            lengthInput->setValue(t.length);
+            shoulderInput->setValue(t.shoulderLength);
+            taperInput->setValue(t.taperAngle);
+            collarRadiusInput->setValue(t.collarRadius);
+            collarDepthInput->setValue(t.collarDepth);
+
+            feedRateInput->setValue(t.defaultFeedRate);
+            stepdownInput->setValue(t.defaultStepdown);
+            stepoverInput->setValue(t.defaultStepover * 100.0);
+            rapidSpeedInput->setValue(t.defaultRapidSpeed);
+
+            cutDirectionDropdown->params.value = t.defaultClimbMilling ? "climb" : "conventional";
+            cutDirectionDropdown->dropdownText->content = t.defaultClimbMilling ? "Climb" : "Conventional";
+        }
+
+        ToolPreview::Geometry currentGeometry() {
+
+            ToolPreview::Geometry g;
+
+            const double diameter = diameterInput->valueOr(1.0);
+
+            g.radius = diameter * 0.5;
+            g.length = lengthInput->valueOr(100.0);
+            g.shoulderLength = shoulderInput->valueOr(0.0);
+            g.taperAngle = taperInput->valueOr(0.0);
+            g.collarRadius = collarRadiusInput->valueOr(0.0);
+            g.collarDepth = collarDepthInput->valueOr(0.0);
+
+            return g;
+        }
+
+        void syncPreview(Event& e) {
+            if (preview) {
+                preview->setGeometry(currentGeometry(), e);
+            }
+        }
+
+        bool readForm(Cam::App::Tool& out, Event& e, bool commitInputs) {
+
+            const std::string name = nameInput->text->content.get();
+
+            if (name.empty()) { return false; }
+
+            if (commitInputs) {
+                diameterInput->commit(e);
+                lengthInput->commit(e);
+                shoulderInput->commit(e);
+                taperInput->commit(e);
+                collarRadiusInput->commit(e);
+                collarDepthInput->commit(e);
+                feedRateInput->commit(e);
+                stepdownInput->commit(e);
+                stepoverInput->commit(e);
+                rapidSpeedInput->commit(e);
+            }
+
+            double diameter = 0.0;
+            double length = 0.0;
+
+            if (!diameterInput->tryGetValue(diameter) || diameter <= 0.0) { return false; }
+            if (!lengthInput->tryGetValue(length) || length <= 0.0) { return false; }
+
+            out = Cam::App::Tool();
+            out.name = name;
+            out.type = currentType();
+
+            out.diameter = diameter;
+            out.radius = diameter * 0.5;
+            out.length = length;
+
+            out.taperAngle = taperInput->valueOr(0.0);
+            out.shoulderLength = shoulderInput->valueOr(0.0);
+            out.collarRadius = collarRadiusInput->valueOr(0.0);
+            out.collarDepth = collarDepthInput->valueOr(0.0);
+
+            out.defaultFeedRate = feedRateInput->valueOr(250.0);
+            out.defaultStepdown = stepdownInput->valueOr(0.5);
+            out.defaultStepover = stepoverInput->valueOr(25.0) / 100.0;
+            out.defaultRapidSpeed = rapidSpeedInput->valueOr(10.0);
+            out.defaultClimbMilling = cutDirectionDropdown->params.value != "conventional";
+
+            return true;
         }
 
         void captureSavedFields() {
@@ -368,80 +679,36 @@ export namespace Cam::Gui {
                 : nullptr;
 
             if (tool) {
-                savedFields = {
-                    .name = tool->name,
-                    .type = tool->type,
-                    .diameter = tool->diameter,
-                    .length = tool->length
-                };
+                savedTool = *tool;
                 return;
             }
 
-            savedFields = {
-                .name = toolName,
-                .type = Cam::App::Tool::Type::EndMill,
-                .diameter = 1.0,
-                .length = 100.0
-            };
-        }
-
-        Cam::App::Tool::Type currentType() const {
-            return typeFromDropdownValue(typeDropdown->params.value);
-        }
-
-        bool readForm(
-            std::string& outName,
-            Cam::App::Tool::Type& outType,
-            double& outDiameter,
-            double& outLength,
-            Event& e,
-            bool commitInputs
-        ) {
-
-            outName = nameInput->text->content.get();
-
-            if (outName.empty()) {
-                return false;
-            }
-
-            if (commitInputs) {
-                diameterInput->commit(e);
-                lengthInput->commit(e);
-            }
-
-            outType = currentType();
-
-            if (!diameterInput->tryGetValue(outDiameter) || outDiameter <= 0.0) {
-                return false;
-            }
-
-            if (!lengthInput->tryGetValue(outLength) || outLength <= 0.0) {
-                return false;
-            }
-
-            return true;
+            savedTool = Cam::App::Tool();
+            savedTool.name = toolName;
         }
 
         bool hasUnsavedChanges(Event& e) {
 
-            if (isUnsavedNewTool) {
-                return true;
-            }
+            if (isUnsavedNewTool) { return true; }
 
-            std::string name;
-            Cam::App::Tool::Type type;
-            double diameter = 0.0;
-            double length = 0.0;
+            Cam::App::Tool form;
 
-            if (!readForm(name, type, diameter, length, e, true)) {
-                return true;
-            }
+            if (!readForm(form, e, true)) { return true; }
 
             return (
-                name != savedFields.name ||
-                type != savedFields.type ||
-                diameter != savedFields.diameter ||
-                length != savedFields.length
+                form.name != savedTool.name ||
+                form.type != savedTool.type ||
+                !nearlyEqual(form.diameter, savedTool.diameter) ||
+                !nearlyEqual(form.length, savedTool.length) ||
+                !nearlyEqual(form.taperAngle, savedTool.taperAngle) ||
+                !nearlyEqual(form.shoulderLength, savedTool.shoulderLength) ||
+                !nearlyEqual(form.collarRadius, savedTool.collarRadius) ||
+                !nearlyEqual(form.collarDepth, savedTool.collarDepth) ||
+                !nearlyEqual(form.defaultFeedRate, savedTool.defaultFeedRate) ||
+                !nearlyEqual(form.defaultStepdown, savedTool.defaultStepdown) ||
+                !nearlyEqual(form.defaultStepover, savedTool.defaultStepover) ||
+                !nearlyEqual(form.defaultRapidSpeed, savedTool.defaultRapidSpeed) ||
+                form.defaultClimbMilling != savedTool.defaultClimbMilling
             );
         }
 
@@ -452,21 +719,18 @@ export namespace Cam::Gui {
                 return false;
             }
 
-            std::string newName;
-            Cam::App::Tool::Type type;
-            double diameter = 0.0;
-            double length = 0.0;
+            Cam::App::Tool form;
 
-            if (!readForm(newName, type, diameter, length, e, true)) {
+            if (!readForm(form, e, true)) {
                 dbg("[ToolSettings] Invalid tool settings");
                 Rev::OS::Dialog::Warning(
                     "Tool Settings",
-                    "Enter a valid name, diameter, and stickout length before saving."
+                    "Enter a valid name, diameter, and total length before saving."
                 );
                 return false;
             }
 
-            if (!app->saveTool(toolName, newName, type, diameter, length)) {
+            if (!app->saveTool(toolName, form)) {
                 dbg("[ToolSettings] Failed to save tool \"%s\"", toolName.c_str());
                 Rev::OS::Dialog::Error(
                     "Tool Settings",
@@ -475,15 +739,16 @@ export namespace Cam::Gui {
                 return false;
             }
 
-            toolName = newName;
+            toolName = form.name;
             isUnsavedNewTool = false;
             captureSavedFields();
+            updateSaveButtonAppearance(e);
 
             if (headerTitle) {
                 headerTitle->content = toolName;
             }
 
-            updateHeaderEyebrow(type);
+            updateHeaderEyebrow(form.type);
             applyWindowTitle();
 
             if (onSaved) {
@@ -581,6 +846,5 @@ export namespace Cam::Gui {
             if (onClosed) { onClosed(e); }
             rejectClose = false;
         }
-
     };
 }

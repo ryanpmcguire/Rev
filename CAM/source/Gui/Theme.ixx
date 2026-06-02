@@ -373,6 +373,12 @@ export namespace Cam::Gui::Theme {
             .text = { .color = palette.textMuted, .size = 11_px }
         };
 
+        Style SettingsPreview = {
+            .overflow = Overflow::Hide,
+            .background = { .color = palette.settingsHeader },
+            .border = { .radius = 8_px }
+        };
+
         Style SettingsFooter = {
             .background = { .color = palette.settingsFooter },
             .border = {
@@ -700,6 +706,7 @@ export namespace Cam::Gui::Theme {
         SettingsHeaderTitle.text.color = value.settingsHeaderTitle;
         SettingsSectionLabel.text.color = value.textMuted;
         SettingsBody.background.color = value.settingsSurface;
+        SettingsPreview.background.color = value.settingsHeader;
         SettingsFooter.background.color = value.settingsFooter;
         SettingsFooter.border.top.color = value.settingsDivider;
 
@@ -748,6 +755,7 @@ export namespace Cam::Gui::Theme {
         markDirty(SettingsHeaderTitle);
         markDirty(SettingsSectionLabel);
         markDirty(SettingsBody);
+        markDirty(SettingsPreview);
         markDirty(SettingsFooter);
         markDirty(SettingsApplyDirty);
         markDirty(SettingsApplyDirtyHover);

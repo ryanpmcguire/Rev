@@ -221,7 +221,9 @@ export namespace Cam::App {
             return true;
         }
 
-        bool saveTool(const std::string& originalName, const std::string& newName, Tool::Type type, double diameter, double length) {
+        bool saveTool(const std::string& originalName, const Tool& src) {
+
+            const std::string& newName = src.name;
 
             if (!activeProject || newName.empty()) {
                 return false;
@@ -233,10 +235,21 @@ export namespace Cam::App {
 
             Tool updated = *tool;
             updated.name = newName;
-            updated.type = type;
-            updated.diameter = diameter;
-            updated.radius = diameter * 0.5;
-            updated.length = length;
+            updated.type = src.type;
+            updated.diameter = src.diameter;
+            updated.radius = src.diameter * 0.5;
+            updated.length = src.length;
+
+            updated.taperAngle = src.taperAngle;
+            updated.shoulderLength = src.shoulderLength;
+            updated.collarRadius = src.collarRadius;
+            updated.collarDepth = src.collarDepth;
+
+            updated.defaultFeedRate = src.defaultFeedRate;
+            updated.defaultStepdown = src.defaultStepdown;
+            updated.defaultStepover = src.defaultStepover;
+            updated.defaultRapidSpeed = src.defaultRapidSpeed;
+            updated.defaultClimbMilling = src.defaultClimbMilling;
 
             std::string targetPath = tool->filePath;
 

@@ -200,6 +200,18 @@ export namespace Cam::App {
             json["diameter"] = tool.diameter;
             json["radius"] = tool.radius;
             json["length"] = tool.length;
+
+            json["taperAngle"] = tool.taperAngle;
+            json["shoulderLength"] = tool.shoulderLength;
+            json["collarRadius"] = tool.collarRadius;
+            json["collarDepth"] = tool.collarDepth;
+
+            json["defaultFeedRate"] = tool.defaultFeedRate;
+            json["defaultStepdown"] = tool.defaultStepdown;
+            json["defaultStepover"] = tool.defaultStepover;
+            json["defaultRapidSpeed"] = tool.defaultRapidSpeed;
+            json["defaultClimbMilling"] = tool.defaultClimbMilling;
+
             json["axis"] = Json::array({
                 tool.axis.x,
                 tool.axis.y,
@@ -244,6 +256,37 @@ export namespace Cam::App {
 
             if (json.contains("length") && json["length"].is_number()) {
                 out.length = json["length"].get<double>();
+            }
+
+            // New geometry + toolpath-default fields (backward compatible:
+            // absent fields keep the Tool's struct defaults).
+            if (json.contains("taperAngle") && json["taperAngle"].is_number()) {
+                out.taperAngle = json["taperAngle"].get<double>();
+            }
+            if (json.contains("shoulderLength") && json["shoulderLength"].is_number()) {
+                out.shoulderLength = json["shoulderLength"].get<double>();
+            }
+            if (json.contains("collarRadius") && json["collarRadius"].is_number()) {
+                out.collarRadius = json["collarRadius"].get<double>();
+            }
+            if (json.contains("collarDepth") && json["collarDepth"].is_number()) {
+                out.collarDepth = json["collarDepth"].get<double>();
+            }
+
+            if (json.contains("defaultFeedRate") && json["defaultFeedRate"].is_number()) {
+                out.defaultFeedRate = json["defaultFeedRate"].get<double>();
+            }
+            if (json.contains("defaultStepdown") && json["defaultStepdown"].is_number()) {
+                out.defaultStepdown = json["defaultStepdown"].get<double>();
+            }
+            if (json.contains("defaultStepover") && json["defaultStepover"].is_number()) {
+                out.defaultStepover = json["defaultStepover"].get<double>();
+            }
+            if (json.contains("defaultRapidSpeed") && json["defaultRapidSpeed"].is_number()) {
+                out.defaultRapidSpeed = json["defaultRapidSpeed"].get<double>();
+            }
+            if (json.contains("defaultClimbMilling") && json["defaultClimbMilling"].is_boolean()) {
+                out.defaultClimbMilling = json["defaultClimbMilling"].get<bool>();
             }
 
             if (json.contains("axis") && json["axis"].is_array() && json["axis"].size() >= 3) {
