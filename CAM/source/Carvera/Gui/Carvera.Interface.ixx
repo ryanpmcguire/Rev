@@ -155,6 +155,13 @@ export namespace Carvera::Gui {
             .background = { .color = rgba(255, 0, 0, 0.25) },
             .border     = { .color = rgba(255, 0, 0, 1.0), .width = 2_px, .radius = 6_px }
         };
+
+        // START/STOP run button — full-width below the arm row.
+        // "Stop" state reuses ArmedBanner (red tint); "Start" uses this green tint.
+        Rev::Element::Style RunBanner = {
+            .background = { .color = rgba(34, 197, 94, 0.2) },
+            .border     = { .color = rgba(34, 197, 94, 1.0), .width = 2_px, .radius = 6_px }
+        };
     }
 
     namespace Theme = Cam::Gui::Theme;
@@ -288,6 +295,9 @@ export namespace Carvera::Gui {
         Box*  spindleBtn   = nullptr;
         Text* spindleLabel = nullptr;
 
+        Box*  runBtn   = nullptr;
+        Text* runLabel = nullptr;
+
         Box*  setOriginBtn = nullptr;
 
         Text* posXText = nullptr, *posYText = nullptr;
@@ -417,6 +427,38 @@ export namespace Carvera::Gui {
             );
             spindleLabel = new Text(spindleBtn, "SPINDLE ARM", Theme::withText({ &Style::ArmLabel }));
             spindleBtn->onClick([this](Event& e) { toggleSpindleArm(e); e.propagate = false; });
+
+            // Full-width START / STOP button directly below the arm row.
+            // Width = Grow() in a Vertical parent → fills the section width.
+            runBtn = new Box(
+                section,
+                Theme::withButton({ &Style::ArmButton, &Style::BtnHover, &Style::BtnPress }),
+                "RunButton"
+            );
+            runLabel = new Text(runBtn, "START", Theme::withText({ &Style::ArmLabel }));
+            runBtn->onClick([this](Event& e) { onRunClick(e); e.propagate = false; });
+        }
+
+        void onRunClick(Event& e) {
+
+            auto& link = Carvera::MachineLink::instance();
+
+            if (link.isExecuting()) {
+                link.stop();
+                pushLog("Program stopped.");
+            }
+            else if (!link.isArmed()) {
+                pushLog("Arm the machine before starting execution.");
+            }
+            else if (link.onStartRequested) {
+                link.onStartRequested();
+                pushLog("Execution started.");
+            }
+            else {
+                pushLog("No execute mode active in the CAM view.");
+            }
+
+            refresh(e);
         }
 
         // Spindle ARM is a gate, not a manual on/off: armed motion can dry-run a
@@ -526,14 +568,21 @@ export namespace Carvera::Gui {
                 return;
             }
 
-            // Zero the active work coordinate system at the current position.
-            sendLine("G10 L20 P1 X0 Y0 Z0\n");
+            // Zero all four axes in the active work coordinate system.
+            // Including A0 is essential: it makes the machine's WCS A=0 equal
+            // the current physical A position, so absolute A commands in the
+            // streamed G-code are always relative to this reference — the same
+            // reference the IK solver uses for rotaryAngle=0.
+            sendLine("G10 L20 P1 X0 Y0 Z0 A0\n");
 
-            // Record the machine position of this origin so the CAM view can map
-            // telemetry back into CAD space.
-            Carvera::MachineLink::instance().captureMachineOrigin(confX, confY, confZ);
+            // Record all four machine positions as the display reference.
+            // The CAM view subtracts these when mapping live MPos back into
+            // CAD/work space (XYZ for tool position, A for part rotation).
+            Carvera::MachineLink::instance().captureMachineOrigin(
+                confX, confY, confZ, confA
+            );
 
-            pushLog("Work origin set at current position.");
+            pushLog("Work origin set at current position (X Y Z A zeroed).");
             refresh(e);
         }
 
@@ -604,6 +653,7 @@ export namespace Carvera::Gui {
             confValid      = false;
             dispReady      = false;
             machineState.clear();
+            lastMachineState_.clear();
             statusInFlight = false;
         }
 
@@ -822,13 +872,27 @@ export namespace Carvera::Gui {
                 dispZ = confZ;
                 dispA = confA;
 
-                // If the machine is idle, it has fully executed everything
-                // — reset intent to truth so a stray jog accumulated past
-                // a wall doesn't strand the display ahead forever.
-                if (machineState == "Idle" || machineState == "Alarm") {
+                // Snap intent to truth only on the TRANSITION into an idle-like
+                // state, not on every frame that happens to be idle.
+                //
+                // Level-triggering (the old behaviour) re-injects noisy conf
+                // into intent on every telemetry tick while the machine is
+                // stationary, causing ~±1 mm continuous display jitter and
+                // making the part-rotation actor shiver in the 3D view.
+                // Edge-triggering fires exactly once per stop, letting the
+                // display chase smoothly to the confirmed stop position.
+                const bool nowQuiet = (machineState    == "Idle" || machineState    == "Alarm");
+                const bool wasQuiet = (lastMachineState_ == "Idle" || lastMachineState_ == "Alarm");
+
+                if (nowQuiet && !wasQuiet) {
                     intentX = confX; intentY = confY;
                     intentZ = confZ; intentA = confA;
                 }
+            }
+
+            // Track previous state for the edge-trigger above.
+            if (!machineState.empty()) {
+                lastMachineState_ = machineState;
             }
 
             // Chase intent at a bounded rate per axis.
@@ -968,10 +1032,32 @@ export namespace Carvera::Gui {
                 }
             }
 
+            if (runBtn && runLabel) {
+
+                const bool executing = Carvera::MachineLink::instance().isExecuting();
+                const bool armed     = Carvera::MachineLink::instance().isArmed();
+
+                runBtn->styles.remove(&Style::ArmedBanner);
+                runBtn->styles.remove(&Style::RunBanner);
+
+                if (executing) {
+                    runBtn->styles.add(&Style::ArmedBanner);    // red — stop is urgent
+                    runLabel->content = "STOP";
+                }
+                else if (armed) {
+                    runBtn->styles.add(&Style::RunBanner);      // green — ready to go
+                    runLabel->content = "START";
+                }
+                else {
+                    runLabel->content = "START";
+                }
+            }
+
             Box::computeChildren(e);
         }
 
     private:
         std::deque<std::string> logLines_;
+        std::string lastMachineState_;  // previous frame's state — for edge-trigger
     };
 }

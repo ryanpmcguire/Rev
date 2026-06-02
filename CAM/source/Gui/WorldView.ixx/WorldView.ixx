@@ -108,6 +108,12 @@ export namespace Cam::Gui {
         // Machine simulation
         PreviewMode previewMode = PreviewMode::AbsoluteToolPath;
 
+        // Execute-mode progress tracking — used to enforce monotonic forward
+        // advancement through the toolpath so telemetry noise never causes the
+        // scrubber/preview to jump backwards.  Reset when a new program starts.
+        Cam::App::MaterialState* executeTrackedState    = nullptr;
+        double                   executeTrackedProgress = 0.0;
+
         // Per-state IK cache.  Keyed by MaterialState* so each state's
         // solved path lives independently — different setups have different
         // tool directions and require independent IK solves.
@@ -159,24 +165,55 @@ export namespace Cam::Gui {
             // Live telemetry polling for EXECUTE mode (tool follows the real
             // machine, including jogs, rather than the computed preview).
             executePoll.setFrequency(30.0);
+            // 30 Hz execute tick — drives the full state update:
+            //   timeline sync → syncAllMaterialViews → applyWorldTransforms
+            // This is the authoritative path for material-removal display,
+            // part rotation, and scrubber position while in Execute mode.
             executePoll.onFrame([this](Rev::Core::AnimationEvent&) {
                 if (previewMode != PreviewMode::Execute) { return; }
                 if (!Carvera::MachineLink::instance().connected()) { return; }
                 if (!shared || !shared->event) { return; }
-                syncSharedToolPreview(activeProject());
+
+                if (Carvera::MachineLink::instance().isExecuting()) {
+                    syncTimelineToMachinePosition(*shared->event);
+                }
+
+                // syncAllMaterialViews handles: per-state material sync,
+                // syncSharedToolPreview, applyWorldTransforms, and the
+                // scrubber / time display — everything in one coherent pass.
+                syncAllMaterialViews();
                 if (view3d) { view3d->refresh(*shared->event); }
             });
 
             // Push-based position updates: the machine link broadcasts every
             // telemetry frame, so the tool tracks the real machine immediately
             // (e.g. while jogging) without waiting on the poll.
+            // 140 Hz position update — keeps tool position AND part rotation
+            // smooth between the 30 Hz poll ticks.  Does NOT touch the timeline
+            // or scrubber (that is the poll's job) to avoid scrubber flicker.
             Carvera::MachineLink::instance().onTelemetry =
                 [this](float, float, float, float) {
                     if (previewMode != PreviewMode::Execute) { return; }
                     if (!shared || !shared->event) { return; }
                     syncSharedToolPreview(activeProject());
+                    applyWorldTransforms();
                     if (view3d) { view3d->refresh(*shared->event); }
                 };
+
+            // Interface START button → stream the program (only in Execute mode).
+            Carvera::MachineLink::instance().onStartRequested = [this]() {
+                if (previewMode != PreviewMode::Execute) { return; }
+                // Reset monotonic-progress tracker so the first tick of the
+                // new run is not constrained by a previous execution.
+                executeTrackedState    = nullptr;
+                executeTrackedProgress = 0.0;
+                rebuildPreviewTimelineIfNeeded();
+                if (previewTimeline.atEnd()) {
+                    previewTimeline.setElapsed(0.0);
+                    if (previewBar) { previewBar->percent = 0.0f; }
+                }
+                streamExecuteProgram();
+            };
 
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
 
@@ -228,7 +265,8 @@ export namespace Cam::Gui {
         ~WorldView() {
 
             executePoll.stop();
-            Carvera::MachineLink::instance().onTelemetry = nullptr;
+            Carvera::MachineLink::instance().onTelemetry      = nullptr;
+            Carvera::MachineLink::instance().onStartRequested = nullptr;
 
             clearMaterialViews();
 
@@ -858,7 +896,9 @@ export namespace Cam::Gui {
 
                 if (link.telemetry(tcx, tcy, tcz, tca) &&
                     !link.workOrigin(mx, my, mz, ocx2, ocy2, ocz2)) {
-                    link.captureMachineOrigin(tcx, tcy, tcz);
+                    // Auto-capture all four axes so the A reference is set
+                    // even before the operator presses "Set Origin".
+                    link.captureMachineOrigin(tcx, tcy, tcz, tca);
                 }
             }
 
@@ -1326,19 +1366,215 @@ export namespace Cam::Gui {
             return path->partMatrixAtProgress(here.localProgress, outM);
         }
 
+        // Build the part-rotation matrix for Execute mode from live A-axis telemetry.
+        // Uses the same axis/pivot as the IK solver so the scene matches what the
+        // machine is actually doing.
+        bool executePartMatrix(float out[16]) {
+
+            Cam::Machine::Pose::identityMatrix(out);
+
+            Carvera::MachineLink& link = Carvera::MachineLink::instance();
+
+            float tx, ty, tz, ta;
+            if (!link.telemetry(tx, ty, tz, ta)) { return false; }
+
+            Cam::App::Project* project = activeProject();
+            if (!project || !project->displayedState) { return false; }
+
+            Rev::Core::Pos3 rotaryAxis  = { 1.0f, 0.0f, 0.0f };
+            Rev::Core::Pos3 rotaryPivot = {};
+
+            // Prefer the already-solved path — it stores the exact axis/pivot
+            // the streamer used, so the live rotation stays in sync.
+            Cam::Machine::MachineToolPath const* path =
+                getMachineToolPath(project->displayedState);
+
+            if (path && !path->empty()) {
+                rotaryAxis  = path->rotaryAxis;
+                rotaryPivot = path->rotaryPivot;
+            }
+            else {
+                Cam::Machine::MachineDefinition def =
+                    buildMachineDefinition(project->displayedState);
+                if (!def.part.dof.freeRotations.empty()) {
+                    rotaryAxis = def.part.dof.freeRotations.front();
+                }
+                rotaryPivot = def.part.defaultPose.position;
+            }
+
+            // ta  = machine MPos A (absolute machine position, degrees)
+            // oma = machine MPos A captured at "Set Origin" time
+            //
+            // (ta - oma) gives the A displacement from the work-coordinate
+            // reference — the same way we subtract originMx/y/z from XYZ
+            // telemetry to get work-space positions.  This is exactly the
+            // angle the IK solver stored as rotaryAngle=0 → "part at natural
+            // CAD orientation", so the display matches the IK/machine sim.
+            constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+            const float oma      = link.machineOriginA();
+            const float angleRad = (ta - oma) * kDegToRad;
+
+            Cam::Machine::Pose::axisAngleMatrix(
+                rotaryAxis, angleRad, rotaryPivot, out
+            );
+            return true;
+        }
+
+        // Find the closest point on the solved MachineToolPath(s) to the given
+        // CAD-space tool position and return the (state, progress [0,1]) pair.
+        // Returns false when no path is available or the work origin is unknown.
+        bool findToolpathProgress(
+            const Rev::Core::Pos3& toolCadPos,
+            Cam::App::Project*     project,
+            Cam::App::MaterialState*& outState,
+            double&                  outProgress
+        ) {
+            std::vector<Cam::App::MaterialState*> searchStates =
+                ToolPathPreviewTimeline::previewSequence(project);
+
+            if (searchStates.empty()) {
+                if (Cam::App::MaterialState* s =
+                        materialStateWithToolPathForPreview(project)) {
+                    searchStates.push_back(s);
+                }
+            }
+
+            float bestDist = 1.0e30f;
+            outState    = nullptr;
+            outProgress = 0.0;
+
+            for (Cam::App::MaterialState* state : searchStates) {
+                if (!state) { continue; }
+                Cam::Machine::MachineToolPath const* path = getMachineToolPath(state);
+                if (!path || path->empty()) { continue; }
+                const double dur = path->durationSeconds();
+                for (const auto& mp : path->points) {
+                    const Rev::Core::Pos3 d = mp.toolWorldPose.position - toolCadPos;
+                    const float dist = d.pythag();
+                    if (dist < bestDist) {
+                        bestDist    = dist;
+                        outState    = state;
+                        outProgress = (dur > 0.0) ? mp.t / dur : 0.0;
+                    }
+                }
+            }
+
+            return outState != nullptr;
+        }
+
+        // Convert live telemetry MPos into CAD world space.
+        // Returns false if telemetry or work-origin is not yet established.
+        bool telemetryToCadPos(Rev::Core::Pos3& outPos) {
+            Carvera::MachineLink& link = Carvera::MachineLink::instance();
+            float tx, ty, tz, ta;
+            float omx, omy, omz, ocx, ocy, ocz;
+            if (!link.telemetry(tx, ty, tz, ta))                    { return false; }
+            if (!link.workOrigin(omx, omy, omz, ocx, ocy, ocz))    { return false; }
+
+            Cam::App::Project* project = activeProject();
+            if (!project) { return false; }
+
+            const UserFrame frame          = currentUserFrame(project);
+            const Rev::Core::Pos3 bw       = beginWorkOrigin(project, frame);
+            const Rev::Core::Pos3 bwF      = frame.toFrame(bw);
+            const Rev::Core::Pos3 wcsInF   = { tx - omx, ty - omy, tz - omz };
+            const Rev::Core::Pos3 inF      = { wcsInF.x + bwF.x,
+                                               wcsInF.y + bwF.y,
+                                               wcsInF.z + bwF.z };
+            outPos = frame.toWorld(inF);
+            return true;
+        }
+
+        // Called each execute-poll tick while isExecuting().
+        // 1. Finds the closest toolpath point to the live tool position.
+        // 2. Enforces monotonic forward progress (noise can't jump us backward).
+        // 3. Locks the view to whichever material state is currently executing.
+        // 4. Advances the timeline so the material-removal preview stays in sync.
+        //
+        // NOTE: does NOT call syncPreviewSlider — that is handled by the
+        // syncAllMaterialViews() call that follows in the execute tick.
+        void syncTimelineToMachinePosition(Event& e) {
+
+            Cam::App::Project* project = activeProject();
+            if (!project) { return; }
+
+            Rev::Core::Pos3 toolCadPos;
+            if (!telemetryToCadPos(toolCadPos)) { return; }
+
+            Cam::App::MaterialState* bestState    = nullptr;
+            double                   bestProgress = 0.0;
+
+            if (!findToolpathProgress(toolCadPos, project, bestState, bestProgress)) {
+                return;
+            }
+
+            // -------------------------------------------------------
+            // Monotonic progress: within the same executing state,
+            // telemetry noise must not drive progress backward.
+            // Allow up to 3 % backward tolerance (covers jitter at
+            // slow feed rates where adjacent points are very close).
+            // A genuine new execution resets the tracker (see
+            // onStartRequested).
+            // -------------------------------------------------------
+            constexpr double kBackTolerance = 0.03;
+
+            if (bestState == executeTrackedState) {
+                if (bestProgress < executeTrackedProgress - kBackTolerance) {
+                    bestProgress = executeTrackedProgress;   // clamp to last known
+                }
+            }
+
+            executeTrackedState    = bestState;
+            executeTrackedProgress = bestProgress;
+
+            // -------------------------------------------------------
+            // State lock: if the user navigated to a different material
+            // state while the machine is running, force the view back
+            // to the state that's actually being cut right now.
+            // -------------------------------------------------------
+            if (bestState && app && project->primaryViewState() != bestState) {
+                if (app->selectState(bestState, false)) {
+                    previewTimelineDirty  = true;   // rebuild segment map, not IK
+                    representationDirty   = true;
+                }
+            }
+
+            // -------------------------------------------------------
+            // Advance the timeline to the matched progress.
+            // -------------------------------------------------------
+            rebuildPreviewTimelineIfNeeded();
+
+            for (const PreviewSegment& seg : previewTimeline.segments) {
+                if (seg.state != bestState) { continue; }
+                const double segElapsed =
+                    seg.startSeconds + bestProgress * seg.durationSeconds;
+                previewTimeline.setElapsed(segElapsed);
+                break;
+            }
+        }
+
         // Set one world matrix on every actor that belongs to the physical
         // workpiece (all material views' meshes + toolpaths) and on the shared
         // tool preview.  In absolute mode this is identity; in machine mode it
-        // is the current part pose.  Always set every frame — never stale.
+        // is the current part pose.  In execute mode it is the live A-axis pose.
+        //
+        // NOTE: in Execute mode the tool preview actor is NOT transformed here —
+        // its position comes from telemetry (already in CAD/world space) and is
+        // set to identity by syncSharedToolPreview.
         void applyWorldTransforms() {
 
             float M[16];
 
-            const bool machine =
-                (previewMode == PreviewMode::MachineSimulation) &&
-                currentPartMatrix(M);
+            bool transformed = false;
 
-            if (!machine) { Cam::Machine::Pose::identityMatrix(M); }
+            if (previewMode == PreviewMode::MachineSimulation) {
+                transformed = currentPartMatrix(M);
+            }
+            else if (previewMode == PreviewMode::Execute) {
+                transformed = executePartMatrix(M);
+            }
+
+            if (!transformed) { Cam::Machine::Pose::identityMatrix(M); }
 
             for (Cam::Gui::World::MaterialState* v : materialViews) {
 
@@ -1349,7 +1585,12 @@ export namespace Cam::Gui {
                 if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(M); }
             }
 
-            if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
+            // In Execute mode the tool preview sits in absolute CAD/world space
+            // (telemetry is already converted); applying the part rotation to it
+            // would double-transform its position.
+            if (previewMode != PreviewMode::Execute) {
+                if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
+            }
         }
 
         // The single unified coordinate system: the user-defined axis frame.

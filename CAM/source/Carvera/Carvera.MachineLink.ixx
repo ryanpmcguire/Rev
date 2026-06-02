@@ -142,6 +142,35 @@ export namespace Carvera {
             return executing.load();
         }
 
+        // -- Execute-mode start/stop ------------------------------------------
+
+        // WorldView subscribes here; Interface fires it via the START button.
+        // Called on the main thread.
+        std::function<void()> onStartRequested;
+
+        // Immediate stop: GRBL soft-reset byte (0x18) followed by queue flush.
+        //
+        // Unlike feed-hold (!) which only pauses and leaves the controller's
+        // internal move buffer intact, soft-reset aborts any running program,
+        // discards all buffered moves, and returns the machine to Idle.
+        // Work-coordinate offsets (G54) are preserved through a soft reset
+        // (GRBL 1.1 behaviour), so the next run can re-use the same origin.
+        //
+        // The operator may need to click "Unlock" ($X) afterwards if the
+        // machine transitions to Alarm state.
+        void stop() {
+            if (connected()) {
+                // Send both real-time bytes in a single TCP write so they
+                // arrive together and are processed without a gap:
+                //   0x21 '!'  — feed hold: machine begins decelerating NOW
+                //   0x18      — soft reset: flushes controller move buffer
+                // The feed hold ensures the machine is already ramping down
+                // when the reset byte arrives, giving the cleanest possible stop.
+                client->send("!\x18");
+            }
+            clearQueue();
+        }
+
         // -- Telemetry mirror (machine MPos, pushed by the control panel) -----
 
         // App-wide position broadcast: any part of the app can subscribe to
@@ -167,9 +196,21 @@ export namespace Carvera {
         // centre the CAM side streams relative to).  With both, telemetry MPos
         // can be mapped back into CAD space for the live view.
 
-        void captureMachineOrigin(float mx, float my, float mz) {
+        // Capture the machine's MPos at the instant the operator presses
+        // "Set Origin".  All four axes are recorded so the display can express
+        // live telemetry as work-coordinate-relative values — the same
+        // treatment XYZ already gets when converting MPos back to CAD space.
+        void captureMachineOrigin(float mx, float my, float mz, float ma = 0.0f) {
             originMx.store(mx); originMy.store(my); originMz.store(mz);
+            originMa.store(ma);
             originValid.store(true);
+        }
+
+        // The A-axis machine position that was captured at Set Origin.
+        // Subtract this from the live telemetry A before computing the
+        // part-rotation matrix to keep display in sync with IK angles.
+        float machineOriginA() const {
+            return originValid.load() ? originMa.load() : 0.0f;
         }
 
         void setCadOrigin(float cx, float cy, float cz) {
@@ -207,7 +248,7 @@ export namespace Carvera {
         std::atomic<float> telemX { 0 }, telemY { 0 }, telemZ { 0 }, telemA { 0 };
         std::atomic<bool>  telemValid { false };
 
-        std::atomic<float> originMx { 0 }, originMy { 0 }, originMz { 0 };
+        std::atomic<float> originMx { 0 }, originMy { 0 }, originMz { 0 }, originMa { 0 };
         std::atomic<bool>  originValid { false };
 
         std::atomic<float> cadOriginX { 0 }, cadOriginY { 0 }, cadOriginZ { 0 };
