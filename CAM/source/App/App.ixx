@@ -14,6 +14,7 @@ import Rev.OS.Dialog;
 
 import Cam.App.Project;
 import Cam.App.Persist;
+import Cam.App.MachineSettings;
 import Cam.App.MaterialState;
 import Cam.App.Model;
 import Cam.App.Tool;
@@ -29,6 +30,9 @@ export namespace Cam::App {
 
         // Cached tool folder path for the active project (or app default).
         std::string toolFolderPath = "";
+
+        // App-wide machine settings (origins, etc.), persisted with the session.
+        MachineSettings machine;
 
         // Create
         //--------------------------------------------------
@@ -70,7 +74,7 @@ export namespace Cam::App {
 
             Project* loadedActive = nullptr;
 
-            if (Persist::load(projects, loadedActive)) {
+            if (Persist::load(projects, loadedActive, machine)) {
                 activeProject = loadedActive;
                 return;
             }
@@ -81,7 +85,7 @@ export namespace Cam::App {
         }
 
         bool saveSession() {
-            return Persist::save(projects, activeProject);
+            return Persist::save(projects, activeProject, machine);
         }
 
         // Tools

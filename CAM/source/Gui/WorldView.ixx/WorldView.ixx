@@ -51,7 +51,7 @@ import Cam.Machine.Definition;
 import Cam.Machine.ToolPath;
 import Cam.Machine.IKSolver;
 
-import Carvera.MachineLink;
+import CarveraAir;
 
 export namespace Cam::Gui {
 
@@ -1729,40 +1729,25 @@ export namespace Cam::Gui {
             const Rev::Core::Pos3 cadBeginWork = beginWorkOrigin(project, frame);
             const Rev::Core::Pos3 beginWorkInFrame = frame.toFrame(cadBeginWork);
 
-            std::vector<std::string> lines;
-            lines.push_back("G90\n");  // absolute positioning
+            // We hand Air a queue of high-level intents, NOT flat G-code.  Air
+            // owns tool-change orchestration (spindle-down, M6, wait for the
+            // touch-off, return to the pre-change position) — so this builder no
+            // longer emits M5/M6/dwells/clearance lifts around changes; it just
+            // says "change to tool N" and lets Air handle the dangerous parts.
+            using Step = Carvera::MachineLink::Step;
+
+            std::vector<Step> program;
+            program.push_back(Step::raw_("G90\n"));   // absolute positioning
 
             const double radToDeg = 57.29577951308232;
 
-            std::string loadedTool;  // none loaded yet
-            bool spindleOn = false;
-            double maxMachineZ = -1.0e30;  // highest point reached (for the clearance lift)
-
-            // Indices of clearance-lift placeholder lines.  The safe height is
-            // the maximum Z over the whole path, which isn't known until every
-            // point has been emitted — so each lift is pushed as an empty
-            // placeholder and patched with "G0 Z<clearance>" at the very end.
-            std::vector<size_t> liftFixups;
-
-            auto emitClearanceLift = [&]() {
-                liftFixups.push_back(lines.size());
-                lines.push_back("");  // patched after maxMachineZ is final
-            };
-
-            // ----------------------------------------------------------
-            // emitToolChange
-            //
-            // Emits M6 T{n} — but ONLY when the tool number can be
-            // resolved unambiguously.  A bare "M6" (no T number) is never
-            // emitted: on the Carvera it triggers an ATC cycle to an
-            // undefined slot, which may crash the tool into the stock or
-            // execute subsequent motion commands mid-carousel-spin.
-            //
-            // Returns false (and aborts the program build) when the tool
-            // name is empty or is not present in the library.
-            // ----------------------------------------------------------
+            std::string loadedTool;   // none loaded yet
+            bool spindleOn  = false;
+            bool emittedAny = false;
             bool buildAborted = false;
 
+            // Request a tool change — resolved to a 1-based slot.  Aborts the
+            // build if the tool can't be resolved (never emit an undefined M6).
             auto emitToolChange = [&](const std::string& toolName) {
 
                 if (toolName.empty()) {
@@ -1780,42 +1765,10 @@ export namespace Cam::Gui {
                     return;
                 }
 
-                // Lift clear of the stock BEFORE the change.  At program start
-                // the tool is at the begin-work point (WCS Z0); mid-program it
-                // may be down in a cut.  Either way, retract to the safe height
-                // so the trip to the ATC carousel never drags through material.
-                emitClearanceLift();
-
-                // Always stop the spindle before requesting a tool change,
-                // regardless of what we think spindleOn is.  The physical
-                // spindle may be running from a prior manual command or a
-                // previous execution session — we don't want the carousel
-                // to pick up a spinning tool.
-                lines.push_back("M5\n");
+                program.push_back(Step::spindle(0.0));   // spindle off before a change
                 spindleOn = false;
-
-                // Give the spindle time to decelerate to a full stop before
-                // the machine begins moving toward the ATC position.
-                lines.push_back("G4 P2\n");   // 2-second dwell
-
-                char m[32];
-                std::snprintf(m, sizeof(m), "M6 T%d\n", n);
-                lines.push_back(m);
-
-                // After the gate releases (machine exits "Tool" state and
-                // has returned from the ATC), wait briefly before sending
-                // any motion commands.  This absorbs any residual travel
-                // the machine does after the controller signals "done".
-                lines.push_back("G4 P1\n");   // 1-second post-ATC settle
-
-                // Critical: the Carvera's automatic tool-measurement cycle
-                // leaves the machine sitting over the touch-off pad, NOT where
-                // it was before the change.  Without an explicit retract here,
-                // the next emitted point (a lateral/diagonal rapid) would dive
-                // from the pad straight down into it.  Lift to the safe height
-                // first so the following reposition happens entirely in the
-                // clear; the operation's own G0 then carries XY/Z to its start.
-                emitClearanceLift();
+                program.push_back(Step::toolChange(n));  // Air orchestrates the rest
+                emittedAny = true;
             };
 
             auto appendState = [&](Cam::App::MaterialState* state) {
@@ -1857,30 +1810,18 @@ export namespace Cam::Gui {
                     const double machineY = inFrame.y - beginWorkInFrame.y;
                     const double machineZ = inFrame.z - beginWorkInFrame.z;
 
-                    if (machineZ > maxMachineZ) { maxMachineZ = machineZ; }
-
                     // Spin up just before the first real cut — but only if the
                     // spindle is armed.  Unarmed = a motion-only dry run.
                     if (!p.rapid && !spindleOn &&
                         Carvera::MachineLink::instance().isSpindleArmed()) {
-                        lines.push_back("M3 S12000\n");
+                        program.push_back(Step::spindle(12000.0));
                         spindleOn = true;
                     }
 
-                    char line[160];
-
-                    if (p.rapid) {
-                        std::snprintf(line, sizeof(line),
-                            "G0 X%.3f Y%.3f Z%.3f A%.3f\n",
-                            machineX, machineY, machineZ, aDeg);
-                    }
-                    else {
-                        std::snprintf(line, sizeof(line),
-                            "G1 X%.3f Y%.3f Z%.3f A%.3f F%.1f\n",
-                            machineX, machineY, machineZ, aDeg, feed);
-                    }
-
-                    lines.push_back(line);
+                    program.push_back(Step::moveTo(
+                        machineX, machineY, machineZ, aDeg,
+                        p.rapid ? 0.0 : feed));   // feed 0 → rapid
+                    emittedAny = true;
                 }
             };
 
@@ -1896,35 +1837,22 @@ export namespace Cam::Gui {
                 appendState(materialStateWithToolPathForPreview(project));
             }
 
-            // Unconditionally stop the spindle at the end — same reasoning
-            // as the pre-M6 M5: don't trust our own spindleOn flag.
-            lines.push_back("M5\n");
-            spindleOn = false;
+            // Unconditionally stop the spindle at the end.
+            program.push_back(Step::spindle(0.0));
 
             if (buildAborted) {
                 dbg("[Execute] program build aborted — not streaming");
                 return;
             }
 
-            if (lines.size() <= 1) {
+            if (!emittedAny) {
                 dbg("[Execute] no machine path to stream");
                 return;
             }
 
-            // Patch every clearance-lift placeholder with the final safe height
-            // (the highest Z anywhere on the path, plus margin).  These guard
-            // both the trip to the ATC and the return from the touch-off pad,
-            // so no lateral move ever happens below the clear height.
-            {
-                const double clearance = std::max(maxMachineZ, 0.0) + 5.0;
-                char zline[48];
-                std::snprintf(zline, sizeof(zline), "G0 Z%.3f\n", clearance);
-                for (size_t idx : liftFixups) { lines[idx] = zline; }
-            }
+            dbg("[Execute] streaming %zu steps to the machine", program.size());
 
-            dbg("[Execute] streaming %zu lines to the machine", lines.size());
-
-            link.enqueueProgram(lines);
+            link.enqueueProgram(program);
         }
 
         void syncAllMaterialViews() {

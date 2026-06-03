@@ -27,7 +27,7 @@ import Rev.Element.ControlTheme;
 
 import Cam.Gui.Theme;
 
-import Carvera.MachineLink;
+import CarveraAir;
 
 export namespace Cam::Gui {
 
