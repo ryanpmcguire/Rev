@@ -20,6 +20,7 @@ import Rev.Element.Text;
 import Rev.Element.NumberInput;
 import Rev.Element.Dropdown;
 import Rev.Element.Button;
+import Rev.Element.ControlTheme;
 
 import Cam.App;
 import Cam.App.MaterialState;
@@ -449,19 +450,10 @@ export namespace Cam::Gui {
                 "Footer"
             );
 
-            const auto footerSecondaryStyles = Theme::layer({
-                &ToolPathSettingsLayout::FooterButton,
-                &Theme::Styles::ButtonHover,
-                &Theme::Styles::ButtonPress
-            }, {
-                &Theme::Styles::Button,
-                &Theme::Styles::ButtonLabel
-            });
-
             Button* cancelButton = new Button(
                 footer,
                 Button::Params::Secondary("Cancel"),
-                footerSecondaryStyles
+                { &ToolPathSettingsLayout::FooterButton }
             );
 
             cancelButton->onClick([this](Event& e) {
@@ -469,10 +461,10 @@ export namespace Cam::Gui {
                 e.propagate = false;
             });
 
-            Button*             applyButton = new Button(
+            applyButton = new Button(
                 footer,
                 Button::Params::Secondary("Apply"),
-                footerSecondaryStyles
+                { &ToolPathSettingsLayout::FooterButton }
             );
 
             applyButton->onClick([this](Event& e) {
@@ -482,13 +474,13 @@ export namespace Cam::Gui {
                 e.propagate = false;
             });
 
-            Button* okButton = new Button(
+            Button* saveButton = new Button(
                 footer,
-                Button::Params::Primary("OK"),
+                Button::Params::Primary("Save"),
                 { &ToolPathSettingsLayout::FooterButton }
             );
 
-            okButton->onClick([this](Event& e) {
+            saveButton->onClick([this](Event& e) {
                 if (trySave(e)) {
                     updateApplyButtonAppearance(e);
                     close(&e);
@@ -573,6 +565,8 @@ export namespace Cam::Gui {
             );
         }
 
+        // Apply reads as a primary (blue) action while edits are pending and
+        // falls back to the same grey secondary look as Cancel once saved.
         void updateApplyButtonAppearance(Event& e) {
 
             if (!applyButton) { return; }
@@ -583,27 +577,34 @@ export namespace Cam::Gui {
 
             applyPendingAppearance = pending;
 
-            applyButton->styles.remove(&Theme::Styles::Button);
-            applyButton->styles.remove(&Theme::Styles::ButtonHover);
-            applyButton->styles.remove(&Theme::Styles::ButtonPress);
-            applyButton->styles.remove(&Theme::Styles::ButtonLabel);
-            applyButton->styles.remove(&Theme::Styles::SettingsApplyDirty);
-            applyButton->styles.remove(&Theme::Styles::SettingsApplyDirtyHover);
-            applyButton->styles.remove(&Theme::Styles::SettingsApplyDirtyPress);
+            Text* label = applyButton->labelText;
 
             if (pending) {
-                applyButton->styles.add(&Theme::Styles::SettingsApplyDirty);
-                applyButton->styles.add(&Theme::Styles::SettingsApplyDirtyHover);
-                applyButton->styles.add(&Theme::Styles::SettingsApplyDirtyPress);
+                applyButton->styles.remove(&ControlTheme::ButtonSecondary);
+                applyButton->styles.remove(&ControlTheme::ButtonSecondaryHover);
+                applyButton->styles.add(&ControlTheme::ButtonPrimary);
+                applyButton->styles.add(&ControlTheme::ButtonPrimaryHover);
+
+                if (label) {
+                    label->styles.remove(&ControlTheme::ButtonSecondaryLabel);
+                    label->styles.add(&ControlTheme::ButtonPrimaryLabel);
+                }
             }
             else {
-                applyButton->styles.add(&Theme::Styles::Button);
-                applyButton->styles.add(&Theme::Styles::ButtonHover);
-                applyButton->styles.add(&Theme::Styles::ButtonPress);
+                applyButton->styles.remove(&ControlTheme::ButtonPrimary);
+                applyButton->styles.remove(&ControlTheme::ButtonPrimaryHover);
+                applyButton->styles.add(&ControlTheme::ButtonSecondary);
+                applyButton->styles.add(&ControlTheme::ButtonSecondaryHover);
+
+                if (label) {
+                    label->styles.remove(&ControlTheme::ButtonPrimaryLabel);
+                    label->styles.add(&ControlTheme::ButtonSecondaryLabel);
+                }
             }
 
-            applyButton->styles.add(&Theme::Styles::ButtonLabel);
             applyButton->dirty.style = true;
+
+            if (label) { label->dirty.style = true; }
         }
 
         bool trySave(Event& e) {

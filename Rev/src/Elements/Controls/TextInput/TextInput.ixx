@@ -58,7 +58,10 @@ export namespace Rev::Element {
 
         TextInput(Element* parent, Params p = Params::Default(), StyleList styles = {}) : Element(parent, styles) {
             this->name = "TextInput";
-            this->styles.add(&Control);
+            // Prepend (not add) so caller-supplied margins/padding win over the
+            // Control defaults — matches Dropdown, keeping inputs and dropdowns
+            // vertically aligned when they share a row (e.g. RowField top:0).
+            this->styles.prepend(&Control);
             this->params = p;
 
             label = new Text(this, params.label, { &Label });

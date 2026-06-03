@@ -166,6 +166,46 @@ export namespace Carvera {
 
         bool toolChangeGated() const { return tcGate.load() != 0; }
 
+        // ------------------------------------------------------------------
+        // Tool-change phase — a UI-facing view of the ATC gate state.
+        //
+        //   None            normal operation, no change in progress
+        //   Seeking         M6 issued; machine is travelling to the change
+        //                   position (gate == SentM6).  UI shows "please wait".
+        //   AwaitingConfirm machine has reached the position and is prompting
+        //                   for the operator to fit the tool (gate == InTool,
+        //                   i.e. reported "Tool" state).  UI shows the blue
+        //                   "Ok" confirm button.
+        // ------------------------------------------------------------------
+        enum class ToolChangePhase { None, Seeking, AwaitingConfirm };
+
+        ToolChangePhase toolChangePhase() const {
+            switch (tcGate.load()) {
+                case 1:  return ToolChangePhase::Seeking;
+                case 2:  return ToolChangePhase::AwaitingConfirm;
+                default: return ToolChangePhase::None;
+            }
+        }
+
+        // Engage the gate for a manually-initiated tool change.  The "Change
+        // Tool" button sends M6 directly (not through the streaming pump), so
+        // it must arm the gate itself to drive the Seeking → AwaitingConfirm
+        // phase transitions from telemetry.
+        void beginToolChange() {
+            tcGate.store(1);
+            tcSentFrames.store(0);
+        }
+
+        // Confirm a manual tool change — the protocol equivalent of pressing
+        // the physical confirm button on the machine.  The controller is
+        // suspended waiting for the new tool to be fitted; resuming the cycle
+        // lets it proceed to the tool touch-off / height measurement.  The
+        // Carvera honours the GRBL realtime cycle-start byte (0x7E '~'), sent
+        // here exactly as '!'/0x18 are used for the stop sequence above.
+        void confirmToolChange() {
+            if (connected()) { client->send("~"); }
+        }
+
         // Main-thread pump: retire acked lines and send more, keeping the
         // in-flight count under the budget.  Safe to call every frame.
         void pump() {

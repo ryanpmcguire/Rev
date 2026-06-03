@@ -38,7 +38,7 @@ int main() {
         .size = { 380, 700, .min = { 300, 400 }, .max = { 800, 1200 } }
     });
 
-    Carvera::Gui::Interface* carveraInterface = new Carvera::Gui::Interface(carveraWindow);
+    Carvera::Gui::Interface* carveraInterface = new Carvera::Gui::Interface(carveraWindow, appState);
 
     // ----------------------------------------------------------------
 

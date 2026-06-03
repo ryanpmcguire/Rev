@@ -25,6 +25,7 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.NumberInput;
+import Rev.Element.Dropdown;
 
 import Rev.Client;
 import Rev.Core.Animator;
@@ -32,6 +33,8 @@ import Rev.Element.Event.GestureTracker;
 
 import Carvera.MachineLink;
 
+import Cam.App;
+import Cam.App.Tool;
 import Cam.Gui.Theme;
 
 export namespace Carvera::Gui {
@@ -155,6 +158,16 @@ export namespace Carvera::Gui {
         Rev::Element::Style PanelBorderToolChange = { .border = { .color = rgba(245, 158, 11,  1.0), .width = 2_px, .radius = 6_px } };
         Rev::Element::Style PanelBorderNone       = { .border = { .color = rgba(0,   0,   0,   0.0), .width = 0_px } };
 
+        // Tool-change confirm cue: the Carvera lights blue when it is waiting
+        // for the operator to confirm the change.  Mirror that with a blue
+        // section border and a blue "Ok" button.
+        Rev::Element::Style PanelBorderBlue = { .border = { .color = rgba(59, 130, 246, 1.0), .width = 2_px, .radius = 6_px } };
+
+        Rev::Element::Style ToolConfirmButton = {
+            .background = { .color = rgba(59, 130, 246, 1.0) },
+            .border     = { .color = rgba(59, 130, 246, 1.0), .width = 1_px, .radius = 5_px }
+        };
+
         // Arm control: a prominent full-width toggle.  Disarmed it is a normal
         // button; armed it becomes a stark white-on-pastel-red banner.
         Rev::Element::Style ArmButton = {
@@ -221,6 +234,10 @@ export namespace Carvera::Gui {
         Rev::Client* client     = nullptr;
         std::string  targetHost = "192.168.1.104";
         int          targetPort = 2222;
+
+        // App state — read-only access to the tool library so the tool-change
+        // dropdown can show real tool names.  May be null.
+        Cam::App::AppState* app = nullptr;
 
         // -- Step presets --------------------------------------------
 
@@ -342,8 +359,10 @@ export namespace Carvera::Gui {
         Box*  runBtn   = nullptr;
         Text* runLabel = nullptr;
 
-        int   toolChangeSlot     = 1;
-        Text* toolChangeSlotText = nullptr;
+        Box*      toolSection     = nullptr;
+        Dropdown* toolDropdown    = nullptr;
+        Box*      changeToolBtn   = nullptr;
+        Text*     changeToolLabel = nullptr;
 
         Box*         setOriginBtn  = nullptr;
         Text*        originNameText = nullptr;
@@ -383,7 +402,8 @@ export namespace Carvera::Gui {
 
         // -- Construction --------------------------------------------
 
-        Interface(Element* parent) : Box(parent, {}, "CarveraInterface") {
+        Interface(Element* parent, Cam::App::AppState* appState = nullptr)
+            : Box(parent, {}, "CarveraInterface"), app(appState) {
 
             Theme::applyMode(Theme::Mode::Dark);
             this->styles.add(&Style::Root);
@@ -494,76 +514,122 @@ export namespace Carvera::Gui {
         }
 
         // ── Tool-change section ──────────────────────────────────────────
+        //
+        //   [ Tool  ▼  <name> ]        <- dropdown of library tools
+        //   [   Change Tool   ]        <- context-sensitive action button
+        //
+        // The action button reflects the live tool-change phase:
+        //   None            "Change Tool"  (sends M6, starts the cycle)
+        //   Seeking         "Please wait..." + orange section border
+        //   AwaitingConfirm "Ok" (blue)     + blue section border
 
         void buildToolSection() {
 
-            Box* section = new Box(
+            toolSection = new Box(
                 this,
                 Theme::withPanel({ &Style::Section }),
                 "ToolSection"
             );
 
-            Box* row = new Box(section, { &Style::Row }, "ToolChangeRow");
-
-            // "TOOL" label
-            new Text(row, "Tool", Theme::withMutedText({ &Style::Label }));
-
-            // Slot number display
-            toolChangeSlotText = new Text(
-                row,
-                formatToolSlot(),
-                Theme::withText({ &Style::StepLabel })
-            );
-
-            // −/+ slot buttons
-            Box* slotDown = makeBtn(row, "-", Style::Btn);
-            slotDown->style->size = { .width = 30_px, .height = 30_px };
-            slotDown->onClick([this](Event& e) {
-                adjustToolSlot(-1);
-                refresh(e);
-                e.propagate = false;
+            // Tool selector — shows real tool names from the library.  The
+            // dropdown value carries the ATC slot (T-number = library index+1).
+            toolDropdown = new Dropdown(toolSection, {
+                .label       = "Tool",
+                .options     = {},
+                .placeholder = "Select tool",
+                .value       = ""
             });
+            syncToolOptions();
 
-            Box* slotUp = makeBtn(row, "+", Style::Btn);
-            slotUp->style->size = { .width = 30_px, .height = 30_px };
-            slotUp->onClick([this](Event& e) {
-                adjustToolSlot(+1);
-                refresh(e);
-                e.propagate = false;
-            });
-
-            // Change-tool button — sends M6 T<n> which triggers the Carvera's
-            // automatic tool-measurement / touch-off cycle.
-            Box* changeBtn = makeBtn(row, "Change Tool", Style::Btn);
-            changeBtn->style->size = { .width = 100_px, .height = 30_px };
-            changeBtn->onClick([this](Event& e) {
-                onToolChangeClick(e);
-                e.propagate = false;
-            });
+            // Context-sensitive action button (full width).
+            changeToolBtn = makeBtn(toolSection, "Change Tool", Style::Btn);
+            changeToolBtn->style->size = { .width = Grow(), .height = 34_px };
+            changeToolLabel = static_cast<Text*>(changeToolBtn->children.front());
+            changeToolBtn->onClick([this](Event& e) { onChangeToolButton(e); e.propagate = false; });
         }
 
-        std::string formatToolSlot() const {
-            return "T" + std::to_string(toolChangeSlot);
-        }
+        // Rebuild the dropdown's option list from the tool library when it has
+        // changed.  Skipped while the menu is open so it never disrupts a
+        // selection in progress.
+        void syncToolOptions() {
 
-        void adjustToolSlot(int delta) {
-            toolChangeSlot = std::clamp(toolChangeSlot + delta, 1, 99);
-            if (toolChangeSlotText) {
-                toolChangeSlotText->content = formatToolSlot();
+            if (!toolDropdown || !app) { return; }
+            if (toolDropdown->open)    { return; }
+
+            std::vector<Dropdown::Item> items;
+            const size_t count = app->toolCount();
+            for (size_t i = 0; i < count; i++) {
+                Cam::App::Tool* t = app->toolAt(i);
+                if (!t) { continue; }
+                items.push_back({ t->name, std::to_string(i + 1) });  // value = T-number
+            }
+
+            bool changed = items.size() != toolDropdown->params.options.size();
+            if (!changed) {
+                for (size_t i = 0; i < items.size(); i++) {
+                    if (items[i].name  != toolDropdown->params.options[i].name ||
+                        items[i].value != toolDropdown->params.options[i].value) {
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+            if (!changed) { return; }
+
+            // Preserve the current selection if it still exists.
+            const std::string keep = toolDropdown->params.value;
+            toolDropdown->params.options = std::move(items);
+
+            bool stillValid = false;
+            for (const Dropdown::Item& it : toolDropdown->params.options) {
+                if (it.value == keep) { stillValid = true; break; }
+            }
+            if (!stillValid) {
+                toolDropdown->params.value =
+                    toolDropdown->params.options.empty()
+                        ? std::string()
+                        : toolDropdown->params.options.front().value;
             }
         }
 
-        void onToolChangeClick(Event& e) {
+        // The selected ATC slot (T-number), parsed from the dropdown value.
+        int currentToolSlot() const {
+            if (toolDropdown && !toolDropdown->params.value.empty()) {
+                try { return std::stoi(toolDropdown->params.value); }
+                catch (...) {}
+            }
+            return 1;
+        }
 
+        // Single action button, behaviour depends on the tool-change phase.
+        void onChangeToolButton(Event& e) {
+
+            auto& link  = Carvera::MachineLink::instance();
+            const auto phase = link.toolChangePhase();
+
+            // Confirm prompt: equivalent to pressing the machine's button.
+            if (phase == MachineLink::ToolChangePhase::AwaitingConfirm) {
+                link.confirmToolChange();
+                pushLog("Tool change confirmed - proceeding to touch-off.");
+                refresh(e);
+                return;
+            }
+
+            // Mid-travel: the button is a passive "Please wait..." indicator.
+            if (phase == MachineLink::ToolChangePhase::Seeking) {
+                return;
+            }
+
+            // Idle: start a new change.
             if (!client || !client->isConnected.load()) {
                 pushLog("Not connected - cannot change tool.");
                 return;
             }
 
-            char cmd[32];
-            std::snprintf(cmd, sizeof(cmd), "M6 T%d\n", toolChangeSlot);
-            sendLine(std::string(cmd));
-            pushLog(std::format("Tool change requested: T{}.", toolChangeSlot));
+            const int slot = currentToolSlot();
+            sendLine(std::format("M6 T{}\n", slot));
+            link.beginToolChange();
+            pushLog(std::format("Tool change requested: T{}.", slot));
             refresh(e);
         }
 
@@ -1309,6 +1375,35 @@ export namespace Carvera::Gui {
                 else if (machineState == "Alarm")  connectionSection->styles.add(&Style::PanelBorderAlarm);
                 else if (machineState == "Tool")   connectionSection->styles.add(&Style::PanelBorderToolChange);
                 else                               connectionSection->styles.add(&Style::PanelBorderConnected);
+            }
+
+            // Keep the tool dropdown in step with the library, then reflect the
+            // live tool-change phase on the section border and action button.
+            syncToolOptions();
+
+            if (toolSection && changeToolBtn && changeToolLabel) {
+
+                const auto phase = Carvera::MachineLink::instance().toolChangePhase();
+                using Phase = MachineLink::ToolChangePhase;
+
+                toolSection->styles.remove(&Style::PanelBorderToolChange);
+                toolSection->styles.remove(&Style::PanelBorderBlue);
+                changeToolBtn->styles.remove(&Style::ToolConfirmButton);
+
+                if (phase == Phase::Seeking) {
+                    // Travelling to the change position — orange, passive.
+                    toolSection->styles.add(&Style::PanelBorderToolChange);
+                    changeToolLabel->content = "Please wait...";
+                }
+                else if (phase == Phase::AwaitingConfirm) {
+                    // Machine is prompting — blue border + blue confirm button.
+                    toolSection->styles.add(&Style::PanelBorderBlue);
+                    changeToolBtn->styles.add(&Style::ToolConfirmButton);
+                    changeToolLabel->content = "Ok";
+                }
+                else {
+                    changeToolLabel->content = "Change Tool";
+                }
             }
 
             Box* allBtns[] = { btnPX, btnNX, btnPY, btnNY, btnPZ, btnNZ, btnAP, btnAM };

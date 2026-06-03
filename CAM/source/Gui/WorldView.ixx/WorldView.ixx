@@ -1738,6 +1738,17 @@ export namespace Cam::Gui {
             bool spindleOn = false;
             double maxMachineZ = -1.0e30;  // highest point reached (for the clearance lift)
 
+            // Indices of clearance-lift placeholder lines.  The safe height is
+            // the maximum Z over the whole path, which isn't known until every
+            // point has been emitted — so each lift is pushed as an empty
+            // placeholder and patched with "G0 Z<clearance>" at the very end.
+            std::vector<size_t> liftFixups;
+
+            auto emitClearanceLift = [&]() {
+                liftFixups.push_back(lines.size());
+                lines.push_back("");  // patched after maxMachineZ is final
+            };
+
             // ----------------------------------------------------------
             // emitToolChange
             //
@@ -1769,6 +1780,12 @@ export namespace Cam::Gui {
                     return;
                 }
 
+                // Lift clear of the stock BEFORE the change.  At program start
+                // the tool is at the begin-work point (WCS Z0); mid-program it
+                // may be down in a cut.  Either way, retract to the safe height
+                // so the trip to the ATC carousel never drags through material.
+                emitClearanceLift();
+
                 // Always stop the spindle before requesting a tool change,
                 // regardless of what we think spindleOn is.  The physical
                 // spindle may be running from a prior manual command or a
@@ -1790,6 +1807,15 @@ export namespace Cam::Gui {
                 // any motion commands.  This absorbs any residual travel
                 // the machine does after the controller signals "done".
                 lines.push_back("G4 P1\n");   // 1-second post-ATC settle
+
+                // Critical: the Carvera's automatic tool-measurement cycle
+                // leaves the machine sitting over the touch-off pad, NOT where
+                // it was before the change.  Without an explicit retract here,
+                // the next emitted point (a lateral/diagonal rapid) would dive
+                // from the pad straight down into it.  Lift to the safe height
+                // first so the following reposition happens entirely in the
+                // clear; the operation's own G0 then carries XY/Z to its start.
+                emitClearanceLift();
             };
 
             auto appendState = [&](Cam::App::MaterialState* state) {
@@ -1885,14 +1911,15 @@ export namespace Cam::Gui {
                 return;
             }
 
-            // From the touch point (stock surface, WCS Z0) the very first motion
-            // must lift UP clear of the whole path before any lateral move, not
-            // dive into the stock.  Insert it right after the G90 preamble.
+            // Patch every clearance-lift placeholder with the final safe height
+            // (the highest Z anywhere on the path, plus margin).  These guard
+            // both the trip to the ATC and the return from the touch-off pad,
+            // so no lateral move ever happens below the clear height.
             {
                 const double clearance = std::max(maxMachineZ, 0.0) + 5.0;
                 char zline[48];
                 std::snprintf(zline, sizeof(zline), "G0 Z%.3f\n", clearance);
-                lines.insert(lines.begin() + 1, std::string(zline));
+                for (size_t idx : liftFixups) { lines[idx] = zline; }
             }
 
             dbg("[Execute] streaming %zu lines to the machine", lines.size());

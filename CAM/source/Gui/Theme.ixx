@@ -388,24 +388,6 @@ export namespace Cam::Gui::Theme {
                 }
             }
         };
-
-        // Brighter than SettingsFooter/Cancel (buttonSurface) when apply has pending edits.
-        Style SettingsApplyDirty = {
-            .background = { .color = palette.buttonHover, .transition = 100_ms },
-            .border = { .color = palette.buttonBorder }
-        };
-
-        Style SettingsApplyDirtyHover = {
-            .applies = { .hover = true, .focus = true },
-            .background = { .color = palette.buttonPress },
-            .border = { .color = palette.buttonBorder }
-        };
-
-        Style SettingsApplyDirtyPress = {
-            .applies = { .press = true },
-            .background = { .color = palette.buttonPress },
-            .border = { .color = palette.buttonBorder }
-        };
     }
 
     inline void markDirty(Style& style) {
@@ -710,13 +692,6 @@ export namespace Cam::Gui::Theme {
         SettingsFooter.background.color = value.settingsFooter;
         SettingsFooter.border.top.color = value.settingsDivider;
 
-        SettingsApplyDirty.background.color = value.buttonHover;
-        SettingsApplyDirty.border.color = value.buttonBorder;
-        SettingsApplyDirtyHover.background.color = value.buttonPress;
-        SettingsApplyDirtyHover.border.color = value.buttonBorder;
-        SettingsApplyDirtyPress.background.color = value.buttonPress;
-        SettingsApplyDirtyPress.border.color = value.buttonBorder;
-
         markDirty(Background);
         markDirty(Panel);
         markDirty(PanelBorder);
@@ -757,9 +732,6 @@ export namespace Cam::Gui::Theme {
         markDirty(SettingsBody);
         markDirty(SettingsPreview);
         markDirty(SettingsFooter);
-        markDirty(SettingsApplyDirty);
-        markDirty(SettingsApplyDirtyHover);
-        markDirty(SettingsApplyDirtyPress);
 
         Rev::Element::ControlTheme::applyPalette(controlPaletteFor(value));
     }

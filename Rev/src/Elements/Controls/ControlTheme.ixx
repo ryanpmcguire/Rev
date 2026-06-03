@@ -19,24 +19,24 @@ export namespace Rev::Element::ControlTheme {
     Style Control = {
         .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
         .size = { Grow() },
-        .margin = { .top = 6_px, .bottom = 6_px }
+        .margin = { .top = 4_px, .bottom = 4_px }
     };
 
     Style Label = {
-        .margin = { .bottom = 8_px },
-        .text = { .color = rgba(100, 116, 139, 1.0), .size = 12_px }
+        .margin = { .bottom = 4_px },
+        .text = { .color = rgba(100, 116, 139, 1.0), .size = 11_px }
     };
 
     Style Field = {
         .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
         .size = { Grow() },
-        .margin = { .top = 2_px, .bottom = 1_px },
-        .padding = { 10_px, 12_px, 8_px, 10_px },
+        .margin = { .top = 1_px, .bottom = 1_px },
+        .padding = { 6_px, 9_px, 5_px, 9_px },
         .overflow = Overflow::Show,
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .radius = 4_px,
+            .radius = 3_px,
             .width = 1_px
         },
         .shadow = subtleShadow
@@ -59,7 +59,7 @@ export namespace Rev::Element::ControlTheme {
         .size = { Grow() },
         .text = {
             .color = rgba(30, 41, 59, 1.0),
-            .size = 14_px,
+            .size = 13_px,
             .wrap = Wrap::BreakWord
         }
     };
@@ -68,11 +68,11 @@ export namespace Rev::Element::ControlTheme {
         .layout = { .position = Position::Absolute },
         .position = { .left = 0_px, .top = 0_px },
         .size = { 100_pct, 100_pct },
-        .text = { .color = rgba(148, 163, 184, 1.0), .size = 14_px }
+        .text = { .color = rgba(148, 163, 184, 1.0), .size = 13_px }
     };
 
     Style DropdownArrow = {
-        .size = { 14_px, 14_px },
+        .size = { 12_px, 12_px },
         .text = { .color = rgba(100, 116, 139, 1.0) }
     };
 
@@ -127,9 +127,9 @@ export namespace Rev::Element::ControlTheme {
 
     Style Option = {
         .size = { 100_pct },
-        .padding = { 10_px, 12_px, 8_px, 10_px },
+        .padding = { 6_px, 10_px, 6_px, 10_px },
         .background = { .color = rgba(255, 255, 255, 0.0), .transition = 100_ms },
-        .text = { .color = rgba(30, 41, 59, 1.0), .size = 14_px },
+        .text = { .color = rgba(30, 41, 59, 1.0), .size = 13_px },
         .cursor = Cursor::Hand
     };
 
@@ -154,11 +154,11 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonSecondary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 16_px, 16_px, 8_px, 10_px },
+        .padding = { 14_px, 14_px, 7_px, 9_px },
         .background = { .color = rgba(255, 255, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(203, 213, 225, 1.0),
-            .radius = 4_px,
+            .radius = 3_px,
             .width = 1_px
         },
         .shadow = subtleShadow,
@@ -172,17 +172,17 @@ export namespace Rev::Element::ControlTheme {
     };
 
     Style ButtonSecondaryLabel = {
-        .text = { .color = rgba(51, 65, 85, 1.0), .size = 14_px }
+        .text = { .color = rgba(51, 65, 85, 1.0), .size = 13_px }
     };
 
     Style ButtonPrimary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 16_px, 16_px, 8_px, 10_px },
+        .padding = { 14_px, 14_px, 7_px, 9_px },
         .background = { .color = rgba(79, 99, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(79, 99, 255, 1.0),
             .width = 1_px,
-            .radius = 4_px
+            .radius = 3_px
         },
         .cursor = Cursor::Hand
     };
@@ -193,7 +193,7 @@ export namespace Rev::Element::ControlTheme {
     };
 
     Style ButtonPrimaryLabel = {
-        .text = { .color = rgba(255, 255, 255, 0.98), .size = 14_px }
+        .text = { .color = rgba(255, 255, 255, 0.98), .size = 13_px }
     };
 
     Style CheckboxBox = {
