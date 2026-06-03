@@ -1402,17 +1402,20 @@ export namespace Cam::Gui {
                 rotaryPivot = def.part.defaultPose.position;
             }
 
-            // ta  = machine MPos A (absolute machine position, degrees)
-            // oma = machine MPos A captured at "Set Origin" time
+            // Use WPos A (work-coordinate A) directly.
             //
-            // (ta - oma) gives the A displacement from the work-coordinate
-            // reference — the same way we subtract originMx/y/z from XYZ
-            // telemetry to get work-space positions.  This is exactly the
-            // angle the IK solver stored as rotaryAngle=0 → "part at natural
-            // CAD orientation", so the display matches the IK/machine sim.
+            // We stream G-code as "G90 A {rotaryAngle × 180/π}", so the
+            // machine's WCS A position IS the IK rotaryAngle in degrees.
+            // Reading WPos A bypasses all MPos/origin-offset arithmetic and
+            // is immune to whatever the operator's machine A-home happens to be.
+            //
+            // Fall back to (MPos A − machineOriginA) when WPos has not yet
+            // been received (first frame after connect).
             constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
-            const float oma      = link.machineOriginA();
-            const float angleRad = (ta - oma) * kDegToRad;
+
+            const float angleRad = link.wcsAValid_()
+                ? link.getWcsA() * kDegToRad
+                : (ta - link.machineOriginA()) * kDegToRad;
 
             Cam::Machine::Pose::axisAngleMatrix(
                 rotaryAxis, angleRad, rotaryPivot, out
@@ -1735,45 +1738,78 @@ export namespace Cam::Gui {
             bool spindleOn = false;
             double maxMachineZ = -1.0e30;  // highest point reached (for the clearance lift)
 
+            // ----------------------------------------------------------
+            // emitToolChange
+            //
+            // Emits M6 T{n} — but ONLY when the tool number can be
+            // resolved unambiguously.  A bare "M6" (no T number) is never
+            // emitted: on the Carvera it triggers an ATC cycle to an
+            // undefined slot, which may crash the tool into the stock or
+            // execute subsequent motion commands mid-carousel-spin.
+            //
+            // Returns false (and aborts the program build) when the tool
+            // name is empty or is not present in the library.
+            // ----------------------------------------------------------
+            bool buildAborted = false;
+
             auto emitToolChange = [&](const std::string& toolName) {
 
-                // Spindle must be off across a tool change.
-                if (spindleOn) {
-                    lines.push_back("M5\n");
-                    spindleOn = false;
+                if (toolName.empty()) {
+                    dbg("[Execute] Operation has no tool assigned — aborting program build");
+                    buildAborted = true;
+                    return;
                 }
-
-                char comment[96];
-                std::snprintf(comment, sizeof(comment), "(tool change: %s)\n", toolName.c_str());
-                lines.push_back(comment);
 
                 const int n = toolNumber(toolName);
 
-                if (n > 0) {
-                    char m[24];
-                    std::snprintf(m, sizeof(m), "M6 T%d\n", n);
-                    lines.push_back(m);
+                if (n <= 0) {
+                    dbg("[Execute] Tool '%s' not found in library (slot unknown) — aborting",
+                        toolName.c_str());
+                    buildAborted = true;
+                    return;
                 }
-                else {
-                    lines.push_back("M6\n");
-                }
+
+                // Always stop the spindle before requesting a tool change,
+                // regardless of what we think spindleOn is.  The physical
+                // spindle may be running from a prior manual command or a
+                // previous execution session — we don't want the carousel
+                // to pick up a spinning tool.
+                lines.push_back("M5\n");
+                spindleOn = false;
+
+                // Give the spindle time to decelerate to a full stop before
+                // the machine begins moving toward the ATC position.
+                lines.push_back("G4 P2\n");   // 2-second dwell
+
+                char m[32];
+                std::snprintf(m, sizeof(m), "M6 T%d\n", n);
+                lines.push_back(m);
+
+                // After the gate releases (machine exits "Tool" state and
+                // has returned from the ATC), wait briefly before sending
+                // any motion commands.  This absorbs any residual travel
+                // the machine does after the controller signals "done".
+                lines.push_back("G4 P1\n");   // 1-second post-ATC settle
             };
 
             auto appendState = [&](Cam::App::MaterialState* state) {
 
+                if (buildAborted) { return; }
                 if (!state || !state->hasToolPath) { return; }
 
                 const Cam::Machine::MachineToolPath* path = getMachineToolPath(state);
 
                 if (!path || path->empty()) { return; }
 
-                // Tool change goes between the previous op's retract and this
-                // op's first move.  The very first op doesn't get one (the tool
-                // is already set up for the manual start), only transitions
-                // between operations that actually change tools.
-                if (!loadedTool.empty() && state->toolPath.toolName != loadedTool) {
+                // Always emit a tool change when the required tool differs from
+                // what is currently loaded — including the very first operation
+                // (loadedTool is empty at program start) so the Carvera's
+                // automatic tool-measurement cycle always runs before cutting.
+                if (state->toolPath.toolName != loadedTool) {
                     emitToolChange(state->toolPath.toolName);
                 }
+                if (buildAborted) { return; }
+
                 loadedTool = state->toolPath.toolName;
 
                 const double feed = state->toolPath.feedRate > 0.0
@@ -1834,10 +1870,14 @@ export namespace Cam::Gui {
                 appendState(materialStateWithToolPathForPreview(project));
             }
 
-            // Spindle off at the end of the program.
-            if (spindleOn) {
-                lines.push_back("M5\n");
-                spindleOn = false;
+            // Unconditionally stop the spindle at the end — same reasoning
+            // as the pre-M6 M5: don't trust our own spindleOn flag.
+            lines.push_back("M5\n");
+            spindleOn = false;
+
+            if (buildAborted) {
+                dbg("[Execute] program build aborted — not streaming");
+                return;
             }
 
             if (lines.size() <= 1) {

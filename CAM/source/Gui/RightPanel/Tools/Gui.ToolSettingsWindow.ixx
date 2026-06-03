@@ -303,9 +303,10 @@ export namespace Cam::Gui {
             typeDropdown = new Dropdown(left, {
                 .label = "Type",
                 .options = {
-                    { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::EndMill), "EndMill" },
+                    { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::EndMill),    "EndMill"    },
                     { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::ThreadMill), "ThreadMill" },
-                    { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::Chamfer), "Chamfer" }
+                    { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::Chamfer),    "Chamfer"    },
+                    { Cam::App::Tool::typeDisplayName(Cam::App::Tool::Type::Probe),      "Probe"      }
                 },
                 .placeholder = "Select type",
                 .value = Cam::App::Tool::typeToKindString(selectedType)

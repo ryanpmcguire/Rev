@@ -128,9 +128,7 @@ export namespace Cam::Gui {
 
             std::vector<Dropdown::Item> items;
 
-            if (!app) {
-                return items;
-            }
+            if (!app) { return items; }
 
             for (size_t i = 0; i < app->toolCount(); i++) {
 
@@ -138,7 +136,14 @@ export namespace Cam::Gui {
 
                 if (!tool) { continue; }
 
-                items.push_back({ tool->name, tool->name });
+                // Display label includes the 1-based slot number so operators
+                // can quickly match tool selections to machine slots.
+                // The stored value remains the plain tool name so it serialises
+                // cleanly alongside the material-state toolpath data.
+                const std::string label =
+                    "#" + std::to_string(i + 1) + "  " + tool->name;
+
+                items.push_back({ label, tool->name });
             }
 
             if (items.empty()) {

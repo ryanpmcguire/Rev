@@ -19,7 +19,8 @@ export namespace Cam::App {
         enum class Type {
             EndMill,
             ThreadMill,
-            Chamfer
+            Chamfer,
+            Probe          // touch probe — identical geometry pipeline to an end-mill
         };
 
         // Identity
@@ -262,6 +263,7 @@ export namespace Cam::App {
                 case Type::EndMill:    return "EndMill";
                 case Type::ThreadMill: return "ThreadMill";
                 case Type::Chamfer:    return "Chamfer";
+                case Type::Probe:      return "Probe";
             }
             return "EndMill";
         }
@@ -269,6 +271,7 @@ export namespace Cam::App {
         static Type typeFromKindString(const std::string& kind) {
             if (kind == "ThreadMill") { return Type::ThreadMill; }
             if (kind == "Chamfer")    { return Type::Chamfer; }
+            if (kind == "Probe")      { return Type::Probe; }
             return Type::EndMill;  // EndMill and legacy "Cylinder"
         }
 
@@ -277,6 +280,7 @@ export namespace Cam::App {
                 case Type::EndMill:    return "End mill";
                 case Type::ThreadMill: return "Thread mill";
                 case Type::Chamfer:    return "Chamfer";
+                case Type::Probe:      return "Probe";
             }
             return "End mill";
         }
@@ -286,6 +290,7 @@ export namespace Cam::App {
                 case Type::EndMill:    return "END MILL";
                 case Type::ThreadMill: return "THREAD MILL";
                 case Type::Chamfer:    return "CHAMFER";
+                case Type::Probe:      return "PROBE";
             }
             return "END MILL";
         }

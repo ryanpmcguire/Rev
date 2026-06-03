@@ -108,6 +108,64 @@ export namespace Carvera {
             pendingOk.fetch_add(1);
         }
 
+        // ------------------------------------------------------------------
+        // ATC gate — prevents G-code from being buffered on the controller
+        // during a tool-change cycle.
+        //
+        // Problem: the Carvera returns an "ok" for M6 immediately (before the
+        // ATC is physically complete).  Our flow-control would then pump the
+        // next line into the machine's receive buffer while the carousel is
+        // still spinning, causing motion to start mid-tool-change.
+        //
+        // State machine (tcGate):
+        //   0 Clear   — normal streaming
+        //   1 SentM6  — M6 was just sent; waiting for machine to enter "Tool"
+        //   2 InTool  — machine is in "Tool" state; hold all sends
+        //
+        // Transitions:
+        //   Clear  → SentM6  when pump() sends a line containing "M6"
+        //   SentM6 → InTool  when updateMachineState("Tool") is called
+        //   InTool → Clear   when updateMachineState(anything-else) is called
+        //   SentM6 → Clear   timeout (~30 s) if machine never enters "Tool"
+        //                    (same-slot no-op M6, or controller that handles
+        //                     ATC silently without a state transition)
+        // ------------------------------------------------------------------
+
+        // Called every ~7 ms from Interface::drainTelemetry (main thread).
+        void updateMachineState(const std::string& state) {
+            const bool isToolState = (state == "Tool");
+            const int  g           = tcGate.load();
+
+            if (g == 1) {                           // SentM6
+                const int f = tcSentFrames.fetch_add(1);
+                if (isToolState) {
+                    tcGate.store(2);                // machine entered ATC ✓
+                }
+                else if (f > 4285) {
+                    // ~30 s safety timeout.
+                    //
+                    // The old 350 ms limit was far too short.  After the
+                    // controller acknowledges M6 with "ok", the machine is
+                    // still in "Idle"/"Run" state while physically travelling
+                    // to the ATC carousel — a journey that easily takes
+                    // several seconds.  The previous short timeout fired
+                    // during that transit, cleared the gate prematurely, and
+                    // let M3 + cut moves land in the controller buffer while
+                    // the carousel was still spinning up.
+                    //
+                    // 30 s is a safe upper bound for a complete ATC cycle.
+                    // A same-slot no-op M6 or firmware that handles ATC
+                    // silently (never reports "Tool" state) will clear here.
+                    tcGate.store(0);
+                }
+            }
+            else if (g == 2 && !isToolState) {      // InTool → done
+                tcGate.store(0);
+            }
+        }
+
+        bool toolChangeGated() const { return tcGate.load() != 0; }
+
         // Main-thread pump: retire acked lines and send more, keeping the
         // in-flight count under the budget.  Safe to call every frame.
         void pump() {
@@ -119,13 +177,31 @@ export namespace Carvera {
 
             if (!connected()) { return; }
 
+            // Hold streaming while an ATC cycle is in progress.
+            if (toolChangeGated()) { return; }
+
             while (inFlight < MaxInFlight && !queue.empty()) {
-                client->send(queue.front());
+
+                const std::string& line = queue.front();
+
+                // Before sending M6, drain all in-flight lines first so no
+                // subsequent command is buffered alongside the tool change.
+                const bool isM6 = (line.find("M6") != std::string::npos);
+                if (isM6 && inFlight > 0) { break; }
+
+                client->send(line);
                 queue.pop_front();
                 inFlight++;
+
+                if (isM6) {
+                    // Engage the ATC gate immediately after sending.
+                    tcGate.store(1);
+                    tcSentFrames.store(0);
+                    break;          // send nothing else until gate clears
+                }
             }
 
-            if (queue.empty() && inFlight == 0) {
+            if (queue.empty() && inFlight == 0 && !toolChangeGated()) {
                 executing.store(false);
             }
         }
@@ -136,6 +212,8 @@ export namespace Carvera {
             inFlight = 0;
             pendingOk.store(0);
             executing.store(false);
+            tcGate.store(0);
+            tcSentFrames.store(0);
         }
 
         bool isExecuting() const {
@@ -188,6 +266,14 @@ export namespace Carvera {
             x = telemX.load(); y = telemY.load(); z = telemZ.load(); a = telemA.load();
             return true;
         }
+
+        // Work-coordinate A (WPos A) — the value the IK solver streamed as the
+        // absolute WCS command.  WPos A == rotaryAngle × (180/π) by construction,
+        // so it is the correct angle to feed directly to axisAngleMatrix without
+        // any origin-offset arithmetic.
+        void  setWcsA(float wa)  { wcsA.store(wa); wcsAValid.store(true); }
+        float getWcsA()    const { return wcsA.load(); }
+        bool  wcsAValid_() const { return wcsAValid.load(); }
 
         // -- Work origin reference --------------------------------------------
         //
@@ -245,8 +331,15 @@ export namespace Carvera {
         int inFlight = 0;
         std::atomic<int> pendingOk { 0 };
 
+        // ATC gate state (see updateMachineState / pump comments above).
+        std::atomic<int> tcGate       { 0 };   // 0=Clear 1=SentM6 2=InTool
+        std::atomic<int> tcSentFrames { 0 };   // ~7 ms ticks since M6 was sent (safety timeout)
+
         std::atomic<float> telemX { 0 }, telemY { 0 }, telemZ { 0 }, telemA { 0 };
         std::atomic<bool>  telemValid { false };
+
+        std::atomic<float> wcsA { 0 };
+        std::atomic<bool>  wcsAValid { false };
 
         std::atomic<float> originMx { 0 }, originMy { 0 }, originMz { 0 }, originMa { 0 };
         std::atomic<bool>  originValid { false };

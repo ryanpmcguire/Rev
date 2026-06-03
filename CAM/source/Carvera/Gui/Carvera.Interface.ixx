@@ -10,6 +10,7 @@ module;
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <optional>
 
 #include <managed.hpp>
 #include <dbg.hpp>
@@ -23,6 +24,7 @@ import Rev.Element.Event;
 import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
+import Rev.Element.NumberInput;
 
 import Rev.Client;
 import Rev.Core.Animator;
@@ -115,6 +117,25 @@ export namespace Carvera::Gui {
         };
 
         Rev::Element::Style ZHalfGap = { .size = { .width = 100_pct, .height = 2_px } };
+
+        // -- Origin section ----------------------------------------------
+
+        Rev::Element::Style OriginCoordRow = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
+            .size   = { .width = 100_pct },
+            .margin = { .bottom = 6_px }
+        };
+
+        Rev::Element::Style OriginCell = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size   = { .width = Grow() },
+            .margin = { .right = 6_px }
+        };
+
+        Rev::Element::Style OriginName = {
+            .size = { .width = Grow() },
+            .text = { .size = 14_px }
+        };
 
         Rev::Element::Style LogBox = {
             .layout  = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
@@ -212,6 +233,24 @@ export namespace Carvera::Gui {
         int   jogFeedRate  = 1000;
         int   jogFeedRateA = 3000;
 
+        // -- Aliased work origins ------------------------------------
+        //
+        // Each origin is a named bookmark of an absolute machine position
+        // (MPos X/Y/Z/A).  "Set Origin" captures the live position into the
+        // selected alias; "Goto" rapids back to it.  Coordinates can also be
+        // typed directly into the fields.
+
+        struct Origin {
+            std::string name;
+            float x = 0, y = 0, z = 0, a = 0;
+            bool  valid = false;   // has a stored/typed position
+        };
+
+        std::vector<Origin> origins = {
+            { "Origin 1" }, { "Origin 2" }, { "Origin 3" }
+        };
+        int activeOrigin = 0;
+
         // -- Gestures ------------------------------------------------
 
         GestureTracker<CarveraCommand> gestures = {{
@@ -253,6 +292,11 @@ export namespace Carvera::Gui {
         float pendingPosX = 0, pendingPosY = 0, pendingPosZ = 0, pendingPosA = 0;
         bool  pendingPosValid     = false;
         bool  pendingResponseSeen = false;  // signal that a "?" reply was processed
+
+        // Work-coordinate A (WPos 4th field).  Parsed alongside MPos so the
+        // CAM view can use the WCS-relative angle directly for part rotation.
+        float pendingWcsA      = 0;
+        bool  pendingWcsAValid = false;
 
         // -- Confirmed machine state (main thread) -------------------
 
@@ -298,7 +342,15 @@ export namespace Carvera::Gui {
         Box*  runBtn   = nullptr;
         Text* runLabel = nullptr;
 
-        Box*  setOriginBtn = nullptr;
+        int   toolChangeSlot     = 1;
+        Text* toolChangeSlotText = nullptr;
+
+        Box*         setOriginBtn  = nullptr;
+        Text*        originNameText = nullptr;
+        NumberInput* originX = nullptr;
+        NumberInput* originY = nullptr;
+        NumberInput* originZ = nullptr;
+        NumberInput* originA = nullptr;
 
         Text* posXText = nullptr, *posYText = nullptr;
         Text* posZText = nullptr, *posAText = nullptr;
@@ -340,7 +392,9 @@ export namespace Carvera::Gui {
 
             buildConnectionSection();
             buildArmSection();
+            buildToolSection();
             buildJogSection();
+            buildOriginSection();
             buildLogSection();
 
             // Watchdog — refires "?" if we never got the reply.
@@ -437,6 +491,80 @@ export namespace Carvera::Gui {
             );
             runLabel = new Text(runBtn, "START", Theme::withText({ &Style::ArmLabel }));
             runBtn->onClick([this](Event& e) { onRunClick(e); e.propagate = false; });
+        }
+
+        // ── Tool-change section ──────────────────────────────────────────
+
+        void buildToolSection() {
+
+            Box* section = new Box(
+                this,
+                Theme::withPanel({ &Style::Section }),
+                "ToolSection"
+            );
+
+            Box* row = new Box(section, { &Style::Row }, "ToolChangeRow");
+
+            // "TOOL" label
+            new Text(row, "Tool", Theme::withMutedText({ &Style::Label }));
+
+            // Slot number display
+            toolChangeSlotText = new Text(
+                row,
+                formatToolSlot(),
+                Theme::withText({ &Style::StepLabel })
+            );
+
+            // −/+ slot buttons
+            Box* slotDown = makeBtn(row, "-", Style::Btn);
+            slotDown->style->size = { .width = 30_px, .height = 30_px };
+            slotDown->onClick([this](Event& e) {
+                adjustToolSlot(-1);
+                refresh(e);
+                e.propagate = false;
+            });
+
+            Box* slotUp = makeBtn(row, "+", Style::Btn);
+            slotUp->style->size = { .width = 30_px, .height = 30_px };
+            slotUp->onClick([this](Event& e) {
+                adjustToolSlot(+1);
+                refresh(e);
+                e.propagate = false;
+            });
+
+            // Change-tool button — sends M6 T<n> which triggers the Carvera's
+            // automatic tool-measurement / touch-off cycle.
+            Box* changeBtn = makeBtn(row, "Change Tool", Style::Btn);
+            changeBtn->style->size = { .width = 100_px, .height = 30_px };
+            changeBtn->onClick([this](Event& e) {
+                onToolChangeClick(e);
+                e.propagate = false;
+            });
+        }
+
+        std::string formatToolSlot() const {
+            return "T" + std::to_string(toolChangeSlot);
+        }
+
+        void adjustToolSlot(int delta) {
+            toolChangeSlot = std::clamp(toolChangeSlot + delta, 1, 99);
+            if (toolChangeSlotText) {
+                toolChangeSlotText->content = formatToolSlot();
+            }
+        }
+
+        void onToolChangeClick(Event& e) {
+
+            if (!client || !client->isConnected.load()) {
+                pushLog("Not connected - cannot change tool.");
+                return;
+            }
+
+            char cmd[32];
+            std::snprintf(cmd, sizeof(cmd), "M6 T%d\n", toolChangeSlot);
+            sendLine(std::string(cmd));
+            pushLog(std::format("Tool change requested: T{}.", toolChangeSlot));
+            refresh(e);
         }
 
         void onRunClick(Event& e) {
@@ -552,13 +680,147 @@ export namespace Carvera::Gui {
             btnStepM = makeJogBtn(r2, "-");  btnStepM->onClick([this](Event& e) { adjustStep(-1); e.propagate = false; });
             btnNY    = makeJogBtn(r2, "-Y"); btnNY->onClick([this](Event& e) { jog(0,-jogStepMm,0); e.propagate = false; });
             btnStepP = makeJogBtn(r2, "+");  btnStepP->onClick([this](Event& e) { adjustStep(+1); e.propagate = false; });
+        }
 
-            // Set the work origin (G54 zero) at the current position — used to
-            // mark the begin-work point on the stock surface.
-            Box* originRow = new Box(section, { &Style::Row }, "OriginRow");
-            setOriginBtn = makeBtn(originRow, "Set Origin", Style::Btn);
-            setOriginBtn->style->size = { .width = 120_px, .height = 30_px };
+        // ── Origin section ───────────────────────────────────────────────
+        //
+        //   [ Origins ]
+        //   [ < ]  Origin 1  [ > ]        <- alias selector
+        //   [X] [Y] [Z] [A]               <- editable machine coords
+        //   [ Set Origin ] [ Goto ] [ Home ]
+
+        static NumberInput::Params coordParams(const char* label) {
+            NumberInput::Params p;
+            p.label            = label;
+            p.placeholder      = "0";
+            p.maxLength        = 16;
+            p.selectAllOnFocus = true;
+            p.allowNegative    = true;
+            p.allowDecimal     = true;
+            p.allowEmpty       = false;
+            p.maxDecimalPlaces = 3;
+            return p;
+        }
+
+        void buildOriginSection() {
+
+            Box* section = new Box(this, Theme::withPanel({ &Style::Section }), "OriginSection");
+            new Text(section, "Origins", Theme::withText({ &Style::Label }));
+
+            // -- Alias selector (prev / name / next) ------------------
+            Box* selRow = new Box(section, { &Style::Row }, "OriginSelectRow");
+
+            Box* prevBtn = makeBtn(selRow, "<", Style::Btn);
+            prevBtn->style->size = { .width = 30_px, .height = 30_px };
+            prevBtn->onClick([this](Event& e) { selectOrigin(-1, e); e.propagate = false; });
+
+            originNameText = new Text(
+                selRow,
+                origins.empty() ? "-" : origins[activeOrigin].name,
+                Theme::withText({ &Style::OriginName })
+            );
+
+            Box* nextBtn = makeBtn(selRow, ">", Style::Btn);
+            nextBtn->style->size = { .width = 30_px, .height = 30_px };
+            nextBtn->onClick([this](Event& e) { selectOrigin(+1, e); e.propagate = false; });
+
+            // -- Coordinate fields ------------------------------------
+            Box* coordRow = new Box(section, { &Style::OriginCoordRow }, "OriginCoordRow");
+
+            auto coordCell = [&](const char* label) -> NumberInput* {
+                Box* cell = new Box(coordRow, { &Style::OriginCell }, "OriginCell");
+                NumberInput* in = new NumberInput(cell, coordParams(label));
+                in->onValueChange = [this](Event& e, std::optional<double>) { onOriginEdited(e); };
+                return in;
+            };
+
+            originX = coordCell("X");
+            originY = coordCell("Y");
+            originZ = coordCell("Z");
+            originA = coordCell("A");
+
+            // -- Actions ----------------------------------------------
+            Box* actionRow = new Box(section, { &Style::Row }, "OriginActionRow");
+
+            setOriginBtn = makeBtn(actionRow, "Set Origin", Style::Btn);
+            setOriginBtn->style->size = { .width = 100_px, .height = 30_px };
             setOriginBtn->onClick([this](Event& e) { setWorkOrigin(e); e.propagate = false; });
+
+            makeBtn(actionRow, "Goto", Style::Btn)->onClick([this](Event& e) { gotoOrigin(e);   e.propagate = false; });
+            makeBtn(actionRow, "Home", Style::Btn)->onClick([this](Event& e) { homeMachine(e);  e.propagate = false; });
+
+            loadOriginIntoFields();
+        }
+
+        // Cycle the active alias, refreshing the name label and coord fields.
+        void selectOrigin(int delta, Event& e) {
+            if (origins.empty()) return;
+            int n = (int)origins.size();
+            activeOrigin = ((activeOrigin + delta) % n + n) % n;
+            loadOriginIntoFields();
+            refresh(e);
+        }
+
+        // Push the active alias's stored coordinates into the input fields.
+        // setValue is called without an Event so it does not re-fire
+        // onValueChange (which would otherwise loop back into onOriginEdited).
+        void loadOriginIntoFields() {
+            if (origins.empty()) return;
+            Origin& o = origins[activeOrigin];
+            if (originNameText) originNameText->content = o.name;
+            if (originX) originX->setValue(o.x);
+            if (originY) originY->setValue(o.y);
+            if (originZ) originZ->setValue(o.z);
+            if (originA) originA->setValue(o.a);
+        }
+
+        // A field was edited by hand — store the typed coordinates back into
+        // the active alias and mark it usable.
+        void onOriginEdited(Event& e) {
+            if (origins.empty()) return;
+            Origin& o = origins[activeOrigin];
+            if (originX) o.x = (float)originX->valueOr(o.x);
+            if (originY) o.y = (float)originY->valueOr(o.y);
+            if (originZ) o.z = (float)originZ->valueOr(o.z);
+            if (originA) o.a = (float)originA->valueOr(o.a);
+            o.valid = true;
+            refresh(e);
+        }
+
+        // Rapid the machine to the active alias's stored position.  Uses G53
+        // (machine coordinate system) so the move is independent of any work
+        // offset — the stored values are raw MPos.
+        void gotoOrigin(Event& e) {
+
+            if (!client || !client->isConnected.load() || !confValid) {
+                pushLog("Connect and wait for position before moving.");
+                return;
+            }
+
+            if (origins.empty()) return;
+            Origin& o = origins[activeOrigin];
+
+            if (!o.valid) {
+                pushLog(std::format("'{}' has no stored position - set it first.", o.name));
+                return;
+            }
+
+            sendLine(std::format("G53 G0 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}\n", o.x, o.y, o.z, o.a));
+
+            // Lead the display to the destination; telemetry pulls it to truth.
+            intentX = o.x; intentY = o.y; intentZ = o.z; intentA = o.a;
+
+            pushLog(std::format("Goto '{}' (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}).",
+                o.name, o.x, o.y, o.z, o.a));
+            refresh(e);
+        }
+
+        // Run the homing cycle.
+        void homeMachine(Event& e) {
+            if (!client || !client->isConnected.load()) { pushLog("Not connected."); return; }
+            sendLine("$H\n");
+            pushLog("Homing...");
+            refresh(e);
         }
 
         void setWorkOrigin(Event& e) {
@@ -567,6 +829,15 @@ export namespace Carvera::Gui {
                 pushLog("Connect and wait for position before setting origin.");
                 return;
             }
+
+            if (origins.empty()) return;
+
+            // "Set" overwrites the active alias with the current absolute
+            // machine position and shows it in the fields.
+            Origin& o = origins[activeOrigin];
+            o.x = confX; o.y = confY; o.z = confZ; o.a = confA;
+            o.valid = true;
+            loadOriginIntoFields();
 
             // Zero all four axes in the active work coordinate system.
             // Including A0 is essential: it makes the machine's WCS A=0 equal
@@ -582,7 +853,10 @@ export namespace Carvera::Gui {
                 confX, confY, confZ, confA
             );
 
-            pushLog("Work origin set at current position (X Y Z A zeroed).");
+            pushLog(std::format(
+                "'{}' set at current position (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}).",
+                o.name, confX, confY, confZ, confA
+            ));
             refresh(e);
         }
 
@@ -650,6 +924,7 @@ export namespace Carvera::Gui {
             pendingState = "";
             pendingPosValid     = false;
             pendingResponseSeen = false;
+            pendingWcsAValid    = false;
             confValid      = false;
             dispReady      = false;
             machineState.clear();
@@ -686,10 +961,19 @@ export namespace Carvera::Gui {
                 size_t delim  = msg.find_first_of(",|>", 1);
                 std::string state = (delim != std::string::npos) ? msg.substr(1, delim - 1) : "";
 
+                // MPos — machine absolute position (X,Y,Z,A,[B...])
                 float x = 0, y = 0, z = 0, a = 0;
-                size_t mp = msg.find("MPos:");
-                bool posOk = (mp != std::string::npos) &&
-                             sscanf(msg.c_str() + mp + 5, "%f,%f,%f,%f", &x, &y, &z, &a) >= 3;
+                size_t mp   = msg.find("MPos:");
+                bool posOk  = (mp != std::string::npos) &&
+                              sscanf(msg.c_str() + mp + 5, "%f,%f,%f,%f", &x, &y, &z, &a) >= 3;
+
+                // WPos — work-coordinate position (same layout).
+                // The 4th field (A) is exactly the WCS rotary angle the IK
+                // commanded; use it directly for part-rotation display.
+                float wx = 0, wy = 0, wz = 0, wa = 0;
+                size_t wp    = msg.find("WPos:");
+                bool wposOk  = (wp != std::string::npos) &&
+                               sscanf(msg.c_str() + wp + 5, "%f,%f,%f,%f", &wx, &wy, &wz, &wa) >= 4;
 
                 std::lock_guard lock(logMutex);
                 pendingState = state;
@@ -697,6 +981,10 @@ export namespace Carvera::Gui {
                     pendingPosX = x; pendingPosY = y;
                     pendingPosZ = z; pendingPosA = a;
                     pendingPosValid = true;
+                }
+                if (wposOk) {
+                    pendingWcsA      = wa;
+                    pendingWcsAValid = true;
                 }
                 pendingResponseSeen = true;
                 return;
@@ -784,6 +1072,8 @@ export namespace Carvera::Gui {
             bool        posDirty  = false;
             bool        replySeen = false;
             float       nx = 0, ny = 0, nz = 0, na = 0;
+            float       nwa = 0;
+            bool        nwaValid = false;
             std::string nstate;
 
             {
@@ -803,6 +1093,11 @@ export namespace Carvera::Gui {
                     pendingPosValid = false;
                     posDirty = true;
                 }
+                if (pendingWcsAValid) {
+                    nwa      = pendingWcsA;
+                    nwaValid = true;
+                    pendingWcsAValid = false;
+                }
                 pendingResponseSeen = false;
             }
 
@@ -816,15 +1111,24 @@ export namespace Carvera::Gui {
 
             machineState = nstate;
 
+            // Keep MachineLink informed so the ATC gate can track Tool-state
+            // transitions and hold the pump() until the carousel is done.
+            Carvera::MachineLink::instance().updateMachineState(machineState);
+
             if (replySeen) {
-                // The chain-poll cycle completes here: response was received,
-                // we may issue the next "?".
                 statusInFlight = false;
             }
 
             if (posDirty) {
                 confX = nx; confY = ny; confZ = nz; confA = na;
                 confValid = true;
+            }
+
+            // Push the work-coordinate A to MachineLink immediately so it is
+            // available before the next setTelemetry → onTelemetry → applyWorldTransforms
+            // chain fires in the same tickDisplay call.
+            if (nwaValid) {
+                Carvera::MachineLink::instance().setWcsA(nwa);
             }
 
             return posDirty;
@@ -926,6 +1230,15 @@ export namespace Carvera::Gui {
         // -- Keyboard ------------------------------------------------
 
         void keyDown(Event& e) override {
+
+            // While a coordinate field is focused, let the input own the
+            // keyboard (digits, decimal, arrows for cursor movement) instead
+            // of stealing arrows for jogging.
+            auto editing = [](NumberInput* in) { return in && in->text->targetFlags.focus; };
+            if (editing(originX) || editing(originY) || editing(originZ) || editing(originA)) {
+                Box::keyDown(e);
+                return;
+            }
 
             auto& arrows = e.keyboard.arrows;
             bool  shift  = e.keyboard.shift;

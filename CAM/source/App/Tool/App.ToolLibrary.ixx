@@ -77,6 +77,16 @@ export namespace Cam::App {
             return find(order[index]);
         }
 
+        // 1-based position of a tool in the library order; 0 if not found.
+        // This is the canonical slot number used for M6 T<n> commands and
+        // for "#n" prefixes in every tool-selection UI.
+        int indexOf(const std::string& name) const {
+            for (size_t i = 0; i < order.size(); i++) {
+                if (order[i] == name) { return static_cast<int>(i) + 1; }
+            }
+            return 0;
+        }
+
         // Mutation
         //--------------------------------------------------
 
@@ -242,7 +252,8 @@ export namespace Cam::App {
                 kind = json["kind"].get<std::string>();
             }
 
-            if (kind != "EndMill" && kind != "ThreadMill" && kind != "Chamfer" && kind != "Cylinder") {
+            if (kind != "EndMill" && kind != "ThreadMill" && kind != "Chamfer"
+                && kind != "Probe" && kind != "Cylinder") {
                 return false;
             }
 

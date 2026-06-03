@@ -268,9 +268,10 @@ export namespace Cam::Gui {
                 rows[i]->setToolIndex(i);
 
                 if (tool) {
-                    rows[i]->setLabel(tool->name);
+                    rows[i]->setLabel(
+                        "#" + std::to_string(i + 1) + "  " + tool->name
+                    );
                 }
-
                 else {
                     rows[i]->setLabel("Invalid Tool");
                 }
