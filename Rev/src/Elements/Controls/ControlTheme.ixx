@@ -96,7 +96,7 @@ export namespace Rev::Element::ControlTheme {
             .radius = 8_px
         },
         .shadow = subtleShadow,
-        .zIndex = +5
+        .zIndex = +10
     };
 
     // Same as OptionsContainer but anchored upward:

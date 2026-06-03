@@ -4,6 +4,7 @@ module;
 #include <format>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <managed.hpp>
 
@@ -41,13 +42,18 @@ export namespace Carvera::Gui {
     //
     // Without shift  a key press emits ONE step jog (autorepeat is ignored —
     //                you must release and press again to step again).
-    // With shift     the section enters continuous-hold mode and a small
-    //                animator trickle-sends step-sized $J jogs in the current
-    //                key direction.  Opposing keys cancel; multi-axis combines.
-    //                On release we simply stop emitting — the in-flight step
-    //                jogs naturally complete on a `jogStepMm` grid boundary
-    //                (no jog-cancel byte needed, so the snap-to-grid guarantee
-    //                comes for free).
+    //
+    // With shift     the section opens a "continuous session": ONE big
+    //                `$J=G90` jog is sent toward a far target in the held
+    //                direction, so the machine sees a single smooth motion
+    //                rather than a flood of independent step jogs.  Adding or
+    //                removing axis keys mid-jog issues a real-time jog cancel
+    //                (0x85) followed by a fresh $J in the new direction.  On
+    //                release of the last key we cancel and emit a FINAL $J
+    //                whose absolute target is rounded UP (per axis, in the
+    //                direction of motion) to the next jogStepMm multiple — so
+    //                the machine always lands cleanly on the grid even though
+    //                the path was a single continuous move.
     struct JogSection : public Box {
 
         static Carvera::Air& air() { return Carvera::Air::instance(); }
@@ -57,6 +63,30 @@ export namespace Carvera::Gui {
         static constexpr float kStepPresets[] = { 0.01f, 0.1f, 0.5f, 1.0f, 5.0f, 10.0f };
         static constexpr int   kStepCount     = 6;
         static constexpr float kFineFactor    = 0.1f;   // ctrl modifier
+
+        // Continuous-mode constants.
+        static constexpr int   kJogFeedMmMin  = 1000;
+        static constexpr int   kJogFeedDegMin = 3000;
+        // Per-leg "chunk": how far the in-flight jog targets at any time.
+        // Must comfortably fit inside the machine's working envelope from any
+        // starting position — a huge target like 10 m triggers GRBL's soft
+        // limit (the "jumping off a cliff" alarm).  We re-extend periodically
+        // while keys are still held so the chunk size doesn't cap travel.
+        static constexpr float kChunkMm       = 25.0f;
+        static constexpr float kChunkDeg      = 90.0f;
+        // While the machine is approaching the in-flight target, top up the
+        // queue with another chunk so the planner never runs dry.  Threshold
+        // is "extend when less than 60% of the chunk remains" — at F=1000 the
+        // 200 ms extend cadence covers 3.3 mm, so 60% × 25 mm = 15 mm gives
+        // multiple ticks of margin before the machine could ever decelerate.
+        static constexpr int   kExtendTickMs   = 200;
+        static constexpr float kExtendFraction = 0.60f;
+        // Safety margin past the live position when computing the final
+        // grid-aligned target — covers telemetry lag (~50 ms at F=1000 ≈ 0.8 mm)
+        // and the brief jog-cancel deceleration distance so the final jog
+        // never has to reverse.
+        static constexpr float kSafetyMm      = 2.0f;
+        static constexpr float kSafetyDeg     = 5.0f;
 
         int   stepIndex  = 3;
         float jogStepMm  = 1.0f;
@@ -81,30 +111,55 @@ export namespace Carvera::Gui {
         bool  lastShownValid_ = false;
         Box*  lastActiveJogBtn_ = nullptr;
 
-        // -- Continuous-hold state -------------------------------------
+        // -- Per-key pressed state -------------------------------------
 
-        // Per-axis pressed state (we track our own because autorepeat / shift
-        // changes can't be inferred from a single event).
         bool xPlusDown_ = false, xMinusDown_ = false;
         bool yPlusDown_ = false, yMinusDown_ = false;
         bool zPlusDown_ = false, zMinusDown_ = false;
         bool aPlusDown_ = false, aMinusDown_ = false;
 
-        bool continuousMode_ = false;
-        bool fineMode_       = false;   // ctrl was held when continuous started
+        // -- Continuous-hold session -----------------------------------
+        //
+        // A session begins on the first shift+axis keyDown and ends on
+        // release of the last axis key.  All motion is expressed as G91
+        // relative deltas so we never need to know the WCS state — a +25
+        // chunk always moves the axis +25 from wherever the controller is.
+        //
+        // We track:
+        //   - the most recent direction (so we know how to round on release),
+        //   - the machine position at the start of the current leg, and
+        //   - the total signed delta we've COMMANDED on this leg so far.
+        // The extend ticker compares (commanded delta) against actual delta
+        // from livePosition() to decide when the planner needs another chunk.
+        bool sessionActive_   = false;
+        bool sessionFineMode_ = false;
+        int  lastDirX_ = 0, lastDirY_ = 0;
+        int  lastDirZ_ = 0, lastDirA_ = 0;
 
-        // Trickle-sends step jogs while keys are held with shift.  Period is
-        // re-computed on entry from jogStepMm + jogFeedRate so the planner
-        // stays approximately one step ahead.
-        Rev::Core::Animator continuousTicker_ { 60 };
+        float legStartX_ = 0, legStartY_ = 0, legStartZ_ = 0, legStartA_ = 0;
+        float cmdDeltaX_ = 0, cmdDeltaY_ = 0, cmdDeltaZ_ = 0, cmdDeltaA_ = 0;
+
+        // Ticks every kExtendTickMs while a session is active; tops up the
+        // jog queue whenever the machine is approaching the commanded delta.
+        Rev::Core::Animator extendTicker_ { kExtendTickMs };
 
         JogSection(Element* parent)
-            : Box(parent, Theme::withPanel({ &Style::Section }), "JogSection")
+            : Box(parent, Theme::withPanel({ &Style::Section, &Style::SectionFocus }), "JogSection")
         {
+            // The jog section is the keyboard target for axis jogging.  Click
+            // on it (or any descendant) to focus it; the focus border style
+            // then signals visually that arrow keys will be consumed for jog.
+            this->tabStop = true;
+
             build();
             subscribe();
 
-            continuousTicker_.onFrame([this](Rev::Core::AnimationEvent&) { continuousTick(); });
+            // Extend the in-flight jog whenever the machine is approaching its
+            // commanded delta — keeps continuous-hold motion seamless without
+            // ever queuing more than ~1 extra jog at a time.
+            extendTicker_.onFrame([this](Rev::Core::AnimationEvent&) {
+                maybeExtendLeg();
+            });
         }
 
         void build() {
@@ -133,10 +188,6 @@ export namespace Carvera::Gui {
             stepText = new Text(stepRow, formatStep(), Theme::withText({ &Style::StepLabel }));
 
             // -- Jog grid (right) ---------------------------------------
-            //
-            //   [A-]    [+Y]    [A+]
-            //   [-X]   [+Z/-Z]  [+X]
-            //  [step-]  [-Y]  [step+]
 
             Box* grid = new Box(body, { &Style::JogGrid }, "JogGrid");
 
@@ -190,7 +241,7 @@ export namespace Carvera::Gui {
             });
         }
 
-        // -- Action forwarders -----------------------------------------
+        // -- Action forwarders (on-screen buttons) ----------------------
 
         void jog(float dx, float dy, float dz) { air().jog(dx, dy, dz); }
         void jogA(float degrees)               { air().jogA(degrees);   }
@@ -228,7 +279,6 @@ export namespace Carvera::Gui {
                 if (posAText) posAText->content = std::format("{:.3f}", pa);
             }
 
-            // Jog-button highlight — only swap when the active button changed.
             if (activeJogBtn != lastActiveJogBtn_) {
                 if (lastActiveJogBtn_) { lastActiveJogBtn_->styles.remove(&Style::JogBtnActive); }
                 if (activeJogBtn)      { activeJogBtn     ->styles.add   (&Style::JogBtnActive); }
@@ -242,7 +292,6 @@ export namespace Carvera::Gui {
         // Keyboard handling
         // ============================================================
 
-        // True if the key was a recognised jog key (consume the event).
         bool handleKeyDown(Event& e) {
 
             bool* state = stateForKey(e.keyboard.key);
@@ -253,24 +302,17 @@ export namespace Carvera::Gui {
             *state = true;
 
             if (e.keyboard.shift) {
-                // Continuous-hold.  Start the ticker if this is the first
-                // axis key down; otherwise it's already running and the new
-                // key just adds to the direction.
-                if (!continuousMode_) {
-                    continuousMode_ = true;
-                    fineMode_       = (bool)e.keyboard.ctrl;
-                    schedulePace();
-                    continuousTicker_.play();
-                }
+                // Continuous-hold session — direction is recomputed from the
+                // full key state inside updateContinuousSession.
+                updateContinuousSession(e.keyboard.ctrl);
                 activeJogBtn = btn;
             }
             else if (!wasDown) {
-                // Incremental tap (first press only — OS autorepeat is ignored).
+                // Incremental tap (first press only — autorepeat is ignored).
                 const float fac = e.keyboard.ctrl ? kFineFactor : 1.0f;
                 emitTapStep(e.keyboard.key, fac);
                 activeJogBtn = btn;
             }
-            // else: autorepeat under tap mode — silently ignore.
 
             return true;
         }
@@ -282,16 +324,13 @@ export namespace Carvera::Gui {
 
             *state = false;
 
-            if (!anyAxisKeyDown()) {
-                if (continuousMode_) {
-                    // Stop emitting.  Buffered step jogs complete naturally
-                    // and land on a `jogStepMm` boundary — no jog-cancel byte
-                    // sent, so we keep the snap-to-grid guarantee.
-                    continuousMode_ = false;
-                    continuousTicker_.stop();
-                }
-                activeJogBtn = nullptr;
+            // A release in the middle of a continuous session may change the
+            // direction (or end the session entirely).
+            if (sessionActive_) {
+                updateContinuousSession(sessionFineMode_);
             }
+
+            if (!anyAxisKeyDown()) { activeJogBtn = nullptr; }
 
             return true;
         }
@@ -334,9 +373,10 @@ export namespace Carvera::Gui {
             yPlusDown_ = yMinusDown_ = false;
             zPlusDown_ = zMinusDown_ = false;
             aPlusDown_ = aMinusDown_ = false;
-            if (continuousMode_) {
-                continuousMode_ = false;
-                continuousTicker_.stop();
+            if (sessionActive_) {
+                air().jogCancel();
+                sessionActive_ = false;
+                extendTicker_.stop();
             }
             activeJogBtn = nullptr;
         }
@@ -354,36 +394,156 @@ export namespace Carvera::Gui {
             else if (k == "x")     { jogA(+sa);     }
         }
 
-        // Roughly match the ticker to one step's travel time so the planner
-        // stays about one step ahead — short enough to feel continuous, long
-        // enough that releasing a key doesn't sit on a deep buffer.
-        // Clamped to [40, 200] ms.
-        void schedulePace() {
-            constexpr float kJogFeedMmMin = 1000.0f;   // matches Air::jog feed
-            const float stepTimeMs = jogStepMm * 60000.0f / kJogFeedMmMin;
-            uint64_t periodMs = (uint64_t)std::clamp(stepTimeMs, 40.0f, 200.0f);
-            continuousTicker_.setPeriod(periodMs);
+        // The currently-held direction (per axis, signed -1/0/+1).
+        struct Dir { int x, y, z, a; bool zero() const { return !x && !y && !z && !a; } };
+        Dir currentDirection() const {
+            return {
+                (xPlusDown_ ? 1 : 0) - (xMinusDown_ ? 1 : 0),
+                (yPlusDown_ ? 1 : 0) - (yMinusDown_ ? 1 : 0),
+                (zPlusDown_ ? 1 : 0) - (zMinusDown_ ? 1 : 0),
+                (aPlusDown_ ? 1 : 0) - (aMinusDown_ ? 1 : 0)
+            };
         }
 
-        // Issue one step-sized jog in the currently-held direction.  Opposing
-        // keys cancel out; a zero direction emits nothing.
-        void continuousTick() {
+        // Decide what to do given the current key state.  Called on every
+        // shift-key transition (and on release while a session is active).
+        //
+        //   no session, no dir  → nothing
+        //   no session, dir     → start a session, emit one big $J toward
+        //                         a far target in the held direction
+        //   session,    dir same→ nothing (jog already in flight)
+        //   session,    dir new → jog cancel + new big $J toward new dir
+        //   session,    no dir  → jog cancel + final $J snapped to grid;
+        //                         end session
+        void updateContinuousSession(bool ctrlHeld) {
 
-            if (!continuousMode_) { continuousTicker_.stop(); return; }
+            const Dir dir = currentDirection();
 
-            const int dx = (xPlusDown_ ? 1 : 0) - (xMinusDown_ ? 1 : 0);
-            const int dy = (yPlusDown_ ? 1 : 0) - (yMinusDown_ ? 1 : 0);
-            const int dz = (zPlusDown_ ? 1 : 0) - (zMinusDown_ ? 1 : 0);
-            const int da = (aPlusDown_ ? 1 : 0) - (aMinusDown_ ? 1 : 0);
+            if (dir.zero()) {
+                if (sessionActive_) { endSessionAtGrid(); }
+                return;
+            }
 
-            if (dx == 0 && dy == 0 && dz == 0 && da == 0) { return; }
+            if (!sessionActive_) {
+                if (!startLeg(dir, ctrlHeld)) { return; }
+                emitChunk();
+                extendTicker_.play();
+                return;
+            }
 
-            const float fac = fineMode_ ? kFineFactor : 1.0f;
-            const float s   = jogStepMm  * fac;
-            const float sa  = jogStepDeg * fac;
+            const bool dirChanged =
+                dir.x != lastDirX_ || dir.y != lastDirY_ ||
+                dir.z != lastDirZ_ || dir.a != lastDirA_;
 
-            if (dx || dy || dz) { jog(dx * s, dy * s, dz * s); }
-            if (da)             { jogA(da * sa);               }
+            if (dirChanged) {
+                // Cancel the in-flight jog, then start a fresh leg from
+                // wherever the machine ends up after deceleration.
+                air().jogCancel();
+                if (!startLeg(dir, sessionFineMode_)) { return; }
+                emitChunk();
+            }
+        }
+
+        // Snapshot the machine position as the start of a new leg in `dir`.
+        // Returns false if we don't have telemetry yet (caller bails out).
+        bool startLeg(const Dir& dir, bool fineMode) {
+            float fx, fy, fz, fa;
+            if (!air().livePosition(fx, fy, fz, fa)) { return false; }
+
+            sessionActive_   = true;
+            sessionFineMode_ = fineMode;
+            legStartX_ = fx; legStartY_ = fy; legStartZ_ = fz; legStartA_ = fa;
+            cmdDeltaX_ = cmdDeltaY_ = cmdDeltaZ_ = cmdDeltaA_ = 0.0f;
+            lastDirX_  = dir.x; lastDirY_ = dir.y;
+            lastDirZ_  = dir.z; lastDirA_ = dir.a;
+            return true;
+        }
+
+        // Emit ONE $J=G91 chunk in the leg's direction.  Small enough that the
+        // soft-limit checker never sees a runaway target; the extend ticker
+        // queues another chunk before the machine catches up so motion stays
+        // continuous.  Relative (G91) so no WCS arithmetic is needed.
+        void emitChunk() {
+            const float dx = lastDirX_ * kChunkMm;
+            const float dy = lastDirY_ * kChunkMm;
+            const float dz = lastDirZ_ * kChunkMm;
+            const float da = lastDirA_ * kChunkDeg;
+
+            cmdDeltaX_ += dx; cmdDeltaY_ += dy;
+            cmdDeltaZ_ += dz; cmdDeltaA_ += da;
+
+            air().jogRel(dx, dy, dz, da, kJogFeedMmMin);
+        }
+
+        // While a session is active, top up the queue when the machine is
+        // approaching the end of what we've already commanded.  GRBL queues
+        // the next $J=G91 after the current one and the planner combines
+        // consecutive colinear jogs into a single uninterrupted motion.
+        void maybeExtendLeg() {
+
+            if (!sessionActive_) { extendTicker_.stop(); return; }
+
+            float fx, fy, fz, fa;
+            if (!air().livePosition(fx, fy, fz, fa)) { return; }
+
+            // Per-axis "remaining" = commanded delta − actual delta, signed in
+            // the direction of motion (so positive means "still going").
+            auto remaining = [](float start, float current, float cmd, int dir) {
+                if (dir == 0) { return std::numeric_limits<float>::infinity(); }
+                const float actual = (current - start) * (float)dir;
+                const float commanded = cmd * (float)dir;
+                return commanded - actual;
+            };
+
+            const float remX = remaining(legStartX_, fx, cmdDeltaX_, lastDirX_);
+            const float remY = remaining(legStartY_, fy, cmdDeltaY_, lastDirY_);
+            const float remZ = remaining(legStartZ_, fz, cmdDeltaZ_, lastDirZ_);
+            const float remA = remaining(legStartA_, fa, cmdDeltaA_, lastDirA_);
+
+            const float threshMm  = kChunkMm  * kExtendFraction;
+            const float threshDeg = kChunkDeg * kExtendFraction;
+
+            const bool nearTarget =
+                remX < threshMm  || remY < threshMm ||
+                remZ < threshMm  || remA < threshDeg;
+
+            if (nearTarget) { emitChunk(); }
+        }
+
+        // End the session: jog-cancel any in-flight motion, then emit ONE
+        // final $J=G91 whose delta snaps each moving axis from its current
+        // MPos UP to the next jogStepMm multiple (in the direction of motion).
+        // The safety margin keeps the snap forward of the cancel deceleration
+        // so the final move is never a reversal.  Axes that weren't moving in
+        // this leg get a 0 delta (omitted from the $J entirely).
+        void endSessionAtGrid() {
+
+            sessionActive_ = false;
+            extendTicker_.stop();
+            air().jogCancel();
+
+            float fx, fy, fz, fa;
+            if (!air().livePosition(fx, fy, fz, fa)) { return; }
+
+            const float step  = jogStepMm  * (sessionFineMode_ ? kFineFactor : 1.0f);
+            const float stepA = jogStepDeg * (sessionFineMode_ ? kFineFactor : 1.0f);
+
+            auto snapDelta = [](float current, int dir, float stepSize, float safety) -> float {
+                if (dir == 0)         { return 0.0f; }
+                if (stepSize <= 0.0f) { return 0.0f; }
+                const float pushed = current + dir * safety;
+                const float target = dir > 0
+                    ? std::ceil (pushed / stepSize) * stepSize
+                    : std::floor(pushed / stepSize) * stepSize;
+                return target - current;
+            };
+
+            const float dx = snapDelta(fx, lastDirX_, step,  kSafetyMm);
+            const float dy = snapDelta(fy, lastDirY_, step,  kSafetyMm);
+            const float dz = snapDelta(fz, lastDirZ_, step,  kSafetyMm);
+            const float da = snapDelta(fa, lastDirA_, stepA, kSafetyDeg);
+
+            air().jogRel(dx, dy, dz, da, kJogFeedMmMin);
         }
     };
 }

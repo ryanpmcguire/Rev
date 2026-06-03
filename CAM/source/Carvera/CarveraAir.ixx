@@ -303,6 +303,51 @@ export namespace Carvera {
             rawSend(std::format("$J=G91 A{:.3f} F{}\n", degrees, jogFeedRateA));
         }
 
+        // Issue a single $J jog as a RELATIVE delta on each axis.  Per the
+        // GRBL jog spec, $J=G90 absolute coordinates are interpreted in the
+        // active WCS (G54..G59), NOT machine coords — so after a Set Origin
+        // there is no safe absolute target we can compute without first
+        // pulling the WCS offset.  G91 relative dodges the whole issue: a
+        // delta of +25 always moves the axis +25 from wherever the controller
+        // currently is, regardless of WCS state.
+        //
+        // Axes with delta 0 are omitted so the controller doesn't interpret a
+        // present-but-zero axis as "go to here on this axis", which can lock
+        // up its planner.  Returns silently if nothing to send.
+        void jogRel(
+            float dx, float dy, float dz, float da,
+            int   feedMmMin
+        ) {
+            if (!connected()) { return; }
+
+            std::string cmd = "$J=G91";
+            bool any = false;
+            if (dx != 0.0f) { cmd += std::format(" X{:.3f}", dx); any = true; }
+            if (dy != 0.0f) { cmd += std::format(" Y{:.3f}", dy); any = true; }
+            if (dz != 0.0f) { cmd += std::format(" Z{:.3f}", dz); any = true; }
+            if (da != 0.0f) { cmd += std::format(" A{:.3f}", da); any = true; }
+            if (!any) { return; }
+
+            cmd += std::format(" F{}\n", feedMmMin);
+            rawSend(cmd);
+
+            // Nudge intent so the chase display leads in the right direction.
+            if (confValid) {
+                intentX += dx; intentY += dy;
+                intentZ += dz; intentA += da;
+            }
+        }
+
+        // GRBL real-time jog cancel (0x85): decelerates the current jog and
+        // flushes any queued jogs.  After it lands the controller is back at
+        // Idle, and a subsequent $J will execute from wherever the deceleration
+        // ended up.
+        void jogCancel() {
+            if (!connected()) { return; }
+            const char b = static_cast<char>(0x85);
+            client->send(std::string(1, b));
+        }
+
         // Rapid to an absolute MACHINE position (G53 — independent of any work
         // offset).  Used by the GUI's origin "Goto".
         void goTo(float x, float y, float z, float a) {

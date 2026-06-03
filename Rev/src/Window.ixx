@@ -454,6 +454,21 @@ export namespace Rev {
             deferred = std::queue<Element*>();
 
             recurseDrawList(this);
+
+            // Flush any elements still in the deferred queue.  These are
+            // children whose `depth` (= ancestor depth + 1 − zIndex) never
+            // exceeded the depth of any ancestor on the unwind path — which
+            // happens whenever zIndex is large relative to the element's
+            // nesting depth (e.g. a dropdown menu with zIndex = +500 sitting
+            // one or two levels deep).  Without this flush they'd silently
+            // vanish from the draw tree.  Appending to drawList here paints
+            // them LAST, which is exactly what a high-zIndex element wants.
+            while (!deferred.empty()) {
+                Element* elem = deferred.front();
+                deferred.pop();
+                drawList.push_back(elem);
+                recurseDrawList(elem);
+            }
         }
 
         // Draw

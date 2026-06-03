@@ -3,6 +3,7 @@ module;
 #include <string>
 #include <vector>
 #include <fstream>
+#include <algorithm>
 
 #include <nlohmann/json.hpp>
 
@@ -12,6 +13,7 @@ import Rev.OS.File;
 
 import Cam.App.Project;
 import Cam.App.MachineSettings;
+import Cam.App.MachineLibrary;
 
 export namespace Cam::App {
 
@@ -98,10 +100,55 @@ export namespace Cam::App {
             if (machine.origins.empty()) { machine = MachineSettings(); }
         }
 
+        static Json machineFoldersToJson(
+            const std::string& activeFolder,
+            const std::vector<std::string>& knownFolders
+        ) {
+            Json folders;
+            folders["active"] = activeFolder;
+            folders["known"] = Json::array();
+
+            for (const std::string& path : knownFolders) {
+                folders["known"].push_back(path);
+            }
+
+            return folders;
+        }
+
+        static void machineFoldersFromJson(
+            const Json& folders,
+            std::string& outActiveFolder,
+            std::vector<std::string>& outKnownFolders
+        ) {
+            if (!folders.is_object()) { return; }
+
+            if (folders.contains("active") && folders["active"].is_string()) {
+                outActiveFolder = folders["active"].get<std::string>();
+            }
+
+            if (folders.contains("known") && folders["known"].is_array()) {
+                outKnownFolders.clear();
+
+                for (const Json& entry : folders["known"]) {
+                    if (!entry.is_string()) { continue; }
+
+                    std::string path = entry.get<std::string>();
+                    if (path.empty()) { continue; }
+
+                    if (std::find(outKnownFolders.begin(), outKnownFolders.end(), path) == outKnownFolders.end()) {
+                        outKnownFolders.push_back(path);
+                    }
+                }
+            }
+        }
+
         static Json buildState(
             const std::vector<Project*>& projects,
             Project* activeProject,
-            const MachineSettings& machine
+            const MachineSettings& machine,
+            const std::string& machinesRootPath,
+            const std::vector<std::string>& knownMachineFolderPaths,
+            const std::string& selectedMachineName
         ) {
             Json json;
 
@@ -126,6 +173,8 @@ export namespace Cam::App {
             }
 
             json["machine"] = machineToJson(machine);
+            json["machineFolders"] = machineFoldersToJson(machinesRootPath, knownMachineFolderPaths);
+            json["selectedMachineName"] = selectedMachineName;
 
             return json;
         }
@@ -136,13 +185,23 @@ export namespace Cam::App {
         static bool save(
             const std::vector<Project*>& projects,
             Project* activeProject,
-            const MachineSettings& machine
+            const MachineSettings& machine,
+            const std::string& machinesRootPath,
+            const std::vector<std::string>& knownMachineFolderPaths,
+            const std::string& selectedMachineName
         ) {
             Rev::OS::File file = persistFile();
 
             if (!file) { return false; }
 
-            Json json = buildState(projects, activeProject, machine);
+            Json json = buildState(
+                projects,
+                activeProject,
+                machine,
+                machinesRootPath,
+                knownMachineFolderPaths,
+                selectedMachineName
+            );
 
             return file.writeText(json.dump(4));
         }
@@ -192,7 +251,10 @@ export namespace Cam::App {
         static bool load(
             std::vector<Project*>& outProjects,
             Project*& outActiveProject,
-            MachineSettings& outMachine
+            MachineSettings& outMachine,
+            std::string& outMachinesRootPath,
+            std::vector<std::string>& outKnownMachineFolderPaths,
+            std::string& outSelectedMachineName
         ) {
             outProjects.clear();
             outActiveProject = nullptr;
@@ -221,10 +283,23 @@ export namespace Cam::App {
                 return false;
             }
 
-            // Machine settings are independent of the project list — parse them
+            // Machine settings are independent of the project list - parse them
             // first so they load even when there are no projects.
             if (json.contains("machine")) {
                 machineFromJson(json["machine"], outMachine);
+            }
+
+            if (json.contains("machineFolders")) {
+                machineFoldersFromJson(
+                    json["machineFolders"],
+                    outMachinesRootPath,
+                    outKnownMachineFolderPaths
+                );
+                MachineLibrary::normalizeMachinesRoot(outMachinesRootPath);
+            }
+
+            if (json.contains("selectedMachineName") && json["selectedMachineName"].is_string()) {
+                outSelectedMachineName = json["selectedMachineName"].get<std::string>();
             }
 
             if (!json.contains("projects") || !json["projects"].is_array()) {

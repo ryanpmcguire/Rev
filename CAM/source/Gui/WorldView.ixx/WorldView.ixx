@@ -39,6 +39,7 @@ import Cam.App.MaterialState;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
 import Cam.App.ToolPath;
+import Cam.App.MachineProfile;
 
 import Cam.Gui.World.MaterialState;
 import Cam.Gui.ToolPath;
@@ -92,10 +93,15 @@ export namespace Cam::Gui {
         View3d::Actor* toolPreviewActor = nullptr;
         std::vector<Rev::Core::Vertex3> toolPreviewTriangles;
 
+        View3d::Actor* spindlePreviewActor = nullptr;
+        std::vector<Rev::Core::Vertex3> spindlePreviewTriangles;
+
         // The tool whose cached mesh the preview actor currently points at;
         // used to re-upload to the GPU only when the tool/geometry changes.
         Cam::App::Tool* previewTool = nullptr;
         std::size_t previewToolRevision = 0;
+
+        std::size_t previewSpindleMeshRevision = 0;
 
         // While in EXECUTE mode, poll machine telemetry so the tool tracks the
         // real machine (incl. jogs), not the computed preview.
@@ -151,6 +157,7 @@ export namespace Cam::Gui {
 
             createAxisLineActor();
             createToolPreviewActor();
+            createSpindlePreviewActor();
             syncAxisLines();
 
             syncRepresentedProject();
@@ -281,9 +288,17 @@ export namespace Cam::Gui {
                 view3d->removeActor(toolPreviewActor);
             }
 
+            if (view3d && spindlePreviewActor) {
+                view3d->removeActor(spindlePreviewActor);
+            }
+
             delete toolPreviewActor;
             toolPreviewActor = nullptr;
             toolPreviewTriangles.clear();
+
+            delete spindlePreviewActor;
+            spindlePreviewActor = nullptr;
+            spindlePreviewTriangles.clear();
         }
 
         // Axis lines
@@ -728,6 +743,32 @@ export namespace Cam::Gui {
             }
         }
 
+        void createSpindlePreviewActor() {
+
+            spindlePreviewActor = new View3d::Actor();
+
+            spindlePreviewActor->visible = false;
+            spindlePreviewActor->selectable = false;
+            spindlePreviewActor->ownsMesh = true;
+            spindlePreviewActor->ownsTriangles = true;
+            spindlePreviewActor->includeInFit = false;
+
+            spindlePreviewActor->mesh = new Rev::Primitives::Mesh3d(shared->canvas, {
+                .triangles = &spindlePreviewTriangles
+            });
+
+            spindlePreviewActor->mesh->color = {
+                0.72f,
+                0.74f,
+                0.78f,
+                0.92f
+            };
+
+            if (view3d) {
+                view3d->addActor(spindlePreviewActor);
+            }
+        }
+
         struct ToolPreviewTarget {
             Cam::App::MaterialState* state = nullptr;
             double progress = 0.0;
@@ -837,6 +878,39 @@ export namespace Cam::Gui {
             view3d->insertActorBefore(toolPreviewActor, before);
         }
 
+        void repositionSpindlePreviewDrawOrder() {
+
+            if (!view3d || !spindlePreviewActor || !toolPreviewActor) { return; }
+
+            view3d->insertActorBefore(spindlePreviewActor, toolPreviewActor);
+        }
+
+        static void identityMatrix(float out[16]) {
+            out[0]  = 1.0f; out[1]  = 0.0f; out[2]  = 0.0f; out[3]  = 0.0f;
+            out[4]  = 0.0f; out[5]  = 1.0f; out[6]  = 0.0f; out[7]  = 0.0f;
+            out[8]  = 0.0f; out[9]  = 0.0f; out[10] = 1.0f; out[11] = 0.0f;
+            out[12] = 0.0f; out[13] = 0.0f; out[14] = 0.0f; out[15] = 1.0f;
+        }
+
+        static void translationMatrix(float x, float y, float z, float out[16]) {
+            identityMatrix(out);
+            out[12] = x;
+            out[13] = y;
+            out[14] = z;
+        }
+
+        static void multiplyMatrix4(const float a[16], const float b[16], float out[16]) {
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; k++) {
+                        sum += a[k * 4 + row] * b[col * 4 + k];
+                    }
+                    out[col * 4 + row] = sum;
+                }
+            }
+        }
+
         // Column-major model matrix that places a local-space tool (tip at the
         // origin, body along +Z) at `tip`, aligned to `directionIn`.
         static void toolPlacementMatrix(
@@ -870,6 +944,10 @@ export namespace Cam::Gui {
             if (!toolPreviewActor || !toolPreviewActor->mesh) { return; }
 
             toolPreviewActor->visible = false;
+
+            if (spindlePreviewActor) {
+                spindlePreviewActor->visible = false;
+            }
 
             Carvera::MachineLink& link = Carvera::MachineLink::instance();
 
@@ -994,6 +1072,56 @@ export namespace Cam::Gui {
 
             if (target.state) { repositionToolPreviewDrawOrder(target.state); }
             else if (toolState) { repositionToolPreviewDrawOrder(toolState); }
+
+            syncSpindlePreview(tool, tip, dir, executeMode);
+        }
+
+        void syncSpindlePreview(
+            Cam::App::Tool* tool,
+            const Rev::Core::Pos3& tip,
+            const Rev::Core::Pos3& dir,
+            bool executeMode
+        ) {
+            if (!spindlePreviewActor || !spindlePreviewActor->mesh || !app) {
+                return;
+            }
+
+            spindlePreviewActor->visible = false;
+
+            if (!tool || tool->mesh.empty()) { return; }
+
+            Cam::App::MachineProfile* machine = app->selectedMachine();
+            if (!machine || machine->spindleModel.render.triangles.empty()) { return; }
+
+            spindlePreviewActor->mesh->pTriangles = &machine->spindleModel.render.triangles;
+
+            if (machine->spindleMeshRevision != previewSpindleMeshRevision) {
+                spindlePreviewActor->mesh->dirty = true;
+                previewSpindleMeshRevision = machine->spindleMeshRevision;
+            }
+
+            float toolPlacement[16];
+            toolPlacementMatrix(tip, dir, toolPlacement);
+
+            const float collarTop = static_cast<float>(tool->totalLength());
+            float offset[16];
+            translationMatrix(0.0f, 0.0f, collarTop, offset);
+
+            float spindlePlacement[16];
+            multiplyMatrix4(toolPlacement, offset, spindlePlacement);
+
+            for (int i = 0; i < 16; i++) {
+                spindlePreviewActor->modelTransform[i] = spindlePlacement[i];
+            }
+
+            if (executeMode) {
+                float identity[16];
+                identityMatrix(identity);
+                spindlePreviewActor->setWorldTransform(identity);
+            }
+
+            spindlePreviewActor->visible = true;
+            repositionSpindlePreviewDrawOrder();
         }
 
         // App/project access
@@ -1593,6 +1721,7 @@ export namespace Cam::Gui {
             // would double-transform its position.
             if (previewMode != PreviewMode::Execute) {
                 if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
+                if (spindlePreviewActor) { spindlePreviewActor->setWorldTransform(M); }
             }
         }
 

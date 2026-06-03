@@ -94,9 +94,15 @@ export namespace Carvera::Gui {
             };
         }
 
-        // Keyboard plumbing: never steal keys while an Origin field is being
-        // edited; otherwise let JogSection consume axis keys (arrows, q/e for
-        // Z, z/x for A) and pass everything else to the gesture tracker.
+        // Keyboard plumbing: axis keys belong to the JogSection but ONLY when
+        // it has the keyboard focus — i.e. when the operator has clicked into
+        // the jog area (the section shows a blue focus ring then).  Without
+        // focus the keys fall through to gestures and the rest of the panel,
+        // so typing in (say) an origin name field can never trip jogging.
+        bool jogHasFocus() const {
+            return jogSection && jogSection->targetFlags.focus;
+        }
+
         void keyDown(Event& e) override {
 
             if (originSection && originSection->isEditing()) {
@@ -104,7 +110,7 @@ export namespace Carvera::Gui {
                 return;
             }
 
-            if (jogSection && jogSection->handleKeyDown(e)) {
+            if (jogHasFocus() && jogSection->handleKeyDown(e)) {
                 e.propagate = false;
                 refresh(e);
                 return;
@@ -122,6 +128,8 @@ export namespace Carvera::Gui {
                 return;
             }
 
+            // Always let the jog section observe key-ups so a release after the
+            // user clicks away mid-jog still finalises the session cleanly.
             if (jogSection && jogSection->handleKeyUp(e)) {
                 e.propagate = false;
                 refresh(e);

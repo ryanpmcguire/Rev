@@ -43,6 +43,15 @@ export namespace Carvera::Gui {
             .border  = { .radius = 6_px }
         };
 
+        // Focus indicator for sections that act as keyboard targets (e.g. the
+        // jog section).  Subtle blue ring + tint so the operator can see at a
+        // glance that arrow keys will be consumed for jogging.
+        inline Rev::Element::Style SectionFocus = {
+            .applies    = { .focus = true },
+            .background = { .color = rgba(79, 99, 255, 0.08) },
+            .border     = { .color = rgba(79, 99, 255, 1.0), .radius = 6_px, .width = 2_px }
+        };
+
         inline Rev::Element::Style Row = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .size   = { .width = 100_pct, .height = 32_px },

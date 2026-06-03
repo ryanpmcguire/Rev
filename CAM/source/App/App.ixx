@@ -7,6 +7,8 @@ module;
 
 #include <managed.hpp>
 
+#include <dbg.hpp>
+
 export module Cam.App;
 
 import Rev.OS.File;
@@ -19,6 +21,8 @@ import Cam.App.MaterialState;
 import Cam.App.Model;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
+import Cam.App.MachineProfile;
+import Cam.App.MachineLibrary;
 
 export namespace Cam::App {
 
@@ -30,6 +34,12 @@ export namespace Cam::App {
 
         // Cached tool folder path for the active project (or app default).
         std::string toolFolderPath = "";
+
+        // App-wide machine library (definitions + STEP asset references).
+        MachineLibrary machineLibrary;
+        std::string machinesRootPath = "";
+        std::vector<std::string> knownMachineFolderPaths;
+        std::string selectedMachineName = "";
 
         // App-wide machine settings (origins, etc.), persisted with the session.
         MachineSettings machine;
@@ -49,6 +59,7 @@ export namespace Cam::App {
         AppState() {
             loadSessionOrDefaults();
             loadTools();
+            loadMachines();
         }
 
         // Destroy
@@ -74,7 +85,14 @@ export namespace Cam::App {
 
             Project* loadedActive = nullptr;
 
-            if (Persist::load(projects, loadedActive, machine)) {
+            if (Persist::load(
+                projects,
+                loadedActive,
+                machine,
+                machinesRootPath,
+                knownMachineFolderPaths,
+                selectedMachineName
+            )) {
                 activeProject = loadedActive;
                 return;
             }
@@ -85,7 +103,14 @@ export namespace Cam::App {
         }
 
         bool saveSession() {
-            return Persist::save(projects, activeProject, machine);
+            return Persist::save(
+                projects,
+                activeProject,
+                machine,
+                machinesRootPath,
+                knownMachineFolderPaths,
+                selectedMachineName
+            );
         }
 
         // Tools
@@ -332,6 +357,191 @@ export namespace Cam::App {
             toolFolderPath = folder.pathname;
 
             loadTools();
+
+            return true;
+        }
+
+        // Machines
+        //--------------------------------------------------
+
+        void rememberMachineFolder(const std::string& folderPath) {
+            if (folderPath.empty()) { return; }
+
+            if (std::find(knownMachineFolderPaths.begin(), knownMachineFolderPaths.end(), folderPath)
+                == knownMachineFolderPaths.end()) {
+                knownMachineFolderPaths.push_back(folderPath);
+            }
+        }
+
+        std::string machineStorageFolder(const std::string& machineName) const {
+            const MachineProfile* machine = machineLibrary.find(machineName);
+
+            if (machine && !machine->filePath.empty()) {
+                return std::filesystem::path(machine->filePath).parent_path().string();
+            }
+
+            std::string root = machinesRootPath;
+            MachineLibrary::assignDefaultMachinesRootIfNeeded(root);
+
+            return MachineLibrary::machineFolderPath(root, machineName);
+        }
+
+        void loadMachines() {
+            MachineLibrary::assignDefaultMachinesRootIfNeeded(machinesRootPath);
+            machineLibrary.loadFromMachinesRoot(machinesRootPath);
+
+            for (const std::string& name : machineLibrary.order) {
+                rememberMachineFolder(machineStorageFolder(name));
+            }
+
+            if (selectedMachineName.empty() && !machineLibrary.empty()) {
+                if (machineLibrary.find("Carvera Air")) {
+                    selectedMachineName = "Carvera Air";
+                }
+                else {
+                    selectedMachineName = machineLibrary.order.front();
+                }
+            }
+
+            if (!selectedMachineName.empty() && !machineLibrary.find(selectedMachineName)) {
+                if (!machineLibrary.empty()) {
+                    selectedMachineName = machineLibrary.order.front();
+                }
+                else {
+                    selectedMachineName.clear();
+                }
+            }
+        }
+
+        size_t machineCount() const {
+            return machineLibrary.size();
+        }
+
+        MachineProfile* machineAt(size_t index) {
+            return machineLibrary.at(index);
+        }
+
+        MachineProfile* selectedMachine() {
+            if (selectedMachineName.empty()) { return nullptr; }
+            return machineLibrary.find(selectedMachineName);
+        }
+
+        bool selectMachine(size_t index) {
+            MachineProfile* machine = machineLibrary.at(index);
+            if (!machine) { return false; }
+
+            selectedMachineName = machine->name;
+            saveSession();
+            return true;
+        }
+
+        bool selectMachineByName(const std::string& name) {
+            if (!machineLibrary.find(name)) { return false; }
+
+            selectedMachineName = name;
+            saveSession();
+            return true;
+        }
+
+        bool isUnsavedMachine(const std::string& name) const {
+            const MachineProfile* machine = machineLibrary.find(name);
+            if (!machine) { return false; }
+            return machine->filePath.empty();
+        }
+
+        bool createNewMachine(std::string& outName) {
+            MachineProfile machine;
+            machine.name = MachineLibrary::uniqueMachineName(machineLibrary);
+            machineLibrary.insertMachine(machine);
+            selectedMachineName = machine.name;
+            outName = machine.name;
+            return true;
+        }
+
+        bool removeMachine(const std::string& name) {
+            if (!machineLibrary.removeMachine(name)) { return false; }
+
+            if (selectedMachineName == name) {
+                if (!machineLibrary.empty()) {
+                    selectedMachineName = machineLibrary.order.front();
+                }
+                else {
+                    selectedMachineName.clear();
+                }
+            }
+
+            saveSession();
+            return true;
+        }
+
+        bool saveMachine(
+            const std::string& originalName,
+            const MachineProfile& src,
+            const MachineStepSources& stepSources
+        ) {
+            const std::string& newName = src.name;
+
+            if (newName.empty()) { return false; }
+
+            MachineProfile* machine = machineLibrary.find(originalName);
+            if (!machine) { return false; }
+
+            MachineProfile updated = *machine;
+            updated.name = newName;
+            updated.spindleMinRpm = src.spindleMinRpm;
+            updated.spindleMaxRpm = src.spindleMaxRpm;
+            updated.axisX = src.axisX;
+            updated.axisY = src.axisY;
+            updated.axisZ = src.axisZ;
+            updated.rotaryX = src.rotaryX;
+            updated.rotaryY = src.rotaryY;
+            updated.rotaryZ = src.rotaryZ;
+
+            MachineLibrary::assignDefaultMachinesRootIfNeeded(machinesRootPath);
+
+            if (newName != originalName) {
+                MachineLibrary::renameMachineFolder(machinesRootPath, originalName, newName);
+            }
+
+            const std::string folderPath = MachineLibrary::machineFolderPath(machinesRootPath, newName);
+            if (!MachineLibrary::ensureMachineFolder(folderPath)) { return false; }
+
+            const std::string targetPath = MachineLibrary::machineJsonPath(machinesRootPath, updated);
+            updated.filePath = targetPath;
+
+            if (!machine->filePath.empty() && machine->filePath != targetPath) {
+                std::error_code ec;
+                std::filesystem::remove(machine->filePath, ec);
+            }
+
+            if (!MachineLibrary::applyStepSources(folderPath, updated, stepSources)) {
+                dbg("[AppState] One or more STEP assets failed to copy for \"%s\"", newName.c_str());
+            }
+
+            MachineLibrary::reloadSpindleModel(updated);
+
+            if (!machineLibrary.replaceMachine(originalName, updated)) { return false; }
+
+            if (newName != originalName && selectedMachineName == originalName) {
+                selectedMachineName = newName;
+            }
+
+            if (!MachineLibrary::saveMachineFileAtPath(targetPath, updated)) { return false; }
+
+            rememberMachineFolder(folderPath);
+            saveSession();
+            return true;
+        }
+
+        bool selectMachinesRoot() {
+            Rev::OS::File folder;
+
+            if (!folder.selectFolder("Select Machines Library Folder", machinesRootPath)) { return false; }
+
+            machinesRootPath = folder.pathname;
+            MachineLibrary::normalizeMachinesRoot(machinesRootPath);
+            loadMachines();
+            saveSession();
 
             return true;
         }

@@ -330,6 +330,10 @@ export namespace Rev::Element {
             );
 
             optionsContainer->style->visibility = Visibility::Visible;
+            optionsContainer->dirty.style = true;       // mirror closeMenu — without
+                                                        // this the next style resolve
+                                                        // never picks up the change
+                                                        // and the menu stays hidden.
             optionsContainer->interceptHits = true;
             interceptHits = true;
             open = true;

@@ -13,6 +13,7 @@ import Rev.Element.Event;
 import Rev.Element.Box;
 
 import Cam.App;
+import Cam.App.MachineProfile;
 
 import Cam.Gui.TabView;
 import Cam.Gui.LeftPanel;
@@ -23,6 +24,9 @@ export import Cam.Gui.PreviewBar;
 import Rev.Element.ControlTheme;
 import Cam.Gui.MaterialState;
 import Cam.Gui.Theme;
+import Cam.Gui.MachineSettingsWindow;
+
+import Rev.Window;
 
 export namespace Cam::Gui {
 
@@ -39,6 +43,8 @@ export namespace Cam::Gui {
         LeftPanel* leftPanel = nullptr;
         WorldView* worldView = nullptr;
         RightPanel* rightPanel = nullptr;
+
+        MachineSettingsWindow* machineSettingsWindow = nullptr;
 
         // Create
         //--------------------------------------------------
@@ -192,6 +198,51 @@ export namespace Cam::Gui {
 
         }
 
+        void closeMachineSettingsWindow() {
+            if (!machineSettingsWindow) { return; }
+            machineSettingsWindow->shouldClose = true;
+            machineSettingsWindow = nullptr;
+        }
+
+        void openMachineSettings(Event& e) {
+            if (!app) { return; }
+
+            Rev::Window* owner = MachineSettingsWindow::rootWindow(this);
+            if (!owner || !owner->shared) { return; }
+
+            if (machineSettingsWindow && !machineSettingsWindow->shouldClose) {
+                return;
+            }
+
+            machineSettingsWindow = nullptr;
+
+            std::string machineName;
+
+            if (Cam::App::MachineProfile* selected = app->selectedMachine()) {
+                machineName = selected->name;
+            }
+            else if (!app->createNewMachine(machineName)) {
+                return;
+            }
+
+            machineSettingsWindow = new MachineSettingsWindow(owner, machineName);
+
+            machineSettingsWindow->onClosed = [this](Event& ev) {
+                machineSettingsWindow = nullptr;
+                refresh(ev);
+            };
+
+            e.propagate = false;
+        }
+
+        void computeChildren(Event& e) override {
+            if (machineSettingsWindow && machineSettingsWindow->shouldClose) {
+                machineSettingsWindow = nullptr;
+            }
+
+            Box::computeChildren(e);
+        }
+
         // Events
         //--------------------------------------------------
 
@@ -216,6 +267,12 @@ export namespace Cam::Gui {
                 }
 
                 e.propagate = false;
+                return;
+            }
+
+            // Machine definition settings
+            if (e.keyboard.ctrl && e.keyboard.shift && e.keyboard.key == "m") {
+                openMachineSettings(e);
                 return;
             }
 
