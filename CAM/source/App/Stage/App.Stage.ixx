@@ -6,22 +6,34 @@ module;
 
 #include <dbg.hpp>
 
-export module Cam.App.MaterialState;
+export module Cam.App.Stage;
 
 import Rev.OS.File;
 
 import Cam.App.Model;
+import Cam.App.Operation;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
 import Cam.App.ToolPath;
 
 export namespace Cam::App {
 
-    struct MaterialState {
+    // A Stage is one node in the machining history tree. It owns the operation
+    // that produced it, the resulting material state (model), the removed-volume
+    // delta, and the toolpath that cuts that delta. The prior material state is
+    // the parent's model.
+    struct Stage {
+
+        // Operation
+        //--------------------------------------------------
+
+        // How this stage was produced from its parent. Owned.
+        Operation* operation = nullptr;
 
         // Geometry
         //--------------------------------------------------
 
+        // The resulting material state.
         Model model;
 
         // Removed material from parent -> this state.
@@ -33,8 +45,8 @@ export namespace Cam::App {
         // Family
         //--------------------------------------------------
 
-        MaterialState* parent = nullptr;
-        std::vector<MaterialState*> children;
+        Stage* parent = nullptr;
+        std::vector<Stage*> children;
 
         // State
         //--------------------------------------------------
@@ -42,13 +54,29 @@ export namespace Cam::App {
         bool committed = false;
         bool working = false;
 
-        // True for the auto-generated stock-definition states (the four faces
+        // True for the auto-generated stock-definition stages (the four faces
         // that grow the final prism out to the defined raw stock).  These are
         // regenerated when stock parameters change, but remain fully editable
-        // (tool / toolpath settings) like any other material state.
+        // (tool / toolpath settings) like any other stage.
         bool stockGenerated = false;
 
         std::string name = "";
+
+        // Component visibility
+        //--------------------------------------------------
+
+        // Per-component show/hide, surfaced as the collapsible stage tree in the
+        // left panel and honoured by the 3D world view. These only ever hide a
+        // component that the view's selection policy would otherwise show.
+        struct ComponentVisibility {
+            bool priorModel = true;   // parent stage's resulting model
+            bool model      = true;   // this stage's resulting model
+            bool operation  = true;   // the operation (no geometry yet — stub)
+            bool delta      = true;   // removed-volume delta model
+            bool toolPath   = true;   // the toolpath
+        };
+
+        ComponentVisibility visible;
 
         // Tool Path
         //--------------------------------------------------
@@ -59,51 +87,57 @@ export namespace Cam::App {
         // Construction
         //--------------------------------------------------
 
-        static MaterialState* FromStep(Rev::OS::File& file) {
+        static Stage* FromImport(Rev::OS::File& file) {
 
-            MaterialState* state = new MaterialState();
+            Stage* stage = new Stage();
 
-            state->model = Model::FromStep(file);
-            state->model.clearSelection();
+            stage->operation = new ImportOperation();
 
-            state->delta.clear();
-            state->hasDelta = false;
+            stage->model = Model::FromStep(file);
+            stage->model.clearSelection();
 
-            state->parent = nullptr;
-            state->children.clear();
+            stage->delta.clear();
+            stage->hasDelta = false;
 
-            state->committed = true;
-            state->working = false;
+            stage->parent = nullptr;
+            stage->children.clear();
 
-            state->name = "Final State";
+            stage->committed = true;
+            stage->working = false;
 
-            return state;
+            stage->name = "Final State";
+
+            return stage;
         }
 
-        static MaterialState* FromPriorState(MaterialState* prior) {
+        static Stage* FromPrior(Stage* prior) {
 
             if (!prior) { return nullptr; }
 
-            MaterialState* state = new MaterialState();
+            Stage* stage = new Stage();
 
-            state->model = prior->model;
-            state->model.clearSelection();
-            state->model.changed = false;
+            // Operation is assigned once an operation is applied to the
+            // working stage (defeature / extend / ...).
+            stage->operation = nullptr;
 
-            state->delta.clear();
-            state->hasDelta = false;
+            stage->model = prior->model;
+            stage->model.clearSelection();
+            stage->model.changed = false;
 
-            state->parent = prior;
-            state->children.clear();
+            stage->delta.clear();
+            stage->hasDelta = false;
 
-            state->committed = false;
-            state->working = true;
+            stage->parent = prior;
+            stage->children.clear();
 
-            state->name = "Working State";
+            stage->committed = false;
+            stage->working = true;
 
-            prior->children.push_back(state);
+            stage->name = "Working State";
 
-            return state;
+            prior->children.push_back(stage);
+
+            return stage;
         }
 
 
@@ -123,38 +157,38 @@ export namespace Cam::App {
             return parent == nullptr;
         }
 
-        bool hasChild(MaterialState* state) const {
+        bool hasChild(Stage* stage) const {
 
-            return std::find(children.begin(), children.end(), state) != children.end();
+            return std::find(children.begin(), children.end(), stage) != children.end();
         }
 
-        void addChild(MaterialState* state) {
+        void addChild(Stage* stage) {
 
-            if (!state) { return; }
-            if (hasChild(state)) { return; }
+            if (!stage) { return; }
+            if (hasChild(stage)) { return; }
 
-            children.push_back(state);
-            state->parent = this;
+            children.push_back(stage);
+            stage->parent = this;
         }
 
-        void removeChild(MaterialState* state) {
+        void removeChild(Stage* stage) {
 
-            if (!state) { return; }
+            if (!stage) { return; }
 
-            auto it = std::find(children.begin(), children.end(), state);
+            auto it = std::find(children.begin(), children.end(), stage);
 
             if (it == children.end()) { return; }
 
             children.erase(it);
 
-            if (state->parent == this) {
-                state->parent = nullptr;
+            if (stage->parent == this) {
+                stage->parent = nullptr;
             }
         }
 
         void detach() {
 
-            MaterialState* owner = parent;
+            Stage* owner = parent;
 
             if (!owner) { return; }
 
@@ -162,22 +196,22 @@ export namespace Cam::App {
             owner->removeChild(this);
         }
 
-        bool contains(MaterialState* state) {
+        bool contains(Stage* stage) {
 
-            if (this == state) { return true; }
+            if (this == stage) { return true; }
 
-            for (MaterialState* child : children) {
-                if (child && child->contains(state)) { return true; }
+            for (Stage* child : children) {
+                if (child && child->contains(stage)) { return true; }
             }
 
             return false;
         }
 
-        void collectSubtree(std::vector<MaterialState*>& out) {
+        void collectSubtree(std::vector<Stage*>& out) {
 
             out.push_back(this);
 
-            for (MaterialState* child : children) {
+            for (Stage* child : children) {
                 if (child) { child->collectSubtree(out); }
             }
         }
@@ -189,10 +223,10 @@ export namespace Cam::App {
 
             detach();
 
-            std::vector<MaterialState*> oldChildren = children;
+            std::vector<Stage*> oldChildren = children;
             children.clear();
 
-            for (MaterialState* child : oldChildren) {
+            for (Stage* child : oldChildren) {
 
                 if (!child) { continue; }
 
@@ -202,6 +236,9 @@ export namespace Cam::App {
 
             model.clear();
             clearDelta();
+
+            delete operation;
+            operation = nullptr;
 
             delete this;
         }
@@ -266,7 +303,7 @@ export namespace Cam::App {
 
             if (!tool) {
                 dbg(
-                    "[MaterialState] Tool \"%s\" not in library",
+                    "[Stage] Tool \"%s\" not in library",
                     toolPath.toolName.c_str()
                 );
                 return;
@@ -275,30 +312,30 @@ export namespace Cam::App {
             hasToolPath = toolPath.compute(delta, parent->model, *tool);
         }
 
-        bool link(MaterialState* nextMaterialState) {
+        bool link(Stage* nextStage) {
 
-            if (!nextMaterialState) { return false; }
+            if (!nextStage) { return false; }
 
-            if (!hasToolPath || !nextMaterialState->hasToolPath) {
+            if (!hasToolPath || !nextStage->hasToolPath) {
                 return false;
             }
 
-            if (toolPath.points.empty() || nextMaterialState->toolPath.points.empty()) {
+            if (toolPath.points.empty() || nextStage->toolPath.points.empty()) {
                 return false;
             }
 
             // Pass the user-defined stock centre and rotary axis so the link
             // generates a proper polar arc rather than a straight-line move.
-            // Both are propagated to all states, so reading from this model is fine.
+            // Both are propagated to all stages, so reading from this model is fine.
             if (model.hasAxisOrigin && model.hasAxisX) {
                 return toolPath.link(
-                    nextMaterialState->toolPath,
+                    nextStage->toolPath,
                     model.axisOrigin,
                     model.axisXDirection
                 );
             }
 
-            return toolPath.link(nextMaterialState->toolPath);
+            return toolPath.link(nextStage->toolPath);
         }
 
         bool needsToolPathComputation() const {

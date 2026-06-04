@@ -5,7 +5,7 @@ module;
 
 #include <managed.hpp>
 
-export module Cam.Gui.MaterialState;
+export module Cam.Gui.StageRow;
 
 import Rev.Core.Resource;
 
@@ -20,7 +20,7 @@ import Rev.Element.Dropdown;
 
 import Cam.App;
 import Cam.App.Project;
-import Cam.App.MaterialState;
+import Cam.App.Stage;
 import Cam.Gui.Theme;
 import Cam.Gui.ToolPathSettingsWindow;
 
@@ -29,16 +29,24 @@ export namespace Cam::Gui {
     using namespace Rev;
     using namespace Rev::Element;
 
-    namespace MaterialStateStyle::Styles {
+    namespace StageRowStyle::Styles {
 
+        // The whole row is now a vertical container: a header line plus the
+        // collapsible list of component visibility toggles beneath it.
         Style Self = {
-            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 100_pct },
             .overflow = Overflow::Hide,
             .margin = { .bottom = 2_px },
             .padding = { .left = 4_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
             .border = { .radius = 6_px },
             .cursor = Cursor::Hand
+        };
+
+        Style Header = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size = { .width = 100_pct },
+            .overflow = Overflow::Hide
         };
 
         Style IndexLabel = {
@@ -72,6 +80,28 @@ export namespace Cam::Gui {
 
         Style SubtitleChanged = {
             .text = { .size = 10_px }
+        };
+
+        // Component toggle list
+        //--------------------------------------------------
+
+        Style Components = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = 100_pct },
+            .margin = { .top = 4_px },
+            .padding = { .left = 18_px }
+        };
+
+        Style ComponentRow = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size = { .width = 100_pct },
+            .padding = { .top = 2_px, .bottom = 2_px },
+            .cursor = Cursor::Hand
+        };
+
+        Style ComponentLabel = {
+            .overflow = Overflow::Hide,
+            .text = { .size = 11_px, .wrap = Wrap::False }
         };
 
         Style SettingsButton = {
@@ -118,15 +148,43 @@ export namespace Cam::Gui {
         };
     };
 
-    using namespace MaterialStateStyle;
+    using namespace StageRowStyle;
 
-    struct MaterialState : public Box {
+    struct StageRow : public Box {
 
         Cam::App::AppState* app = nullptr;
-        Cam::App::MaterialState* state = nullptr;
+        Cam::App::Stage* state = nullptr;
 
         size_t index = 0;
 
+        // The stage's inspectable components, in display order. Each maps to a
+        // visibility flag on the App stage and (where geometry exists) a 3D actor.
+        static constexpr int ComponentCount = 5;
+
+        static const char* componentName(int component) {
+            switch (component) {
+                case 0:  return "Prior Model";
+                case 1:  return "Model";
+                case 2:  return "Operation";
+                case 3:  return "Delta";
+                case 4:  return "Toolpath";
+                default: return "";
+            }
+        }
+
+        bool* componentFlag(int component) {
+            if (!state) { return nullptr; }
+            switch (component) {
+                case 0:  return &state->visible.priorModel;
+                case 1:  return &state->visible.model;
+                case 2:  return &state->visible.operation;
+                case 3:  return &state->visible.delta;
+                case 4:  return &state->visible.toolPath;
+                default: return nullptr;
+            }
+        }
+
+        Box* header = nullptr;
         Text* indexLabel = nullptr;
         Box* content = nullptr;
         Text* label = nullptr;
@@ -137,12 +195,17 @@ export namespace Cam::Gui {
         Box* deleteButton = nullptr;
         Svg* deleteIcon = nullptr;
 
-        std::function<void(Event&, Cam::App::MaterialState*)> onSelect;
-        std::function<void(Event&, Cam::App::MaterialState*, const std::string&)> onToolPathToolChanged;
-        std::function<void(Event&, Cam::App::MaterialState*)> onOpenToolPathSettings;
-        std::function<void(Event&, Cam::App::MaterialState*)> onDelete;
+        Box* components = nullptr;
+        Box* componentRows[ComponentCount] = {};
+        Text* componentLabels[ComponentCount] = {};
 
-        MaterialState(Element* parent, StyleList styles = {}) : Box(parent, styles, "MaterialState") {
+        std::function<void(Event&, Cam::App::Stage*)> onSelect;
+        std::function<void(Event&, Cam::App::Stage*, const std::string&)> onToolPathToolChanged;
+        std::function<void(Event&, Cam::App::Stage*)> onOpenToolPathSettings;
+        std::function<void(Event&, Cam::App::Stage*)> onDelete;
+        std::function<void(Event&)> onComponentToggled;
+
+        StageRow(Element* parent, StyleList styles = {}) : Box(parent, styles, "StageRow") {
 
             app = Cam::App::AppState::Get(shared->state);
 
@@ -150,8 +213,10 @@ export namespace Cam::Gui {
             this->styles.add(&Theme::Styles::Row);
             this->styles.add(&Theme::Styles::RowHover);
 
+            header = new Box(this, { &Styles::Header }, "StageRowHeader");
+
             indexLabel = new Text(
-                this,
+                header,
                 "0",
                 Theme::layer(
                     { &Styles::IndexLabel },
@@ -159,7 +224,7 @@ export namespace Cam::Gui {
                 )
             );
 
-            content = new Box(this, { &Styles::Content }, "MaterialStateContent");
+            content = new Box(header, { &Styles::Content }, "StageRowContent");
 
                 label = new Text(
                     content,
@@ -179,7 +244,7 @@ export namespace Cam::Gui {
                 );
 
             toolDropdown = new Dropdown(
-                this,
+                header,
                 {
                     .label = "Tool",
                     .options = ToolPathSettingsWindow::toolOptions(app),
@@ -211,7 +276,7 @@ export namespace Cam::Gui {
             };
 
             settingsButton = new Box(
-                this,
+                header,
                 { &Styles::SettingsButton },
                 "ToolPathSettingsButton"
             );
@@ -238,9 +303,9 @@ export namespace Cam::Gui {
                 });
 
             deleteButton = new Box(
-                this,
+                header,
                 { &Styles::DeleteButton },
-                "DeleteMaterialStateButton"
+                "DeleteStageRowButton"
             );
 
                 deleteIcon = new Svg(
@@ -253,7 +318,7 @@ export namespace Cam::Gui {
                     }, {
                         &Theme::Styles::Icon
                     }),
-                    "DeleteMaterialStateIcon"
+                    "DeleteStageRowIcon"
                 );
 
                 deleteButton->onClick([this](Event& e) {
@@ -262,12 +327,51 @@ export namespace Cam::Gui {
 
                     Cam::App::Project* project = activeProject();
 
-                    if (onDelete && project && index < project->states.size()) {
-                        onDelete(e, project->states[index]);
+                    if (onDelete && project && index < project->stages.size()) {
+                        onDelete(e, project->stages[index]);
                     }
 
                     e.propagate = false;
                 });
+
+            // Component visibility toggles
+            //--------------------------------------------------
+
+            components = new Box(this, { &Styles::Components }, "StageRowComponents");
+
+            for (int i = 0; i < ComponentCount; i++) {
+
+                componentRows[i] = new Box(
+                    components,
+                    { &Styles::ComponentRow },
+                    "StageComponentRow"
+                );
+
+                componentRows[i]->styles.add(&Theme::Styles::Row);
+                componentRows[i]->styles.add(&Theme::Styles::RowHover);
+
+                componentLabels[i] = new Text(
+                    componentRows[i],
+                    componentName(i),
+                    Theme::layer(
+                        { &Styles::ComponentLabel },
+                        { &Theme::Styles::Text }
+                    )
+                );
+
+                componentRows[i]->onClick([this, i](Event& e) {
+
+                    e.propagate = false;
+
+                    if (bool* flag = componentFlag(i)) {
+                        *flag = !*flag;
+                    }
+
+                    if (onComponentToggled) {
+                        onComponentToggled(e);
+                    }
+                });
+            }
 
             this->onClick([this](Event& e) {
                 if (onSelect && state) { onSelect(e, state); }
@@ -281,16 +385,16 @@ export namespace Cam::Gui {
             return app->activeProject;
         }
 
-        Cam::App::MaterialState* displayedState() {
+        Cam::App::Stage* displayedState() {
 
             Cam::App::Project* project = activeProject();
 
             if (!project) { return nullptr; }
 
-            return project->displayedState;
+            return project->displayedStage;
         }
 
-        void setState(Cam::App::MaterialState* state, size_t index) {
+        void setState(Cam::App::Stage* state, size_t index) {
 
             this->state = state;
             this->index = index;
@@ -344,7 +448,7 @@ export namespace Cam::Gui {
 
             if (!project) { return false; }
 
-            return index < project->states.size();
+            return index < project->stages.size();
         }
 
         bool canEditToolPath() const {
@@ -378,6 +482,28 @@ export namespace Cam::Gui {
 
             if (settingsIcon) {
                 settingsIcon->resolved.disabled = !canEditToolPath();
+            }
+
+            // Component toggles reflect the stage's visibility flags. A dot
+            // glyph + muted styling marks a hidden component.
+            if (components) {
+                components->style->visibility = state
+                    ? Visibility::Visible
+                    : Visibility::Hidden;
+            }
+
+            for (int i = 0; i < ComponentCount; i++) {
+
+                if (!componentLabels[i]) { continue; }
+
+                const bool* flag = componentFlag(i);
+                const bool on = flag ? *flag : true;
+
+                componentLabels[i]->content =
+                    std::string(on ? "[x] " : "[ ] ") + componentName(i);
+
+                if (on) { componentLabels[i]->styles.remove(&Theme::Styles::MutedText); }
+                else    { componentLabels[i]->styles.add(&Theme::Styles::MutedText); }
             }
 
             const bool showToolDropdown = canEditToolPath();

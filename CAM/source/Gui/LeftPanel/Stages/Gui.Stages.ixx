@@ -5,7 +5,7 @@ module;
 #include <functional>
 #include <algorithm>
 
-export module Cam.Gui.MaterialStates;
+export module Cam.Gui.Stages;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -16,8 +16,8 @@ import Rev.Element.Text;
 
 import Cam.App;
 import Cam.App.Project;
-import Cam.App.MaterialState;
-import Cam.Gui.MaterialState;
+import Cam.App.Stage;
+import Cam.Gui.StageRow;
 import Cam.Gui.ToolPathSettingsWindow;
 import Cam.Gui.Theme;
 
@@ -28,7 +28,7 @@ export namespace Cam::Gui {
     using namespace Rev;
     using namespace Rev::Element;
 
-    namespace MaterialStatesStyle {
+    namespace StagesStyle {
 
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
@@ -51,16 +51,16 @@ export namespace Cam::Gui {
         };
     };
 
-    using namespace MaterialStatesStyle;
+    using namespace StagesStyle;
 
-    struct MaterialStates : public Box {
+    struct Stages : public Box {
 
         Cam::App::AppState* app = nullptr;
 
         Text* title = nullptr;
         Box* list = nullptr;
 
-        std::vector<MaterialState*> rows;
+        std::vector<StageRow*> rows;
 
         // Dev stress test: cycles DOM child order without destroying rows.
         size_t domPermuteStep = 0;
@@ -71,26 +71,26 @@ export namespace Cam::Gui {
         std::function<void(Event&)> onDeleteState;
         std::function<void(Event&)> onToolPathEdited;
 
-        MaterialStates(Element* parent, StyleList styles = {}) : Box(parent, styles, "MaterialStates") {
+        Stages(Element* parent, StyleList styles = {}) : Box(parent, styles, "Stages") {
 
             app = Cam::App::AppState::Get(shared->state);
 
-            this->styles.add(&MaterialStatesStyle::Self);
+            this->styles.add(&StagesStyle::Self);
 
             title = new Text(
                 this,
                 "Material States",
-                Theme::withMutedText({ &MaterialStatesStyle::Title })
+                Theme::withMutedText({ &StagesStyle::Title })
             );
 
             list = new Box(
                 this,
-                { &MaterialStatesStyle::List },
-                "MaterialStatesList"
+                { &StagesStyle::List },
+                "StagesList"
             );
         }
 
-        ~MaterialStates() {
+        ~Stages() {
             closeSettingsWindow();
         }
 
@@ -101,11 +101,11 @@ export namespace Cam::Gui {
             return app->activeProject;
         }
 
-        void selectState(Cam::App::MaterialState* state, Event& e) {
+        void selectState(Cam::App::Stage* state, Event& e) {
 
             if (!app || !state) { return; }
 
-            if (app->selectState(state, e.keyboard.shift)) {
+            if (app->selectStage(state, e.keyboard.shift)) {
 
                 if (onSelectState) { onSelectState(e); }
 
@@ -113,14 +113,14 @@ export namespace Cam::Gui {
             }
         }
 
-        void deleteState(Cam::App::MaterialState* state, Event& e) {
+        void deleteState(Cam::App::Stage* state, Event& e) {
 
             if (!app || !state) { return; }
 
             closeSettingsWindowForState(state);
             clearRowsForState(state);
 
-            if (app->deleteState(state)) {
+            if (app->deleteStage(state)) {
 
                 if (onDeleteState) { onDeleteState(e); }
 
@@ -141,7 +141,7 @@ export namespace Cam::Gui {
             settingsWindow = nullptr;
         }
 
-        void closeSettingsWindowForState(Cam::App::MaterialState* state) {
+        void closeSettingsWindowForState(Cam::App::Stage* state) {
 
             if (!settingsWindow || !state) { return; }
 
@@ -160,7 +160,7 @@ export namespace Cam::Gui {
             domPermuteStep++;
 
             // Pointer order is stable for next_permutation; wrap by sorting when exhausted.
-            auto rowLess = [](MaterialState* a, MaterialState* b) {
+            auto rowLess = [](StageRow* a, StageRow* b) {
                 return static_cast<const void*>(a) < static_cast<const void*>(b);
             };
 
@@ -168,22 +168,22 @@ export namespace Cam::Gui {
                 std::sort(rows.begin(), rows.end(), rowLess);
             }
 
-            for (MaterialState* row : rows) {
+            for (StageRow* row : rows) {
                 list->removeChild(row);
             }
 
-            for (MaterialState* row : rows) {
+            for (StageRow* row : rows) {
                 list->addChild(row);
             }
 
             refresh(e);
         }
 
-        void clearRowsForState(Cam::App::MaterialState* state) {
+        void clearRowsForState(Cam::App::Stage* state) {
 
             if (!state) { return; }
 
-            for (MaterialState* row : rows) {
+            for (StageRow* row : rows) {
 
                 if (!row || !row->state) { continue; }
 
@@ -193,7 +193,7 @@ export namespace Cam::Gui {
             }
         }
 
-        static std::string settingsTitleFor(Cam::App::MaterialState* state, size_t index) {
+        static std::string settingsTitleFor(Cam::App::Stage* state, size_t index) {
 
             if (!state) { return "Material State"; }
 
@@ -211,7 +211,7 @@ export namespace Cam::Gui {
         }
 
         void changeToolPathTool(
-            Cam::App::MaterialState* state,
+            Cam::App::Stage* state,
             const std::string& toolName,
             Event& e
         ) {
@@ -243,7 +243,7 @@ export namespace Cam::Gui {
             refresh(e);
         }
 
-        void openToolPathSettings(Cam::App::MaterialState* state, Event& e) {
+        void openToolPathSettings(Cam::App::Stage* state, Event& e) {
 
             if (!state || !state->parent) { return; }
 
@@ -296,7 +296,7 @@ export namespace Cam::Gui {
             }
 
             size_t oldSize = rows.size();
-            size_t newSize = project->states.size();
+            size_t newSize = project->stages.size();
 
             for (size_t i = newSize; i < oldSize; i++) {
                 delete rows[i];
@@ -306,28 +306,35 @@ export namespace Cam::Gui {
 
             for (size_t i = oldSize; i < newSize; i++) {
 
-                rows[i] = new MaterialState(list);
+                rows[i] = new StageRow(list);
 
-                rows[i]->onSelect = [this](Event& ev, Cam::App::MaterialState* state) {
+                rows[i]->onSelect = [this](Event& ev, Cam::App::Stage* state) {
                     this->selectState(state, ev);
                 };
 
-                rows[i]->onDelete = [this](Event& ev, Cam::App::MaterialState* state) {
+                rows[i]->onDelete = [this](Event& ev, Cam::App::Stage* state) {
                     this->deleteState(state, ev);
                 };
 
-                rows[i]->onOpenToolPathSettings = [this](Event& ev, Cam::App::MaterialState* state) {
+                rows[i]->onOpenToolPathSettings = [this](Event& ev, Cam::App::Stage* state) {
                     this->openToolPathSettings(state, ev);
+                };
+
+                // Toggling a component's visibility re-syncs the 3D view via the
+                // same path tool-path edits use, then refreshes the row glyphs.
+                rows[i]->onComponentToggled = [this](Event& ev) {
+                    if (onToolPathEdited) { onToolPathEdited(ev); }
+                    refresh(ev);
                 };
             }
 
             for (size_t i = 0; i < newSize; i++) {
 
-                rows[i]->setState(project->states[i], i);
+                rows[i]->setState(project->stages[i], i);
 
                 rows[i]->onToolPathToolChanged = [this](
                     Event& ev,
-                    Cam::App::MaterialState* state,
+                    Cam::App::Stage* state,
                     const std::string& toolName
                 ) {
                     this->changeToolPathTool(state, toolName, ev);

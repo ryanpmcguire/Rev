@@ -7,13 +7,13 @@ module;
 export module Cam.Gui.ToolPathPreview;
 
 import Cam.App.Project;
-import Cam.App.MaterialState;
+import Cam.App.Stage;
 import Cam.App.ToolPath;
 
 export namespace Cam::Gui {
 
     struct PreviewSegment {
-        Cam::App::MaterialState* state = nullptr;
+        Cam::App::Stage* state = nullptr;
         double startSeconds = 0.0;
         double durationSeconds = 0.0;
     };
@@ -35,23 +35,23 @@ export namespace Cam::Gui {
         // higher index = earlier op, lower index = later op (index 0 = final).
         static bool forwardTimeBefore(
             Cam::App::Project* project,
-            Cam::App::MaterialState* a,
-            Cam::App::MaterialState* b
+            Cam::App::Stage* a,
+            Cam::App::Stage* b
         ) {
             if (!project || !a || !b) { return false; }
 
             return project->indexOf(a) > project->indexOf(b);
         }
 
-        static std::vector<Cam::App::MaterialState*> previewSequence(
+        static std::vector<Cam::App::Stage*> previewSequence(
             Cam::App::Project* project
         ) {
 
-            std::vector<Cam::App::MaterialState*> sequence;
+            std::vector<Cam::App::Stage*> sequence;
 
             if (!project) { return sequence; }
 
-            auto collect = [&](Cam::App::MaterialState* state) {
+            auto collect = [&](Cam::App::Stage* state) {
 
                 if (!state || !state->hasToolPath) { return; }
 
@@ -60,19 +60,19 @@ export namespace Cam::Gui {
 
             if (project->viewSelection.size() > 1) {
 
-                for (Cam::App::MaterialState* state : project->viewSelection) {
+                for (Cam::App::Stage* state : project->viewSelection) {
                     collect(state);
                 }
             }
             else {
-                Cam::App::MaterialState* fallback = nullptr;
+                Cam::App::Stage* fallback = nullptr;
 
-                if (project->displayedState && project->displayedState->hasToolPath) {
-                    fallback = project->displayedState;
+                if (project->displayedStage && project->displayedStage->hasToolPath) {
+                    fallback = project->displayedStage;
                 }
 
                 if (!fallback) {
-                    Cam::App::MaterialState* primary = project->primaryViewState();
+                    Cam::App::Stage* primary = project->primaryViewStage();
 
                     if (primary && primary->hasToolPath) {
                         fallback = primary;
@@ -80,7 +80,7 @@ export namespace Cam::Gui {
                 }
 
                 if (!fallback) {
-                    for (Cam::App::MaterialState* state : project->viewSelection) {
+                    for (Cam::App::Stage* state : project->viewSelection) {
                         if (state && state->hasToolPath) {
                             fallback = state;
                             break;
@@ -89,7 +89,7 @@ export namespace Cam::Gui {
                 }
 
                 if (!fallback) {
-                    for (Cam::App::MaterialState* state : project->states) {
+                    for (Cam::App::Stage* state : project->stages) {
                         if (state && state->hasToolPath) {
                             fallback = state;
                             break;
@@ -104,8 +104,8 @@ export namespace Cam::Gui {
                 sequence.begin(),
                 sequence.end(),
                 [project](
-                    Cam::App::MaterialState* a,
-                    Cam::App::MaterialState* b
+                    Cam::App::Stage* a,
+                    Cam::App::Stage* b
                 ) {
                     return forwardTimeBefore(project, a, b);
                 }
@@ -121,12 +121,12 @@ export namespace Cam::Gui {
 
             if (!project) { return; }
 
-            const std::vector<Cam::App::MaterialState*> sequence =
+            const std::vector<Cam::App::Stage*> sequence =
                 previewSequence(project);
 
             double start = 0.0;
 
-            for (Cam::App::MaterialState* state : sequence) {
+            for (Cam::App::Stage* state : sequence) {
 
                 if (!state) { continue; }
 
@@ -209,7 +209,7 @@ export namespace Cam::Gui {
         }
 
         double pathProgressForState(
-            Cam::App::MaterialState* state,
+            Cam::App::Stage* state,
             Cam::App::Project* project
         ) const {
 

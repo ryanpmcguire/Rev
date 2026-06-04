@@ -18,7 +18,8 @@ import Rev.OS.File;
 import Rev.Core.Pos3;
 
 import Cam.App.Model;
-import Cam.App.MaterialState;
+import Cam.App.Stage;
+import Cam.App.Operation;
 import Cam.App.ToolPath;
 import Cam.App.ToolLibrary;
 export namespace Cam::App {
@@ -80,18 +81,18 @@ export namespace Cam::App {
         // Name of the tool used for new toolpath computation (library key).
         std::string selectedToolName = "God Tool 1";
 
-        // Material states
+        // Stages
         //--------------------------------------------------
 
-        std::vector<MaterialState*> states;
+        std::vector<Stage*> stages;
 
-        MaterialState* rootState = nullptr;
-        MaterialState* latestCommittedState = nullptr;
-        MaterialState* workingState = nullptr;
-        MaterialState* displayedState = nullptr;
-        std::vector<MaterialState*> viewSelection;
+        Stage* rootStage = nullptr;
+        Stage* latestCommittedStage = nullptr;
+        Stage* workingStage = nullptr;
+        Stage* displayedStage = nullptr;
+        std::vector<Stage*> viewSelection;
 
-        // Raw stock definition (and its auto-generated states).
+        // Raw stock definition (and its auto-generated stages).
         StockDefinition stock;
 
         // Create
@@ -123,16 +124,16 @@ export namespace Cam::App {
 
         void clear() {
 
-            for (MaterialState* state : states) {
-                delete state;
+            for (Stage* stage : stages) {
+                delete stage;
             }
 
-            states.clear();
+            stages.clear();
 
-            rootState = nullptr;
-            latestCommittedState = nullptr;
-            workingState = nullptr;
-            displayedState = nullptr;
+            rootStage = nullptr;
+            latestCommittedStage = nullptr;
+            workingStage = nullptr;
+            displayedStage = nullptr;
             viewSelection.clear();
 
             stock.reset();
@@ -141,7 +142,7 @@ export namespace Cam::App {
         }
 
         bool empty() const {
-            return states.empty() || !rootState;
+            return stages.empty() || !rootStage;
         }
 
         bool hasFile() const {
@@ -153,7 +154,7 @@ export namespace Cam::App {
         }
 
         bool hasModel() const {
-            return loaded && displayedState;
+            return loaded && displayedStage;
         }
 
         void markDirty() {
@@ -163,10 +164,10 @@ export namespace Cam::App {
         // Index helpers
         //--------------------------------------------------
 
-        size_t indexOf(MaterialState* state) const {
+        size_t indexOf(Stage* stage) const {
 
-            for (size_t i = 0; i < states.size(); i++) {
-                if (states[i] == state) {
+            for (size_t i = 0; i < stages.size(); i++) {
+                if (stages[i] == stage) {
                     return i;
                 }
             }
@@ -174,17 +175,17 @@ export namespace Cam::App {
             return static_cast<size_t>(-1);
         }
 
-        MaterialState* stateAt(size_t index) const {
+        Stage* stageAt(size_t index) const {
 
-            if (index >= states.size()) { return nullptr; }
+            if (index >= stages.size()) { return nullptr; }
 
-            return states[index];
+            return stages[index];
         }
 
-        // Rebuild parent/child links from the flat states list (index order is history).
-        void relinkMaterialStateHierarchy() {
+        // Rebuild parent/child links from the flat stages list (index order is history).
+        void relinkStageHierarchy() {
 
-            for (MaterialState* node : states) {
+            for (Stage* node : stages) {
 
                 if (!node) { continue; }
 
@@ -192,45 +193,45 @@ export namespace Cam::App {
                 node->children.clear();
             }
 
-            if (states.empty()) {
+            if (stages.empty()) {
 
-                rootState = nullptr;
-                latestCommittedState = nullptr;
-                workingState = nullptr;
+                rootStage = nullptr;
+                latestCommittedStage = nullptr;
+                workingStage = nullptr;
 
                 return;
             }
 
-            rootState = states.front();
+            rootStage = stages.front();
 
-            for (size_t i = 1; i < states.size(); i++) {
+            for (size_t i = 1; i < stages.size(); i++) {
 
-                MaterialState* prior = states[i - 1];
-                MaterialState* node = states[i];
+                Stage* prior = stages[i - 1];
+                Stage* node = stages[i];
 
                 if (!prior || !node) { continue; }
 
                 prior->addChild(node);
             }
 
-            latestCommittedState = rootState;
-            workingState = nullptr;
+            latestCommittedStage = rootStage;
+            workingStage = nullptr;
 
-            for (MaterialState* node : states) {
+            for (Stage* node : stages) {
 
                 if (!node) { continue; }
 
                 if (node->working) {
-                    workingState = node;
+                    workingStage = node;
                 }
 
                 if (node->committed && !node->working) {
-                    latestCommittedState = node;
+                    latestCommittedStage = node;
                 }
             }
 
-            if (!latestCommittedState) {
-                latestCommittedState = rootState;
+            if (!latestCommittedStage) {
+                latestCommittedStage = rootStage;
             }
         }
 
@@ -239,38 +240,38 @@ export namespace Cam::App {
             std::sort(
                 viewSelection.begin(),
                 viewSelection.end(),
-                [this](MaterialState* a, MaterialState* b) {
+                [this](Stage* a, Stage* b) {
                     return indexOf(a) < indexOf(b);
                 }
             );
         }
 
-        MaterialState* primaryViewState() const {
+        Stage* primaryViewStage() const {
 
-            MaterialState* primary = nullptr;
+            Stage* primary = nullptr;
 
-            for (MaterialState* state : viewSelection) {
+            for (Stage* stage : viewSelection) {
 
-                if (!state) { continue; }
+                if (!stage) { continue; }
 
-                if (!primary || indexOf(state) < indexOf(primary)) {
-                    primary = state;
+                if (!primary || indexOf(stage) < indexOf(primary)) {
+                    primary = stage;
                 }
             }
 
             if (primary) { return primary; }
 
-            return displayedState;
+            return displayedStage;
         }
 
-        bool isViewSelected(MaterialState* state) const {
+        bool isViewSelected(Stage* stage) const {
 
-            if (!state) { return false; }
+            if (!stage) { return false; }
 
             return std::find(
                 viewSelection.begin(),
                 viewSelection.end(),
-                state
+                stage
             ) != viewSelection.end();
         }
 
@@ -278,8 +279,8 @@ export namespace Cam::App {
 
             viewSelection.clear();
 
-            if (displayedState) {
-                viewSelection.push_back(displayedState);
+            if (displayedStage) {
+                viewSelection.push_back(displayedStage);
             }
         }
 
@@ -289,7 +290,7 @@ export namespace Cam::App {
                 std::remove_if(
                     viewSelection.begin(),
                     viewSelection.end(),
-                    [this](MaterialState* candidate) {
+                    [this](Stage* candidate) {
                         return !candidate || indexOf(candidate) == static_cast<size_t>(-1);
                     }
                 ),
@@ -325,7 +326,7 @@ export namespace Cam::App {
             Json json;
 
             json["type"] = "Cam.Project";
-            json["version"] = 1;
+            json["version"] = 2;
 
             json["name"] = name;
             json["loaded"] = loaded;
@@ -338,98 +339,102 @@ export namespace Cam::App {
 
             json["toolFolderPath"] = toolFolderPath;
 
-            json["materialStates"] = Json::array();
+            json["stages"] = Json::array();
 
-            for (size_t i = 0; i < states.size(); i++) {
+            for (size_t i = 0; i < stages.size(); i++) {
 
-                MaterialState* state = states[i];
+                Stage* stage = stages[i];
 
-                if (!state) { continue; }
+                if (!stage) { continue; }
 
-                Json stateJson;
+                Json stageJson;
 
-                stateJson["index"] = i;
-                stateJson["name"] = state->name;
-                stateJson["committed"] = state->committed;
-                stateJson["working"] = state->working;
-                stateJson["stockGenerated"] = state->stockGenerated;
-                stateJson["hasDelta"] = state->hasDelta;
+                stageJson["index"] = i;
+                stageJson["name"] = stage->name;
+                stageJson["committed"] = stage->committed;
+                stageJson["working"] = stage->working;
+                stageJson["stockGenerated"] = stage->stockGenerated;
+                stageJson["hasDelta"] = stage->hasDelta;
 
-                size_t parentIndex = indexOf(state->parent);
+                stageJson["operation"] = stage->operation
+                    ? stage->operation->getState()
+                    : ImportOperation().getState();
 
-                if (parentIndex != static_cast<size_t>(-1)) { stateJson["parent"] = parentIndex; }
-                else { stateJson["parent"] = nullptr; }
+                size_t parentIndex = indexOf(stage->parent);
 
-                stateJson["model"] = state->model.getState();
+                if (parentIndex != static_cast<size_t>(-1)) { stageJson["parent"] = parentIndex; }
+                else { stageJson["parent"] = nullptr; }
 
-                if (state->hasDelta) { stateJson["delta"] = state->delta.getState(); }
-                else { stateJson["delta"] = ""; }
+                stageJson["model"] = stage->model.getState();
+
+                if (stage->hasDelta) { stageJson["delta"] = stage->delta.getState(); }
+                else { stageJson["delta"] = ""; }
 
                 // Axis frame (stock center + orientation).
-                // Saved per-state so every setup can carry its own frame,
-                // and propagateAxisToAllStates keeps them in sync at runtime.
-                stateJson["axisOrigin"] = Json::array({
-                    state->model.axisOrigin.x,
-                    state->model.axisOrigin.y,
-                    state->model.axisOrigin.z
+                // Saved per-stage so every setup can carry its own frame,
+                // and propagateAxisToAllStages keeps them in sync at runtime.
+                stageJson["axisOrigin"] = Json::array({
+                    stage->model.axisOrigin.x,
+                    stage->model.axisOrigin.y,
+                    stage->model.axisOrigin.z
                 });
-                stateJson["hasAxisOrigin"] = state->model.hasAxisOrigin;
+                stageJson["hasAxisOrigin"] = stage->model.hasAxisOrigin;
 
-                stateJson["axisXDirection"] = Json::array({
-                    state->model.axisXDirection.x,
-                    state->model.axisXDirection.y,
-                    state->model.axisXDirection.z
+                stageJson["axisXDirection"] = Json::array({
+                    stage->model.axisXDirection.x,
+                    stage->model.axisXDirection.y,
+                    stage->model.axisXDirection.z
                 });
-                stateJson["hasAxisX"] = state->model.hasAxisX;
+                stageJson["hasAxisX"] = stage->model.hasAxisX;
 
-                stateJson["axisYDirection"] = Json::array({
-                    state->model.axisYDirection.x,
-                    state->model.axisYDirection.y,
-                    state->model.axisYDirection.z
+                stageJson["axisYDirection"] = Json::array({
+                    stage->model.axisYDirection.x,
+                    stage->model.axisYDirection.y,
+                    stage->model.axisYDirection.z
                 });
-                stateJson["hasAxisY"] = state->model.hasAxisY;
+                stageJson["hasAxisY"] = stage->model.hasAxisY;
 
-                stateJson["axisZDirection"] = Json::array({
-                    state->model.axisZDirection.x,
-                    state->model.axisZDirection.y,
-                    state->model.axisZDirection.z
+                stageJson["axisZDirection"] = Json::array({
+                    stage->model.axisZDirection.x,
+                    stage->model.axisZDirection.y,
+                    stage->model.axisZDirection.z
                 });
-                stateJson["hasAxisZ"] = state->model.hasAxisZ;
+                stageJson["hasAxisZ"] = stage->model.hasAxisZ;
 
-                stateJson["toolPath"] = {
-                    { "toolName", state->toolPath.toolName },
-                    { "strategy", state->toolPath.strategy },
-                    { "strategyAuto", state->toolPath.strategyAuto },
-                    { "stepDown", state->toolPath.stepDown },
-                    { "stepover", state->toolPath.stepover },
-                    { "feedRate", state->toolPath.feedRate },
-                    { "rapidSpeedMmPerSec", state->toolPath.rapidSpeedMmPerSec },
-                    { "climbMilling", state->toolPath.climbMilling },
-                    { "linkRetractDistance", state->toolPath.linkRetractDistance },
+                stageJson["toolPath"] = {
+                    { "toolName", stage->toolPath.toolName },
+                    { "strategy", stage->toolPath.strategy },
+                    { "strategyAuto", stage->toolPath.strategyAuto },
+                    { "stepDown", stage->toolPath.stepDown },
+                    { "stepover", stage->toolPath.stepover },
+                    { "feedRate", stage->toolPath.feedRate },
+                    { "rapidSpeedMmPerSec", stage->toolPath.rapidSpeedMmPerSec },
+                    { "climbMilling", stage->toolPath.climbMilling },
+                    { "linkRetractDistance", stage->toolPath.linkRetractDistance },
                     { "sliceAxis", Json::array({
-                        state->toolPath.sliceAxis.x,
-                        state->toolPath.sliceAxis.y,
-                        state->toolPath.sliceAxis.z
+                        stage->toolPath.sliceAxis.x,
+                        stage->toolPath.sliceAxis.y,
+                        stage->toolPath.sliceAxis.z
                     }) },
                     { "sliceOrigin", Json::array({
-                        state->toolPath.sliceOrigin.x,
-                        state->toolPath.sliceOrigin.y,
-                        state->toolPath.sliceOrigin.z
+                        stage->toolPath.sliceOrigin.x,
+                        stage->toolPath.sliceOrigin.y,
+                        stage->toolPath.sliceOrigin.z
                     }) },
-                    { "sliceFaceId", state->toolPath.hasSliceFace()
-                        ? Json(state->toolPath.sliceFaceId)
+                    { "sliceFaceId", stage->toolPath.hasSliceFace()
+                        ? Json(stage->toolPath.sliceFaceId)
                         : Json(nullptr)
                     },
-                    { "hasToolPath", state->hasToolPath }
+                    { "hasToolPath", stage->hasToolPath }
                 };
 
-                json["materialStates"].push_back(stateJson);
+                json["stages"].push_back(stageJson);
             }
 
-            json["rootState"] = indexOf(rootState);
-            json["latestCommittedState"] = indexOf(latestCommittedState);
-            json["workingState"] = indexOf(workingState);
-            json["displayedState"] = indexOf(displayedState);
+            json["rootStage"] = indexOf(rootStage);
+            json["latestCommittedStage"] = indexOf(latestCommittedStage);
+            json["workingStage"] = indexOf(workingStage);
+            json["displayedStage"] = indexOf(displayedStage);
 
             json["stock"] = {
                 { "defined", stock.defined },
@@ -447,7 +452,7 @@ export namespace Cam::App {
         bool setState(const Json& json) {
             if (!json.is_object()) { return false; }
 
-            std::vector<MaterialState*> newStates;
+            std::vector<Stage*> newStages;
 
             try {
 
@@ -465,235 +470,242 @@ export namespace Cam::App {
                     toolFolderPath = json["toolFolderPath"].get<std::string>();
                 }
 
-                if (!json.contains("materialStates") || !json["materialStates"].is_array()) {
+                if (!json.contains("stages") || !json["stages"].is_array()) {
                     return false;
                 }
 
-                const Json& materialStatesJson = json["materialStates"];
+                const Json& stagesJson = json["stages"];
 
-                newStates.resize(materialStatesJson.size(), nullptr);
+                newStages.resize(stagesJson.size(), nullptr);
 
-                // First pass: create states and hydrate model/delta data.
-                for (const Json& stateJson : materialStatesJson) {
+                // First pass: create stages and hydrate model/delta data.
+                for (const Json& stageJson : stagesJson) {
 
-                    if (!stateJson.contains("index")) {
+                    if (!stageJson.contains("index")) {
                         continue;
                     }
 
-                    size_t index = stateJson["index"].get<size_t>();
+                    size_t index = stageJson["index"].get<size_t>();
 
-                    if (index >= newStates.size()) {
+                    if (index >= newStages.size()) {
                         continue;
                     }
 
-                    MaterialState* state = new MaterialState();
+                    Stage* stage = new Stage();
 
-                    if (stateJson.contains("name") && stateJson["name"].is_string()) {
-                        state->name = stateJson["name"].get<std::string>();
+                    if (stageJson.contains("operation")) {
+                        stage->operation = Operation::fromState(stageJson["operation"]);
+                    }
+                    else {
+                        stage->operation = new ImportOperation();
                     }
 
-                    if (stateJson.contains("committed")) {
-                        state->committed = stateJson["committed"].get<bool>();
+                    if (stageJson.contains("name") && stageJson["name"].is_string()) {
+                        stage->name = stageJson["name"].get<std::string>();
                     }
 
-                    if (stateJson.contains("working")) {
-                        state->working = stateJson["working"].get<bool>();
+                    if (stageJson.contains("committed")) {
+                        stage->committed = stageJson["committed"].get<bool>();
                     }
 
-                    if (stateJson.contains("stockGenerated")) {
-                        state->stockGenerated = stateJson["stockGenerated"].get<bool>();
+                    if (stageJson.contains("working")) {
+                        stage->working = stageJson["working"].get<bool>();
                     }
 
-                    if (stateJson.contains("hasDelta")) {
-                        state->hasDelta = stateJson["hasDelta"].get<bool>();
+                    if (stageJson.contains("stockGenerated")) {
+                        stage->stockGenerated = stageJson["stockGenerated"].get<bool>();
                     }
 
-                    if (stateJson.contains("model") && stateJson["model"].is_string()) {
-                        state->model.setState(stateJson["model"].get<std::string>());
+                    if (stageJson.contains("hasDelta")) {
+                        stage->hasDelta = stageJson["hasDelta"].get<bool>();
                     }
 
-                    if (state->hasDelta && stateJson.contains("delta") && stateJson["delta"].is_string()) {
-                        state->delta.setState(stateJson["delta"].get<std::string>());
+                    if (stageJson.contains("model") && stageJson["model"].is_string()) {
+                        stage->model.setState(stageJson["model"].get<std::string>());
+                    }
+
+                    if (stage->hasDelta && stageJson.contains("delta") && stageJson["delta"].is_string()) {
+                        stage->delta.setState(stageJson["delta"].get<std::string>());
                     }
 
                     // Restore axis frame.
                     auto readVec3 = [&](const char* key, Rev::Core::Pos3& out) {
                         if (
-                            stateJson.contains(key) &&
-                            stateJson[key].is_array() &&
-                            stateJson[key].size() >= 3
+                            stageJson.contains(key) &&
+                            stageJson[key].is_array() &&
+                            stageJson[key].size() >= 3
                         ) {
-                            out.x = stateJson[key][0].get<float>();
-                            out.y = stateJson[key][1].get<float>();
-                            out.z = stateJson[key][2].get<float>();
+                            out.x = stageJson[key][0].get<float>();
+                            out.y = stageJson[key][1].get<float>();
+                            out.z = stageJson[key][2].get<float>();
                         }
                     };
 
-                    readVec3("axisOrigin",     state->model.axisOrigin);
-                    readVec3("axisXDirection", state->model.axisXDirection);
-                    readVec3("axisYDirection", state->model.axisYDirection);
-                    readVec3("axisZDirection", state->model.axisZDirection);
+                    readVec3("axisOrigin",     stage->model.axisOrigin);
+                    readVec3("axisXDirection", stage->model.axisXDirection);
+                    readVec3("axisYDirection", stage->model.axisYDirection);
+                    readVec3("axisZDirection", stage->model.axisZDirection);
 
-                    if (stateJson.contains("hasAxisOrigin") && stateJson["hasAxisOrigin"].is_boolean()) {
-                        state->model.hasAxisOrigin = stateJson["hasAxisOrigin"].get<bool>();
+                    if (stageJson.contains("hasAxisOrigin") && stageJson["hasAxisOrigin"].is_boolean()) {
+                        stage->model.hasAxisOrigin = stageJson["hasAxisOrigin"].get<bool>();
                     }
-                    if (stateJson.contains("hasAxisX") && stateJson["hasAxisX"].is_boolean()) {
-                        state->model.hasAxisX = stateJson["hasAxisX"].get<bool>();
+                    if (stageJson.contains("hasAxisX") && stageJson["hasAxisX"].is_boolean()) {
+                        stage->model.hasAxisX = stageJson["hasAxisX"].get<bool>();
                     }
-                    if (stateJson.contains("hasAxisY") && stateJson["hasAxisY"].is_boolean()) {
-                        state->model.hasAxisY = stateJson["hasAxisY"].get<bool>();
+                    if (stageJson.contains("hasAxisY") && stageJson["hasAxisY"].is_boolean()) {
+                        stage->model.hasAxisY = stageJson["hasAxisY"].get<bool>();
                     }
-                    if (stateJson.contains("hasAxisZ") && stateJson["hasAxisZ"].is_boolean()) {
-                        state->model.hasAxisZ = stateJson["hasAxisZ"].get<bool>();
+                    if (stageJson.contains("hasAxisZ") && stageJson["hasAxisZ"].is_boolean()) {
+                        stage->model.hasAxisZ = stageJson["hasAxisZ"].get<bool>();
                     }
 
-                    if (stateJson.contains("toolPath") && stateJson["toolPath"].is_object()) {
-                        const Json& toolPathJson = stateJson["toolPath"];
+                    if (stageJson.contains("toolPath") && stageJson["toolPath"].is_object()) {
+                        const Json& toolPathJson = stageJson["toolPath"];
 
                         if (toolPathJson.contains("toolName") && toolPathJson["toolName"].is_string()) {
-                            state->toolPath.toolName = toolPathJson["toolName"].get<std::string>();
+                            stage->toolPath.toolName = toolPathJson["toolName"].get<std::string>();
                         }
 
                         if (toolPathJson.contains("hasToolPath") && toolPathJson["hasToolPath"].is_boolean()) {
-                            state->hasToolPath = toolPathJson["hasToolPath"].get<bool>();
+                            stage->hasToolPath = toolPathJson["hasToolPath"].get<bool>();
                         }
 
                         if (toolPathJson.contains("strategy") && toolPathJson["strategy"].is_string()) {
-                            state->toolPath.strategy = toolPathJson["strategy"].get<std::string>();
+                            stage->toolPath.strategy = toolPathJson["strategy"].get<std::string>();
                         }
 
                         if (toolPathJson.contains("strategyAuto") && toolPathJson["strategyAuto"].is_boolean()) {
-                            state->toolPath.strategyAuto = toolPathJson["strategyAuto"].get<bool>();
+                            stage->toolPath.strategyAuto = toolPathJson["strategyAuto"].get<bool>();
                         }
                         else if (toolPathJson.contains("strategy")) {
-                            // Legacy project files: an explicit strategy field
-                            // means the user committed to that strategy. Lock
-                            // it in so we don't override it via auto-detection.
-                            state->toolPath.strategyAuto = false;
+                            // A legacy explicit strategy field means the user
+                            // committed to that strategy. Lock it in so we don't
+                            // override it via auto-detection.
+                            stage->toolPath.strategyAuto = false;
                         }
 
                         if (toolPathJson.contains("stepDown") && toolPathJson["stepDown"].is_number()) {
-                            state->toolPath.stepDown = toolPathJson["stepDown"].get<double>();
+                            stage->toolPath.stepDown = toolPathJson["stepDown"].get<double>();
                         }
 
                         if (toolPathJson.contains("feedRate") && toolPathJson["feedRate"].is_number()) {
-                            state->toolPath.feedRate = toolPathJson["feedRate"].get<double>();
+                            stage->toolPath.feedRate = toolPathJson["feedRate"].get<double>();
                         }
 
                         if (toolPathJson.contains("stepover") && toolPathJson["stepover"].is_number()) {
-                            state->toolPath.stepover = toolPathJson["stepover"].get<double>();
+                            stage->toolPath.stepover = toolPathJson["stepover"].get<double>();
                         }
 
                         if (toolPathJson.contains("rapidSpeedMmPerSec") && toolPathJson["rapidSpeedMmPerSec"].is_number()) {
-                            state->toolPath.rapidSpeedMmPerSec = toolPathJson["rapidSpeedMmPerSec"].get<double>();
+                            stage->toolPath.rapidSpeedMmPerSec = toolPathJson["rapidSpeedMmPerSec"].get<double>();
                         }
 
                         if (toolPathJson.contains("climbMilling") && toolPathJson["climbMilling"].is_boolean()) {
-                            state->toolPath.climbMilling = toolPathJson["climbMilling"].get<bool>();
+                            stage->toolPath.climbMilling = toolPathJson["climbMilling"].get<bool>();
                         }
 
                         if (toolPathJson.contains("linkRetractDistance") && toolPathJson["linkRetractDistance"].is_number()) {
-                            state->toolPath.linkRetractDistance = static_cast<float>(
+                            stage->toolPath.linkRetractDistance = static_cast<float>(
                                 toolPathJson["linkRetractDistance"].get<double>()
                             );
                         }
 
                         if (toolPathJson.contains("sliceAxis") && toolPathJson["sliceAxis"].is_array() && toolPathJson["sliceAxis"].size() >= 3) {
-                            state->toolPath.sliceAxis.x = toolPathJson["sliceAxis"][0].get<float>();
-                            state->toolPath.sliceAxis.y = toolPathJson["sliceAxis"][1].get<float>();
-                            state->toolPath.sliceAxis.z = toolPathJson["sliceAxis"][2].get<float>();
+                            stage->toolPath.sliceAxis.x = toolPathJson["sliceAxis"][0].get<float>();
+                            stage->toolPath.sliceAxis.y = toolPathJson["sliceAxis"][1].get<float>();
+                            stage->toolPath.sliceAxis.z = toolPathJson["sliceAxis"][2].get<float>();
                         }
 
                         if (toolPathJson.contains("sliceOrigin") && toolPathJson["sliceOrigin"].is_array() && toolPathJson["sliceOrigin"].size() >= 3) {
-                            state->toolPath.sliceOrigin.x = toolPathJson["sliceOrigin"][0].get<float>();
-                            state->toolPath.sliceOrigin.y = toolPathJson["sliceOrigin"][1].get<float>();
-                            state->toolPath.sliceOrigin.z = toolPathJson["sliceOrigin"][2].get<float>();
+                            stage->toolPath.sliceOrigin.x = toolPathJson["sliceOrigin"][0].get<float>();
+                            stage->toolPath.sliceOrigin.y = toolPathJson["sliceOrigin"][1].get<float>();
+                            stage->toolPath.sliceOrigin.z = toolPathJson["sliceOrigin"][2].get<float>();
                         }
 
                         if (toolPathJson.contains("sliceFaceId") && !toolPathJson["sliceFaceId"].is_null()) {
-                            state->toolPath.sliceFaceId = toolPathJson["sliceFaceId"].get<size_t>();
+                            stage->toolPath.sliceFaceId = toolPathJson["sliceFaceId"].get<size_t>();
                         }
                         else {
-                            state->toolPath.sliceFaceId = ToolPath::NoSliceFaceId;
+                            stage->toolPath.sliceFaceId = ToolPath::NoSliceFaceId;
                         }
                     }
 
-                    newStates[index] = state;
+                    newStages[index] = stage;
                 }
 
                 // Second pass: restore parent links.
-                for (const Json& stateJson : materialStatesJson) {
+                for (const Json& stageJson : stagesJson) {
 
-                    if (!stateJson.contains("index")) {
+                    if (!stageJson.contains("index")) {
                         continue;
                     }
 
-                    size_t index = stateJson["index"].get<size_t>();
+                    size_t index = stageJson["index"].get<size_t>();
 
-                    if (index >= newStates.size()) {
+                    if (index >= newStages.size()) {
                         continue;
                     }
 
-                    MaterialState* state = newStates[index];
+                    Stage* stage = newStages[index];
 
-                    if (!state) { continue; }
+                    if (!stage) { continue; }
 
-                    if (stateJson.contains("parent") && stateJson["parent"].is_number_unsigned()) {
-                        size_t parentIndex = stateJson["parent"].get<size_t>();
+                    if (stageJson.contains("parent") && stageJson["parent"].is_number_unsigned()) {
+                        size_t parentIndex = stageJson["parent"].get<size_t>();
 
-                        if (parentIndex < newStates.size()) {
-                            state->parent = newStates[parentIndex];
+                        if (parentIndex < newStages.size()) {
+                            stage->parent = newStages[parentIndex];
                         }
                     }
                 }
 
-                MaterialState* newRoot = nullptr;
-                MaterialState* newLatestCommitted = nullptr;
-                MaterialState* newWorking = nullptr;
-                MaterialState* newDisplayed = nullptr;
+                Stage* newRoot = nullptr;
+                Stage* newLatestCommitted = nullptr;
+                Stage* newWorking = nullptr;
+                Stage* newDisplayed = nullptr;
 
-                if (json.contains("rootState")) {
-                    newRoot = stateAtJsonIndex(newStates, json["rootState"]);
+                if (json.contains("rootStage")) {
+                    newRoot = stageAtJsonIndex(newStages, json["rootStage"]);
                 }
 
-                if (json.contains("latestCommittedState")) {
-                    newLatestCommitted = stateAtJsonIndex(newStates, json["latestCommittedState"]);
+                if (json.contains("latestCommittedStage")) {
+                    newLatestCommitted = stageAtJsonIndex(newStages, json["latestCommittedStage"]);
                 }
 
-                if (json.contains("workingState")) {
-                    newWorking = stateAtJsonIndex(newStates, json["workingState"]);
+                if (json.contains("workingStage")) {
+                    newWorking = stageAtJsonIndex(newStages, json["workingStage"]);
                 }
 
-                if (json.contains("displayedState")) {
-                    newDisplayed = stateAtJsonIndex(newStates, json["displayedState"]);
+                if (json.contains("displayedStage")) {
+                    newDisplayed = stageAtJsonIndex(newStages, json["displayedStage"]);
                 }
 
-                std::vector<MaterialState*> oldStates = states;
+                std::vector<Stage*> oldStages = stages;
 
-                states = newStates;
+                stages = newStages;
 
-                rootState = newRoot;
-                latestCommittedState = newLatestCommitted;
-                workingState = newWorking;
-                displayedState = newDisplayed;
+                rootStage = newRoot;
+                latestCommittedStage = newLatestCommitted;
+                workingStage = newWorking;
+                displayedStage = newDisplayed;
 
-                if (!rootState && !states.empty()) {
-                    rootState = states.front();
+                if (!rootStage && !stages.empty()) {
+                    rootStage = stages.front();
                 }
 
-                if (!latestCommittedState) {
-                    latestCommittedState = rootState;
+                if (!latestCommittedStage) {
+                    latestCommittedStage = rootStage;
                 }
 
-                if (!displayedState) {
-                    displayedState = workingState ? workingState : latestCommittedState;
+                if (!displayedStage) {
+                    displayedStage = workingStage ? workingStage : latestCommittedStage;
                 }
 
-                relinkMaterialStateHierarchy();
+                relinkStageHierarchy();
 
                 syncViewSelectionToDisplayed();
 
-                loaded = rootState != nullptr;
+                loaded = rootStage != nullptr;
                 dirty = false;
 
                 stock.reset();
@@ -729,10 +741,10 @@ export namespace Cam::App {
 
                 loadToolLibrary();
 
-                ensureToolPathComputed(displayedState);
+                ensureToolPathComputed(displayedStage);
 
-                for (MaterialState* oldState : oldStates) {
-                    delete oldState;
+                for (Stage* oldStage : oldStages) {
+                    delete oldStage;
                 }
 
                 return true;
@@ -740,15 +752,15 @@ export namespace Cam::App {
 
             catch (...) {
 
-                for (MaterialState* state : newStates) {
-                    delete state;
+                for (Stage* stage : newStages) {
+                    delete stage;
                 }
 
                 return false;
             }
         }
 
-        static MaterialState* stateAtJsonIndex(const std::vector<MaterialState*>& list, const Json& indexJson) {
+        static Stage* stageAtJsonIndex(const std::vector<Stage*>& list, const Json& indexJson) {
             if (!indexJson.is_number_unsigned()) { return nullptr; }
 
             size_t index = indexJson.get<size_t>();
@@ -832,15 +844,15 @@ export namespace Cam::App {
         bool loadStepFile(Rev::OS::File& selected) {
             if (!selected) { return false; }
 
-            MaterialState* newRoot = MaterialState::FromStep(selected);
+            Stage* newRoot = Stage::FromImport(selected);
 
             if (!newRoot) { return false; }
 
-            MaterialState* newWorking = MaterialState::FromPriorState(newRoot);
+            Stage* newWorking = Stage::FromPrior(newRoot);
 
-            std::vector<MaterialState*> oldStates = states;
+            std::vector<Stage*> oldStages = stages;
 
-            states.clear();
+            stages.clear();
 
             file = selected;
 
@@ -848,25 +860,25 @@ export namespace Cam::App {
                 name = file.name;
             }
 
-            rootState = newRoot;
-            latestCommittedState = newRoot;
-            workingState = newWorking;
-            displayedState = newWorking ? newWorking : newRoot;
+            rootStage = newRoot;
+            latestCommittedStage = newRoot;
+            workingStage = newWorking;
+            displayedStage = newWorking ? newWorking : newRoot;
             syncViewSelectionToDisplayed();
 
-            states.push_back(rootState);
+            stages.push_back(rootStage);
 
-            if (workingState) {
-                states.push_back(workingState);
+            if (workingStage) {
+                stages.push_back(workingStage);
             }
 
-            relinkMaterialStateHierarchy();
+            relinkStageHierarchy();
 
             loaded = true;
             dirty = true;
 
-            for (MaterialState* state : oldStates) {
-                delete state;
+            for (Stage* stage : oldStages) {
+                delete stage;
             }
 
             return true;
@@ -885,32 +897,32 @@ export namespace Cam::App {
 
         Model* getDisplayedModel() {
 
-            if (!displayedState) { return nullptr; }
+            if (!displayedStage) { return nullptr; }
 
-            return &displayedState->model;
+            return &displayedStage->model;
         }
 
-        void ensureToolPathComputed(MaterialState* state) {
+        void ensureToolPathComputed(Stage* stage) {
 
-            if (!state || !state->needsToolPathComputation()) { return; }
+            if (!stage || !stage->needsToolPathComputation()) { return; }
 
-            state->computeToolPath(toolLibrary, selectedToolName);
+            stage->computeToolPath(toolLibrary, selectedToolName);
         }
 
-        // Connect each state's toolpath to the previous one in history (lower index).
-        // prior = states[i] (earlier operation), next = states[i-1] (later operation).
+        // Connect each stage's toolpath to the previous one in history (lower index).
+        // prior = stages[i] (earlier operation), next = stages[i-1] (later operation).
         // Adds a rapid link move from prior's retract point to next's approach point
         // so the preview plays as one continuous motion with correct timing.
-        void linkMaterialStateToolPaths() {
+        void linkStageToolPaths() {
 
-            for (MaterialState* state : states) {
-                ensureToolPathComputed(state);
+            for (Stage* stage : stages) {
+                ensureToolPathComputed(stage);
             }
 
-            for (size_t i = 1; i < states.size(); i++) {
+            for (size_t i = 1; i < stages.size(); i++) {
 
-                MaterialState* prior = states[i];
-                MaterialState* next  = states[i - 1];
+                Stage* prior = stages[i];
+                Stage* next  = stages[i - 1];
 
                 if (!prior || !next) { continue; }
 
@@ -918,40 +930,40 @@ export namespace Cam::App {
             }
         }
 
-        bool selectState(MaterialState* state, bool addToSelection = false) {
+        bool selectStage(Stage* stage, bool addToSelection = false) {
 
-            if (!state) { return false; }
+            if (!stage) { return false; }
 
             if (!addToSelection) {
-                viewSelection = { state };
+                viewSelection = { stage };
             }
-            else if (!isViewSelected(state)) {
-                viewSelection.push_back(state);
+            else if (!isViewSelected(stage)) {
+                viewSelection.push_back(stage);
                 sortViewSelection();
             }
 
-            displayedState = state;
+            displayedStage = stage;
 
-            for (MaterialState* selected : viewSelection) {
+            for (Stage* selected : viewSelection) {
                 ensureToolPathComputed(selected);
             }
 
             return true;
         }
 
-        // States are stored with index 0 = most recent; higher index = earlier in time.
+        // Stages are stored with index 0 = most recent; higher index = earlier in time.
         // Forward preview advances toward lower indices.
-        MaterialState* nextStateAfterViewSelection() const {
+        Stage* nextStageAfterViewSelection() const {
 
-            if (states.empty()) { return nullptr; }
+            if (stages.empty()) { return nullptr; }
 
             size_t anchorIndex = static_cast<size_t>(-1);
 
-            for (MaterialState* state : viewSelection) {
+            for (Stage* stage : viewSelection) {
 
-                if (!state) { continue; }
+                if (!stage) { continue; }
 
-                const size_t index = indexOf(state);
+                const size_t index = indexOf(stage);
 
                 if (index == static_cast<size_t>(-1)) { continue; }
 
@@ -965,30 +977,30 @@ export namespace Cam::App {
 
             if (anchorIndex == static_cast<size_t>(-1)) {
 
-                if (!displayedState) { return nullptr; }
+                if (!displayedStage) { return nullptr; }
 
-                anchorIndex = indexOf(displayedState);
+                anchorIndex = indexOf(displayedStage);
 
                 if (anchorIndex == static_cast<size_t>(-1)) { return nullptr; }
             }
 
             if (anchorIndex == 0) { return nullptr; }
 
-            return states[anchorIndex - 1];
+            return stages[anchorIndex - 1];
         }
 
-        // Earlier material state before the highest index in viewSelection (forward-time back).
-        MaterialState* previousStateBeforeViewSelection() const {
+        // Earlier stage before the highest index in viewSelection (forward-time back).
+        Stage* previousStageBeforeViewSelection() const {
 
-            if (states.empty()) { return nullptr; }
+            if (stages.empty()) { return nullptr; }
 
             size_t anchorIndex = static_cast<size_t>(-1);
 
-            for (MaterialState* state : viewSelection) {
+            for (Stage* stage : viewSelection) {
 
-                if (!state) { continue; }
+                if (!stage) { continue; }
 
-                const size_t index = indexOf(state);
+                const size_t index = indexOf(stage);
 
                 if (index == static_cast<size_t>(-1)) { continue; }
 
@@ -1002,42 +1014,42 @@ export namespace Cam::App {
 
             if (anchorIndex == static_cast<size_t>(-1)) {
 
-                if (!displayedState) { return nullptr; }
+                if (!displayedStage) { return nullptr; }
 
-                anchorIndex = indexOf(displayedState);
+                anchorIndex = indexOf(displayedStage);
 
                 if (anchorIndex == static_cast<size_t>(-1)) { return nullptr; }
             }
 
-            if (anchorIndex + 1 >= states.size()) { return nullptr; }
+            if (anchorIndex + 1 >= stages.size()) { return nullptr; }
 
-            return states[anchorIndex + 1];
+            return stages[anchorIndex + 1];
         }
 
-        // Material state editing
+        // Stage editing
         //--------------------------------------------------
 
-        bool deleteState(MaterialState* state) {
+        bool deleteStage(Stage* stage) {
 
-            if (!state) { return false; }
+            if (!stage) { return false; }
 
-            size_t index = indexOf(state);
+            size_t index = indexOf(stage);
 
             if (index == static_cast<size_t>(-1)) { return false; }
             if (index == 0) { return false; }
 
-            MaterialState* anchor = states[index - 1];
+            Stage* anchor = stages[index - 1];
 
-            std::vector<MaterialState*> toDelete(
-                states.begin() + static_cast<std::ptrdiff_t>(index),
-                states.end()
+            std::vector<Stage*> toDelete(
+                stages.begin() + static_cast<std::ptrdiff_t>(index),
+                stages.end()
             );
 
-            // Deleting any generated stock state tears down the whole stock,
+            // Deleting any generated stock stage tears down the whole stock,
             // so reset the definition and re-offer the "Generate Stock" button.
             bool removedStock = false;
 
-            for (MaterialState* node : toDelete) {
+            for (Stage* node : toDelete) {
                 if (node && node->stockGenerated) { removedStock = true; break; }
             }
 
@@ -1046,77 +1058,80 @@ export namespace Cam::App {
                 stock.initialized = false;
             }
 
-            auto isRemoved = [&toDelete](MaterialState* candidate) {
+            auto isRemoved = [&toDelete](Stage* candidate) {
 
                 if (!candidate) { return true; }
 
                 return std::find(toDelete.begin(), toDelete.end(), candidate) != toDelete.end();
             };
 
-            if (displayedState && isRemoved(displayedState)) {
-                displayedState = anchor;
+            if (displayedStage && isRemoved(displayedStage)) {
+                displayedStage = anchor;
             }
 
-            if (workingState && isRemoved(workingState)) {
-                workingState = nullptr;
+            if (workingStage && isRemoved(workingStage)) {
+                workingStage = nullptr;
             }
 
-            if (latestCommittedState && isRemoved(latestCommittedState)) {
-                latestCommittedState = anchor;
+            if (latestCommittedStage && isRemoved(latestCommittedStage)) {
+                latestCommittedStage = anchor;
             }
 
             viewSelection.erase(
                 std::remove_if(
                     viewSelection.begin(),
                     viewSelection.end(),
-                    [&](MaterialState* candidate) { return isRemoved(candidate); }
+                    [&](Stage* candidate) { return isRemoved(candidate); }
                 ),
                 viewSelection.end()
             );
 
-            states.erase(
-                states.begin() + static_cast<std::ptrdiff_t>(index),
-                states.end()
+            stages.erase(
+                stages.begin() + static_cast<std::ptrdiff_t>(index),
+                stages.end()
             );
 
-            for (MaterialState* node : toDelete) {
+            for (Stage* node : toDelete) {
 
                 node->parent = nullptr;
                 node->children.clear();
                 node->model.clear();
                 node->clearDelta();
 
+                delete node->operation;
+                node->operation = nullptr;
+
                 delete node;
             }
 
-            relinkMaterialStateHierarchy();
+            relinkStageHierarchy();
 
-            if (!workingState && latestCommittedState) {
+            if (!workingStage && latestCommittedStage) {
 
-                workingState = MaterialState::FromPriorState(latestCommittedState);
+                workingStage = Stage::FromPrior(latestCommittedStage);
 
-                if (workingState) {
-                    states.push_back(workingState);
-                    relinkMaterialStateHierarchy();
+                if (workingStage) {
+                    stages.push_back(workingStage);
+                    relinkStageHierarchy();
                 }
             }
 
-            if (!displayedState) {
-                displayedState = workingState ? workingState : latestCommittedState;
+            if (!displayedStage) {
+                displayedStage = workingStage ? workingStage : latestCommittedStage;
             }
 
             pruneViewSelection();
 
-            if (workingState) {
-                displayedState = workingState;
+            if (workingStage) {
+                displayedStage = workingStage;
             }
-            else if (!displayedState) {
-                displayedState = latestCommittedState;
+            else if (!displayedStage) {
+                displayedStage = latestCommittedStage;
             }
 
             syncViewSelectionToDisplayed();
 
-            loaded = rootState != nullptr;
+            loaded = rootStage != nullptr;
             dirty = true;
 
             return true;
@@ -1125,15 +1140,15 @@ export namespace Cam::App {
         // Stock definition
         //--------------------------------------------------
 
-        // The deepest user (non-stock) state — the rectangular prism the stock
+        // The deepest user (non-stock) stage — the rectangular prism the stock
         // grows out from.
-        MaterialState* stockBaseState() const {
+        Stage* stockBaseStage() const {
 
-            if (workingState && !workingState->stockGenerated) {
-                return workingState;
+            if (workingStage && !workingStage->stockGenerated) {
+                return workingStage;
             }
 
-            for (auto it = states.rbegin(); it != states.rend(); ++it) {
+            for (auto it = stages.rbegin(); it != stages.rend(); ++it) {
                 if (*it && !(*it)->stockGenerated) { return *it; }
             }
 
@@ -1143,7 +1158,7 @@ export namespace Cam::App {
         // Stock can be defined once the base part is literally a box.
         bool stockMenuAvailable() {
 
-            MaterialState* base = stockBaseState();
+            Stage* base = stockBaseStage();
 
             return base && base->model.isRectangularPrism();
         }
@@ -1151,7 +1166,7 @@ export namespace Cam::App {
         // Axis-frame extents (X along axis, Y/Z cross-section) of the base part.
         bool partFrameExtents(double& extX, double& extY, double& extZ) {
 
-            MaterialState* base = stockBaseState();
+            Stage* base = stockBaseStage();
 
             if (!base) { return false; }
 
@@ -1171,16 +1186,16 @@ export namespace Cam::App {
         // True once stock has been generated.
         bool stockGenerated() const {
 
-            for (MaterialState* s : states) {
+            for (Stage* s : stages) {
                 if (s && s->stockGenerated) { return true; }
             }
 
             return false;
         }
 
-        // Detach and delete an (empty) working-copy state, splicing it out of the
-        // history without spawning a replacement working state.
-        void removeWorkingCopyState(MaterialState* s) {
+        // Detach and delete an (empty) working-copy stage, splicing it out of the
+        // history without spawning a replacement working stage.
+        void removeWorkingCopyStage(Stage* s) {
 
             if (!s) { return; }
 
@@ -1192,10 +1207,10 @@ export namespace Cam::App {
                 );
             }
 
-            states.erase(std::remove(states.begin(), states.end(), s), states.end());
+            stages.erase(std::remove(stages.begin(), stages.end(), s), stages.end());
 
-            if (displayedState == s)        { displayedState = s->parent; }
-            if (latestCommittedState == s)  { latestCommittedState = s->parent; }
+            if (displayedStage == s)        { displayedStage = s->parent; }
+            if (latestCommittedStage == s)  { latestCommittedStage = s->parent; }
 
             viewSelection.erase(
                 std::remove(viewSelection.begin(), viewSelection.end(), s),
@@ -1207,10 +1222,13 @@ export namespace Cam::App {
             s->model.clear();
             s->clearDelta();
 
+            delete s->operation;
+            s->operation = nullptr;
+
             delete s;
 
-            if (!displayedState) {
-                displayedState = latestCommittedState ? latestCommittedState : rootState;
+            if (!displayedStage) {
+                displayedStage = latestCommittedStage ? latestCommittedStage : rootStage;
             }
 
             if (viewSelection.empty()) {
@@ -1219,21 +1237,21 @@ export namespace Cam::App {
         }
 
         // One-time stock generation, driven by the "Generate Stock" button.
-        // Consumes the current working state (so no vestigial editable copy is
+        // Consumes the current working stage (so no vestigial editable copy is
         // left parenting the stock chain), fills default dimensions from the
-        // part bounding box, and builds the four stock states.
+        // part bounding box, and builds the four stock stages.
         bool generateStock() {
 
             if (stock.defined) { return false; }
             if (!stockMenuAvailable()) { return false; }
 
-            MaterialState* base = stockBaseState();
+            Stage* base = stockBaseStage();
 
             if (!base) { return false; }
 
             // Make sure the prism is a permanent, non-editable boundary rather
-            // than a trailing working state that would orphan the stock chain.
-            if (base == workingState) {
+            // than a trailing working stage that would orphan the stock chain.
+            if (base == workingStage) {
 
                 const bool emptyCopy =
                     base->parent &&
@@ -1243,18 +1261,18 @@ export namespace Cam::App {
                 if (emptyCopy) {
                     // The part was already a prism; drop the redundant copy and
                     // build stock off the committed parent prism.
-                    MaterialState* parent = base->parent;
-                    removeWorkingCopyState(base);
+                    Stage* parent = base->parent;
+                    removeWorkingCopyStage(base);
                     base = parent;
                 }
                 else {
                     // A real operation produced the prism; finalize it in place.
                     base->working = false;
                     base->committed = true;
-                    latestCommittedState = base;
+                    latestCommittedStage = base;
                 }
 
-                workingState = nullptr;
+                workingStage = nullptr;
             }
 
             double extX = 0.0, extY = 0.0, extZ = 0.0;
@@ -1272,12 +1290,12 @@ export namespace Cam::App {
             stock.defined = true;
             stock.initialized = true;
 
-            if (displayedState == nullptr) {
-                displayedState = base;
+            if (displayedStage == nullptr) {
+                displayedStage = base;
                 syncViewSelectionToDisplayed();
             }
 
-            regenerateStockStates();
+            regenerateStockStages();
 
             return true;
         }
@@ -1290,24 +1308,24 @@ export namespace Cam::App {
             dst.axisZDirection = src.axisZDirection; dst.hasAxisZ = src.hasAxisZ;
         }
 
-        // Remove and delete all auto-generated stock states, restoring the
+        // Remove and delete all auto-generated stock stages, restoring the
         // user chain to its pristine pre-stock form.
-        void removeStockStates() {
+        void removeStockStages() {
 
-            std::vector<MaterialState*> stockStates;
-            std::vector<MaterialState*> kept;
+            std::vector<Stage*> stockStages;
+            std::vector<Stage*> kept;
 
-            for (MaterialState* s : states) {
-                if (s && s->stockGenerated) { stockStates.push_back(s); }
+            for (Stage* s : stages) {
+                if (s && s->stockGenerated) { stockStages.push_back(s); }
                 else { kept.push_back(s); }
             }
 
-            if (stockStates.empty()) { return; }
+            if (stockStages.empty()) { return; }
 
-            states = kept;
+            stages = kept;
 
-            // Drop child links from kept states into the (deleted) stock chain.
-            for (MaterialState* s : kept) {
+            // Drop child links from kept stages into the (deleted) stock chain.
+            for (Stage* s : kept) {
 
                 if (!s) { continue; }
 
@@ -1315,20 +1333,23 @@ export namespace Cam::App {
                     std::remove_if(
                         s->children.begin(),
                         s->children.end(),
-                        [](MaterialState* c) { return c && c->stockGenerated; }
+                        [](Stage* c) { return c && c->stockGenerated; }
                     ),
                     s->children.end()
                 );
             }
 
-            for (MaterialState* s : stockStates) {
+            for (Stage* s : stockStages) {
 
-                if (displayedState == s) { displayedState = nullptr; }
+                if (displayedStage == s) { displayedStage = nullptr; }
 
                 s->parent = nullptr;
                 s->children.clear();
                 s->model.clear();
                 s->clearDelta();
+
+                delete s->operation;
+                s->operation = nullptr;
 
                 delete s;
             }
@@ -1337,15 +1358,15 @@ export namespace Cam::App {
                 std::remove_if(
                     viewSelection.begin(),
                     viewSelection.end(),
-                    [&](MaterialState* c) {
+                    [&](Stage* c) {
                         return std::find(kept.begin(), kept.end(), c) == kept.end();
                     }
                 ),
                 viewSelection.end()
             );
 
-            if (!displayedState) {
-                displayedState = workingState ? workingState : latestCommittedState;
+            if (!displayedStage) {
+                displayedStage = workingStage ? workingStage : latestCommittedStage;
             }
 
             if (viewSelection.empty()) {
@@ -1353,17 +1374,17 @@ export namespace Cam::App {
             }
         }
 
-        // Rebuild the four stock states from the current stock definition.
-        void regenerateStockStates() {
+        // Rebuild the four stock stages from the current stock definition.
+        void regenerateStockStages() {
 
-            removeStockStates();
+            removeStockStages();
 
             if (!stock.defined) {
                 dirty = true;
                 return;
             }
 
-            MaterialState* base = stockBaseState();
+            Stage* base = stockBaseStage();
 
             if (!base || !base->model.isRectangularPrism()) {
                 dirty = true;
@@ -1384,7 +1405,7 @@ export namespace Cam::App {
                 return;
             }
 
-            // Slice axis for each generated state = the outward normal of the
+            // Slice axis for each generated stage = the outward normal of the
             // face being extended.  Pre-setting it means the auto-generated
             // toolpaths already cut along the correct face — no manual fixup.
             Rev::Core::Pos3 fx, fy, fz;
@@ -1406,16 +1427,19 @@ export namespace Cam::App {
                 "Stock (+Y)", "Stock (-Y)", "Stock (+Z)", "Stock (-Z)"
             };
 
-            MaterialState* parent = base;
+            Stage* parent = base;
 
             for (size_t i = 0; i < shapes.size(); i++) {
 
-                MaterialState* s = new MaterialState();
+                Stage* s = new Stage();
+
+                s->operation = new ExtendFeatureOperation();
 
                 s->model = Model::FromShape(shapes[i]);
 
                 if (!s->model.loaded) {
                     dbg("[Stock] step %zu produced an unusable solid; skipping", i);
+                    delete s->operation;
                     delete s;
                     continue;
                 }
@@ -1438,7 +1462,7 @@ export namespace Cam::App {
                     s->name = "Stock";
                 }
 
-                states.push_back(s);
+                stages.push_back(s);
 
                 s->computeDelta(toolLibrary, selectedToolName);
 
@@ -1448,72 +1472,73 @@ export namespace Cam::App {
             dirty = true;
         }
 
-        bool defeatureSelected() {
+        // Operations
+        //--------------------------------------------------
 
-            if (!workingState) { return false; }
+        // Apply an operation to the working stage. Takes ownership of `op`.
+        bool applyOperation(Operation* op) {
 
-            displayedState = workingState;
-            syncViewSelectionToDisplayed();
+            if (!op) { return false; }
 
-            bool ok = workingState->model.defeatureSelected();
-
-            if (!ok) { return false; }
-
-            workingState->model.clearSelection();
-            workingState->computeDelta(toolLibrary, selectedToolName);
-
-            dirty = true;
-
-            return true;
-        }
-
-        bool extendSelected(double distance = 10.0) {
-
-            if (!workingState) {
-                dbg("[Extend] failed: no working material state");
+            if (!workingStage) {
+                dbg("[Operation] failed: no working stage");
+                delete op;
                 return false;
             }
 
-            displayedState = workingState;
+            displayedStage = workingStage;
             syncViewSelectionToDisplayed();
 
-            bool ok = workingState->model.extendSelected(distance);
+            delete workingStage->operation;
+            workingStage->operation = op;
+
+            bool ok = op->apply(workingStage->model);
 
             if (!ok) { return false; }
 
-            workingState->model.clearSelection();
-            workingState->computeDelta(toolLibrary, selectedToolName);
+            workingStage->model.clearSelection();
+            workingStage->computeDelta(toolLibrary, selectedToolName);
 
             dirty = true;
 
             return true;
         }
 
-        bool commitWorkingState() {
+        bool defeatureSelected() {
+            return applyOperation(new DefeatureOperation());
+        }
 
-            if (!workingState) { return false; }
-            if (!workingState->model.changed && !workingState->hasDelta) { return false; }
+        bool extendSelected(double distance = 10.0) {
+            ExtendFeatureOperation* op = new ExtendFeatureOperation();
+            op->distance = distance;
+            return applyOperation(op);
+        }
 
-            workingState->computeDelta(toolLibrary, selectedToolName);
+        bool commitWorkingStage() {
 
-            workingState->committed = true;
-            workingState->working = false;
-            workingState->name = "Material State";
+            if (!workingStage) { return false; }
+            if (!workingStage->model.changed && !workingStage->hasDelta) { return false; }
 
-            latestCommittedState = workingState;
+            workingStage->computeDelta(toolLibrary, selectedToolName);
 
-            workingState = MaterialState::FromPriorState(latestCommittedState);
+            workingStage->committed = true;
+            workingStage->working = false;
+            workingStage->name = "Material State";
 
-            if (workingState) {
-                states.push_back(workingState);
+            latestCommittedStage = workingStage;
+
+            workingStage = Stage::FromPrior(latestCommittedStage);
+
+            if (workingStage) {
+                stages.push_back(workingStage);
             }
 
-            relinkMaterialStateHierarchy();
+            relinkStageHierarchy();
 
-            displayedState = workingState ? workingState : latestCommittedState;
+            displayedStage = workingStage ? workingStage : latestCommittedStage;
             syncViewSelectionToDisplayed();
 
-            loaded = rootState != nullptr;
+            loaded = rootStage != nullptr;
             dirty = true;
 
             return true;
@@ -1521,26 +1546,26 @@ export namespace Cam::App {
 
         bool recalculateDisplayedToolPath() {
 
-            if (!displayedState) { return false; }
-            if (!displayedState->parent) { return false; }
+            if (!displayedStage) { return false; }
+            if (!displayedStage->parent) { return false; }
 
-            displayedState->computeDelta(toolLibrary, selectedToolName);
+            displayedStage->computeDelta(toolLibrary, selectedToolName);
 
             dirty = true;
 
-            return displayedState->hasToolPath;
+            return displayedStage->hasToolPath;
         }
 
         bool setDisplayedSlicePlaneFromFace(size_t faceId, const Model& model) {
 
-            if (!displayedState) { return false; }
+            if (!displayedStage) { return false; }
             if (faceId >= model.faceCount()) { return false; }
 
             Pos3 normal = model.faceNormal(faceId);
 
             if (normal.pythag() <= 1e-6f) { return false; }
 
-            ToolPath& toolPath = displayedState->toolPath;
+            ToolPath& toolPath = displayedStage->toolPath;
 
             if (toolPath.hasSliceFace() && toolPath.sliceFaceId == faceId) {
                 toolPath.clearSlicePlane();
@@ -1549,8 +1574,8 @@ export namespace Cam::App {
                 toolPath.setSlicePlane(faceId, normal);
             }
 
-            if (displayedState->hasDelta) {
-                displayedState->computeToolPath(toolLibrary, selectedToolName);
+            if (displayedStage->hasDelta) {
+                displayedStage->computeToolPath(toolLibrary, selectedToolName);
             }
 
             dirty = true;

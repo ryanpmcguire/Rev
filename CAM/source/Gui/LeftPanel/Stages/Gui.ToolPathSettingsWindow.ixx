@@ -23,7 +23,7 @@ import Rev.Element.Button;
 import Rev.Element.ControlTheme;
 
 import Cam.App;
-import Cam.App.MaterialState;
+import Cam.App.Stage;
 import Cam.App.Slicer.Strategy.Strategies.Bore;
 import Cam.App.Slicer.Strategy.Strategies.Profile;
 import Cam.App.Slicer.Strategy.Strategies.Hatch;
@@ -90,7 +90,7 @@ export namespace Cam::Gui {
         };
 
         Cam::App::AppState* app = nullptr;
-        Cam::App::MaterialState* state = nullptr;
+        Cam::App::Stage* state = nullptr;
         std::string stateTitle;
 
         SavedFields savedFields;
@@ -156,7 +156,7 @@ export namespace Cam::Gui {
 
         ToolPathSettingsWindow(
             Rev::Window* owner,
-            Cam::App::MaterialState* materialState,
+            Cam::App::Stage* materialState,
             const std::string& title
         ) : Rev::Window(
             owner,

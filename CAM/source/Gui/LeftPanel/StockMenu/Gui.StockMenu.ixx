@@ -257,7 +257,7 @@ export namespace Cam::Gui {
 
             if (!project) { return; }
 
-            project->regenerateStockStates();
+            project->regenerateStockStages();
 
             if (onChanged) { onChanged(e); }
 

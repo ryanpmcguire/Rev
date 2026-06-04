@@ -18,7 +18,7 @@ import Rev.Element.Text;
 import Cam.App;
 import Cam.App.Project;
 
-import Cam.Gui.MaterialStates;
+import Cam.Gui.Stages;
 import Cam.Gui.StockMenu;
 import Cam.Gui.Theme;
 
@@ -66,7 +66,7 @@ export namespace Cam::Gui {
         Box* fileButton = nullptr;
         Text* fileButtonLabel = nullptr;
 
-        MaterialStates* materialStates = nullptr;
+        Stages* materialStates = nullptr;
         StockMenu* stockMenu = nullptr;
 
         std::function<void(Event&)> onSelectFile;
@@ -111,7 +111,7 @@ export namespace Cam::Gui {
                 e.propagate = false;
             });
 
-            materialStates = new MaterialStates(
+            materialStates = new Stages(
                 this,
                 { &LeftPanelStyle::MaterialStateHost }
             );

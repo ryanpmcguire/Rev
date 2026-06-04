@@ -17,7 +17,7 @@ import Rev.Element.View3d.Actor3d;
 import Rev.Primitive.Lines3d;
 import Rev.Primitive.Mesh3d;
 
-import Cam.App.MaterialState;
+import Cam.App.Stage;
 import Cam.App.ToolPath;
 
 export namespace Cam::Gui {
@@ -78,7 +78,7 @@ export namespace Cam::Gui {
         }
 
         void sync(
-            Cam::App::MaterialState* state,
+            Cam::App::Stage* state,
             double previewProgress = 1.0
         ) {
 

@@ -10,13 +10,13 @@
       "hash": "ab08018ccd276b79fb2c636bb95b9c543598f9d50505fe92506fcb4dae7810cd",
       "mtime": 1780255242.0136998
     },
-    "CAM/source/Gui/LeftPanel/MaterialStates/ToolPath/Settings.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/MaterialStates/ToolPath/Settings.svg",
+    "CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg",
       "hash": "b7c816301b3066d8060b2b735298ff22d70d50e31e5e73e76964d53cd6777e0e",
       "mtime": 1779994987.0619895
     },
-    "CAM/source/Gui/LeftPanel/MaterialStates/Close.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/MaterialStates/Close.svg",
+    "CAM/source/Gui/LeftPanel/Stages/Close.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Close.svg",
       "hash": "3c902b815ddb3681c11e21028ad88c5d45d449fd80ade51c594b29e392e39cb2",
       "mtime": 1779994987.0619895
     },

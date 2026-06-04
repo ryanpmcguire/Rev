@@ -6,7 +6,7 @@ module;
 #include <limits>
 #include <vector>
 
-export module Cam.Gui.World.MaterialState;
+export module Cam.Gui.World.Stage;
 
 import Rev.Graphics.Canvas;
 
@@ -20,7 +20,7 @@ import Rev.Primitive.Lines3d;
 import Rev.Element.View3d;
 import Rev.Element.View3d.Actor3d;
 
-import Cam.App.MaterialState;
+import Cam.App.Stage;
 import Cam.App.Model;
 import Cam.App.ToolPath;
 
@@ -30,12 +30,12 @@ export namespace Cam::Gui::World {
 
     namespace View3d = Rev::Element::View3d;
 
-    struct MaterialState {
+    struct Stage {
 
         Rev::Graphics::Canvas* canvas = nullptr;
         View3d::View* view = nullptr;
 
-        Cam::App::MaterialState* state = nullptr;
+        Cam::App::Stage* state = nullptr;
 
         View3d::Actor* partActor = nullptr;
         View3d::Actor* deltaActor = nullptr;
@@ -74,15 +74,15 @@ export namespace Cam::Gui::World {
         // Create / destroy
         //--------------------------------------------------
 
-        MaterialState() {}
+        Stage() {}
 
-        MaterialState(
+        Stage(
             Rev::Graphics::Canvas* canvas
         ) {
             create(canvas);
         }
 
-        ~MaterialState() {
+        ~Stage() {
             destroy();
         }
 
@@ -508,7 +508,7 @@ export namespace Cam::Gui::World {
         //--------------------------------------------------
 
         void setState(
-            Cam::App::MaterialState* state
+            Cam::App::Stage* state
         ) {
             this->state = state;
         }

@@ -35,13 +35,13 @@ import Rev.Element.View3d.Actor3d;
 import Cam.App;
 import Cam.App.Project;
 import Cam.App.Model;
-import Cam.App.MaterialState;
+import Cam.App.Stage;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
 import Cam.App.ToolPath;
 import Cam.App.MachineProfile;
 
-import Cam.Gui.World.MaterialState;
+import Cam.Gui.World.Stage;
 import Cam.Gui.ToolPath;
 import Cam.Gui.Theme;
 import Cam.Gui.PreviewBar;
@@ -81,11 +81,11 @@ export namespace Cam::Gui {
         bool previewTimelineDirty = true;
 
         Cam::App::Project* representedProject = nullptr;
-        Cam::App::MaterialState* representedDisplayedState = nullptr;
-        Cam::App::MaterialState* representedWorkingState = nullptr;
+        Cam::App::Stage* representedDisplayedState = nullptr;
+        Cam::App::Stage* representedWorkingState = nullptr;
         size_t representedStateCount = 0;
 
-        std::vector<Cam::Gui::World::MaterialState*> materialViews;
+        std::vector<Cam::Gui::World::Stage*> materialViews;
 
         View3d::Actor* lineActor = nullptr;
         std::vector<Rev::Core::Vertex3> testLines;
@@ -117,13 +117,13 @@ export namespace Cam::Gui {
         // Execute-mode progress tracking — used to enforce monotonic forward
         // advancement through the toolpath so telemetry noise never causes the
         // scrubber/preview to jump backwards.  Reset when a new program starts.
-        Cam::App::MaterialState* executeTrackedState    = nullptr;
+        Cam::App::Stage* executeTrackedState    = nullptr;
         double                   executeTrackedProgress = 0.0;
 
         // Per-state IK cache.  Keyed by MaterialState* so each state's
         // solved path lives independently — different setups have different
         // tool directions and require independent IK solves.
-        std::map<Cam::App::MaterialState*, Cam::Machine::MachineToolPath> machineToolPaths;
+        std::map<Cam::App::Stage*, Cam::Machine::MachineToolPath> machineToolPaths;
         bool machineToolPathsDirty = true;
 
         std::function<void(Event&)> onStateChanged;
@@ -450,7 +450,7 @@ export namespace Cam::Gui {
         }
 
         bool selectMaterialStateForPreview(
-            Cam::App::MaterialState* state,
+            Cam::App::Stage* state,
             Event& e,
             bool wasPlaying = false
         ) {
@@ -461,7 +461,7 @@ export namespace Cam::Gui {
 
             const bool addToSelection = project->viewSelection.size() > 1;
 
-            if (!app->selectState(state, addToSelection)) { return false; }
+            if (!app->selectStage(state, addToSelection)) { return false; }
 
             markPreviewTimelineDirty();
             rebuildPreviewTimelineIfNeeded();
@@ -498,7 +498,7 @@ export namespace Cam::Gui {
             const PreviewSegment& current =
                 previewTimeline.segments[here.segmentIndex];
 
-            Cam::App::MaterialState* targetState = nullptr;
+            Cam::App::Stage* targetState = nullptr;
             double newElapsed = previewTimeline.elapsedSeconds;
 
             if (!here.atSegmentEnd) {
@@ -514,7 +514,7 @@ export namespace Cam::Gui {
                 targetState = next.state;
             }
             else {
-                targetState = project->nextStateAfterViewSelection();
+                targetState = project->nextStageAfterViewSelection();
 
                 if (targetState) {
                     selectMaterialStateForPreview(targetState, e, wasPlaying);
@@ -568,7 +568,7 @@ export namespace Cam::Gui {
             const PreviewSegment& current =
                 previewTimeline.segments[here.segmentIndex];
 
-            Cam::App::MaterialState* targetState = current.state;
+            Cam::App::Stage* targetState = current.state;
             double newElapsed = previewTimeline.elapsedSeconds;
 
             if (here.localProgress > 1e-9) {
@@ -584,7 +584,7 @@ export namespace Cam::Gui {
                 targetState = previous.state;
             }
             else {
-                targetState = project->previousStateBeforeViewSelection();
+                targetState = project->previousStageBeforeViewSelection();
 
                 if (targetState) {
                     selectMaterialStateForPreview(targetState, e, wasPlaying);
@@ -770,36 +770,36 @@ export namespace Cam::Gui {
         }
 
         struct ToolPreviewTarget {
-            Cam::App::MaterialState* state = nullptr;
+            Cam::App::Stage* state = nullptr;
             double progress = 0.0;
         };
 
-        Cam::App::MaterialState* materialStateWithToolPathForPreview(
+        Cam::App::Stage* materialStateWithToolPathForPreview(
             Cam::App::Project* project
         ) {
 
             if (!project) { return nullptr; }
 
-            const std::vector<Cam::App::MaterialState*> sequence =
+            const std::vector<Cam::App::Stage*> sequence =
                 ToolPathPreviewTimeline::previewSequence(project);
 
             if (!sequence.empty()) {
                 return sequence.front();
             }
 
-            Cam::App::MaterialState* primary = project->primaryViewState();
+            Cam::App::Stage* primary = project->primaryViewStage();
 
             if (primary && primary->hasToolPath) {
                 return primary;
             }
 
-            for (Cam::App::MaterialState* state : project->viewSelection) {
+            for (Cam::App::Stage* state : project->viewSelection) {
                 if (state && state->hasToolPath) {
                     return state;
                 }
             }
 
-            for (Cam::App::MaterialState* state : project->states) {
+            for (Cam::App::Stage* state : project->stages) {
                 if (state && state->hasToolPath) {
                     return state;
                 }
@@ -843,12 +843,12 @@ export namespace Cam::Gui {
         }
 
         View3d::Actor* deltaActorForToolPreviewDrawOrder(
-            Cam::App::MaterialState* activeState
+            Cam::App::Stage* activeState
         ) {
 
             if (!activeState) { return nullptr; }
 
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
 
                 if (!view || view->state != activeState) { continue; }
 
@@ -857,7 +857,7 @@ export namespace Cam::Gui {
                 }
             }
 
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
 
                 if (view && view->deltaActor) {
                     return view->deltaActor;
@@ -867,7 +867,7 @@ export namespace Cam::Gui {
             return nullptr;
         }
 
-        void repositionToolPreviewDrawOrder(Cam::App::MaterialState* activeState) {
+        void repositionToolPreviewDrawOrder(Cam::App::Stage* activeState) {
 
             if (!view3d || !toolPreviewActor) { return; }
 
@@ -984,9 +984,9 @@ export namespace Cam::Gui {
 
             // Resolve which tool to show (the previewed op, or the displayed
             // state when nothing is actively previewing — e.g. while jogging).
-            Cam::App::MaterialState* toolState = target.state;
+            Cam::App::Stage* toolState = target.state;
 
-            if (!toolState && project) { toolState = project->displayedState; }
+            if (!toolState && project) { toolState = project->displayedStage; }
 
             Cam::App::Tool* tool = (toolState && app && app->toolLibrary())
                 ? app->toolLibrary()->find(toolState->toolPath.toolName)
@@ -1134,27 +1134,27 @@ export namespace Cam::Gui {
             return app->activeProject;
         }
 
-        Cam::App::MaterialState* displayedState() {
+        Cam::App::Stage* displayedState() {
 
             Cam::App::Project* project = activeProject();
 
             if (!project) { return nullptr; }
 
-            return project->displayedState;
+            return project->displayedStage;
         }
 
-        Cam::App::MaterialState* workingState() {
+        Cam::App::Stage* workingState() {
 
             Cam::App::Project* project = activeProject();
 
             if (!project) { return nullptr; }
 
-            return project->workingState;
+            return project->workingStage;
         }
 
         Cam::App::Model* selectionModel() {
 
-            Cam::App::MaterialState* state = displayedState();
+            Cam::App::Stage* state = displayedState();
 
             if (!state) { return nullptr; }
 
@@ -1168,9 +1168,9 @@ export namespace Cam::Gui {
             if (!project) { return false; }
 
             return (
-                project->displayedState &&
-                project->workingState &&
-                project->displayedState == project->workingState
+                project->displayedStage &&
+                project->workingStage &&
+                project->displayedStage == project->workingStage
             );
         }
 
@@ -1184,17 +1184,17 @@ export namespace Cam::Gui {
                 return materialViews.empty();
             }
 
-            if (materialViews.size() != project->states.size()) {
+            if (materialViews.size() != project->stages.size()) {
                 return false;
             }
 
-            for (Cam::App::MaterialState* state : project->states) {
+            for (Cam::App::Stage* state : project->stages) {
                 if (!viewForState(state)) {
                     return false;
                 }
             }
 
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
 
                 if (!view) { return false; }
 
@@ -1208,7 +1208,7 @@ export namespace Cam::Gui {
 
         void clearMaterialViews() {
 
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
                 delete view;
             }
 
@@ -1228,10 +1228,10 @@ export namespace Cam::Gui {
             refresh(e);
         }
 
-        Cam::Gui::World::MaterialState* viewForState(
-            Cam::App::MaterialState* state
+        Cam::Gui::World::Stage* viewForState(
+            Cam::App::Stage* state
         ) {
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
 
                 if (view && view->state == state) {
                     return view;
@@ -1241,19 +1241,19 @@ export namespace Cam::Gui {
             return nullptr;
         }
 
-        Cam::Gui::World::MaterialState* displayedMaterialView() {
+        Cam::Gui::World::Stage* displayedMaterialView() {
             return viewForState(displayedState());
         }
 
-        Cam::Gui::World::MaterialState* workingMaterialView() {
+        Cam::Gui::World::Stage* workingMaterialView() {
             return viewForState(workingState());
         }
 
-        Cam::Gui::World::MaterialState* createMaterialView(
-            Cam::App::MaterialState* state
+        Cam::Gui::World::Stage* createMaterialView(
+            Cam::App::Stage* state
         ) {
-            Cam::Gui::World::MaterialState* worldState =
-                new Cam::Gui::World::MaterialState(shared->canvas);
+            Cam::Gui::World::Stage* worldState =
+                new Cam::Gui::World::Stage(shared->canvas);
 
             worldState->setState(state);
             worldState->attach(view3d);
@@ -1265,11 +1265,11 @@ export namespace Cam::Gui {
 
         bool projectOwnsState(
             Cam::App::Project* project,
-            Cam::App::MaterialState* state
+            Cam::App::Stage* state
         ) {
             if (!project || !state) { return false; }
 
-            for (Cam::App::MaterialState* candidate : project->states) {
+            for (Cam::App::Stage* candidate : project->stages) {
                 if (candidate == state) { return true; }
             }
 
@@ -1292,15 +1292,15 @@ export namespace Cam::Gui {
                 return;
             }
 
-            for (Cam::App::MaterialState* state : representedProject->states) {
+            for (Cam::App::Stage* state : representedProject->stages) {
                 createMaterialView(state);
             }
 
-            representedDisplayedState = representedProject->displayedState;
-            representedWorkingState = representedProject->workingState;
-            representedStateCount = representedProject->states.size();
+            representedDisplayedState = representedProject->displayedStage;
+            representedWorkingState = representedProject->workingStage;
+            representedStateCount = representedProject->stages.size();
 
-            representedProject->linkMaterialStateToolPaths();
+            representedProject->linkStageToolPaths();
 
             applyDefaultVisibilityPolicy();
             syncAllMaterialViews();
@@ -1321,7 +1321,7 @@ export namespace Cam::Gui {
             }
 
             // Add new material states.
-            for (Cam::App::MaterialState* state : project->states) {
+            for (Cam::App::Stage* state : project->stages) {
                 if (!viewForState(state)) {
                     createMaterialView(state);
                 }
@@ -1330,7 +1330,7 @@ export namespace Cam::Gui {
             // Remove deleted material states.
             for (size_t i = 0; i < materialViews.size();) {
 
-                Cam::Gui::World::MaterialState* view = materialViews[i];
+                Cam::Gui::World::Stage* view = materialViews[i];
 
                 if (
                     view &&
@@ -1344,13 +1344,13 @@ export namespace Cam::Gui {
                 materialViews.erase(materialViews.begin() + i);
             }
 
-            representedStateCount = project->states.size();
+            representedStateCount = project->stages.size();
         }
 
         void applyVisibilityPolicy() {
 
             Cam::App::Project* project = activeProject();
-            Cam::App::MaterialState* primary = project ? project->primaryViewState() : nullptr;
+            Cam::App::Stage* primary = project ? project->primaryViewStage() : nullptr;
 
             size_t primaryIndex = static_cast<size_t>(-1);
 
@@ -1360,11 +1360,11 @@ export namespace Cam::Gui {
 
             const bool faceEditingActive = (
                 project &&
-                project->workingState &&
-                project->displayedState == project->workingState
+                project->workingStage &&
+                project->displayedStage == project->workingStage
             );
 
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
 
                 if (!view) { continue; }
 
@@ -1389,14 +1389,48 @@ export namespace Cam::Gui {
             // not only the primary overlay/base layer.
             if (faceEditingActive) {
 
-                Cam::Gui::World::MaterialState* editView =
-                    viewForState(project->workingState);
+                Cam::Gui::World::Stage* editView =
+                    viewForState(project->workingStage);
 
                 if (
                     editView &&
-                    project->isViewSelected(project->workingState)
+                    project->isViewSelected(project->workingStage)
                 ) {
                     editView->enablePicking();
+                }
+            }
+
+            // Per-component user overrides (the stage tree's visibility toggles)
+            // gate the policy result: they can only hide, never force-show.
+            applyComponentVisibilityOverrides();
+        }
+
+        // Honour each stage's per-component visibility flags (set from the left
+        // panel's stage tree). Force-hides only, so a hidden component stays
+        // hidden regardless of what the selection policy decided.
+        void applyComponentVisibilityOverrides() {
+
+            for (Cam::Gui::World::Stage* view : materialViews) {
+
+                if (!view || !view->state) { continue; }
+
+                const Cam::App::Stage::ComponentVisibility& vis = view->state->visible;
+
+                if (!vis.model)    { view->showPart = false; }
+                if (!vis.delta)    { view->showDelta = false; }
+                if (!vis.toolPath) { view->showToolPath = false; }
+            }
+
+            // "Prior model" of a stage is the parent stage's resulting model,
+            // drawn by the parent view's part actor.
+            for (Cam::Gui::World::Stage* view : materialViews) {
+
+                if (!view || !view->state || !view->state->parent) { continue; }
+
+                if (view->state->visible.priorModel) { continue; }
+
+                if (Cam::Gui::World::Stage* parentView = viewForState(view->state->parent)) {
+                    parentView->showPart = false;
                 }
             }
         }
@@ -1412,7 +1446,7 @@ export namespace Cam::Gui {
         // 3+1 indexed, using the user-defined axis origin as the A-axis pivot
         // and the user-defined X direction as the rotary axis.
         Cam::Machine::MachineDefinition buildMachineDefinition(
-            Cam::App::MaterialState* state
+            Cam::App::Stage* state
         ) {
             Rev::Core::Pos3 pivot      = {};
             Rev::Core::Pos3 rotaryAxis = { 1.0f, 0.0f, 0.0f };  // world X default
@@ -1431,7 +1465,7 @@ export namespace Cam::Gui {
         // Return a reference to the solved MachineToolPath for a given state,
         // solving it on-demand if not yet cached or if the cache is dirty.
         Cam::Machine::MachineToolPath const* getMachineToolPath(
-            Cam::App::MaterialState* state
+            Cam::App::Stage* state
         ) {
             if (!state || !state->hasToolPath) { return nullptr; }
 
@@ -1482,7 +1516,7 @@ export namespace Cam::Gui {
 
             if (!here.valid || previewTimeline.segments.empty()) { return false; }
 
-            Cam::App::MaterialState* state =
+            Cam::App::Stage* state =
                 previewTimeline.segments[here.segmentIndex].state;
 
             Cam::Machine::MachineToolPath const* path = getMachineToolPath(state);
@@ -1507,7 +1541,7 @@ export namespace Cam::Gui {
             if (!link.telemetry(tx, ty, tz, ta)) { return false; }
 
             Cam::App::Project* project = activeProject();
-            if (!project || !project->displayedState) { return false; }
+            if (!project || !project->displayedStage) { return false; }
 
             Rev::Core::Pos3 rotaryAxis  = { 1.0f, 0.0f, 0.0f };
             Rev::Core::Pos3 rotaryPivot = {};
@@ -1515,7 +1549,7 @@ export namespace Cam::Gui {
             // Prefer the already-solved path — it stores the exact axis/pivot
             // the streamer used, so the live rotation stays in sync.
             Cam::Machine::MachineToolPath const* path =
-                getMachineToolPath(project->displayedState);
+                getMachineToolPath(project->displayedStage);
 
             if (path && !path->empty()) {
                 rotaryAxis  = path->rotaryAxis;
@@ -1523,7 +1557,7 @@ export namespace Cam::Gui {
             }
             else {
                 Cam::Machine::MachineDefinition def =
-                    buildMachineDefinition(project->displayedState);
+                    buildMachineDefinition(project->displayedStage);
                 if (!def.part.dof.freeRotations.empty()) {
                     rotaryAxis = def.part.dof.freeRotations.front();
                 }
@@ -1557,14 +1591,14 @@ export namespace Cam::Gui {
         bool findToolpathProgress(
             const Rev::Core::Pos3& toolCadPos,
             Cam::App::Project*     project,
-            Cam::App::MaterialState*& outState,
+            Cam::App::Stage*& outState,
             double&                  outProgress
         ) {
-            std::vector<Cam::App::MaterialState*> searchStates =
+            std::vector<Cam::App::Stage*> searchStates =
                 ToolPathPreviewTimeline::previewSequence(project);
 
             if (searchStates.empty()) {
-                if (Cam::App::MaterialState* s =
+                if (Cam::App::Stage* s =
                         materialStateWithToolPathForPreview(project)) {
                     searchStates.push_back(s);
                 }
@@ -1574,7 +1608,7 @@ export namespace Cam::Gui {
             outState    = nullptr;
             outProgress = 0.0;
 
-            for (Cam::App::MaterialState* state : searchStates) {
+            for (Cam::App::Stage* state : searchStates) {
                 if (!state) { continue; }
                 Cam::Machine::MachineToolPath const* path = getMachineToolPath(state);
                 if (!path || path->empty()) { continue; }
@@ -1632,7 +1666,7 @@ export namespace Cam::Gui {
             Rev::Core::Pos3 toolCadPos;
             if (!telemetryToCadPos(toolCadPos)) { return; }
 
-            Cam::App::MaterialState* bestState    = nullptr;
+            Cam::App::Stage* bestState    = nullptr;
             double                   bestProgress = 0.0;
 
             if (!findToolpathProgress(toolCadPos, project, bestState, bestProgress)) {
@@ -1663,8 +1697,8 @@ export namespace Cam::Gui {
             // state while the machine is running, force the view back
             // to the state that's actually being cut right now.
             // -------------------------------------------------------
-            if (bestState && app && project->primaryViewState() != bestState) {
-                if (app->selectState(bestState, false)) {
+            if (bestState && app && project->primaryViewStage() != bestState) {
+                if (app->selectStage(bestState, false)) {
                     previewTimelineDirty  = true;   // rebuild segment map, not IK
                     representationDirty   = true;
                 }
@@ -1707,7 +1741,7 @@ export namespace Cam::Gui {
 
             if (!transformed) { Cam::Machine::Pose::identityMatrix(M); }
 
-            for (Cam::Gui::World::MaterialState* v : materialViews) {
+            for (Cam::Gui::World::Stage* v : materialViews) {
 
                 if (!v) { continue; }
 
@@ -1756,7 +1790,7 @@ export namespace Cam::Gui {
 
             UserFrame frame;
 
-            Cam::App::MaterialState* state = project ? project->displayedState : nullptr;
+            Cam::App::Stage* state = project ? project->displayedStage : nullptr;
 
             if (!state) { return frame; }
 
@@ -1780,14 +1814,14 @@ export namespace Cam::Gui {
 
             if (!project) { return frame.origin; }
 
-            Cam::App::MaterialState* state = nullptr;
+            Cam::App::Stage* state = nullptr;
 
-            for (Cam::App::MaterialState* s : project->states) {
+            for (Cam::App::Stage* s : project->stages) {
                 if (s && s->stockGenerated) { state = s; }  // last stock state = full stock
             }
 
-            if (!state) { state = project->stockBaseState(); }
-            if (!state) { state = project->displayedState; }
+            if (!state) { state = project->stockBaseStage(); }
+            if (!state) { state = project->displayedStage; }
             if (!state) { return frame.origin; }
 
             const std::vector<Rev::Core::Vertex3>& tris = state->model.render.triangles;
@@ -1900,7 +1934,7 @@ export namespace Cam::Gui {
                 emittedAny = true;
             };
 
-            auto appendState = [&](Cam::App::MaterialState* state) {
+            auto appendState = [&](Cam::App::Stage* state) {
 
                 if (buildAborted) { return; }
                 if (!state || !state->hasToolPath) { return; }
@@ -1954,11 +1988,11 @@ export namespace Cam::Gui {
                 }
             };
 
-            const std::vector<Cam::App::MaterialState*> sequence =
+            const std::vector<Cam::App::Stage*> sequence =
                 ToolPathPreviewTimeline::previewSequence(project);
 
             if (!sequence.empty()) {
-                for (Cam::App::MaterialState* state : sequence) {
+                for (Cam::App::Stage* state : sequence) {
                     appendState(state);
                 }
             }
@@ -1990,7 +2024,7 @@ export namespace Cam::Gui {
 
             Cam::App::Project* project = activeProject();
 
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
 
                 if (!view) { continue; }
 
@@ -2040,11 +2074,11 @@ export namespace Cam::Gui {
                 syncMaterialViewList();
             }
 
-            representedDisplayedState = project->displayedState;
-            representedWorkingState = project->workingState;
-            representedStateCount = project->states.size();
+            representedDisplayedState = project->displayedStage;
+            representedWorkingState = project->workingStage;
+            representedStateCount = project->stages.size();
 
-            project->linkMaterialStateToolPaths();
+            project->linkStageToolPaths();
 
             markPreviewTimelineDirty();
 
@@ -2085,7 +2119,7 @@ export namespace Cam::Gui {
                 return;
             }
 
-            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+            Cam::Gui::World::Stage* worldState = displayedMaterialView();
 
             if (!worldState || !worldState->pickActor) { return; }
 
@@ -2118,7 +2152,7 @@ export namespace Cam::Gui {
                 return;
             }
 
-            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+            Cam::Gui::World::Stage* worldState = displayedMaterialView();
 
             if (!worldState || !worldState->pickActor) { return; }
 
@@ -2165,7 +2199,7 @@ export namespace Cam::Gui {
                 return false;
             }
 
-            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+            Cam::Gui::World::Stage* worldState = displayedMaterialView();
 
             if (!worldState) { return false; }
 
@@ -2198,7 +2232,7 @@ export namespace Cam::Gui {
 
             if (!view3d) { return; }
 
-            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+            Cam::Gui::World::Stage* worldState = displayedMaterialView();
 
             if (!worldState) { return; }
 
@@ -2213,13 +2247,13 @@ export namespace Cam::Gui {
 
             if (!hasDisplayedPoints) {
                 worldState->setAxisPickHoveredCandidate(
-                    Cam::Gui::World::MaterialState::NoAxisPickHover
+                    Cam::Gui::World::Stage::NoAxisPickHover
                 );
                 worldState->syncAxisPickMarkers();
                 return;
             }
 
-            size_t hitIndex = Cam::Gui::World::MaterialState::NoAxisPickHover;
+            size_t hitIndex = Cam::Gui::World::Stage::NoAxisPickHover;
 
             Rev::Core::Pos3 hitPoint;
 
@@ -2246,7 +2280,7 @@ export namespace Cam::Gui {
 
             if (!project || !source) { return; }
 
-            for (Cam::App::MaterialState* state : project->states) {
+            for (Cam::App::Stage* state : project->stages) {
 
                 if (!state) { continue; }
 
@@ -2345,7 +2379,7 @@ export namespace Cam::Gui {
 
             if (!app || !view3d) { return; }
 
-            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+            Cam::Gui::World::Stage* worldState = displayedMaterialView();
 
             if (!worldState || !worldState->pickActor) { return; }
 
@@ -2426,7 +2460,7 @@ export namespace Cam::Gui {
 
         bool commitWorkingState(Event& e) {
 
-            if (!app || !app->commitWorkingState()) {
+            if (!app || !app->commitWorkingStage()) {
                 dbg("commit ignored");
                 return false;
             }
@@ -2483,10 +2517,10 @@ export namespace Cam::Gui {
 
             const bool editing = displayedModelIsEditable();
 
-            Cam::Gui::World::MaterialState* worldState =
+            Cam::Gui::World::Stage* worldState =
                 editing ? displayedMaterialView() : nullptr;
 
-            size_t newFaceId = Cam::Gui::World::MaterialState::NoHoveredFace;
+            size_t newFaceId = Cam::Gui::World::Stage::NoHoveredFace;
 
             if (worldState && worldState->pickActor) {
 
@@ -2511,13 +2545,13 @@ export namespace Cam::Gui {
                 }
             }
 
-            for (Cam::Gui::World::MaterialState* view : materialViews) {
+            for (Cam::Gui::World::Stage* view : materialViews) {
 
                 if (!view) { continue; }
 
                 size_t faceId = (view == worldState)
                     ? newFaceId
-                    : Cam::Gui::World::MaterialState::NoHoveredFace;
+                    : Cam::Gui::World::Stage::NoHoveredFace;
 
                 if (view->setHoveredFace(faceId)) {
                     view->applyFaceColors();
@@ -2608,18 +2642,18 @@ export namespace Cam::Gui {
                 }
             }
 
-            Cam::App::MaterialState* material = displayedState();
+            Cam::App::Stage* material = displayedState();
 
             if (material && material->toolPath.hasSliceFace()) {
                 material->toolPath.clearSlicePlane();
                 changed = true;
             }
 
-            Cam::Gui::World::MaterialState* worldState = displayedMaterialView();
+            Cam::Gui::World::Stage* worldState = displayedMaterialView();
 
             if (worldState) {
                 worldState->setAxisPickHoveredCandidate(
-                    Cam::Gui::World::MaterialState::NoAxisPickHover
+                    Cam::Gui::World::Stage::NoAxisPickHover
                 );
             }
 

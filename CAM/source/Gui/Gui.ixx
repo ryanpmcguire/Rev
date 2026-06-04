@@ -22,7 +22,7 @@ import Cam.Gui.WorldView;
 export import Cam.Gui.PreviewBar;
 
 import Rev.Element.ControlTheme;
-import Cam.Gui.MaterialState;
+import Cam.Gui.StageRow;
 import Cam.Gui.Theme;
 import Cam.Gui.MachineSettingsWindow;
 

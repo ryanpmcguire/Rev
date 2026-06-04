@@ -17,7 +17,7 @@ import Rev.OS.Dialog;
 import Cam.App.Project;
 import Cam.App.Persist;
 import Cam.App.MachineSettings;
-import Cam.App.MaterialState;
+import Cam.App.Stage;
 import Cam.App.Model;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
@@ -760,18 +760,18 @@ export namespace Cam::App {
             return activeProject->getDisplayedModel();
         }
 
-        bool selectState(MaterialState* state, bool addToSelection = false) {
+        bool selectStage(Stage* stage, bool addToSelection = false) {
 
             if (!activeProject) { return false; }
 
-            return activeProject->selectState(state, addToSelection);
+            return activeProject->selectStage(stage, addToSelection);
         }
 
-        bool deleteState(MaterialState* state) {
+        bool deleteStage(Stage* stage) {
 
             if (!activeProject) { return false; }
 
-            return activeProject->deleteState(state);
+            return activeProject->deleteStage(stage);
         }
 
         bool defeatureSelected() {
@@ -788,11 +788,11 @@ export namespace Cam::App {
             return activeProject->extendSelected(distance);
         }
 
-        bool commitWorkingState() {
+        bool commitWorkingStage() {
 
             if (!activeProject) { return false; }
 
-            return activeProject->commitWorkingState();
+            return activeProject->commitWorkingStage();
         }
 
         bool recalculateToolPath() {
@@ -810,7 +810,7 @@ export namespace Cam::App {
         }
 
         bool saveToolPathSettings(
-            MaterialState* state,
+            Stage* stage,
             const std::string& strategy,
             const std::string& toolName,
             double stepDown,
@@ -821,26 +821,26 @@ export namespace Cam::App {
             float linkRetractDistance
         ) {
 
-            if (!activeProject || !state || toolName.empty() || stepover <= 0.0) {
+            if (!activeProject || !stage || toolName.empty() || stepover <= 0.0) {
                 return false;
             }
 
-            auto it = std::find(activeProject->states.begin(), activeProject->states.end(), state);
+            auto it = std::find(activeProject->stages.begin(), activeProject->stages.end(), stage);
 
-            if (it == activeProject->states.end()) { return false; }
+            if (it == activeProject->stages.end()) { return false; }
 
-            state->toolPath.strategy = strategy;
-            state->toolPath.strategyAuto = false;
-            state->toolPath.toolName = toolName;
-            state->toolPath.stepDown = stepDown;
-            state->toolPath.stepover = stepover;
-            state->toolPath.feedRate = feedRate;
-            state->toolPath.rapidSpeedMmPerSec = rapidSpeedMmPerSec;
-            state->toolPath.climbMilling = climbMilling;
-            state->toolPath.linkRetractDistance = linkRetractDistance;
+            stage->toolPath.strategy = strategy;
+            stage->toolPath.strategyAuto = false;
+            stage->toolPath.toolName = toolName;
+            stage->toolPath.stepDown = stepDown;
+            stage->toolPath.stepover = stepover;
+            stage->toolPath.feedRate = feedRate;
+            stage->toolPath.rapidSpeedMmPerSec = rapidSpeedMmPerSec;
+            stage->toolPath.climbMilling = climbMilling;
+            stage->toolPath.linkRetractDistance = linkRetractDistance;
 
-            if (state->hasDelta) {
-                state->computeToolPath(activeProject->toolLibrary, activeProject->selectedToolName);
+            if (stage->hasDelta) {
+                stage->computeToolPath(activeProject->toolLibrary, activeProject->selectedToolName);
             }
 
             activeProject->dirty = true;
