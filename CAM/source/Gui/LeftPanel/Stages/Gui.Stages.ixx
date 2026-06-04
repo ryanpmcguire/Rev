@@ -46,8 +46,9 @@ export namespace Cam::Gui {
 
         Style List = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .overflow = Overflow::Show,
-            .size = { .width = 100_pct }
+            //.overflow = Overflow::Show,
+            .size = { .width = 100_pct },
+            //.background = { .color = rgba(255, 0, 0, 1.0f) }
         };
     };
 

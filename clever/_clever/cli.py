@@ -1,199 +1,207 @@
-"""Command-line interface for clever."""
+"""Command-line interface for clever (report-only phase).
+
+Commands:
+  init    (re)generate clever.json from the CMake/Ninja build tree
+  check   run the dirtiness ladder and report which files clever believes
+          must be rebuilt -- WITHOUT building anything
+  show    print one file's comprehension (debugging)
+"""
 
 from __future__ import annotations
 
 import argparse
-import shutil
-import subprocess
+import json
 import sys
-import time
 from pathlib import Path
 
 from . import __version__
-from . import config as config_mod
-from .cache import Cache
-from .engine import Engine
+from . import manifest as manifest_mod
 
 
-def _repo_root(cmake_build: Path) -> Path:
-    return cmake_build.parent
+def _load_manifest(args) -> tuple[dict, Path]:
+    mpath = Path(args.manifest).resolve()
+    if not mpath.exists():
+        raise FileNotFoundError(
+            f"{mpath} not found. Run `clever init` first to generate it.")
+    manifest = manifest_mod.load(mpath)
+    repo = mpath.parent
+    return manifest, repo
 
 
-def _default_exe_targets(project) -> list[str]:
-    return [t.name for t in project.targets.values() if t.kind == "exe"]
+def cmd_init(args) -> int:
+    cmake_build = Path(args.cmake_build).resolve()
+    out = Path(args.manifest).resolve()
+    manifest_mod.write(cmake_build, out)
+    m = manifest_mod.load(out)
+    nfiles = sum(len(t["sources"]) for t in m["targets"])
+    print(f"Wrote {out}")
+    print(f"  project: {m['project']}  std: {m['compiler']['std']}")
+    print(f"  targets: " + ", ".join(f"{t['name']}({t['kind']}, {len(t['sources'])} files)"
+                                     for t in m["targets"]))
+    print(f"  {nfiles} source files described.")
+    return 0
 
 
-def _embed_resources(repo: Path, verbose: bool) -> None:
-    script = repo / "Rev" / "scripts" / "Create_Resource_Modules.py"
-    if not script.exists():
-        return
-    print("  GEN  embedded resources")
-    cmd = [sys.executable, str(script), "--project-root", str(repo)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(repo))
-    if verbose and proc.stdout.strip():
-        print(proc.stdout)
-    if proc.returncode != 0:
-        print(f"  (resource embed failed, continuing)\n{proc.stderr}")
+def cmd_check(args) -> int:
+    from . import ladder  # imports libclang; defer so `init` works without it
+    from .store import Store
+
+    manifest, repo = _load_manifest(args)
+    store = Store(repo / args.build_dir)
+
+    report = ladder.run(manifest, repo, store, update=not args.no_update)
+
+    if args.json:
+        print(json.dumps({
+            "baseline": report.baseline,
+            "changed": report.changed,
+            "rebuild": report.rebuild,
+            "verdicts": [vars(v) for v in report.verdicts],
+        }, indent=2))
+        return 0
+
+    if report.baseline:
+        print(f"Baseline established: staged {len(report.changed)} files into "
+              f"{(repo / args.build_dir)}.")
+        print("Artifacts per file: <name>.digest.json / .ast.json / .graph.json")
+        print("Edit a file and run `clever check` again to see impact analysis.")
+        return 0
+
+    # Build-itinerary buckets.
+    touched = [v for v in report.verdicts if v.level in ("L1", "L2")]
+    changed = [v for v in report.verdicts if v.self_dirty]
+    changed_rels = {v.rel for v in changed}
+
+    print("clever build itinerary")
+    print("=" * 60)
+
+    print(f"\nTouched ({len(touched)})  -- timestamp moved, no real change:")
+    if not touched:
+        print("  (none)")
+    for v in sorted(touched, key=lambda x: x.rel):
+        why = "identical bytes" if v.level == "L1" else "comments/whitespace only"
+        print(f"  {v.rel}")
+        print(f"      {why}")
+
+    print(f"\nChanged ({len(changed)})  -- content actually changed:")
+    if not changed:
+        print("  (none)")
+    for v in sorted(changed, key=lambda x: x.rel):
+        print(f"  {v.rel}")
+        print(f"      {v.summary}")
+
+    # Consumers pulled in purely by impact (not themselves edited).
+    impacted = {rel: why for rel, why in report.rebuild.items() if rel not in changed_rels}
+    print(f"\nNeed rebuilding ({len(report.rebuild)}):")
+    if not report.rebuild:
+        print("  (nothing -- every change was cosmetic)")
+    for v in sorted(changed, key=lambda x: x.rel):
+        print(f"  {v.rel}")
+        print(f"      changed source")
+    for rel, why in sorted(impacted.items()):
+        print(f"  {rel}")
+        print(f"      consumer: {why}")
+    return 0
 
 
 def cmd_build(args) -> int:
-    cmake_build = Path(args.cmake_build).resolve()
-    build_dir = Path(args.build_dir).resolve()
-    repo = _repo_root(cmake_build)
+    from . import ladder
+    from .store import Store
+    from .builder import Builder
 
-    if args.clean and build_dir.exists():
-        shutil.rmtree(build_dir)
+    manifest, repo = _load_manifest(args)
+    store = Store(repo / args.build_dir)
 
     if not args.no_embed:
         _embed_resources(repo, args.verbose)
 
-    project = config_mod.load(cmake_build)
-    cache = Cache(build_dir / ".clever-cache.json")
-    engine = Engine(project, cache, build_dir, jobs=args.jobs, verbose=args.verbose)
+    print("Analysing dirtiness...")
+    report = ladder.run(manifest, repo, store, update=True)
+    rebuild_set = set(report.rebuild.keys())
+    if report.baseline:
+        print("(first run -- no prior baseline, so a full build will follow)")
+    else:
+        print(f"Ladder says {len(rebuild_set)} file(s) need rebuilding"
+              f"{' (plus any missing objects)' if rebuild_set else ''}.")
 
-    t0 = time.time()
-    print("Scanning modules...")
-    engine.scan_all()
-
-    targets = args.targets or _default_exe_targets(project)
-
-    if args.dry_run:
-        return _dry_run(engine, project, targets)
-
-    print(f"Compiling (targets: {', '.join(targets)}, -j{args.jobs})...")
-    ok = engine.compile_targets(targets)
-    cache.save()
-    if not ok:
+    builder = Builder(manifest, repo, store, rebuild_set, verbose=args.verbose)
+    if not builder.build():
         print("Build failed.")
         return 1
+    print(f"Build OK. {len(builder.compiled)} compiled, "
+          f"linked: {', '.join(sorted(builder.__dict__.get('_relinked', set()))) or 'nothing'}.")
 
-    print("Linking...")
-    # Link library deps first, then requested targets.
-    link_order = []
-    for tname in targets:
-        t = project.targets.get(tname)
-        if t:
-            for lib in t.link_libraries:
-                stem = Path(lib.replace("\\", "/")).stem
-                if stem in project.targets and stem not in link_order:
-                    link_order.append(stem)
-        if tname not in link_order:
-            link_order.append(tname)
-    for tname in link_order:
-        if not engine.link_target(tname):
-            cache.save()
-            return 1
-
-    cache.save()
-    dt = time.time() - t0
-    n = len(engine.compiled)
-    print(f"Done in {dt:.1f}s. {n} file(s) compiled, "
-          f"{len(engine.rebuilt_targets)} target(s) linked.")
-    if n == 0 and not engine.rebuilt_targets:
-        print("Everything up to date.")
+    if args.run:
+        return builder.run(args.target)
     return 0
 
 
-def _dry_run(engine, project, targets) -> int:
-    wanted = set(targets)
-    for tname in list(targets):
-        t = project.targets.get(tname)
-        if t:
-            for lib in t.link_libraries:
-                stem = Path(lib.replace("\\", "/")).stem
-                if stem in project.targets:
-                    wanted.add(stem)
-    dirty = []
-    for u in project.units:
-        if u.target not in wanted or u.source not in engine.graph.nodes:
-            continue
-        needs, *_ = engine._needs_compile(u)
-        if needs:
-            dirty.append(u)
-    print(f"\nWould compile {len(dirty)} file(s):")
-    for u in sorted(dirty, key=lambda x: (x.target, str(x.source))):
-        print(f"  {u.target}/{u.source.name}")
-    if not dirty:
-        print("  (nothing — up to date)")
-    return 0
+def _embed_resources(repo: Path, verbose: bool) -> None:
+    import subprocess
+    script = repo / "Rev" / "scripts" / "Create_Resource_Modules.py"
+    if not script.exists():
+        return
+    print("  GEN  embedded resources")
+    p = subprocess.run([sys.executable, str(script), "--project-root", str(repo)],
+                       capture_output=True, text=True, cwd=str(repo))
+    if p.returncode != 0:
+        print(f"  (resource embed failed, continuing)\n{p.stderr}")
 
 
-def cmd_scan(args) -> int:
-    cmake_build = Path(args.cmake_build).resolve()
-    build_dir = Path(args.build_dir).resolve()
-    project = config_mod.load(cmake_build)
-    cache = Cache(build_dir / ".clever-cache.json")
-    engine = Engine(project, cache, build_dir, verbose=args.verbose)
-    g = engine.scan_all()
-    cache.save()
-    n_mod = sum(1 for n in g.nodes.values() if n.provides)
-    print(f"{len(g.nodes)} translation units, {n_mod} module interfaces.")
-    print(f"{len(project.targets)} targets: " +
-          ", ".join(f"{t.name}({t.kind})" for t in project.targets.values()))
-    try:
-        order = g.topo_modules()
-        print(f"Topological module order computed ({len(order)} modules). No cycles.")
-    except RuntimeError as e:
-        print(f"WARNING: {e}")
-        return 1
-    return 0
+def cmd_show(args) -> int:
+    from . import comprehension as comp_mod
+    from . import ladder
 
-
-def cmd_why(args) -> int:
-    cmake_build = Path(args.cmake_build).resolve()
-    build_dir = Path(args.build_dir).resolve()
-    project = config_mod.load(cmake_build)
-    cache = Cache(build_dir / ".clever-cache.json")
-    engine = Engine(project, cache, build_dir)
-    g = engine.scan_all()
-    cache.save()
-    consumers = g.consumers_of(args.module)
-    print(f"Direct importers of '{args.module}' ({len(consumers)}):")
-    for c in sorted(consumers, key=str):
-        print(f"  {c.name}")
-    return 0
-
-
-def cmd_clean(args) -> int:
-    build_dir = Path(args.build_dir).resolve()
-    if build_dir.exists():
-        shutil.rmtree(build_dir)
-        print(f"Removed {build_dir}")
-    else:
-        print("Nothing to clean.")
+    manifest, repo = _load_manifest(args)
+    rel = args.file.replace("\\", "/")
+    tindex = ladder._target_index(manifest)
+    target = tindex.get(rel)
+    if not target:
+        # try to match by suffix
+        for s, t in tindex.items():
+            if s.endswith(rel):
+                rel, target = s, t
+                break
+    if not target:
+        print(f"error: {rel} not found in any target", file=sys.stderr)
+        return 2
+    flags = ladder._parse_flags(manifest, repo, target)
+    c = comp_mod.comprehend(repo / rel, flags, manifest["compiler"]["std"],
+                            manifest.get("comprehend", {}).get("extra_args", []))
+    print(json.dumps(c.to_json(), indent=2))
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="clever",
-        description="Content-aware incremental builder for C++23 modules.",
+        description="Content-aware dirtiness analyser for C++23 modules (report-only).",
     )
     p.add_argument("--version", action="version", version=f"clever {__version__}")
-    p.add_argument("--cmake-build", default="build",
-                   help="CMake/Ninja build dir to harvest flags from (default: build)")
-    p.add_argument("--build-dir", default="build-clever",
-                   help="clever's own output dir (default: build-clever)")
-    p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--manifest", default="clever.json", help="project manifest (default: clever.json)")
+    p.add_argument("--build-dir", default=".clever", help="clever artifact dir (default: .clever)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    b = sub.add_parser("build", help="incrementally build targets")
-    b.add_argument("targets", nargs="*", help="targets to build (default: all executables)")
-    b.add_argument("-j", "--jobs", type=int, default=1, help="parallel compile jobs")
-    b.add_argument("--dry-run", action="store_true", help="show what would rebuild")
-    b.add_argument("--clean", action="store_true", help="wipe build dir first")
-    b.add_argument("--no-embed", action="store_true", help="skip resource-embed pre-step")
+    i = sub.add_parser("init", help="generate clever.json from the CMake build tree")
+    i.add_argument("--cmake-build", default="build", help="CMake/Ninja build dir (default: build)")
+    i.set_defaults(func=cmd_init)
+
+    c = sub.add_parser("check", help="report which files need rebuilding (no build)")
+    c.add_argument("--json", action="store_true", help="machine-readable output")
+    c.add_argument("--no-update", action="store_true",
+                   help="do not update the baseline cache (re-run same comparison)")
+    c.set_defaults(func=cmd_check)
+
+    b = sub.add_parser("build", help="compile the dirty set, link, and optionally run")
+    b.add_argument("--run", action="store_true", help="run the executable after a successful build")
+    b.add_argument("--target", help="which executable to run (default: first exe)")
+    b.add_argument("--no-embed", action="store_true", help="skip the resource-embed pre-step")
+    b.add_argument("-v", "--verbose", action="store_true")
     b.set_defaults(func=cmd_build)
 
-    s = sub.add_parser("scan", help="scan modules and report the graph")
-    s.set_defaults(func=cmd_scan)
-
-    w = sub.add_parser("why", help="show direct importers of a module")
-    w.add_argument("module")
-    w.set_defaults(func=cmd_why)
-
-    c = sub.add_parser("clean", help="remove clever's build dir")
-    c.set_defaults(func=cmd_clean)
+    s = sub.add_parser("show", help="print one file's comprehension (debug)")
+    s.add_argument("file")
+    s.set_defaults(func=cmd_show)
     return p
 
 

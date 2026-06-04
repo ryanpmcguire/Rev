@@ -52,6 +52,17 @@ _DECL_KINDS = {
     cx.CursorKind.TYPEDEF_DECL,
 }
 
+_INTERFACE_SCOPES = {
+    cx.CursorKind.TRANSLATION_UNIT,
+    cx.CursorKind.NAMESPACE,
+    cx.CursorKind.STRUCT_DECL,
+    cx.CursorKind.CLASS_DECL,
+    cx.CursorKind.CLASS_TEMPLATE,
+    cx.CursorKind.UNION_DECL,
+    cx.CursorKind.ENUM_DECL,
+    cx.CursorKind.CLASS_TEMPLATE_PARTIAL_SPECIALIZATION,
+}
+
 _BODY_IS_INTERFACE_KINDS = {
     cx.CursorKind.FUNCTION_TEMPLATE,
     cx.CursorKind.CLASS_TEMPLATE,
@@ -144,6 +155,54 @@ def _mask(text: str) -> str:
                     break
                 j += 1
             blank(i + 1, j)
+            i = j + 1
+            continue
+        i += 1
+    return "".join(out)
+
+
+def _blank_comments(text: str) -> str:
+    """Offset-preserving copy with only comments blanked (strings preserved).
+
+    Used as the basis for signature/body hashing so that comment and
+    whitespace edits never alter a symbol's hash.
+    """
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = i
+            while j < n and text[j] != "\n":
+                out[j] = " "; j += 1
+            i = j
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = i
+            end = i + 2
+            while end + 1 < n and not (text[end] == "*" and text[end + 1] == "/"):
+                end += 1
+            for k in range(j, min(end + 2, n)):
+                if out[k] != "\n":
+                    out[k] = " "
+            i = end + 2
+            continue
+        if c == "R" and i + 1 < n and text[i + 1] == '"':
+            k = i + 2; delim = []
+            while k < n and text[k] != "(":
+                delim.append(text[k]); k += 1
+            close = ")" + "".join(delim) + '"'
+            e = text.find(close, k)
+            i = n if e == -1 else e + len(close)
+            continue
+        if c in "\"'":
+            j = i + 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2; continue
+                if text[j] == c or text[j] == "\n":
+                    break
+                j += 1
             i = j + 1
             continue
         i += 1
@@ -273,6 +332,10 @@ def comprehend(source: Path, flags: list[str], std: str, extra_args: list[str]) 
     def is_exported(off: int) -> bool:
         return any(a <= off <= b for a, b in exported)
 
+    # Comment-free, offset-preserving view used purely for hashing, so that a
+    # comment or whitespace edit can never change a symbol's sig/body hash.
+    hashbuf = _blank_comments(buf)
+
     args = list(flags) + ["-x", "c++", f"-std={std}", *extra_args]
     tu = _INDEX.parse(
         str(source), args=args,
@@ -297,14 +360,13 @@ def comprehend(source: Path, flags: list[str], std: str, extra_args: list[str]) 
 
         if c.kind not in _DECL_KINDS or not c.spelling:
             continue
-        if not (c.is_definition() or c.kind in (cx.CursorKind.FIELD_DECL, cx.CursorKind.VAR_DECL,
-                                                cx.CursorKind.ENUM_CONSTANT_DECL,
-                                                cx.CursorKind.TYPE_ALIAS_DECL,
-                                                cx.CursorKind.TYPEDEF_DECL)):
-            # Keep declarations even without a body; but skip pure forward
-            # decls of records that are defined elsewhere in the same file
-            # (walk_preorder will also visit the definition).
-            pass
+        # Only namespace-scope / record-member / top-level declarations are part
+        # of a module's interface. Anything whose semantic parent is a function
+        # (local variables, lambda params, block-scope types) is private to a
+        # body and must never be treated as a provided symbol.
+        sp = c.semantic_parent
+        if sp is None or sp.kind not in _INTERFACE_SCOPES:
+            continue
 
         ext = c.extent
         off = ext.start.offset
@@ -317,19 +379,37 @@ def comprehend(source: Path, flags: list[str], std: str, extra_args: list[str]) 
         own_names.add(c.spelling)
 
         body = _body_extent(c)
-        decl_text = buf[ext.start.offset:ext.end.offset]
         if body:
-            sig_text = buf[ext.start.offset:body[0]]
-            body_text = buf[body[0]:body[1]]
+            sig_text = hashbuf[ext.start.offset:body[0]]
+            body_text = hashbuf[body[0]:body[1]]
         else:
-            sig_text = decl_text
+            sig_text = hashbuf[ext.start.offset:ext.end.offset]
             body_text = ""
 
         try:
             type_spelling = c.type.spelling
         except Exception:
             type_spelling = ""
-        sig_basis = f"{c.kind.name}|{c.displayname}|{type_spelling}|{_norm_ws(sig_text)}"
+
+        is_record = c.kind in (cx.CursorKind.STRUCT_DECL, cx.CursorKind.CLASS_DECL,
+                               cx.CursorKind.CLASS_TEMPLATE, cx.CursorKind.ENUM_DECL)
+        if is_record:
+            # A record's *signature* is the shape importers see: its members'
+            # declarations (names + types), NOT their bodies or any comments.
+            members = []
+            for m in c.get_children():
+                if m.kind in _DECL_KINDS or m.kind == cx.CursorKind.CXX_BASE_SPECIFIER:
+                    try:
+                        mt = m.type.spelling
+                    except Exception:
+                        mt = ""
+                    members.append(f"{m.kind.name}:{m.displayname}:{mt}")
+            sig_basis = f"{c.kind.name}|{c.displayname}|" + "|".join(members)
+            # The record cursor itself carries no body hash; member bodies are
+            # tracked under each member's own USR entry.
+            body_text = ""
+        else:
+            sig_basis = f"{c.kind.name}|{c.displayname}|{type_spelling}|{_norm_ws(sig_text)}"
 
         # Classification: bias toward body-is-interface when unsure.
         klass = "abi-only"

@@ -111,10 +111,7 @@ export namespace Cam::Gui {
                 e.propagate = false;
             });
 
-            materialStates = new Stages(
-                this,
-                { &LeftPanelStyle::MaterialStateHost }
-            );
+            materialStates = new Stages(this);
 
             materialStates->onSelectState = [this](Event& e) {
                 if (onSelectState) { onSelectState(e); }

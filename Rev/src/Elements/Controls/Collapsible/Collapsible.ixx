@@ -133,8 +133,10 @@ export namespace Rev::Element {
         void expand(Event* e = nullptr)   { setOpen(true, e); }
         void collapse(Event* e = nullptr) { setOpen(false, e); }
 
-        // Apply the open/closed flag to the container visibility and arrow.
-        // `animate` rotates the arrow smoothly; otherwise it snaps (initial state).
+        // Apply the open/closed flag to the container and arrow. Collapsing sets
+        // the container's style visibility to Hidden, which excludes it from
+        // layout, drawing, and hit-testing. `animate` rotates the arrow smoothly;
+        // otherwise it snaps (initial state).
         void applyOpenState(Event* e, bool animate) {
 
             const Visibility target = open ? Visibility::Visible : Visibility::Hidden;

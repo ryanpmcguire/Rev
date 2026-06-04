@@ -2,14 +2,13 @@
 """clever entry point.
 
 Usage:
-    python clever/clever.py build
-    python clever/clever.py build CAMDemo -j8
-    python clever/clever.py build --dry-run
-    python clever/clever.py scan
-    python clever/clever.py why Rev.OS.File
-    python clever/clever.py clean
+    python clever/clever.py init           # generate clever.json from build/
+    python clever/clever.py check          # report what needs rebuilding
+    python clever/clever.py check --json    # machine-readable
+    python clever/clever.py show <file>     # dump one file's comprehension
 
-Run from the repository root.
+Run from the repository root. `check` builds nothing; it only reports clever's
+dirtiness analysis so its decisions can be validated by hand.
 """
 
 import sys

@@ -36,7 +36,6 @@ export namespace Cam::Gui {
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 100_pct },
-            .overflow = Overflow::Hide,
             .margin = { .bottom = 2_px },
             .padding = { .left = 4_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
             .border = { .radius = 6_px },
@@ -45,8 +44,7 @@ export namespace Cam::Gui {
 
         Style Header = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
-            .size = { .width = 100_pct },
-            .overflow = Overflow::Hide
+            .size = { .width = 100_pct }
         };
 
         Style IndexLabel = {
