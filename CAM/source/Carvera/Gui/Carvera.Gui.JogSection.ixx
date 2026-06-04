@@ -30,17 +30,17 @@ export namespace Carvera::Gui {
 
     namespace Theme = Cam::Gui::Theme;
 
-    // Jog section — live position readout + ±X/±Y/±Z/±A jog grid + step size.
+    // Jog section -- live position readout + +/-X/+/-Y/+/-Z/+/-A jog grid + step size.
     //
     // Keyboard plumbing (called by the Interface root via handleKeyDown /
     // handleKeyUp):
     //
-    //   ←/→ : −X/+X            shift   : continuous-hold mode
-    //   ↑/↓ : +Y/−Y            ctrl    : fine (×0.1) increment / feed
-    //   q/e : +Z/−Z
-    //   z/x : −A/+A
+    //   left/right : -X/+X       shift   : continuous-hold mode
+    //   up/down    : +Y/-Y       ctrl    : fine (x0.1) increment / feed
+    //   q/e        : +Z/-Z
+    //   z/x        : -A/+A
     //
-    // Without shift  a key press emits ONE step jog (autorepeat is ignored —
+    // Without shift  a key press emits ONE step jog (autorepeat is ignored --
     //                you must release and press again to step again).
     //
     // With shift     the section opens a "continuous session": ONE big
@@ -51,7 +51,7 @@ export namespace Carvera::Gui {
     //                (0x85) followed by a fresh $J in the new direction.  On
     //                release of the last key we cancel and emit a FINAL $J
     //                whose absolute target is rounded UP (per axis, in the
-    //                direction of motion) to the next jogStepMm multiple — so
+    //                direction of motion) to the next jogStepMm multiple -- so
     //                the machine always lands cleanly on the grid even though
     //                the path was a single continuous move.
     struct JogSection : public Box {
@@ -69,20 +69,20 @@ export namespace Carvera::Gui {
         static constexpr int   kJogFeedDegMin = 3000;
         // Per-leg "chunk": how far the in-flight jog targets at any time.
         // Must comfortably fit inside the machine's working envelope from any
-        // starting position — a huge target like 10 m triggers GRBL's soft
+        // starting position -- a huge target like 10 m triggers GRBL's soft
         // limit (the "jumping off a cliff" alarm).  We re-extend periodically
         // while keys are still held so the chunk size doesn't cap travel.
         static constexpr float kChunkMm       = 25.0f;
         static constexpr float kChunkDeg      = 90.0f;
         // While the machine is approaching the in-flight target, top up the
         // queue with another chunk so the planner never runs dry.  Threshold
-        // is "extend when less than 60% of the chunk remains" — at F=1000 the
-        // 200 ms extend cadence covers 3.3 mm, so 60% × 25 mm = 15 mm gives
+        // is "extend when less than 60% of the chunk remains" -- at F=1000 the
+        // 200 ms extend cadence covers 3.3 mm, so 60% x 25 mm = 15 mm gives
         // multiple ticks of margin before the machine could ever decelerate.
         static constexpr int   kExtendTickMs   = 200;
         static constexpr float kExtendFraction = 0.60f;
         // Safety margin past the live position when computing the final
-        // grid-aligned target — covers telemetry lag (~50 ms at F=1000 ≈ 0.8 mm)
+        // grid-aligned target -- covers telemetry lag (~50 ms at F=1000 ~ 0.8 mm)
         // and the brief jog-cancel deceleration distance so the final jog
         // never has to reverse.
         static constexpr float kSafetyMm      = 2.0f;
@@ -105,7 +105,7 @@ export namespace Carvera::Gui {
 
         Box* activeJogBtn = nullptr;
 
-        // -- Telemetry display throttle (140 Hz → only when value changes) ---
+        // -- Telemetry display throttle (140 Hz -> only when value changes) ---
 
         float lastShownX_ = 0, lastShownY_ = 0, lastShownZ_ = 0, lastShownA_ = 0;
         bool  lastShownValid_ = false;
@@ -122,7 +122,7 @@ export namespace Carvera::Gui {
         //
         // A session begins on the first shift+axis keyDown and ends on
         // release of the last axis key.  All motion is expressed as G91
-        // relative deltas so we never need to know the WCS state — a +25
+        // relative deltas so we never need to know the WCS state -- a +25
         // chunk always moves the axis +25 from wherever the controller is.
         //
         // We track:
@@ -155,7 +155,7 @@ export namespace Carvera::Gui {
             subscribe();
 
             // Extend the in-flight jog whenever the machine is approaching its
-            // commanded delta — keeps continuous-hold motion seamless without
+            // commanded delta -- keeps continuous-hold motion seamless without
             // ever queuing more than ~1 extra jog at a time.
             extendTicker_.onFrame([this](Rev::Core::AnimationEvent&) {
                 maybeExtendLeg();
@@ -302,13 +302,13 @@ export namespace Carvera::Gui {
             *state = true;
 
             if (e.keyboard.shift) {
-                // Continuous-hold session — direction is recomputed from the
+                // Continuous-hold session -- direction is recomputed from the
                 // full key state inside updateContinuousSession.
                 updateContinuousSession(e.keyboard.ctrl);
                 activeJogBtn = btn;
             }
             else if (!wasDown) {
-                // Incremental tap (first press only — autorepeat is ignored).
+                // Incremental tap (first press only -- autorepeat is ignored).
                 const float fac = e.keyboard.ctrl ? kFineFactor : 1.0f;
                 emitTapStep(e.keyboard.key, fac);
                 activeJogBtn = btn;
@@ -408,12 +408,12 @@ export namespace Carvera::Gui {
         // Decide what to do given the current key state.  Called on every
         // shift-key transition (and on release while a session is active).
         //
-        //   no session, no dir  → nothing
-        //   no session, dir     → start a session, emit one big $J toward
+        //   no session, no dir  -> nothing
+        //   no session, dir     -> start a session, emit one big $J toward
         //                         a far target in the held direction
-        //   session,    dir same→ nothing (jog already in flight)
-        //   session,    dir new → jog cancel + new big $J toward new dir
-        //   session,    no dir  → jog cancel + final $J snapped to grid;
+        //   session,    dir same-> nothing (jog already in flight)
+        //   session,    dir new -> jog cancel + new big $J toward new dir
+        //   session,    no dir  -> jog cancel + final $J snapped to grid;
         //                         end session
         void updateContinuousSession(bool ctrlHeld) {
 
@@ -486,7 +486,7 @@ export namespace Carvera::Gui {
             float fx, fy, fz, fa;
             if (!air().livePosition(fx, fy, fz, fa)) { return; }
 
-            // Per-axis "remaining" = commanded delta − actual delta, signed in
+            // Per-axis "remaining" = commanded delta ? actual delta, signed in
             // the direction of motion (so positive means "still going").
             auto remaining = [](float start, float current, float cmd, int dir) {
                 if (dir == 0) { return std::numeric_limits<float>::infinity(); }

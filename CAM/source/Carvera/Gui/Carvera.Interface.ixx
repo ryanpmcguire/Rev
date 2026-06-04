@@ -34,7 +34,7 @@ export namespace Carvera::Gui {
     enum class CarveraCommand { Connect, Disconnect, Unlock, Reset };
 
     // ------------------------------------------------------------------
-    // Interface — the Carvera Air control panel.
+    // Interface -- the Carvera Air control panel.
     //
     // This is a *thin shell* that owns six independent sections (Connection,
     // Arm, Tool, Jog, Origin, Log) and panel-wide keyboard plumbing.  It
@@ -95,7 +95,7 @@ export namespace Carvera::Gui {
         }
 
         // Keyboard plumbing: axis keys belong to the JogSection but ONLY when
-        // it has the keyboard focus — i.e. when the operator has clicked into
+        // it has the keyboard focus -- i.e. when the operator has clicked into
         // the jog area (the section shows a blue focus ring then).  Without
         // focus the keys fall through to gestures and the rest of the panel,
         // so typing in (say) an origin name field can never trip jogging.

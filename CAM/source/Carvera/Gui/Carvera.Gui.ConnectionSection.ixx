@@ -25,7 +25,7 @@ export namespace Carvera::Gui {
 
     namespace Theme = Cam::Gui::Theme;
 
-    // Connection section — title row, host:port readout, and the four
+    // Connection section -- title row, host:port readout, and the four
     // primary machine-IO buttons.  Reflects connection + state border.
     struct ConnectionSection : public Box {
 
@@ -38,7 +38,7 @@ export namespace Carvera::Gui {
         // only mutates styles when the resolved value would actually change.
         // Touching styles.add/remove on every frame marks the element dirty
         // even when nothing changed, which keeps the window in a perpetual
-        // redraw loop — see ArmSection / ToolSection for the same pattern.
+        // redraw loop -- see ArmSection / ToolSection for the same pattern.
         enum class BorderKind { Unset, None, Connected, Alarm, ToolChange };
         bool       lastConnApplied_   = false;
         bool       lastConnValid_     = false;
@@ -81,7 +81,7 @@ export namespace Carvera::Gui {
 
         // Reflect connection status (dot colour) and machine state (border).
         // Only mutates styles when the resolved value differs from what is
-        // already applied — see field declarations for the rationale.
+        // already applied -- see field declarations for the rationale.
         void computeChildren(Event& e) override {
 
             const bool        isConnected = air().connected();

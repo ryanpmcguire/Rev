@@ -35,7 +35,7 @@ export namespace Carvera::Gui {
 
     namespace Theme = Cam::Gui::Theme;
 
-    // ── Origin section ──────────────────────────────────────────────
+    // -- Origin section ----------------------------------------------
     //
     //   [ Origins ]
     //   [ <alias name, editable> ]      <- rename the selected origin
@@ -229,7 +229,7 @@ export namespace Carvera::Gui {
             if (originA) originA->setValue(o->a);
         }
 
-        // A coordinate field was edited by hand — store it back into the active
+        // A coordinate field was edited by hand -- store it back into the active
         // alias, mark it usable, and persist.
         void onOriginEdited(Event& e) {
             Cam::App::OriginAlias* o = activeOriginPtr();

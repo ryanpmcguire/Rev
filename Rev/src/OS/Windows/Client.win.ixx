@@ -126,7 +126,7 @@ export namespace Rev {
             if (result == SOCKET_ERROR) {
                 dbg("[Client] send failed (%d)", WSAGetLastError());
             } else {
-                dbg("[Client] Sent %d bytes", result);
+                //dbg("[Client] Sent %d bytes", result);
             }
         }
 
@@ -292,7 +292,7 @@ export namespace Rev {
                 }
 
                 buffer[bytes] = '\0';
-                dbg("[Client] Received %d bytes: %s", bytes, buffer);
+                //dbg("[Client] Received %d bytes: %s", bytes, buffer);
                 fireData(buffer, bytes);
             }
         }

@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -62,13 +63,13 @@ export namespace Carvera {
 
         // -- Public enums --------------------------------------------
 
-        // Tool-change lifecycle.  A change walks None → Seeking → Standby →
-        // (Confirming) → None:
+        // Tool-change lifecycle.  A change walks None -> Seeking -> Standby ->
+        // (Confirming) -> None:
         //
         //   None        no change in progress.
         //   Seeking     M6 issued; the machine is travelling to the change
         //               position (it has not yet reported "Tool" state).
-        //   Standby     the machine is at the change position and waiting —
+        //   Standby     the machine is at the change position and waiting --
         //               for the ATC carousel, or for the operator to fit the
         //               tool and confirm.  This is the blue-light state.
         //   Confirming  the operator confirmed; the machine is finishing the
@@ -77,6 +78,23 @@ export namespace Carvera {
         // Each transition emits a discrete event (begin / standby / confirm /
         // complete) so the GUI can react precisely.
         enum class ToolChangePhase { None, Seeking, Standby, Confirming };
+
+        // Internal orchestration phase.  MORE granular than the public
+        // ToolChangePhase because robustness demands separating "M6 sent,
+        // awaiting machine ack" (Requested) from "machine confirmed it is
+        // beginning the ATC" (Seeking).  Every transition out of a non-None
+        // phase requires positive evidence (a specific machine reply or a
+        // verified state change), never just an inference from having sent
+        // a command.  Mapped onto ToolChangePhase by toolChangePhase().
+        enum class TcPhase {
+            None,         // No tool change in progress.
+            Requested,    // M5/G4/M6 sent.  Awaiting "Please change..." ack.
+            Seeking,      // M6 acked.  Awaiting machine to enter Tool state.
+            Standby,      // Machine at ATC prompt (state == Tool).  Awaiting confirm.
+            Confirming,   // Confirm sent.  Awaiting state to leave Tool.
+            Finishing,    // Touch-off + return in progress.  Awaiting sustained Idle.
+            Aborted,      // Operation failed.  Operator must acknowledge / reset.
+        };
 
         enum class ConnectionStatus { Disconnected, Connecting, Connected, Error };
 
@@ -91,7 +109,25 @@ export namespace Carvera {
 
         // One payload shared by all four tool-change lifecycle channels; the
         // `phase` field says which transition the machine just entered.
-        struct ToolChangeEvent { int slot = 0; ToolChangePhase phase = ToolChangePhase::None; };
+        // `aborted` is set on the Complete channel when the change ended
+        // because of a failure rather than success; `reason` is a single
+        // operator-facing sentence explaining what went wrong.
+        struct ToolChangeEvent {
+            int             slot = 0;
+            ToolChangePhase phase = ToolChangePhase::None;
+            bool            aborted = false;
+            std::string     reason;
+        };
+
+        // Result of a precondition-checked operation.  The GUI surfaces
+        // `reason` directly to the operator when ok is false.
+        struct OperationResult {
+            bool        ok = true;
+            std::string reason;
+
+            static OperationResult success()                       { return { true, "" }; }
+            static OperationResult failure(std::string r)          { return { false, std::move(r) }; }
+        };
 
         // -- Singleton -----------------------------------------------
 
@@ -102,7 +138,7 @@ export namespace Carvera {
 
         Air() {
 
-            // Watchdog — re-issues "?" if a chain-polled reply never arrived.
+            // Watchdog -- re-issues "?" if a chain-polled reply never arrived.
             watchdog.onFrame([this](Rev::Core::AnimationEvent&) {
                 if (!connected()) { return; }
                 auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -135,7 +171,7 @@ export namespace Carvera {
         Air& operator=(const Air&) = delete;
 
         // ============================================================
-        // Event registration (dispatcher-based — many listeners allowed)
+        // Event registration (dispatcher-based -- many listeners allowed)
         // ============================================================
 
         void onTelemetryFrame(const std::function<void(TelemetryEvent&)>& f) { telemetryDispatcher.listen(&Air::telemetryEvent, f); }
@@ -145,11 +181,11 @@ export namespace Carvera {
         void onArm           (const std::function<void(ArmEvent&)>&        f) { armDispatcher.listen(&Air::armEvent, f); }
 
         // Tool-change lifecycle channels:
-        //   Begin     — a change was just requested (M6 sent, machine seeking).
-        //   Standby   — the machine reached the change position and is waiting
-        //               (carousel, or operator confirmation — the blue light).
-        //   Confirm   — the operator confirmed; the machine is finishing.
-        //   Complete  — the change is fully done; back to normal operation.
+        //   Begin     -- a change was just requested (M6 sent, machine seeking).
+        //   Standby   -- the machine reached the change position and is waiting
+        //               (carousel, or operator confirmation -- the blue light).
+        //   Confirm   -- the operator confirmed; the machine is finishing.
+        //   Complete  -- the change is fully done; back to normal operation.
         void onToolChangeBegin   (const std::function<void(ToolChangeEvent&)>& f) { tcBeginDispatcher.listen(&Air::toolChangeBeginEvent, f); }
         void onToolChangeStandby (const std::function<void(ToolChangeEvent&)>& f) { tcStandbyDispatcher.listen(&Air::toolChangeStandbyEvent, f); }
         void onToolChangeConfirm (const std::function<void(ToolChangeEvent&)>& f) { tcConfirmDispatcher.listen(&Air::toolChangeConfirmEvent, f); }
@@ -195,6 +231,11 @@ export namespace Carvera {
                 queueConnection(ConnectionStatus::Connected, e.address);
                 resetTelemetryState();
                 sendStatus();          // kick off the chain poll
+                // Ask the controller for its parser state -- the response (a
+                // bracketed line like "[G0 G54 ... T1 F0 S0]") is parsed by
+                // processLine and tells us which tool is already in the
+                // spindle.  Without this we wouldn't know after a reconnect.
+                client->send("$G\n");
                 watchdog.play();
                 displayLoop.setPeriod(LivePeriodMs);
             });
@@ -272,15 +313,24 @@ export namespace Carvera {
         bool isExecuting()    const { return executing.load(); }
 
         ToolChangePhase toolChangePhase() const {
-            switch (tcGate.load()) {
-                case 1:  return ToolChangePhase::Seeking;
-                case 2:  return ToolChangePhase::Standby;
-                case 3:  return ToolChangePhase::Confirming;
-                default: return ToolChangePhase::None;
+            switch (tcPhase_) {
+                case TcPhase::Requested:  return ToolChangePhase::Seeking;
+                case TcPhase::Seeking:    return ToolChangePhase::Seeking;
+                case TcPhase::Standby:    return ToolChangePhase::Standby;
+                case TcPhase::Confirming: return ToolChangePhase::Confirming;
+                case TcPhase::Finishing:  return ToolChangePhase::Confirming;
+                case TcPhase::None:
+                case TcPhase::Aborted:    return ToolChangePhase::None;
             }
+            return ToolChangePhase::None;
         }
 
-        bool toolChangeGated() const { return tcGate.load() != 0; }
+        // The currently-active orchestration phase, useful for UI/diagnostics.
+        const std::string& toolChangeAbortReason() const { return tcAbortReason_; }
+
+        bool toolChangeGated() const {
+            return tcPhase_ != TcPhase::None && tcPhase_ != TcPhase::Aborted;
+        }
 
         // ============================================================
         // Motion / control  (the GUI asks; Air emits the G-code)
@@ -305,7 +355,7 @@ export namespace Carvera {
 
         // Issue a single $J jog as a RELATIVE delta on each axis.  Per the
         // GRBL jog spec, $J=G90 absolute coordinates are interpreted in the
-        // active WCS (G54..G59), NOT machine coords — so after a Set Origin
+        // active WCS (G54..G59), NOT machine coords -- so after a Set Origin
         // there is no safe absolute target we can compute without first
         // pulling the WCS offset.  G91 relative dodges the whole issue: a
         // delta of +25 always moves the axis +25 from wherever the controller
@@ -346,9 +396,10 @@ export namespace Carvera {
             if (!connected()) { return; }
             const char b = static_cast<char>(0x85);
             client->send(std::string(1, b));
+            dbg("[Air] jog cancel (0x85) sent");
         }
 
-        // Rapid to an absolute MACHINE position (G53 — independent of any work
+        // Rapid to an absolute MACHINE position (G53 -- independent of any work
         // offset).  Used by the GUI's origin "Goto".
         void goTo(float x, float y, float z, float a) {
             if (!connected() || !confValid) {
@@ -359,9 +410,28 @@ export namespace Carvera {
             intentX = x; intentY = y; intentZ = z; intentA = a;
         }
 
-        void home()   { if (requireConnected()) { sendLine("$H\n");    pushLog("Homing..."); } }
-        void unlock() { if (requireConnected()) { sendLine("$X\n");    pushLog("Unlocked.");  } }
-        void reset()  { if (requireConnected()) { sendLine("reset\n"); } }
+        void home()   { if (requireConnected()) { sendLine("$H\n"); pushLog("Homing..."); } }
+        void unlock() {
+            if (!requireConnected()) { return; }
+            sendLine("$X\n");
+            pushLog("Unlock sent.");
+            // Unlock is the operator's way of saying "I cleared the alarm" --
+            // any aborted tool change can be acknowledged now.
+            if (tcPhase_ == TcPhase::Aborted) { clearAbortedToolChange(); }
+        }
+
+        // Soft reset (Ctrl-X / 0x18).  Clears controller state, including any
+        // stuck ATC cycle.  After a reset our orchestration view is invalid:
+        // drop any in-flight tool change and start fresh.
+        void reset() {
+            if (!connected()) { return; }
+            client->send(std::string(1, char(0x18)));
+            pushLog("Reset sent (Ctrl-X / 0x18).");
+            if (isPhaseActive(tcPhase_)) {
+                tcAbort("Reset issued by operator.");
+            }
+            clearAbortedToolChange();
+        }
 
         // Immediate stop: feed-hold + soft-reset in one write, then flush.
         void stop() {
@@ -430,49 +500,159 @@ export namespace Carvera {
         // all emitted from updateToolChangeGate as the gate advances, so
         // streamed (automatic) M6 changes get the same events.
         //
-        // autoConfirm: when true, Air presses "Ok" for the operator the instant
-        // the machine reaches Standby — a one-click "load this tool and touch
-        // off" used when nothing is loaded yet (the tool is already fitted).
-        void changeTool(int slot, bool autoConfirm = false) {
-            if (!connected()) { pushLog("Not connected - cannot change tool."); return; }
-            sendLine(std::format("M6 T{}\n", slot));
-            tcSlot = slot;
-            tcAutoConfirm = autoConfirm;
-            tcGate.store(1);            // Seeking → drainTelemetry emits Begin
-            tcSentFrames.store(0);
-            pushLog(std::format("Tool change requested: T{}{}.",
-                slot, autoConfirm ? " (auto-confirm)" : ""));
+        // The operator must explicitly confirm at the machine OR via the GUI's
+        // confirmToolChange() -- Air never auto-confirms.
+        //
+        // Robust changeTool: every precondition is checked before any byte
+        // hits the wire, and the result tells the caller exactly why a refusal
+        // happened so the GUI can show a precise message.  Successful return
+        // means M5/G4/M6 went out and we are now in the Requested phase,
+        // awaiting positive acknowledgement from the machine ("Please change
+        // the tool to: T<n>") before advancing.
+        //
+        // The phase ONLY advances on evidence -- not on optimism.  If the M6
+        // is silently no-op'd or rejected, processLine catches the rejection
+        // message and aborts the change with a clear reason; if no reply
+        // arrives within kRequestedTimeoutMs, the phase tick aborts on
+        // timeout.  Either way we do NOT pretend the change is happening.
+        OperationResult changeTool(int slot) {
+            if (auto r = preflightToolChange(slot); !r.ok) {
+                pushLog(std::format("[changeTool] refused: {}", r.reason));
+                return r;
+            }
+            beginToolChangeOrchestration(slot, /*resetStreamFlow=*/false);
+            return OperationResult::success();
         }
 
         // The slot of the tool currently loaded + touched-off (0 = none/unknown,
-        // e.g. right after connecting).  Set when a change completes.
+        // e.g. right after connecting).  Set when a change Completes.
         int loadedToolSlot() const { return loadedSlot.load(); }
 
-        // Confirm a tool change — the protocol equivalent of pressing the
-        // physical button so the controller proceeds to touch-off.  Only
-        // meaningful while the machine is in Standby (waiting on the operator).
-        // The Carvera honours the GRBL realtime cycle-start byte (0x7E '~').
-        // The Confirm event is emitted from updateToolChangeGate on the 2 → 3
-        // transition.
-        void confirmToolChange() {
-            if (tcGate.load() != 2) { return; }     // not waiting on us
-            if (connected()) { client->send("~"); }
-            tcGate.store(3);            // Confirming (finishing / touch-off)
-            pushLog("Tool change confirmed - proceeding to touch-off.");
+        // Confirm a tool change -- the protocol equivalent of pressing the
+        // physical button on the machine so the controller leaves the M490.1
+        // wait state and proceeds to touch-off.  Only meaningful while the
+        // machine is in Standby (waiting on the operator).
+        //
+        // PROBE MODE: until we know what command Carvera's M490.1 actually
+        // listens for, each call to confirmToolChange tries the NEXT candidate
+        // in the table and logs which one it sent.  See CarveraREADME.md.
+        // Important: this does NOT poke the phase forward.  The phase ONLY
+        // advances when we observe the machine actually leave Tool state in
+        // response to the byte we sent -- in updateToolChangeGate.
+        OperationResult confirmToolChange() {
+            if (!connected()) {
+                return OperationResult::failure("Not connected to machine.");
+            }
+            if (tcPhase_ != TcPhase::Standby) {
+                return OperationResult::failure(std::format(
+                    "Confirm ignored: not at the ATC prompt (current phase: {}).",
+                    tcPhaseName(tcPhase_)));
+            }
+
+            struct Candidate {
+                std::string payload;
+                const char* desc;
+            };
+            static const Candidate kCandidates[] = {
+                { std::string(1, char(0x2A)),       "'*'  (0x2A)  Smoothie play/continue"     },
+                { std::string(1, char(0x7E)),       "'~'  (0x7E)  Grbl cycle start"            },
+                { std::string("\n"),                "'\\n' bare newline"                       },
+                { std::string("M600\n"),            "M600 (Marlin/Smoothie filament-change resume)" },
+                { std::string("M601\n"),            "M601 (Smoothie continue from pause)"      },
+                { std::string("M0\n"),              "M0   (program stop / skip pause)"         },
+                { std::string("M6\n"),              "M6   (re-issue bare tool change)"         },
+                { std::string("M491\n"),            "M491 (Carvera M-code adjacent to M490)"   },
+                { std::string("M492\n"),            "M492 (Carvera M-code adjacent to M490)"   },
+                { std::string("M493\n"),            "M493 (Carvera tool-length probe)"         },
+                { std::string("M495\n"),            "M495 (Carvera ATC sub-op)"                },
+                { std::string("M496\n"),            "M496 (Carvera ATC sub-op)"                },
+            };
+            static constexpr size_t kCount = sizeof(kCandidates) / sizeof(kCandidates[0]);
+
+            if (confirmProbeStandbyGen_ != tcStandbyGen_) {
+                confirmProbeStandbyGen_ = tcStandbyGen_;
+                confirmProbeIndex_      = 0;
+            }
+
+            const size_t i = confirmProbeIndex_ % kCount;
+            const Candidate& c = kCandidates[i];
+
+            client->send(c.payload);
+            pushLog(std::format(
+                "[confirm probe {}/{}] {} - if the next line is "
+                "\"machine state 'Tool' -> 'Run'\", this is the command",
+                i + 1, kCount, c.desc));
+
+            confirmProbeIndex_ = i + 1;
+            return OperationResult::success();
+        }
+
+        // Operator-driven abort: clears any pending tool-change phase so the
+        // GUI can be unstuck without a full machine reset.  Use when the
+        // operator has dealt with whatever went wrong (e.g. pressed the
+        // physical button to clear a stuck ATC, did the change by hand at the
+        // machine, etc.).  Does NOT send anything to the machine -- it only
+        // resets OUR view of the orchestration.
+        void clearAbortedToolChange() {
+            if (tcPhase_ == TcPhase::Aborted) {
+                tcAbortReason_.clear();
+                tcTransition(TcPhase::None, "operator cleared");
+            }
+        }
+
+        // Pre-flight precondition checks.  These are the single source of
+        // truth for "can we do X right now?" -- called both by GUI actions
+        // before the user even invokes them (to enable/disable buttons) and
+        // by the action methods themselves (defence in depth).
+        OperationResult preflightToolChange(int slot) const {
+            if (!connected())                { return OperationResult::failure("Not connected to machine."); }
+            if (slot < 1 || slot > 6)        { return OperationResult::failure(std::format("Invalid slot T{}. Carvera ATC has slots 1-6.", slot)); }
+            if (tcPhase_ == TcPhase::Aborted){ return OperationResult::failure("Previous tool change was aborted. Acknowledge and reset before retrying."); }
+            if (tcPhase_ != TcPhase::None)   { return OperationResult::failure(std::format("Another tool change is in progress (phase: {}).", tcPhaseName(tcPhase_))); }
+            if (machineState_ == "Alarm")    { return OperationResult::failure("Machine is in Alarm. Press Unlock ($X) or Reset before changing tool."); }
+            if (machineState_ == "Tool")     { return OperationResult::failure("Machine is ALREADY in an ATC cycle from a previous session. Press Reset (Ctrl-X / 0x18) to clear it, then retry."); }
+            if (machineState_ == "Hold")     { return OperationResult::failure("Machine is in Hold. Resume or Reset before changing tool."); }
+            if (executing.load())            { return OperationResult::failure("A program is executing. Stop it before changing tool."); }
+            if (slot == loadedSlot.load())   { return OperationResult::failure(std::format("T{} is already the loaded tool.", slot)); }
+            return OperationResult::success();
+        }
+
+        OperationResult preflightStart() const {
+            if (!connected())              { return OperationResult::failure("Not connected to machine."); }
+            if (!armed.load())             { return OperationResult::failure("Arm the machine before starting execution."); }
+            if (tcPhase_ != TcPhase::None) { return OperationResult::failure(std::format("Tool change in progress (phase: {}).", tcPhaseName(tcPhase_))); }
+            if (machineState_ == "Alarm")  { return OperationResult::failure("Machine is in Alarm. Press Unlock or Reset first."); }
+            if (machineState_ == "Hold")   { return OperationResult::failure("Machine is in Hold. Resume or Reset first."); }
+            if (executing.load())          { return OperationResult::failure("A program is already executing."); }
+            return OperationResult::success();
+        }
+
+        // Internal helper -- name a phase for diagnostic messages.
+        static const char* tcPhaseName(TcPhase p) {
+            switch (p) {
+                case TcPhase::None:       return "None";
+                case TcPhase::Requested:  return "Requested";
+                case TcPhase::Seeking:    return "Seeking";
+                case TcPhase::Standby:    return "Standby";
+                case TcPhase::Confirming: return "Confirming";
+                case TcPhase::Finishing:  return "Finishing";
+                case TcPhase::Aborted:    return "Aborted";
+            }
+            return "?";
         }
 
         // ============================================================
-        // Program execution — the orchestration / "action queue" model
+        // Program execution -- the orchestration / "action queue" model
         // ============================================================
         //
         // Callers do NOT hand Air a flat list of raw G-code.  They hand it a
         // queue of high-level intents (moves, spindle changes, tool changes),
         // and Air trickle-sends the controller a few lines at a time under flow
         // control.  Crucially, Air OWNS the dangerous bits: when it dequeues a
-        // tool change it drives the whole cycle itself — spindle down, M6, wait
+        // tool change it drives the whole cycle itself -- spindle down, M6, wait
         // for the machine to finish the carousel + touch-off, then go on a
         // "tangent" to return the machine to exactly where it was BEFORE the
-        // change — and only then resumes chewing through the queue.  It watches
+        // change -- and only then resumes chewing through the queue.  It watches
         // telemetry the whole time rather than trusting the controller to keep
         // its place (neocortex vs. motor cortex: plan, but watch the body).
 
@@ -480,12 +660,12 @@ export namespace Carvera {
             enum class Kind { Move, ToolChange, Spindle, Dwell, Raw };
             Kind kind = Kind::Raw;
 
-            // Move (WCS): feed <= 0 → rapid G0, feed > 0 → G1 F<feed>.
+            // Move (WCS): feed <= 0 -> rapid G0, feed > 0 -> G1 F<feed>.
             double x = 0, y = 0, z = 0, a = 0;
             double feed = 0;
 
             int    slot    = 0;   // ToolChange
-            double rpm     = 0;   // Spindle (> 0 → M3 S<rpm>, else M5)
+            double rpm     = 0;   // Spindle (> 0 -> M3 S<rpm>, else M5)
             double seconds = 0;   // Dwell (G4 P<seconds>)
             std::string raw;      // Raw G-code line (include trailing newline)
 
@@ -500,7 +680,10 @@ export namespace Carvera {
 
         // Hand Air the full program to execute.  Requires arming.
         bool enqueueProgram(const std::vector<Step>& program) {
-            if (!isArmed()) { return false; }
+            if (!isArmed()) {
+                dbg("[Air] enqueueProgram refused (not armed); %zu steps", program.size());
+                return false;
+            }
             {
                 std::lock_guard<std::mutex> lock(queueMutex);
                 steps_.assign(program.begin(), program.end());
@@ -512,13 +695,27 @@ export namespace Carvera {
                 resetFlow();
                 exec_ = steps_.empty() ? Exec::Idle : Exec::Streaming;
             }
+            dbg("[Air] enqueueProgram: %zu steps, clearanceZ=%.3f",
+                program.size(), clearanceZ_);
             executing.store(!program.empty());
             pump();
             return true;
         }
 
+        // Public entry: takes the queue mutex.  Safe to call from outside any
+        // locked context.  Do NOT call this from anywhere that already holds
+        // queueMutex (e.g. pump's tool-change-aborted branch) -- use
+        // clearQueueLocked() there instead.  std::mutex is non-recursive and a
+        // re-entrant lock throws std::system_error.
         void clearQueue() {
             std::lock_guard<std::mutex> lock(queueMutex);
+            clearQueueLocked();
+        }
+
+        // Same cleanup as clearQueue() but assumes the caller already holds
+        // queueMutex.  Splitting the implementation lets pump() purge the
+        // queue from inside its own locked region without deadlocking.
+        void clearQueueLocked() {
             steps_.clear();
             resetFlow();
             executing.store(false);
@@ -527,20 +724,26 @@ export namespace Carvera {
             haveReturn_       = false;
             returnMotionSeen_ = false;
             returnWaitFrames_ = 0;
-            tcGate.store(0);
-            tcSentFrames.store(0);
+            if (isPhaseActive(tcPhase_)) {
+                tcAbort("Program queue cleared while tool change was active.");
+            }
+            else {
+                tcPhase_           = TcPhase::None;
+                lastEmittedPhase_  = TcPhase::None;
+                tcAbortReason_.clear();
+            }
+            tcFinishIdleFrames_ = 0;
         }
 
-        // START button: stop if running, else stream the program the CAM view
-        // builds in response to onStartRequested / the start event.
-        void requestStart() {
-            if (isExecuting()) {
-                stop();
-                return;
-            }
-            if (!isArmed()) {
-                pushLog("Arm the machine before starting execution.");
-                return;
+        // START button: stop if running, else preflight + stream the program
+        // the CAM view builds in response to onStartRequested / the start
+        // event.  Returns the preflight result so the GUI can show the exact
+        // refusal reason instead of a generic "didn't work".
+        OperationResult requestStart() {
+            if (isExecuting()) { stop(); return OperationResult::success(); }
+            if (auto r = preflightStart(); !r.ok) {
+                pushLog(std::format("[start] refused: {}", r.reason));
+                return r;
             }
             if (onStartRequested) {
                 onStartRequested();
@@ -548,9 +751,11 @@ export namespace Carvera {
             }
             else {
                 pushLog("No execute mode active in the CAM view.");
+                return OperationResult::failure("No execute mode active in the CAM view.");
             }
             StartEvent e{};
             startDispatcher.tell(&Air::startEvent, e);
+            return OperationResult::success();
         }
 
         // ============================================================
@@ -592,7 +797,7 @@ export namespace Carvera {
 
     protected:
 
-        // Dispatcher key slots (never called — used only as unique keys).
+        // Dispatcher key slots (never called -- used only as unique keys).
         virtual void telemetryEvent         (TelemetryEvent&)  {}
         virtual void stateEvent             (StateEvent&)      {}
         virtual void connectionEvent        (ConnectionEvent&) {}
@@ -632,7 +837,7 @@ export namespace Carvera {
         Clock::time_point statusSentAt;
         static constexpr int StatusTimeoutMs = 750;
 
-        // -- Worker → main handoff ----------------------------------
+        // -- Worker -> main handoff ----------------------------------
 
         std::mutex              stateMutex;
         std::deque<std::string> pendingLog;
@@ -696,7 +901,7 @@ export namespace Carvera {
         // Safe clearance height (WCS), computed from the program's max Z.
         double clearanceZ_ = 5.0;
 
-        // Last commanded WCS position — the point to return to after a change.
+        // Last commanded WCS position -- the point to return to after a change.
         double lastX_ = 0, lastY_ = 0, lastZ_ = 0, lastA_ = 0;
         bool   haveLast_ = false;
 
@@ -708,11 +913,30 @@ export namespace Carvera {
         bool   returnMotionSeen_ = false;
         int    returnWaitFrames_ = 0;
 
-        std::atomic<int> tcGate       { 0 };   // 0 None, 1 Seeking, 2 Standby, 3 Confirming
-        std::atomic<int> tcSentFrames { 0 };   // ~7 ms ticks since M6 (Seeking timeout)
-        int              tcSlot       = 0;     // slot of the change in progress
-        int              lastGate_    = 0;     // last gate value an event was emitted for
-        bool             tcAutoConfirm = false;// auto-press Ok at Standby for this change
+        TcPhase           tcPhase_           = TcPhase::None;
+        TcPhase           lastEmittedPhase_  = TcPhase::None;
+        int               tcSlot             = 0;          // slot of the change in progress
+        std::string       tcAbortReason_;                  // operator-facing failure message
+        Clock::time_point tcPhaseEnteredAt_;               // wall clock when tcPhase_ last changed
+        int               tcFinishIdleFrames_ = 0;         // sustained-Idle counter during Finishing
+
+        // Phase timeouts.  Each one is a budget for the machine to make
+        // progress before we declare the operation stuck and abort.  Times
+        // chosen generously to cover slow ATC carousels and long touch-offs.
+        static constexpr int kRequestedTimeoutMs   = 5000;     // M6 ack
+        static constexpr int kSeekingTimeoutMs     = 30000;    // reach ATC prompt
+        static constexpr int kFinishingTimeoutMs   = 90000;    // touch-off + return
+        static constexpr int kFinishIdleSettleFr   = 70;       // ~500 ms in Idle = done
+        // Number of consecutive Idle telemetry frames seen during Confirming.
+        // We need a sustained Idle to declare Complete (the controller briefly
+        // visits non-Tool states during touch-off motion that aren't "done").
+        // At the ~7 ms display tick the constant below works out to ~500 ms.
+        // confirmToolChange probe state.  Each Standby entry bumps
+        // `tcStandbyGen_` (cheaply, on the main thread); confirmToolChange
+        // resets `confirmProbeIndex_` when it notices the generation changed.
+        int confirmProbeIndex_      = 0;
+        int confirmProbeStandbyGen_ = 0;
+        int tcStandbyGen_           = 0;
         std::atomic<int> loadedSlot    { 0 };  // slot currently loaded + touched off (0 = none)
 
         // -- Work-origin reference ----------------------------------
@@ -776,8 +1000,15 @@ export namespace Carvera {
             statusInFlight = true;
         }
 
-        // Thread-safe log append (worker or main).
+        // Thread-safe log append (worker or main).  Every line that the
+        // operator sees in the panel's log also goes to the IDE debug console
+        // via dbg(), prefixed so it's easy to grep through a mixed stream.
+        // pushLog is the right hook for both because every UI-visible log line
+        // is by construction non-spammy (machine replies, lifecycle events,
+        // user actions) -- high-frequency stuff like telemetry never comes
+        // through here.
         void pushLog(std::string msg) {
+            dbg("[Air] %s", msg.c_str());
             std::lock_guard lock(stateMutex);
             pendingLog.push_back(std::move(msg));
         }
@@ -807,10 +1038,17 @@ export namespace Carvera {
             statusInFlight      = false;
 
             // A fresh connection knows nothing about what is physically in the
-            // spindle — start as "no tool loaded" so the panel prompts for a
+            // spindle -- start as "no tool loaded" so the panel prompts for a
             // confirm before the first cut.
             loadedSlot.store(0);
-            tcAutoConfirm = false;
+
+            // Drop any in-flight orchestration state.  After a fresh
+            // connection we re-derive everything from the controller's
+            // first status frame + $G reply.
+            tcPhase_           = TcPhase::None;
+            lastEmittedPhase_  = TcPhase::None;
+            tcAbortReason_.clear();
+            tcFinishIdleFrames_ = 0;
         }
 
         // -- Worker-thread RX ---------------------------------------
@@ -846,6 +1084,11 @@ export namespace Carvera {
                 bool wposOk = (wp != std::string::npos) &&
                               sscanf(msg.c_str() + wp + 5, "%f,%f,%f,%f", &wx, &wy, &wz, &wa) >= 4;
 
+                // Some Carvera/Smoothie builds include the loaded tool number
+                // in the status frame as "|T:<n>" or "|TLO:..." -- parse it so
+                // we never have to guess what's currently in the spindle.
+                pickToolFromAnywhere(msg);
+
                 std::lock_guard lock(stateMutex);
                 pendingState = state;
                 if (posOk) {
@@ -865,7 +1108,101 @@ export namespace Carvera {
                 return;
             }
 
+            // Parser-state replies from `$G` (and similar inspect lines) come
+            // back wrapped in square brackets, e.g.
+            //   [G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]
+            // We scan them for the current tool number so reconnecting to a
+            // machine that already has a tool loaded immediately reflects that.
+            if (!msg.empty() && msg.front() == '[') {
+                pickToolFromAnywhere(msg);
+            }
+
+            // === Evidence-driven tool-change state machine advances ===
+            //
+            // The state machine ONLY advances out of Requested when we see
+            // a positive ack from the machine; it ONLY aborts when we see an
+            // explicit failure reply.  Both inputs are right here.
+
+            // Positive ack for M6: Carvera prints this once the ATC sequence
+            // is accepted.  This is what advances us out of Requested.
+            if (tcPhase_ == TcPhase::Requested &&
+                msg.find("Please change the tool to:") != std::string::npos)
+            {
+                tcTransition(TcPhase::Seeking, "machine acknowledged M6");
+            }
+
+            // Carvera-specific reject: M6 was sent while ATC is already mid-
+            // cycle.  Hard abort with the precise recovery instruction.
+            if (msg.find("ATC already begun") != std::string::npos &&
+                isPhaseActive(tcPhase_))
+            {
+                tcAbort(
+                    "Machine rejected M6 with 'ATC already begun'. A previous "
+                    "ATC cycle is still pending on the controller. Press Reset "
+                    "(Ctrl-X / 0x18) to clear it before retrying.");
+            }
+
+            // Grbl-style error replies abort whatever we were trying to do.
+            // We surface the controller's exact code so the operator can look
+            // it up.
+            if ((msg.rfind("error:", 0) == 0 || msg.find(" error:") != std::string::npos) &&
+                isPhaseActive(tcPhase_))
+            {
+                tcAbort(std::format(
+                    "Machine rejected a command with '{}'. Tool change aborted.",
+                    msg));
+            }
+
+            // ALARM messages.  The Alarm STATE is handled in
+            // updateToolChangeGate, but explicit ALARM:N replies tell us
+            // WHICH alarm; capture that for the abort reason.
+            if (msg.rfind("ALARM", 0) == 0 && isPhaseActive(tcPhase_)) {
+                tcAbort(std::format("Machine alarm: '{}'", msg));
+            }
+
             pushLog(std::format("< {}", msg));
+        }
+
+        // Look for "T<n>" or "T:<n>" anywhere in `msg` and, if present,
+        // record it as the currently-loaded tool slot.  Whitespace, '|', '['
+        // and ']' are valid delimiters before T -- but T must NOT be preceded
+        // by a letter/digit (otherwise we'd match e.g. "STAT").  Called from
+        // both the status-frame parser and the bracketed parser-state reply.
+        void pickToolFromAnywhere(const std::string& msg) {
+            for (size_t i = 0; i < msg.size(); i++) {
+                if (msg[i] != 'T') { continue; }
+                if (i > 0) {
+                    const char p = msg[i - 1];
+                    const bool boundary = p == ' ' || p == '|' || p == '['
+                                       || p == ',' || p == ':' || p == '>'
+                                       || p == '<' || p == ';';
+                    if (!boundary) { continue; }
+                }
+                size_t j = i + 1;
+                if (j < msg.size() && msg[j] == ':') { j++; }    // T:<n> form
+                if (j >= msg.size() || !std::isdigit((unsigned char)msg[j])) { continue; }
+                int n = 0;
+                while (j < msg.size() && std::isdigit((unsigned char)msg[j])) {
+                    n = n * 10 + (msg[j] - '0');
+                    j++;
+                }
+                // Plausibility check: Carvera ATC has a handful of slots, not
+                // hundreds.  Anything > 99 is almost certainly a different
+                // field we matched by accident (e.g. a time value).
+                if (n < 0 || n > 99) { continue; }
+                recordLoadedTool(n);
+                return;
+            }
+        }
+
+        // Update the cached loaded-slot from observed telemetry / parser state.
+        // Quiet (no log) when value didn't change to avoid log spam; noisy
+        // (one-line log) on every real change.
+        void recordLoadedTool(int slot) {
+            const int prev = loadedSlot.exchange(slot);
+            if (prev != slot) {
+                pushLog(std::format("Loaded tool detected: T{}.", slot));
+            }
         }
 
         // -- Main-thread drain + events -----------------------------
@@ -926,12 +1263,15 @@ export namespace Carvera {
 
             // Emit connection change.
             if (connDirty) {
+                dbg("[Air] connection -> %d (%s)", (int)connKind, connMsg.c_str());
                 ConnectionEvent e{ connKind, connMsg };
                 connectionDispatcher.tell(&Air::connectionEvent, e);
             }
 
-            // Machine-state change → event.
+            // Machine-state change -> event.
             if (machineState_ != nstate) {
+                dbg("[Air] machine state '%s' -> '%s'",
+                    machineState_.c_str(), nstate.c_str());
                 machineState_ = nstate;
                 StateEvent e{ machineState_ };
                 stateDispatcher.tell(&Air::stateEvent, e);
@@ -1020,61 +1360,236 @@ export namespace Carvera {
         // Called every drain (main thread, no locks held).  First advances the
         // gate from the latest machine state, then emits one discrete event for
         // whatever transition occurred since the previous drain.  All four
-        // lifecycle events funnel through here so manual and streamed (ATC)
-        // changes behave identically:
+        // Evidence-driven tool-change state machine.  Every transition out of
+        // a non-None phase requires positive evidence -- a verified machine
+        // reply or a state transition we actually witnessed -- not just an
+        // inference that something we sent must have worked.  Every active
+        // phase has a budget; if no evidence arrives in time, we abort with a
+        // clear reason instead of waiting forever.
         //
-        //   gate:  0 None → 1 Seeking → 2 Standby → 3 Confirming → 0 None
-        //   event:        begin        standby      confirm        complete
-        //
-        // The gate is set to 1 by changeTool()/pump() (begin), to 3 by
-        // confirmToolChange() (confirm); the 1→2, 1→0, 2→0 and 3→0 advances
-        // happen here from the reported state / timeout.
+        //   None        -- no change in progress (terminal idle).
+        //   Requested   -- M6 has been sent, awaiting "Please change the
+        //                  tool to: T<n>" ack.  Timeout -> Abort.  Receipt of
+        //                  "ATC already begun" / error: -> Abort.
+        //   Seeking     -- M6 acked; machine moving to ATC.  Awaiting state
+        //                  to enter Tool.  Timeout -> Abort.  Alarm -> Abort.
+        //   Standby    -- machine at the M490.1 prompt.  Awaiting the
+        //                  operator's confirm (GUI or physical button) which
+        //                  is the only way out.  No timeout (operator may be
+        //                  slow).  Alarm -> Abort.
+        //   Confirming  -- confirm sent.  Awaiting state to leave Tool, which
+        //                  proves the confirm was received and touch-off has
+        //                  begun.  Timeout here means our confirm command is
+        //                  wrong for this firmware -- Abort with a hint to
+        //                  press the physical button.
+        //   Finishing   -- touch-off + return in progress.  Awaiting sustained
+        //                  Idle.  Timeout -> Abort.  Alarm -> Abort.
+        //   Aborted     -- operator must clear via clearAbortedToolChange()
+        //                  (or a successful subsequent operation).
         void updateToolChangeGate(const std::string& state) {
 
             const bool isToolState = (state == "Tool");
-            int g = tcGate.load();
+            const bool isIdle      = (state == "Idle" || state == "Alarm");
+            const bool isAlarm     = (state == "Alarm");
 
-            if (g == 1) {                                   // Seeking
-                const int f = tcSentFrames.fetch_add(1);
-                if (isToolState)   { tcGate.store(2); g = 2; }      // → Standby
-                else if (f > 4285) { tcGate.store(0); g = 0; }      // ~30 s timeout
+            // Alarm during any active phase is an unconditional abort.  Any
+            // further machine progress is meaningless until the operator
+            // resets/unlocks.
+            if (isAlarm && isPhaseActive(tcPhase_)) {
+                tcAbort("Machine entered Alarm state during tool change.");
+                return;
             }
-            else if ((g == 2 || g == 3) && !isToolState) {  // Standby/Confirming
-                tcGate.store(0); g = 0;                            // → Complete
-            }
 
-            if (g != lastGate_) {
+            const int sincePhaseMs = msSincePhaseEntered();
 
-                const int from = lastGate_;
-                lastGate_ = g;
+            switch (tcPhase_) {
+                case TcPhase::None:
+                case TcPhase::Aborted:
+                    break;
 
-                switch (g) {
-                    case 1: emitToolChange(tcBeginDispatcher,    &Air::toolChangeBeginEvent,    ToolChangePhase::Seeking);    break;
-                    case 2: emitToolChange(tcStandbyDispatcher,  &Air::toolChangeStandbyEvent,  ToolChangePhase::Standby);    break;
-                    case 3: emitToolChange(tcConfirmDispatcher,  &Air::toolChangeConfirmEvent,  ToolChangePhase::Confirming); break;
-                    case 0:
-                        if (from != 0) {
-                            loadedSlot.store(tcSlot);   // this slot is now loaded + touched off
-                            tcAutoConfirm = false;
-                            emitToolChange(tcCompleteDispatcher, &Air::toolChangeCompleteEvent, ToolChangePhase::None);
+                case TcPhase::Requested:
+                    // Wait for "Please change the tool to:" message; advance
+                    // to Seeking from processLine, not from here.  Timeout
+                    // catches the case where the machine never acks (M6 lost,
+                    // network glitch, firmware refusal we didn't catch).
+                    if (sincePhaseMs > kRequestedTimeoutMs) {
+                        tcAbort(std::format(
+                            "Machine did not acknowledge M6 within {} ms. "
+                            "Check the connection and the machine state.",
+                            kRequestedTimeoutMs));
+                    }
+                    break;
+
+                case TcPhase::Seeking:
+                    if (isToolState) {
+                        tcStandbyGen_++;
+                        tcTransition(TcPhase::Standby,
+                            "machine reached ATC prompt (state -> Tool)");
+                    }
+                    else if (sincePhaseMs > kSeekingTimeoutMs) {
+                        tcAbort(std::format(
+                            "Machine did not reach the ATC prompt within {} s. "
+                            "Carousel may be stuck or M6 was rejected.",
+                            kSeekingTimeoutMs / 1000));
+                    }
+                    break;
+
+                case TcPhase::Standby:
+                    // Operator must confirm.  No timeout -- they may be slow.
+                    // Physical-button confirm also satisfies us here because
+                    // the machine will leave Tool state, and the confirming
+                    // branch below catches that.
+                    if (!isToolState) {
+                        // Confirmed via physical button on the machine itself.
+                        tcTransition(TcPhase::Finishing,
+                            std::format("machine left Tool state (operator pressed "
+                                        "physical button) -> '{}'", state));
+                    }
+                    break;
+
+                case TcPhase::Confirming:
+                    // Our GUI confirm has been sent.  Evidence that it took
+                    // effect = state leaving Tool.
+                    if (!isToolState) {
+                        tcTransition(TcPhase::Finishing,
+                            std::format("confirm received by machine (state -> '{}')",
+                                        state));
+                    }
+                    else if (sincePhaseMs > kRequestedTimeoutMs) {
+                        // The confirm byte/command we sent was not acted on.
+                        // This is the diagnostic for "Carvera ignores ~ / *"
+                        // and similar -- we know the right answer must be a
+                        // different command, OR the only path is the physical
+                        // button.
+                        tcAbort(
+                            "Machine did not respond to the confirm signal. "
+                            "The firmware may require a different confirm command, "
+                            "or the only release path is the physical button on "
+                            "the machine. Try the physical button; otherwise see "
+                            "CarveraREADME.md and adjust the probe.");
+                    }
+                    break;
+
+                case TcPhase::Finishing:
+                    // Touch-off + return in progress.  Wait for sustained Idle.
+                    if (isIdle) {
+                        if (++tcFinishIdleFrames_ > kFinishIdleSettleFr) {
+                            tcComplete();
                         }
-                        break;
-                }
+                    }
+                    else {
+                        tcFinishIdleFrames_ = 0;
+                    }
+                    if (sincePhaseMs > kFinishingTimeoutMs) {
+                        tcAbort(std::format(
+                            "Touch-off + return did not complete within {} s.",
+                            kFinishingTimeoutMs / 1000));
+                    }
+                    break;
             }
 
-            // Auto-confirm: if this change requested it, press "Ok" for the
-            // operator the moment the machine reaches Standby.
-            if (tcAutoConfirm && tcGate.load() == 2) {
-                confirmToolChange();   // → Confirming; Confirm event fires next drain
-            }
+            // Emit lifecycle events on PUBLIC phase change (the internal
+            // Requested/Seeking distinction is for our own bookkeeping; the
+            // GUI only cares about the four public phases).
+            emitPublicPhaseTransitions(state);
         }
 
-        void emitToolChange(
+        // -- State machine helpers --------------------------------------
+
+        static bool isPhaseActive(TcPhase p) {
+            return p != TcPhase::None && p != TcPhase::Aborted;
+        }
+
+        int msSincePhaseEntered() const {
+            return (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                Clock::now() - tcPhaseEnteredAt_).count();
+        }
+
+        // Single chokepoint for moving between phases.  Updates the entered-at
+        // timestamp, resets the finishing-settle counter when leaving
+        // Finishing, and logs a clean transition line for diagnostics.
+        void tcTransition(TcPhase to, const std::string& reason) {
+            if (tcPhase_ == to) { return; }
+            const TcPhase from = tcPhase_;
+            tcPhase_ = to;
+            tcPhaseEnteredAt_ = Clock::now();
+            if (to != TcPhase::Finishing) { tcFinishIdleFrames_ = 0; }
+            dbg("[Air] tcPhase %s -> %s : %s (slot=%d)",
+                tcPhaseName(from), tcPhaseName(to), reason.c_str(), tcSlot);
+        }
+
+        // Successful end of a tool change.  Sets the new loaded slot, fires
+        // the Complete event with aborted=false.
+        void tcComplete() {
+            const int slot = tcSlot;
+            loadedSlot.store(slot);
+            pushLog(std::format("Tool change complete (T{} loaded and touched off).", slot));
+            tcTransition(TcPhase::None, "settled in Idle after touch-off");
+            // Public phase emission picks this up below.
+        }
+
+        // Failure end of a tool change.  Logs the reason loudly, stores it
+        // for UI display, transitions to Aborted, and fires Complete with
+        // aborted=true so the UI can show the failure prominently.
+        void tcAbort(std::string reason) {
+            pushLog(std::format("TOOL CHANGE ABORTED: {}", reason));
+            tcAbortReason_ = std::move(reason);
+            tcTransition(TcPhase::Aborted, "abort path");
+        }
+
+        // Emit Begin / Standby / Confirm / Complete dispatcher events when
+        // the PUBLIC phase mapping crosses a boundary.  Decoupled from the
+        // internal Requested/Seeking split so the UI sees a clean four-phase
+        // lifecycle and only ever gets one event per real transition.
+        void emitPublicPhaseTransitions(const std::string& state) {
+            const TcPhase now = tcPhase_;
+            if (now == lastEmittedPhase_) { return; }
+
+            const TcPhase from = lastEmittedPhase_;
+            lastEmittedPhase_ = now;
+
+            dbg("[Air] tool-change public phase %s -> %s (state='%s', slot=%d)",
+                tcPhaseName(from), tcPhaseName(now), state.c_str(), tcSlot);
+
+            ToolChangePhase publicPhase = toolChangePhase();
+
+            if (from == TcPhase::None && now == TcPhase::Requested) {
+                emitToolChangeEvent(tcBeginDispatcher, &Air::toolChangeBeginEvent,
+                                    ToolChangePhase::Seeking, false, "");
+                return;
+            }
+            if (now == TcPhase::Standby) {
+                emitToolChangeEvent(tcStandbyDispatcher, &Air::toolChangeStandbyEvent,
+                                    ToolChangePhase::Standby, false, "");
+                return;
+            }
+            if (now == TcPhase::Confirming || now == TcPhase::Finishing) {
+                // Only emit Confirm event ONCE (on entry to Confirming or
+                // Finishing -- whichever the public phase first sees).
+                if (from != TcPhase::Confirming && from != TcPhase::Finishing) {
+                    emitToolChangeEvent(tcConfirmDispatcher, &Air::toolChangeConfirmEvent,
+                                        ToolChangePhase::Confirming, false, "");
+                }
+                return;
+            }
+            if (now == TcPhase::None || now == TcPhase::Aborted) {
+                const bool aborted = (now == TcPhase::Aborted);
+                emitToolChangeEvent(tcCompleteDispatcher, &Air::toolChangeCompleteEvent,
+                                    ToolChangePhase::None, aborted,
+                                    aborted ? tcAbortReason_ : std::string());
+                return;
+            }
+            (void)publicPhase;
+        }
+
+        void emitToolChangeEvent(
             Rev::Core::Dispatcher<ToolChangeEvent>& dispatcher,
             void (Air::*key)(ToolChangeEvent&),
-            ToolChangePhase phase
+            ToolChangePhase phase,
+            bool aborted,
+            std::string reason
         ) {
-            ToolChangeEvent e{ tcSlot, phase };
+            ToolChangeEvent e{ tcSlot, phase, aborted, std::move(reason) };
             dispatcher.tell(key, e);
         }
 
@@ -1117,17 +1632,20 @@ export namespace Carvera {
         // Kick off a tool change inside a running program: stop the spindle,
         // let it settle, request the change, and engage the gate.  The gate
         // (driven from telemetry in updateToolChangeGate) carries it through
-        // Standby/Confirm/Complete; pump() waits on it.
-        void beginToolChangeOrchestration(int slot) {
-            client->send("M5\n");
-            client->send("G4 P2\n");
-            client->send(std::format("M6 T{}\n", slot));
-            tcSlot        = slot;
-            tcAutoConfirm = false;   // ATC auto-proceeds; a manual tool waits for the operator
-            tcGate.store(1);
-            tcSentFrames.store(0);
-            resetFlow();             // the gate, not ok-counting, paces the change
-            pushLog(std::format("Program tool change: T{}.", slot));
+        // Standby/Confirm/Complete; pump() waits on it.  A program path
+        // (autonomous) still requires whoever is driving the machine to
+        // confirm at the prompt -- Air does not auto-confirm.
+        void beginToolChangeOrchestration(int slot, bool resetStreamFlow = true) {
+            sendLine("M5\n");
+            sendLine("G4 P2\n");
+            sendLine(std::format("M6 T{}\n", slot));
+            tcSlot = slot;
+            tcAbortReason_.clear();
+            tcFinishIdleFrames_ = 0;
+            tcTransition(TcPhase::Requested,
+                std::format("M6 T{} sent; awaiting machine ack", slot));
+            if (resetStreamFlow) { resetFlow(); }
+            pushLog(std::format("Tool change requested: T{}. Awaiting machine ack.", slot));
         }
 
         // After the change completes, the controller is parked over the touch-
@@ -1173,6 +1691,23 @@ export namespace Carvera {
                         Step& s = steps_.front();
 
                         if (s.kind == Step::Kind::ToolChange) {
+                            // Skip a tool change to the slot that is already
+                            // loaded.  The Carvera silently no-ops `M6 T<n>`
+                            // when n is the current tool -- no "Please change"
+                            // ack ever arrives, so our state machine would
+                            // sit in Requested until the 5 s ack timeout
+                            // aborts the program for no reason.  Drop the
+                            // step and continue with the rest of the queue.
+                            if (s.slot == loadedSlot.load()) {
+                                dbg("[Air] exec: skipping tool change to T%d "
+                                    "(already loaded)", s.slot);
+                                pushLog(std::format(
+                                    "Skipping tool change to T{}: already loaded.",
+                                    s.slot));
+                                steps_.pop_front();
+                                continue;
+                            }
+
                             // Drain everything already commanded first, so the
                             // machine is physically AT the pre-change point.
                             if (inFlight > 0) { break; }
@@ -1180,8 +1715,15 @@ export namespace Carvera {
                             haveReturn_ = haveLast_;
                             if (haveReturn_) {
                                 retX_ = lastX_; retY_ = lastY_; retZ_ = lastZ_; retA_ = lastA_;
+                                dbg("[Air] exec: Streaming -> ToolChanging "
+                                    "(slot=%d, return XYZ=%.3f,%.3f,%.3f)",
+                                    s.slot, retX_, retY_, retZ_);
                             }
-                            beginToolChangeOrchestration(s.slot);
+                            else {
+                                dbg("[Air] exec: Streaming -> ToolChanging "
+                                    "(slot=%d, no return point recorded)", s.slot);
+                            }
+                            beginToolChangeOrchestration(s.slot, /*resetStreamFlow=*/true);
                             steps_.pop_front();
                             exec_ = Exec::ToolChanging;
                             return;   // hand off; nothing more streams this tick
@@ -1193,6 +1735,7 @@ export namespace Carvera {
                     }
 
                     if (steps_.empty() && inFlight == 0) {
+                        dbg("[Air] exec: Streaming -> Idle (program complete)");
                         exec_ = Exec::Idle;
                         executing.store(false);
                         pushLog("Program complete.");
@@ -1201,11 +1744,25 @@ export namespace Carvera {
                 }
 
                 case Exec::ToolChanging:
-                    // Wait for the WHOLE change (carousel + touch-off) to finish
-                    // — i.e. the gate to fully clear — before touching anything.
-                    if (tcGate.load() == 0) {
+                    // Wait for the WHOLE change to FINISH SUCCESSFULLY before
+                    // resuming the program.  If the change aborted, do not
+                    // queue return moves: stop the program, surface the abort
+                    // reason, and let the operator decide.
+                    if (tcPhase_ == TcPhase::None) {
+                        dbg("[Air] exec: ToolChanging -> Returning (change complete)");
                         sendReturnMoves();
                         exec_ = Exec::Returning;
+                    }
+                    else if (tcPhase_ == TcPhase::Aborted) {
+                        dbg("[Air] exec: ToolChanging -> Idle (change aborted: %s)",
+                            tcAbortReason_.c_str());
+                        pushLog(std::format(
+                            "Program stopped: tool change failed ({}).",
+                            tcAbortReason_));
+                        // We already hold queueMutex -- use the locked variant
+                        // to avoid a re-entrant lock on std::mutex (which would
+                        // throw std::system_error).
+                        clearQueueLocked();
                     }
                     break;
 
@@ -1215,13 +1772,19 @@ export namespace Carvera {
                     if (!returnMotionSeen_) {
                         if (machineState_ == "Run" || machineState_ == "Jog") {
                             returnMotionSeen_ = true;
+                            dbg("[Air] exec: return motion observed (state='%s')",
+                                machineState_.c_str());
                         }
                         else if (++returnWaitFrames_ > 600) {   // ~4 s: nothing to do / missed
                             returnMotionSeen_ = true;
+                            dbg("[Air] exec: return motion timeout (state='%s')",
+                                machineState_.c_str());
                         }
                     }
                     else if (inFlight == 0 &&
                              (machineState_ == "Idle" || machineState_ == "Alarm")) {
+                        dbg("[Air] exec: Returning -> Streaming (settled, state='%s')",
+                            machineState_.c_str());
                         exec_ = Exec::Streaming;
                     }
                     break;

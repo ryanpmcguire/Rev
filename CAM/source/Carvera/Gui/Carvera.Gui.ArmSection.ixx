@@ -22,7 +22,7 @@ export namespace Carvera::Gui {
 
     namespace Theme = Cam::Gui::Theme;
 
-    // Arm section — the ARM / SPINDLE ARM toggles and the START/STOP run button.
+    // Arm section -- the ARM / SPINDLE ARM toggles and the START/STOP run button.
     // All three reflect Air state in computeChildren.
     struct ArmSection : public Box {
 
@@ -33,7 +33,7 @@ export namespace Carvera::Gui {
         Box*  runBtn      = nullptr;  Text* runLabel     = nullptr;
 
         // Last applied states.  computeChildren only swaps a style when it
-        // actually differs — unconditional styles.add/remove marks the element
+        // actually differs -- unconditional styles.add/remove marks the element
         // dirty even when the resolved style is identical, perpetuating draw.
         enum class RunKind { Unset, Idle, Armed, Executing };
         bool    lastArmedApplied_       = false;

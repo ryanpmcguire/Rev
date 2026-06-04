@@ -185,7 +185,7 @@ export namespace Carvera::Gui {
             .border     = { .color = rgba(255, 0, 0, 1.0), .radius = 6_px, .width = 2_px }
         };
 
-        // START/STOP run button — full-width below the arm row.
+        // START/STOP run button -- full-width below the arm row.
         // "Stop" state reuses ArmedBanner (red tint); "Start" uses this green tint.
         inline Rev::Element::Style RunBanner = {
             .background = { .color = rgba(34, 197, 94, 0.2) },

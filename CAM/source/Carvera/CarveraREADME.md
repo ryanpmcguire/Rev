@@ -1,0 +1,221 @@
+# Carvera Protocol Notes
+
+A distilled reference for working with the Carvera (Makera) ATC desktop CNC
+from the application side.  Co-located with `CarveraAir.ixx` so future
+sessions can come up to speed without re-deriving the protocol by
+experiment.  Anything noted as **observed** has been confirmed in this
+project's session logs; anything noted as **community / inferred** is from
+the Carvera Community Controller source and Smoothieware behaviour.
+
+## Machine basics
+
+- 3- or 4-axis desktop mill from Makera.  Working envelope ~360x240x140 mm
+  (3-axis) with an optional 4th rotary (A).
+- 6-slot **automatic tool changer (ATC)** with touch-off probe.
+- Firmware: **Smoothieware fork** (Cortex-M4), with Carvera/Makera-specific
+  M-codes and ATC orchestration on top.
+- Transport: Wi-Fi TCP socket, default port **2222**.
+- Coordinate systems: standard Grbl/Smoothie (G54..G59 WCS + G53 machine).
+  `$J` (jog) honours `G90`/`G91` in the active WCS; absolute machine targets
+  require an explicit `G53` prefix.
+
+## Real-time bytes (single bytes, no newline)
+
+These are processed out-of-band -- they can be sent mid-line and act
+immediately, regardless of buffer state.
+
+| Byte   | Hex  | Meaning                                            | Used in code |
+|--------|------|----------------------------------------------------|--------------|
+| `?`    | 0x3F | Status query (Grbl).  Returns `<...>` frame.       | `sendStatus` (confirmed) |
+| `!`    | 0x21 | Feed hold (Grbl) -- decelerate, hold.               | `stop` (confirmed) |
+| `~`    | 0x7E | Cycle start / resume from feed hold (Grbl).        | `stop` (combined w/ reset) |
+| `*`    | 0x2A | "Play / continue" (Smoothie extension).            | tried -- does NOT release M490.1 |
+| 0x18   |      | Soft reset / Ctrl-X (Grbl).                        | `stop` (confirmed) |
+| 0x85   |      | Jog cancel (Grbl 1.1+).  Decelerates active jog.   | `jogCancel` (confirmed) |
+
+### M490.1 confirm command -- UNKNOWN (probe mode)
+
+We do NOT know what command releases the ATC `M490.1` wait state on this
+Carvera firmware build.  Confirmed wrong: `~` (0x7E), `*` (0x2A).  Both are
+delivered cleanly to the controller (other commands sent the same way work)
+but neither makes the machine leave "Tool" state.
+
+`confirmToolChange()` in `CarveraAir.ixx` is currently in **probe mode**:
+each Ok-button click sends the next candidate from a fixed table and logs
+which one it sent.  The table tries, in order:
+
+1. `*`  (0x2A) -- Smoothie play/continue
+2. `~`  (0x7E) -- Grbl cycle start
+3. `\n` -- bare newline
+4. `M600\n` -- Marlin/Smoothie filament-change resume
+5. `M601\n` -- Smoothie continue from pause
+6. `M0\n`   -- program stop / skip pause
+7. `M6\n`   -- re-issue bare tool change
+8. `M491\n` -- Carvera M-code adjacent to M490
+9. `M492\n` -- Carvera M-code adjacent to M490
+10. `M493\n` -- Carvera tool-length probe
+11. `M495\n` -- Carvera ATC sub-op
+12. `M496\n` -- Carvera ATC sub-op
+
+**How to use the probe**: at the Standby prompt, keep clicking Ok.  After
+each click, watch the debug log: the line that immediately precedes a
+
+```
+[Air] machine state 'Tool' -> 'Run'
+```
+
+transition is the command that worked.  Take that string and replace the
+probe loop in `confirmToolChange()` with a single direct send.  Then update
+the byte table above (cross off the wrong ones, mark the right one
+"confirmed") and remove this whole probe section.
+
+If the entire table is exhausted with no response, the M490.1 wait may only
+be releasable via the physical button GPIO and there is no serial path --
+in which case the GUI's Ok button has to read "press the machine's confirm
+button to continue".  Worth checking the Carvera Community Controller's
+source on GitHub for whatever it sends for its OK button before concluding
+that.
+
+## ATC tool change cycle
+
+Manual change driven from the app (the program-orchestration path is the
+same shape):
+
+```
+host -> "M5"            ; spindle off -- bare M6 is rejected while spinning
+host -> "G4 P2"         ; let spindle decelerate
+host -> "M6 T<n>"       ; request slot n
+machine -> "Please change the tool to: T<n>"
+machine -> "G53 G0 Z-3.000"          ; lift to clearance
+machine -> "G53 G0 X.. Y.."           ; move to ATC area
+machine -> "M497.2"                   ; ATC sub-op (carousel move / position)
+state '...' -> 'Tool'
+machine -> "M490.1"                   ; WAIT for confirm (button or 0x2A)
+                                     ; -- operator inserts tool --
+host -> 0x2A                          ; the GUI Ok button
+state 'Tool' -> 'Run' (touch-off begins)
+                                     ; -- touch-off / probe --
+state '...' -> 'Idle' (machine has returned)
+```
+
+Mapping onto Air's `ToolChangePhase` (see `CarveraAir.ixx::updateToolChangeGate`):
+
+| Gate | Phase        | Enter on                                    |
+|------|--------------|---------------------------------------------|
+| 0    | None         | initial / after Complete                    |
+| 1    | Seeking      | `M6` sent (host action)                     |
+| 2    | Standby      | state becomes `"Tool"`                      |
+| 3    | Confirming   | state leaves `"Tool"` (any non-Tool report) |
+| 0    | None (= Complete) | state has been `Idle`/`Alarm` for ~500 ms |
+
+Gotchas:
+
+- **Don't send `M6 T<n>` if T<n> is already loaded.**  The Carvera silently
+  no-ops, the gate sits in Seeking forever, and the UI gets stuck.  Air
+  refuses this in `changeTool` by comparing `slot == loadedSlot.load()`.
+- **The Confirming -> None transition needs a settle.**  During touch-off
+  the state cycles `Tool -> Run -> Tool -> Run -> Idle`; the first brief
+  non-`Tool` window is the *start* of touch-off, not the end.  Air waits for
+  a sustained Idle (~70 consecutive 7 ms ticks ~ 500 ms) before firing
+  Complete.
+- **Auto-confirm is gone on purpose.**  The operator must explicitly press
+  either the physical button on the machine or the GUI Ok -- there's no
+  "auto-press" path.  Both follow the same code path because the gate
+  advances from machine state, not from whichever input did the confirm.
+
+## Status frame
+
+```
+<Idle|MPos:0.000,0.000,0.000,0.000|WPos:0.000,0.000,0.000,0.000|FS:0,0|...>
+```
+
+Parsed by `Air::processLine`:
+
+- **state**: first field after `<` and before `|`/`,`/`>`.  Known values:
+  `Idle`, `Run`, `Hold`, `Jog`, `Tool`, `Alarm`, `Sleep`, `Home`.
+- **MPos**: 3 or 4 floats -- machine absolute position.  This is what
+  `livePosition()` returns and what jog math is anchored on.
+- **WPos**: 3 or 4 floats -- same point in the active WCS.  The 4th field
+  (A) is the WCS-relative rotary angle -- fed straight into the part
+  rotation transform in WorldView, no offset math needed.
+
+## Parser-state reply (`$G`)
+
+Sent once after every successful connect (see `client->onConnect` in Air):
+
+```
+[G0 G54 G17 G21 G90 G94 M0 M5 M9 T0 F3000.0000 S1.0000]
+```
+
+`Air::pickToolFromAnywhere` scans bracketed and status lines for `T<n>` at a
+token boundary so the loaded tool is recovered without waiting for a
+successful change.  This also catches manual tool changes done at the
+machine itself (the operator pressing physical buttons).
+
+## Jog (`$J=...`)
+
+```
+$J=G91 X10.000 F1000      ; relative jog
+$J=G90 X120.000 F1000     ; absolute jog (in active WCS -- NOT machine coords)
+```
+
+Key facts:
+
+- New `$J` lines **queue** behind any in-flight jog; they do NOT replace it.
+  Combine with `0x85` (jog cancel) to stop and re-aim.
+- `G53` is NOT a valid modal inside a jog line -- absolute machine targets
+  must be done via plain `G53 G0 ...` (rapids), not `$J`.
+- Soft limits are checked at planning time.  Issuing `$J=G91 X10000 ...`
+  triggers an alarm even though the user just meant "go far in +X" --
+  always target a reasonable chunk (e.g. 25 mm) within the envelope.  See
+  `JogSection::issueLegJog` / `maybeExtendLeg` for the chunk-then-extend
+  pattern.
+
+## Custom Carvera M-codes spotted
+
+| Code     | Meaning (inferred)                                         |
+|----------|------------------------------------------------------------|
+| M490     | Wait for tool-change confirmation                          |
+| M490.1   | Same, ATC variant                                          |
+| M493     | Tool length probe / touch-off                              |
+| M497     | ATC carousel ops (move-to-pickup / rotate / drop)          |
+| M497.2   | An ATC sub-op observed during M6 sequencing                |
+
+These are emitted *by the machine* during an ATC cycle and echoed back in
+the output stream.  We don't send them from the host; we just see them
+flow past in the log.
+
+## Coordinate conventions in our code
+
+- All telemetry (`livePosition`, `currentConfirmed`) reports **MPos**.
+- `goTo(x, y, z, a)` emits `G53 G0` -- absolute machine.
+- `jog(dx, dy, dz)` / `jogA(deg)` / `jogRel(dx, dy, dz, da, f)` all emit
+  `$J=G91` (relative).  Sidesteps WCS issues.
+- The WorldView's program builder is in WCS -- `WorldView::streamExecuteProgram`
+  computes `machineX/Y/Z` as `inFrame - beginWorkInFrame` and emits absolute
+  WCS coordinates with `G90`.  This is correct because the WCS origin
+  matches the begin-work point after the operator's `Set Origin`.
+
+## Tools / refs
+
+- **Carvera Community Controller**: open-source Python desktop app for the
+  Carvera (Makera's official controller is closed).  Best living reference
+  for what bytes/commands actually do what.  Search GitHub for
+  `Carvera Controller` / `Makera`.
+- **Smoothieware**: base firmware.  Real-time bytes and M-code parsing live
+  there; Carvera adds the ATC/probe overlays.
+- **Grbl 1.1 protocol doc**: foundation for `?` / `~` / `!` / 0x85 / status
+  frames / `$J`.  Useful, but DO NOT assume Grbl-only mappings apply to the
+  Carvera ATC layer -- see the `*` vs `~` confirmation gotcha above.
+
+## Open questions / things to verify
+
+- **The exact set of M-codes M491 / M492 / M493 / M495 / M496** -- sniffed
+  but not fully attributed.  If you trace a tool-change sequence and see
+  unknown M-codes flying past, add them above.
+- **Soft-limit envelope per axis** -- we currently use a fixed 25 mm chunk
+  for continuous-hold jog.  If we ever query `$$` and parse `$130..$132`
+  (max travel), `JogSection::kChunkMm` could be made adaptive.
+- **A-axis behaviour for soft limits** -- typically the rotary has no soft
+  limit but some Carvera builds add one.  Worth verifying before assuming
+  large A targets are safe.

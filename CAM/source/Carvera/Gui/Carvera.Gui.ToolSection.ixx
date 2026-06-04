@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <vector>
+#include <format>
 
 #include <managed.hpp>
 
@@ -28,39 +29,48 @@ export namespace Carvera::Gui {
 
     namespace Theme = Cam::Gui::Theme;
 
-    // ── Tool-change section ──────────────────────────────────────────
+    // -- Tool-change section ------------------------------------------
     //
     //   Loaded: <name>             <- the tool currently in the spindle
-    //   [ Select tool  ▼ ]         <- dropdown: pick the target tool
-    //   [  Confirm/Change Tool  ]  <- context-sensitive action button
+    //   [ Select tool  v ]         <- dropdown: pick the target tool
+    //   [     Change Tool       ]  <- context-sensitive action button
     //
-    // The action button reflects the live tool-change phase, and — when
-    // idle — whether a tool is loaded:
-    //   None  + nothing loaded  "Confirm Tool"  (change + auto-Ok + touch-off)
-    //   None  + tool loaded     "Change Tool"   (change, operator confirms at Standby)
-    //   Seeking                 "Please wait..." + orange border
-    //   Standby                 "Ok" (blue)     + blue border
-    //   Confirming              "Please wait..." + orange border (touch-off)
+    // The action button reflects the live tool-change phase, and -- when
+    // idle -- whether a tool is loaded:
+    //   None        "Change Tool"               (sends M6 -> enters Seeking)
+    //   Seeking     "Moving to tool position..."+ orange border
+    //   Standby     "Ok" (blue)                 + blue border  -- press to confirm
+    //   Confirming  "Touching off..."           + orange border (post-confirm
+    //                                             touch-off + return to pre-
+    //                                             change position; ends only
+    //                                             when the machine has settled
+    //                                             back to Idle)
     struct ToolSection : public Box {
 
-        static Carvera::Air& air() { return Carvera::Air::instance(); }
+        static Carvera::Air* airPtr() { return &Carvera::Air::instance(); }
 
-        Cam::App::AppState* app = nullptr;
+        Carvera::Air*       air_ = nullptr;
+        Cam::App::AppState* app  = nullptr;
 
         Text*     loadedToolText  = nullptr;
         Dropdown* toolDropdown    = nullptr;
         Box*      changeToolBtn   = nullptr;
         Text*     changeToolLabel = nullptr;
 
-        // What the section last applied; used to skip redundant style mutations
-        // in computeChildren that would otherwise mark the panel dirty every
-        // frame and prevent the window from going quiet when nothing changed.
+        // Last values written to the DOM (skip redundant style/text mutations).
         Carvera::Air::ToolChangePhase lastPhaseApplied_  = Carvera::Air::ToolChangePhase::None;
         bool                          lastPhaseValid_    = false;
-        int                           lastLoadedApplied_ = -1;   // -1 = "no value applied yet"
+        int                           lastLoadedApplied_ = -1;   // -1 = not applied yet
+
+        // Last Air snapshot we scheduled a refresh for (event handlers).
+        int                           cachedLoaded_     = -1;
+        Carvera::Air::ToolChangePhase cachedPhase_      = Carvera::Air::ToolChangePhase::None;
+        bool                          cachedConnected_  = false;
+        bool                          airCacheValid_    = false;
 
         ToolSection(Element* parent, Cam::App::AppState* appState = nullptr)
             : Box(parent, Theme::withPanel({ &Style::Section }), "ToolSection"),
+              air_(airPtr()),
               app(appState)
         {
             build();
@@ -69,15 +79,10 @@ export namespace Carvera::Gui {
 
         void build() {
 
-            // Currently-loaded tool readout — separate from the selection
-            // dropdown so the operator can always see what's physically in
-            // the spindle without changing the dropdown's pending target.
             Box* loadedRow = new Box(this, { &Style::Row }, "LoadedToolRow");
             new Text(loadedRow, "Loaded:", Theme::withMutedText({ &Style::LoadedLabel }));
             loadedToolText = new Text(loadedRow, "None", Theme::withText({ &Style::OriginName }));
 
-            // Tool selector — populated up-front with the desired list so the
-            // dropdown is never empty when first opened.
             toolDropdown = new Dropdown(this, {
                 .label       = "Select tool",
                 .options     = desiredToolItems(),
@@ -85,13 +90,15 @@ export namespace Carvera::Gui {
                 .value       = ""
             });
 
-            // Default to the first option so the change button has something
-            // to do on first launch.
-            if (!toolDropdown->params.options.empty()) {
+            // Default to the first ENABLED option (the loaded tool is disabled
+            // with a "(loaded)" suffix -- selecting it would be a no-op change).
+            for (const Dropdown::Item& it : toolDropdown->params.options) {
+                if (!it.disabled) { toolDropdown->params.value = it.value; break; }
+            }
+            if (toolDropdown->params.value.empty() && !toolDropdown->params.options.empty()) {
                 toolDropdown->params.value = toolDropdown->params.options.front().value;
             }
 
-            // Context-sensitive action button (full width).
             changeToolBtn = makeBtn(this, "Change Tool", Style::Btn);
             changeToolBtn->style->size = { .width = Grow(), .height = 34_px };
             changeToolLabel = static_cast<Text*>(changeToolBtn->children.front());
@@ -99,19 +106,94 @@ export namespace Carvera::Gui {
         }
 
         void subscribe() {
-            auto bump = [this](auto&) { if (shared && shared->event) { refresh(*shared->event); } };
-            air().onToolChangeBegin   ([bump](Carvera::Air::ToolChangeEvent& e) { bump(e); });
-            air().onToolChangeStandby ([bump](Carvera::Air::ToolChangeEvent& e) { bump(e); });
-            air().onToolChangeConfirm ([bump](Carvera::Air::ToolChangeEvent& e) { bump(e); });
-            air().onToolChangeComplete([bump](Carvera::Air::ToolChangeEvent& e) { bump(e); });
-            air().onConnection        ([bump](Carvera::Air::ConnectionEvent& e) { bump(e); });
+            if (!air_) { return; }
+            air_->onToolChangeBegin([this](Carvera::Air::ToolChangeEvent& e) { onToolChangeBegin(e); });
+            air_->onToolChangeStandby([this](Carvera::Air::ToolChangeEvent& e) { onToolChangeStandby(e); });
+            air_->onToolChangeConfirm([this](Carvera::Air::ToolChangeEvent& e) { onToolChangeConfirm(e); });
+            air_->onToolChangeComplete([this](Carvera::Air::ToolChangeEvent& e) { onToolChangeComplete(e); });
+            air_->onConnection([this](Carvera::Air::ConnectionEvent& e) { onConnection(e); });
         }
 
-        // The list the dropdown SHOULD show: library tools when a project is
-        // loaded, otherwise the machine's physical ATC slots so the control is
-        // always usable (and tool changes are always testable).  Pure function
-        // of current state — never mutates anything.
+        void onToolChangeBegin(Carvera::Air::ToolChangeEvent& e) {
+            (void)e;
+            refreshIfAirStateChanged();
+        }
+
+        void onToolChangeStandby(Carvera::Air::ToolChangeEvent& e) {
+            (void)e;
+            refreshIfAirStateChanged();
+        }
+
+        void onToolChangeConfirm(Carvera::Air::ToolChangeEvent& e) {
+            (void)e;
+            refreshIfAirStateChanged();
+        }
+
+        void onToolChangeComplete(Carvera::Air::ToolChangeEvent& e) {
+            (void)e;
+            refreshIfAirStateChanged();
+        }
+
+        void onConnection(Carvera::Air::ConnectionEvent& e) {
+            (void)e;
+            refreshIfAirStateChanged();
+        }
+
+        // Compare live Air state to the last snapshot that triggered a refresh.
+        bool airStateDiffersFromCache() const {
+            if (!air_) { return false; }
+            const int   loaded    = air_->loadedToolSlot();
+            const auto  phase     = air_->toolChangePhase();
+            const bool  connected = air_->connected();
+            if (!airCacheValid_) { return true; }
+            return loaded    != cachedLoaded_
+                || phase     != cachedPhase_
+                || connected != cachedConnected_;
+        }
+
+        void commitAirStateCache() {
+            if (!air_) { return; }
+            cachedLoaded_    = air_->loadedToolSlot();
+            cachedPhase_     = air_->toolChangePhase();
+            cachedConnected_ = air_->connected();
+            airCacheValid_   = true;
+        }
+
+        void invalidateAirStateCache() { airCacheValid_ = false; }
+
+        void refreshIfAirStateChanged() {
+            if (!airStateDiffersFromCache()) { return; }
+            commitAirStateCache();
+            requestUiRefresh();
+        }
+
+        void requestUiRefresh() {
+            if (!shared || !shared->event) { return; }
+            refresh(*shared->event);
+        }
+
+        void refreshAfterUserAction(Event& e) {
+            invalidateAirStateCache();
+            commitAirStateCache();
+            refresh(e);
+        }
+
+        // The list the dropdown SHOULD show.  Marks the currently-loaded slot
+        // (per Air's view of the machine) as "(loaded)" and disables it so
+        // the user can't initiate a no-op change that would leave us stuck
+        // waiting for state transitions the Carvera never makes.
         std::vector<Dropdown::Item> desiredToolItems() const {
+
+            const int loaded = air_ ? air_->loadedToolSlot() : 0;
+
+            auto markLoaded = [&](Dropdown::Item it) {
+                const int slot = std::stoi(it.value);
+                if (slot == loaded && loaded > 0) {
+                    it.name    += " (loaded)";
+                    it.disabled = true;
+                }
+                return it;
+            };
 
             std::vector<Dropdown::Item> items;
 
@@ -120,23 +202,25 @@ export namespace Carvera::Gui {
                 for (size_t i = 0; i < count; i++) {
                     Cam::App::Tool* t = app->toolAt(i);
                     if (!t) { continue; }
-                    items.push_back({ t->name, std::to_string(i + 1) });  // value = T-number
+                    items.push_back(markLoaded({ t->name, std::to_string(i + 1) }));
                 }
             }
 
             if (items.empty()) {
-                // No project / empty library — fall back to ATC slots T1..T6.
                 for (int s = 1; s <= 6; s++) {
-                    items.push_back({ "Tool " + std::to_string(s), std::to_string(s) });
+                    items.push_back(markLoaded({ "Tool " + std::to_string(s), std::to_string(s) }));
                 }
             }
 
             return items;
         }
 
-        // Reconcile the dropdown's options with the desired list.  Skipped
-        // while the menu is open so a click never causes the option list to
-        // mutate underneath the user.
+        // Item equality including the disabled flag -- so a tool flipping from
+        // available to "(loaded)" (or vice versa) actually triggers a rebuild.
+        static bool sameItem(const Dropdown::Item& a, const Dropdown::Item& b) {
+            return a.name == b.name && a.value == b.value && a.disabled == b.disabled;
+        }
+
         void syncToolOptions() {
 
             if (!toolDropdown) { return; }
@@ -147,8 +231,7 @@ export namespace Carvera::Gui {
             bool changed = items.size() != toolDropdown->params.options.size();
             if (!changed) {
                 for (size_t i = 0; i < items.size(); i++) {
-                    if (items[i].name  != toolDropdown->params.options[i].name ||
-                        items[i].value != toolDropdown->params.options[i].value) {
+                    if (!sameItem(items[i], toolDropdown->params.options[i])) {
                         changed = true;
                         break;
                     }
@@ -156,23 +239,32 @@ export namespace Carvera::Gui {
             }
             if (!changed) { return; }
 
-            // Preserve the current selection if it still exists.
             const std::string keep = toolDropdown->params.value;
             toolDropdown->params.options = std::move(items);
 
-            bool stillValid = false;
-            for (const Dropdown::Item& it : toolDropdown->params.options) {
-                if (it.value == keep) { stillValid = true; break; }
-            }
-            if (!stillValid) {
-                toolDropdown->params.value =
-                    toolDropdown->params.options.empty()
-                        ? std::string()
-                        : toolDropdown->params.options.front().value;
+            // Pick a valid selection: prefer keeping the current one if it's
+            // still present AND not disabled (= not the loaded tool); fall back
+            // to the first non-disabled option.
+            auto enabledAt = [&](const std::string& v) -> bool {
+                for (const Dropdown::Item& it : toolDropdown->params.options) {
+                    if (it.value == v) { return !it.disabled; }
+                }
+                return false;
+            };
+            auto firstEnabled = [&]() -> std::string {
+                for (const Dropdown::Item& it : toolDropdown->params.options) {
+                    if (!it.disabled) { return it.value; }
+                }
+                return toolDropdown->params.options.empty()
+                    ? std::string()
+                    : toolDropdown->params.options.front().value;
+            };
+
+            if (!enabledAt(keep)) {
+                toolDropdown->params.value = firstEnabled();
             }
         }
 
-        // The selected ATC slot (T-number), parsed from the dropdown value.
         int currentToolSlot() const {
             if (toolDropdown && !toolDropdown->params.value.empty()) {
                 try { return std::stoi(toolDropdown->params.value); }
@@ -181,7 +273,6 @@ export namespace Carvera::Gui {
             return 1;
         }
 
-        // Display name for a loaded ATC slot (library name when known).
         std::string toolNameForSlot(int slot) const {
             if (slot <= 0) { return "None"; }
             if (app) {
@@ -192,84 +283,102 @@ export namespace Carvera::Gui {
             return "Tool " + std::to_string(slot);
         }
 
-        // Single action button, behaviour depends on the tool-change phase and
-        // (when idle) whether a tool is currently loaded.
         void onChangeToolButton(Event& e) {
 
+            if (!air_) { return; }
+
             using Phase = Carvera::Air::ToolChangePhase;
-            const Phase phase = air().toolChangePhase();
+            const Phase phase = air_->toolChangePhase();
+
+            // Diagnostic log: confirms the click reached us and which branch
+            // we're taking.  If the user reports "button does nothing" but
+            // this line never appears in the log panel, the click isn't even
+            // being delivered (overlay / hit-testing issue) -- and we look
+            // elsewhere.  If it appears but the machine doesn't react, it's
+            // a protocol issue at the Carvera end.
+            air_->log(std::format(
+                "[tool] button clicked; phase={}",
+                phaseName(phase)
+            ));
 
             if (phase == Phase::Standby) {
-                air().confirmToolChange();          // == pressing the machine's button
-                refresh(e);
+                air_->confirmToolChange();
+                refreshAfterUserAction(e);
                 return;
             }
 
-            // Seeking (travelling) or Confirming (finishing) — passive.
             if (phase == Phase::Seeking || phase == Phase::Confirming) {
                 return;
             }
 
-            // Idle.  With nothing loaded yet, "Confirm Tool" runs the change AND
-            // auto-presses Ok so it flows straight into touch-off; once a tool is
-            // loaded, a swap uses the normal change (operator confirms at Standby).
-            const bool nothingLoaded = (air().loadedToolSlot() == 0);
-            air().changeTool(currentToolSlot(), /*autoConfirm=*/nothingLoaded);
-            refresh(e);
+            // No auto-confirm -- the operator must explicitly press Ok (either
+            // on the panel or on the machine itself) when Standby is reached.
+            air_->changeTool(currentToolSlot());
+            refreshAfterUserAction(e);
+        }
+
+        static const char* phaseName(Carvera::Air::ToolChangePhase p) {
+            using Phase = Carvera::Air::ToolChangePhase;
+            switch (p) {
+                case Phase::None:       return "None";
+                case Phase::Seeking:    return "Seeking";
+                case Phase::Standby:    return "Standby";
+                case Phase::Confirming: return "Confirming";
+            }
+            return "?";
+        }
+
+        void updateLoadedToolReadout() {
+            if (!air_ || !loadedToolText) { return; }
+
+            const int loaded = air_->loadedToolSlot();
+            if (loaded == lastLoadedApplied_) { return; }
+
+            loadedToolText->content = toolNameForSlot(loaded);
+            lastLoadedApplied_ = loaded;
+        }
+
+        void updateToolChangePresentation() {
+            if (!air_ || !changeToolBtn || !changeToolLabel) { return; }
+
+            using Phase = Carvera::Air::ToolChangePhase;
+            const Phase phase = air_->toolChangePhase();
+
+            if (lastPhaseValid_ && phase == lastPhaseApplied_) { return; }
+
+            styles.remove(&Style::PanelBorderToolChange);
+            styles.remove(&Style::PanelBorderBlue);
+            changeToolBtn->styles.remove(&Style::ToolConfirmButton);
+
+            switch (phase) {
+                case Phase::Seeking:
+                    styles.add(&Style::PanelBorderToolChange);
+                    changeToolLabel->content = "Moving to tool position...";
+                    break;
+                case Phase::Standby:
+                    styles.add(&Style::PanelBorderBlue);
+                    changeToolBtn->styles.add(&Style::ToolConfirmButton);
+                    changeToolLabel->content = "Ok";
+                    break;
+                case Phase::Confirming:
+                    styles.add(&Style::PanelBorderToolChange);
+                    changeToolLabel->content = "Touching off...";
+                    break;
+                case Phase::None:
+                    changeToolLabel->content = "Change Tool";
+                    break;
+            }
+
+            lastPhaseApplied_ = phase;
+            lastPhaseValid_   = true;
         }
 
         void computeChildren(Event& e) override {
 
-            Carvera::Air& a = air();
-
-            syncToolOptions();
-
-            using Phase = Carvera::Air::ToolChangePhase;
-
-            const int   loaded = a.loadedToolSlot();
-            const Phase phase  = a.toolChangePhase();
-
-            // Currently-loaded tool readout — only touch when the slot itself
-            // changes (the displayed string is the same either way).
-            if (loadedToolText && loaded != lastLoadedApplied_) {
-                loadedToolText->content = toolNameForSlot(loaded);
-                lastLoadedApplied_ = loaded;
-            }
-
-            // Section border + action button.  Both depend on (phase, loaded).
-            // The label text in the idle branches also depends on whether a
-            // tool is loaded — so re-apply when EITHER phase or "loaded != 0"
-            // (the only thing that matters for the label) actually changed.
-            const bool nothingLoaded = (loaded == 0);
-            const bool phaseChanged  = (!lastPhaseValid_ || phase != lastPhaseApplied_);
-            const bool labelMayChange =
-                phase == Phase::None &&
-                (lastLoadedApplied_ == loaded ? false : (loaded == 0) != (lastLoadedApplied_ == 0));
-
-            if (changeToolBtn && changeToolLabel && (phaseChanged || labelMayChange)) {
-
-                styles.remove(&Style::PanelBorderToolChange);
-                styles.remove(&Style::PanelBorderBlue);
-                changeToolBtn->styles.remove(&Style::ToolConfirmButton);
-
-                if (phase == Phase::Seeking || phase == Phase::Confirming) {
-                    styles.add(&Style::PanelBorderToolChange);
-                    changeToolLabel->content = "Please wait...";
-                }
-                else if (phase == Phase::Standby) {
-                    styles.add(&Style::PanelBorderBlue);
-                    changeToolBtn->styles.add(&Style::ToolConfirmButton);
-                    changeToolLabel->content = "Ok";
-                }
-                else if (nothingLoaded) {
-                    changeToolLabel->content = "Confirm Tool";
-                }
-                else {
-                    changeToolLabel->content = "Change Tool";
-                }
-
-                lastPhaseApplied_ = phase;
-                lastPhaseValid_   = true;
+            if (air_) {
+                syncToolOptions();
+                updateLoadedToolReadout();
+                updateToolChangePresentation();
             }
 
             Box::computeChildren(e);
