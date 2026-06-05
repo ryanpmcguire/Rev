@@ -1090,6 +1090,9 @@ export namespace Cam::Gui {
 
             if (!tool || tool->mesh.empty()) { return; }
 
+            // Honour the machine tree's spindle visibility request.
+            if (app && !app->machineVisible.spindle) { return; }
+
             Cam::App::MachineProfile* machine = app->selectedMachine();
             if (!machine || machine->spindleModel.render.triangles.empty()) { return; }
 
@@ -1352,12 +1355,6 @@ export namespace Cam::Gui {
             Cam::App::Project* project = activeProject();
             Cam::App::Stage* primary = project ? project->primaryViewStage() : nullptr;
 
-            size_t primaryIndex = static_cast<size_t>(-1);
-
-            if (project && primary) {
-                primaryIndex = project->indexOf(primary);
-            }
-
             const bool faceEditingActive = (
                 project &&
                 project->workingStage &&
@@ -1373,20 +1370,34 @@ export namespace Cam::Gui {
                 if (!project || !view->state) { continue; }
                 if (!project->isViewSelected(view->state)) { continue; }
 
-                const size_t stateIndex = project->indexOf(view->state);
+                // Each stage's per-component flags are visibility *requests*; the
+                // selection policy decides what is *allowed*, and a component is
+                // shown only when it is both requested and allowed.
+                //
+                //   - Models (prior + current) only on the primary selected
+                //     stage, so the stock from other selected stages doesn't
+                //     stack up and occlude. Their requests still "want" to be
+                //     visible — they just can't be while multi-selected.
+                //   - Delta + toolpath are allowed for every selected stage.
+                const bool isPrimary = (view->state == primary);
 
-                if (view->state == primary) {
-                    view->showDisplayed();
-                    continue;
-                }
+                const bool allowModels   = isPrimary;
+                const bool allowDelta    = true;
+                const bool allowToolPath = true;
 
-                if (primary && stateIndex > primaryIndex) {
-                    view->showOverlays();
-                }
+                const Cam::App::Stage::ComponentVisibility& vis = view->state->visible;
+
+                view->showPart     = vis.priorModel && allowModels;
+                view->showModel    = vis.model      && allowModels;
+                view->showDelta    = vis.delta      && allowDelta;
+                view->showToolPath = vis.toolPath   && allowToolPath;
+
+                view->includeInFit = isPrimary;
             }
 
-            // Picking follows the editable working view (displayed == working),
-            // not only the primary overlay/base layer.
+            // Picking follows the editable working view (displayed == working).
+            // The pick actor is invisible, so this adds interaction without
+            // forcing any model layer visible.
             if (faceEditingActive) {
 
                 Cam::Gui::World::Stage* editView =
@@ -1397,40 +1408,6 @@ export namespace Cam::Gui {
                     project->isViewSelected(project->workingStage)
                 ) {
                     editView->enablePicking();
-                }
-            }
-
-            // Per-component user overrides (the stage tree's visibility toggles)
-            // gate the policy result: they can only hide, never force-show.
-            applyComponentVisibilityOverrides();
-        }
-
-        // Honour each stage's per-component visibility flags (set from the left
-        // panel's stage tree). Force-hides only, so a hidden component stays
-        // hidden regardless of what the selection policy decided.
-        void applyComponentVisibilityOverrides() {
-
-            for (Cam::Gui::World::Stage* view : materialViews) {
-
-                if (!view || !view->state) { continue; }
-
-                const Cam::App::Stage::ComponentVisibility& vis = view->state->visible;
-
-                if (!vis.model)    { view->showPart = false; }
-                if (!vis.delta)    { view->showDelta = false; }
-                if (!vis.toolPath) { view->showToolPath = false; }
-            }
-
-            // "Prior model" of a stage is the parent stage's resulting model,
-            // drawn by the parent view's part actor.
-            for (Cam::Gui::World::Stage* view : materialViews) {
-
-                if (!view || !view->state || !view->state->parent) { continue; }
-
-                if (view->state->visible.priorModel) { continue; }
-
-                if (Cam::Gui::World::Stage* parentView = viewForState(view->state->parent)) {
-                    parentView->showPart = false;
                 }
             }
         }
@@ -1746,6 +1723,7 @@ export namespace Cam::Gui {
                 if (!v) { continue; }
 
                 if (v->partActor)        { v->partActor->setWorldTransform(M); }
+                if (v->modelActor)       { v->modelActor->setWorldTransform(M); }
                 if (v->deltaActor)       { v->deltaActor->setWorldTransform(M); }
                 if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(M); }
             }

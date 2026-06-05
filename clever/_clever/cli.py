@@ -49,7 +49,8 @@ def cmd_check(args) -> int:
     manifest, repo = _load_manifest(args)
     store = Store(repo / args.build_dir)
 
-    report = ladder.run(manifest, repo, store, update=not args.no_update)
+    # `check` is a read-only query: it never advances the baseline.
+    report = ladder.run(manifest, repo, store, update=False)
 
     if args.json:
         print(json.dumps({
@@ -116,24 +117,76 @@ def cmd_build(args) -> int:
         _embed_resources(repo, args.verbose)
 
     print("Analysing dirtiness...")
-    report = ladder.run(manifest, repo, store, update=True)
+    # Read-only analysis -- the baseline is advanced ONLY after a successful
+    # build, and only for files actually compiled (see commit_baseline).
+    report = ladder.run(manifest, repo, store, update=False)
     rebuild_set = set(report.rebuild.keys())
-    if report.baseline:
+    if args.force:
+        rebuild_set = set(report.digests.keys())
+        print("(--force: recompiling everything)")
+    elif report.baseline:
         print("(first run -- no prior baseline, so a full build will follow)")
     else:
         print(f"Ladder says {len(rebuild_set)} file(s) need rebuilding"
               f"{' (plus any missing objects)' if rebuild_set else ''}.")
 
-    builder = Builder(manifest, repo, store, rebuild_set, verbose=args.verbose)
-    if not builder.build():
+    builder = Builder(manifest, repo, store, rebuild_set,
+                      digests=report.digests, verbose=args.verbose)
+
+    if args.check:
+        plan = builder.plan()
+        comp = plan["compile"]
+        print(f"\nWould compile {len(comp)} translation unit(s) "
+              f"(in dependency order):")
+        if not comp:
+            print("  (nothing -- all objects present and up to date)")
+        for rel, missing in comp:
+            tag = "missing object" if missing else "dirty"
+            print(f"  {rel}   [{tag}]")
+        print(f"\nWould link: {', '.join(plan['link']) or 'nothing'}")
+        return 0
+
+    ok = builder.build()
+
+    # An incremental compile failure is most often a stale/inconsistent BMI set
+    # (a module was rebuilt but its importers' BMIs still reference the old one,
+    # which clang rejects). The guaranteed-correct recovery is a full rebuild,
+    # so offer one rather than leaving the tree half-built.
+    if not ok and not args.force:
+        if _prompt_force():
+            print("Forcing full rebuild for a consistent BMI set...")
+            builder = Builder(manifest, repo, store, set(report.digests.keys()),
+                              digests=report.digests, verbose=args.verbose)
+            ok = builder.build()
+
+    if not ok:
         print("Build failed.")
         return 1
+
+    # Now that the compile succeeded, advance the baseline for exactly the files
+    # we rebuilt -- so a subsequent `check` correctly sees them as clean and an
+    # interrupted/failed build never marks unbuilt files as up to date.
+    ladder.commit_baseline(store, report, builder.compiled)
+
     print(f"Build OK. {len(builder.compiled)} compiled, "
           f"linked: {', '.join(sorted(builder.__dict__.get('_relinked', set()))) or 'nothing'}.")
 
     if args.run:
         return builder.run(args.target)
     return 0
+
+
+def _prompt_force() -> bool:
+    print("\nBuild failed -- the incremental BMI set looks too stale/inconsistent")
+    print("(a module was rebuilt but its importers were not, so clang rejects the mix).")
+    if not sys.stdin.isatty():
+        print("Re-run with --force to rebuild everything.")
+        return False
+    try:
+        ans = input("Too stale -- force a full rebuild? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return ans in ("y", "yes")
 
 
 def _embed_resources(repo: Path, verbose: bool) -> None:
@@ -186,13 +239,15 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--cmake-build", default="build", help="CMake/Ninja build dir (default: build)")
     i.set_defaults(func=cmd_init)
 
-    c = sub.add_parser("check", help="report which files need rebuilding (no build)")
+    c = sub.add_parser("check", help="report which files need rebuilding (read-only, no build)")
     c.add_argument("--json", action="store_true", help="machine-readable output")
-    c.add_argument("--no-update", action="store_true",
-                   help="do not update the baseline cache (re-run same comparison)")
     c.set_defaults(func=cmd_check)
 
     b = sub.add_parser("build", help="compile the dirty set, link, and optionally run")
+    b.add_argument("--check", action="store_true",
+                   help="dry run: print the compile/link plan without building")
+    b.add_argument("--force", action="store_true",
+                   help="recompile every translation unit (ignore the baseline)")
     b.add_argument("--run", action="store_true", help="run the executable after a successful build")
     b.add_argument("--target", help="which executable to run (default: first exe)")
     b.add_argument("--no-embed", action="store_true", help="skip the resource-embed pre-step")

@@ -321,6 +321,22 @@ def _body_extent(cursor) -> tuple[int, int] | None:
     return None
 
 
+def _full_end(cursor) -> int:
+    """Largest source end-offset of the cursor and all its descendants.
+
+    A VarDecl / FieldDecl extent stops *before* its `= ...` default member
+    initializer, so an initializer-value change (e.g. 4_px -> 2_px) would be
+    invisible. The initializer lives in child cursors, so we extend the hashed
+    span to cover them.
+    """
+    end = cursor.extent.end.offset
+    for ch in cursor.walk_preorder():
+        e = ch.extent.end.offset
+        if e > end:
+            end = e
+    return end
+
+
 # --- main entry ------------------------------------------------------------
 
 def comprehend(source: Path, flags: list[str], std: str, extra_args: list[str]) -> Comprehension:
@@ -383,7 +399,9 @@ def comprehend(source: Path, flags: list[str], std: str, extra_args: list[str]) 
             sig_text = hashbuf[ext.start.offset:body[0]]
             body_text = hashbuf[body[0]:body[1]]
         else:
-            sig_text = hashbuf[ext.start.offset:ext.end.offset]
+            # Extend to cover default initializers, which fall outside the
+            # declaration's own extent (see _full_end).
+            sig_text = hashbuf[ext.start.offset:_full_end(c)]
             body_text = ""
 
         try:

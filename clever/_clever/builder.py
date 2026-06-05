@@ -25,12 +25,17 @@ from pathlib import Path
 
 
 class Builder:
-    def __init__(self, manifest: dict, repo: Path, store, rebuild_set: set[str], verbose=False):
+    def __init__(self, manifest: dict, repo: Path, store, rebuild_set: set[str],
+                 digests: dict | None = None, verbose=False):
         self.manifest = manifest
         self.repo = repo
         self.store = store
         self.rebuild_set = rebuild_set
         self.verbose = verbose
+        # `digests` are this run's freshly computed digests (module/imports up to
+        # date). We must NOT read them from the store, whose copy reflects the
+        # last successful build and can be stale for files edited since.
+        self._digests = digests or {}
         self.out = store.root / "out"
         self.cmake_build = repo / manifest.get("cmake_build_dir", "build")
         c = manifest["compiler"]
@@ -50,7 +55,7 @@ class Builder:
         self.requires: dict[str, list[str]] = {}  # rel -> [module]
         self.provider: dict[str, str] = {}      # module -> rel
         for rel in self.rels:
-            d = store.read(rel, "digest") or {}
+            d = self._digests.get(rel) or store.read(rel, "digest") or {}
             mod = d.get("provides")
             self.provides[rel] = mod
             self.requires[rel] = d.get("requires", [])
@@ -215,18 +220,45 @@ class Builder:
         return True
 
     def _post_build(self, t: dict, out: Path) -> None:
-        pb = t.get("post_build")
-        if not pb or "applocal" not in pb:
-            return
-        cmake_out = (self.cmake_build / t["output"].replace("\\", "/"))
-        pb = pb.replace(str(cmake_out).replace("\\", "/"), str(out).replace("\\", "/"))
-        try:
-            subprocess.run(pb, shell=True, capture_output=True, text=True,
-                           cwd=str(self.cmake_build / Path(t["output"]).parent))
-        except OSError:
-            pass
+        """Make the exe runnable in place by copying its dependency DLLs next to
+        it (the cmake build used vcpkg's applocal.ps1 for this; we just copy the
+        vcpkg runtime DLLs, which is simpler and reliable)."""
+        import shutil
+        bin_dirs: set[Path] = set()
+        for lib in t.get("link_libraries", []):
+            p = lib.replace("\\", "/")
+            if "vcpkg_installed" in p and "/lib/" in p:
+                rel_bin = p[: p.index("/lib/")] + "/bin"
+                bin_dirs.add(self.cmake_build / rel_bin)
+        copied = 0
+        for d in bin_dirs:
+            if not d.is_dir():
+                continue
+            for dll in d.glob("*.dll"):
+                dest = out.parent / dll.name
+                if not dest.exists() or dest.stat().st_mtime < dll.stat().st_mtime:
+                    shutil.copy2(dll, dest)
+                    copied += 1
+        if copied:
+            print(f"       copied {copied} dependency DLL(s) next to {out.name}")
 
     # -- orchestration -----------------------------------------------------
+
+    def plan(self) -> dict:
+        """What build() would do, without doing it."""
+        order = self._topo()
+        todo = [r for r in order if self._needs(r)]
+        todo_set = set(todo)
+        link = []
+        for t in self.manifest["targets"]:
+            out = self._target_output(t)
+            touched = any(r in todo_set for r in t["sources"])
+            if touched or not out.exists():
+                link.append(t["name"])
+        return {
+            "compile": [(r, r not in self.rebuild_set) for r in todo],  # (rel, only-because-missing)
+            "link": link,
+        }
 
     def build(self) -> bool:
         order = self._topo()

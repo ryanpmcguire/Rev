@@ -16,13 +16,15 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Svg;
-import Rev.Element.Dropdown;
+import Rev.Element.Collapsible;
+import Rev.Window;
 
 import Cam.App;
 import Cam.App.Project;
 import Cam.App.Stage;
 import Cam.Gui.Theme;
 import Cam.Gui.ToolPathSettingsWindow;
+import Cam.Gui.ToolpathSettings;
 
 export namespace Cam::Gui {
 
@@ -31,349 +33,341 @@ export namespace Cam::Gui {
 
     namespace StageRowStyle::Styles {
 
-        // The whole row is now a vertical container: a header line plus the
-        // collapsible list of component visibility toggles beneath it.
-        Style Self = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 100_pct },
-            .margin = { .bottom = 2_px },
-            .padding = { .left = 4_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
-            .border = { .radius = 6_px },
+        // Highlight/cursor for the node header line (selection target).
+        Style HeaderRow = {
             .cursor = Cursor::Hand
         };
 
-        Style Header = {
-            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
-            .size = { .width = 100_pct }
-        };
-
-        Style IndexLabel = {
-            .margin = { .right = 4_px },
+        Style Number = {
+            .margin = { .right = 6_px },
             .text = { .size = 11_px }
         };
 
-        Style IndexLabelSelected = {
-            .text = { .size = 11_px }
-        };
-
-        Style Content = {
-            .layout = { Axis::Vertical, Align::Center, Align::Start, Wrap::False },
-            .overflow = Overflow::Hide,
-            //.size = { Grow() }
-        };
-
-        Style Label = {
-            .overflow = Overflow::Hide,
+        Style Name = {
             .text = { .size = 13_px, .wrap = Wrap::False }
         };
 
-        Style Subtitle = {
-            .margin = { .top = 1_px },
-            .text = { .size = 10_px }
-        };
-
-        Style SubtitleWorking = {
-            .text = { .size = 10_px }
-        };
-
-        Style SubtitleChanged = {
-            .text = { .size = 10_px }
-        };
-
-        // Component toggle list
-        //--------------------------------------------------
-
-        Style Components = {
-            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 100_pct },
-            .margin = { .top = 4_px },
-            .padding = { .left = 18_px }
-        };
-
+        // A leaf property row (no chevron). Full width so the controls can be
+        // pushed to the right; left padding indents the name to line up with the
+        // names of collapsible (chevron-bearing) siblings.
         Style ComponentRow = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
-            .padding = { .top = 2_px, .bottom = 2_px },
-            .cursor = Cursor::Hand
+            .padding = { .left = 24_px, .right = 2_px, .top = 3_px, .bottom = 3_px }
+        };
+
+        // Extra padding for a collapsible property's header (it already carries
+        // the chevron from the Collapsible base).
+        Style PropHeader = {
+            .padding = { .top = 3_px, .bottom = 3_px }
+        };
+
+        // Body of an expandable property (placeholder content for now).
+        Style PropBody = {
+            .padding = { .left = 6_px, .top = 2_px, .bottom = 4_px }
+        };
+
+        Style Dummy = {
+            .text = { .size = 11_px }
         };
 
         Style ComponentLabel = {
-            .overflow = Overflow::Hide,
-            .text = { .size = 11_px, .wrap = Wrap::False }
+            .text = { .size = 12_px, .wrap = Wrap::False }
         };
 
-        Style SettingsButton = {
-            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 22_px, .height = 22_px },
-            .margin = { .left = 10_px },
-            .padding = { .left = 2_px, .right = 2_px, .top = 2_px, .bottom = 2_px },
-            .cursor = Cursor::Hand
+        // Per-property type icon (left of the name). Monochrome SVGs tinted by
+        // the icon's text colour.
+        Style PropIcon = {
+            .size = { 14_px, 14_px },
+            .margin = { .right = 6_px }
         };
 
-        Style DeleteButton = {
+        Style PropIconModel = {
+            .text = { .color = rgba(92, 122, 184, 1.0) }    // steel-blue part
+        };
+
+        Style PropIconOperation = {
+            .text = { .color = rgba(44, 160, 78, 1.0) }      // green plus
+        };
+
+        Style PropIconDelta = {
+            .text = { .color = rgba(216, 70, 60, 1.0) }      // red delta
+        };
+
+        Style PropIconToolpath = {
+            .text = { .color = rgba(208, 150, 48, 1.0) }     // amber endmill
+        };
+
+        // Pushes the trailing controls (settings + eye) to the right edge.
+        Style Spacer = {
+            .size = { .width = Grow() }
+        };
+
+        // Generic small icon button (settings).
+        Style IconButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 22_px, .height = 22_px },
-            .margin = { .left = 6_px },
+            .margin = { .right = 4_px },
             .padding = { .left = 2_px, .right = 2_px, .top = 2_px, .bottom = 2_px },
+            .border = { .radius = 4_px },
             .cursor = Cursor::Hand
         };
 
         Style SettingsIcon = {
+            .size = { 14_px, 14_px }
+        };
+
+        // The eye toggle (rightmost control). Transparency is driven imperatively.
+        Style Eye = {
             .size = { 15_px, 15_px }
         };
 
-        Style DeleteIcon = {
-            .size = { 15_px, 15_px }
-        };
-
-        Style ToolDropdown = {
-            .margin = { .left = 6_px, .top = 0_px, .bottom = 0_px, .right = 0_px }
-        };
-
-        Style ToolDropdownLabelHidden = {
-            .visibility = { Visibility::Hidden }
-        };
-
-        Style ToolDropdownField = {
-            .margin = { .top = 0_px, .bottom = 0_px },
-            .padding = { .left = 6_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
-            .overflow = Overflow::Hide
-        };
-
-        Style ToolDropdownFieldText = {
-            .overflow = Overflow::Hide,
-            .text = { .size = 11_px, .wrap = Wrap::False }
+        Style EyeButton = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .margin = { .right = 2_px },
+            .padding = { .left = 2_px, .right = 2_px, .top = 2_px, .bottom = 2_px },
+            .border = { .radius = 4_px },
+            .cursor = Cursor::Hand
         };
     };
 
     using namespace StageRowStyle;
 
-    struct StageRow : public Box {
+    // A stage shown as a CAD-style tree node: a collapsible whose header holds
+    // the step number + name (and is the selection target), and whose body holds
+    // a list of component properties. Some properties (Operation, Delta, Toolpath)
+    // are themselves expandable collapsibles; Operation and Toolpath also carry a
+    // settings button. Every property carries a visibility eye on the right.
+    struct StageRow : public Collapsible {
 
         Cam::App::AppState* app = nullptr;
         Cam::App::Stage* state = nullptr;
 
         size_t index = 0;
 
-        // The stage's inspectable components, in display order. Each maps to a
-        // visibility flag on the App stage and (where geometry exists) a 3D actor.
+        Text* numberText = nullptr;
+        Text* nameText = nullptr;
+
         static constexpr int ComponentCount = 5;
+
+        // Component indices.
+        enum Component { PriorModel = 0, Model = 1, Operation = 2, Delta = 3, Toolpath = 4 };
+
+        static bool isCollapsible(int c) { return c == Operation || c == Delta || c == Toolpath; }
+        static bool hasSettings(int c)   { return c == Operation || c == Toolpath; }
+
+        // Eye opacity stops: faint when visible, fainter when hidden, near-opaque
+        // on hover to signal clickability.
+        static constexpr float VisibleAlpha = 0.50f;
+        static constexpr float HiddenAlpha  = 0.26f;
+        static constexpr float HoverAlpha   = 0.95f;
 
         static const char* componentName(int component) {
             switch (component) {
-                case 0:  return "Prior Model";
-                case 1:  return "Model";
-                case 2:  return "Operation";
-                case 3:  return "Delta";
-                case 4:  return "Toolpath";
-                default: return "";
+                case PriorModel: return "Prior Model";
+                case Model:      return "Model";
+                case Operation:  return "Operation";
+                case Delta:      return "Delta";
+                case Toolpath:   return "Toolpath";
+                default:         return "";
             }
         }
 
         bool* componentFlag(int component) {
             if (!state) { return nullptr; }
             switch (component) {
-                case 0:  return &state->visible.priorModel;
-                case 1:  return &state->visible.model;
-                case 2:  return &state->visible.operation;
-                case 3:  return &state->visible.delta;
-                case 4:  return &state->visible.toolPath;
-                default: return nullptr;
+                case PriorModel: return &state->visible.priorModel;
+                case Model:      return &state->visible.model;
+                case Operation:  return &state->visible.operation;
+                case Delta:      return &state->visible.delta;
+                case Toolpath:   return &state->visible.toolPath;
+                default:         return nullptr;
             }
         }
 
-        Box* header = nullptr;
-        Text* indexLabel = nullptr;
-        Box* content = nullptr;
-        Text* label = nullptr;
-        Text* subtitle = nullptr;
-        Dropdown* toolDropdown = nullptr;
-        Box* settingsButton = nullptr;
-        Svg* settingsIcon = nullptr;
-        Box* deleteButton = nullptr;
-        Svg* deleteIcon = nullptr;
+        // Per-property type icon: a SolidWorks-style part for the models, a green
+        // plus for the operation, a red delta for the delta, and an endmill for
+        // the toolpath. Each File literal must appear so the embedder bundles it.
+        static Rev::Core::Resource iconResourceFor(int component) {
+            switch (component) {
+                case Operation: return File("./Operation.svg");
+                case Delta:     return File("./Delta.svg");
+                case Toolpath:  return File("./Toolpath.svg");
+                default:        return File("./Part.svg");   // PriorModel, Model
+            }
+        }
 
-        Box* components = nullptr;
-        Box* componentRows[ComponentCount] = {};
+        static StyleList iconStylesFor(int component) {
+            switch (component) {
+                case Operation: return { &Styles::PropIcon, &Styles::PropIconOperation };
+                case Delta:     return { &Styles::PropIcon, &Styles::PropIconDelta };
+                case Toolpath:  return { &Styles::PropIcon, &Styles::PropIconToolpath };
+                default:        return { &Styles::PropIcon, &Styles::PropIconModel };
+            }
+        }
+
+        Collapsible* propCollapsible[ComponentCount] = {};
+        Box*  propHeader[ComponentCount] = {};   // the row/header hosting name + controls
         Text* componentLabels[ComponentCount] = {};
+        Box*  settingsButtons[ComponentCount] = {};
+        Svg*  settingsIcons[ComponentCount] = {};
+        Box*  eyeButtons[ComponentCount] = {};
+        Svg*  eyes[ComponentCount] = {};
+        float eyeTarget[ComponentCount] = {};
+
+        // Inline toolpath settings (lives in the Toolpath property body).
+        ToolpathSettings* toolpathSettings = nullptr;
+
+        Rev::Core::Resource eyeOnResource;
+        Rev::Core::Resource eyeOffResource;
+
+        // This row owns its own settings window (if any). Ownership lives with
+        // the element that triggered creation, so several stages can each have a
+        // settings window open at once. The Application deletes the window once
+        // shouldClose is set; we only hold a non-owning pointer.
+        ToolPathSettingsWindow* settingsWindow = nullptr;
 
         std::function<void(Event&, Cam::App::Stage*)> onSelect;
-        std::function<void(Event&, Cam::App::Stage*, const std::string&)> onToolPathToolChanged;
-        std::function<void(Event&, Cam::App::Stage*)> onOpenToolPathSettings;
-        std::function<void(Event&, Cam::App::Stage*)> onDelete;
         std::function<void(Event&)> onComponentToggled;
+        std::function<void(Event&)> onSettingsChanged;
 
-        StageRow(Element* parent, StyleList styles = {}) : Box(parent, styles, "StageRow") {
+        StageRow(Element* parent, StyleList styles = {})
+            : Collapsible(parent, "", styles, /*startOpen*/ true) {
 
             app = Cam::App::AppState::Get(shared->state);
 
-            this->styles.add(&Styles::Self);
-            this->styles.add(&Theme::Styles::Row);
-            this->styles.add(&Theme::Styles::RowHover);
+            eyeOnResource  = File("./Eye.svg");
+            eyeOffResource = File("./Eye-Off.svg");
 
-            header = new Box(this, { &Styles::Header }, "StageRowHeader");
+            // Header line: number + name; the selection target.
+            header->styles.add(&Styles::HeaderRow);
+            header->styles.add(&Theme::Styles::Row);
+            header->styles.add(&Theme::Styles::RowHover);
 
-            indexLabel = new Text(
-                header,
-                "0",
-                Theme::layer(
-                    { &Styles::IndexLabel },
-                    { &Theme::Styles::MutedText }
-                )
+            numberText = new Text(
+                header, "",
+                Theme::layer({ &Styles::Number }, { &Theme::Styles::MutedText })
             );
 
-            content = new Box(header, { &Styles::Content }, "StageRowContent");
-
-                label = new Text(
-                    content,
-                    "",
-                    Theme::layer(
-                        { &Styles::Label },
-                        { &Theme::Styles::Text }
-                    )
-                );
-                subtitle = new Text(
-                    content,
-                    "",
-                    Theme::layer(
-                        { &Styles::Subtitle },
-                        { &Theme::Styles::MutedText }
-                    )
-                );
-
-            toolDropdown = new Dropdown(
-                header,
-                {
-                    .label = "Tool",
-                    .options = ToolPathSettingsWindow::toolOptions(app),
-                    .placeholder = "Tool",
-                    .value = ""
-                },
-                { &Styles::ToolDropdown }
+            nameText = new Text(
+                header, "",
+                Theme::layer({ &Styles::Name }, { &Theme::Styles::Text })
             );
 
-            toolDropdown->label->styles.add(&Styles::ToolDropdownLabelHidden);
-            toolDropdown->dropdown->styles.add(&Styles::ToolDropdownField);
-            toolDropdown->dropdownArrow->styles.add(&Theme::Styles::Icon);
-            toolDropdown->dropdownArrow->styles.add(&Theme::Styles::IconHover);
-            toolDropdown->dropdownText->styles.add(&Styles::ToolDropdownFieldText);
-
-            toolDropdown->onChange = [this](Event& e) {
-
-                e.propagate = false;
-
-                if (!canEditToolPath() || !state || !toolDropdown) { return; }
-
-                const std::string toolName = toolDropdown->params.value;
-
-                if (toolName.empty() || toolName == state->toolPath.toolName) { return; }
-
-                if (onToolPathToolChanged) {
-                    onToolPathToolChanged(e, state, toolName);
-                }
-            };
-
-            settingsButton = new Box(
-                header,
-                { &Styles::SettingsButton },
-                "ToolPathSettingsButton"
-            );
-
-                settingsIcon = new Svg(
-                    settingsButton,
-                    File("./ToolPath/Settings.svg"),
-                    Theme::layer({
-                        &Styles::SettingsIcon,
-                        &Theme::Styles::IconHover,
-                        &Theme::Styles::IconDisabled
-                    }, {
-                        &Theme::Styles::Icon
-                    }),
-                    "ToolPathSettingsIcon"
-                );
-
-                settingsButton->onClick([this](Event& e) {
-                    if (!canEditToolPath()) { return; }
-                    if (onOpenToolPathSettings && state) {
-                        onOpenToolPathSettings(e, state);
-                    }
-                    e.propagate = false;
-                });
-
-            deleteButton = new Box(
-                header,
-                { &Styles::DeleteButton },
-                "DeleteStageRowButton"
-            );
-
-                deleteIcon = new Svg(
-                    deleteButton,
-                    File("./Close.svg"),
-                    Theme::layer({
-                        &Styles::DeleteIcon,
-                        &Theme::Styles::DeleteIconHover,
-                        &Theme::Styles::IconDisabled
-                    }, {
-                        &Theme::Styles::Icon
-                    }),
-                    "DeleteStageRowIcon"
-                );
-
-                deleteButton->onClick([this](Event& e) {
-
-                    if (!canDelete()) { return; }
-
-                    Cam::App::Project* project = activeProject();
-
-                    if (onDelete && project && index < project->stages.size()) {
-                        onDelete(e, project->stages[index]);
-                    }
-
-                    e.propagate = false;
-                });
-
-            // Component visibility toggles
-            //--------------------------------------------------
-
-            components = new Box(this, { &Styles::Components }, "StageRowComponents");
+            header->onClick([this](Event& e) {
+                if (onSelect && state) { onSelect(e, state); }
+            });
 
             for (int i = 0; i < ComponentCount; i++) {
+                buildProperty(i);
+            }
+        }
 
-                componentRows[i] = new Box(
-                    components,
-                    { &Styles::ComponentRow },
-                    "StageComponentRow"
+        // Build one property: either a leaf row or an expandable collapsible,
+        // with an optional settings button and an always-present visibility eye.
+        void buildProperty(int i) {
+
+            if (isCollapsible(i)) {
+
+                propCollapsible[i] = new Collapsible(
+                    container, "", { &CollapsibleStyle::Self }, /*startOpen*/ false
                 );
 
-                componentRows[i]->styles.add(&Theme::Styles::Row);
-                componentRows[i]->styles.add(&Theme::Styles::RowHover);
+                propHeader[i] = propCollapsible[i]->header;
+                propHeader[i]->styles.add(&Styles::PropHeader);
 
-                componentLabels[i] = new Text(
-                    componentRows[i],
-                    componentName(i),
+                if (i == Toolpath) {
+                    // Real, inline toolpath settings.
+                    toolpathSettings = new ToolpathSettings(propCollapsible[i]->container);
+
+                    toolpathSettings->onChanged = [this](Event& e) {
+                        if (onSettingsChanged) { onSettingsChanged(e); }
+                    };
+                }
+                else {
+                    // Placeholder body content (Operation, Delta) for now.
+                    new Text(
+                        propCollapsible[i]->container,
+                        "hello world",
+                        Theme::layer({ &Styles::Dummy, &Styles::PropBody }, { &Theme::Styles::MutedText })
+                    );
+                }
+            }
+            else {
+                propHeader[i] = new Box(container, { &Styles::ComponentRow }, "StageComponentRow");
+            }
+
+            // Type icon (coloured), then the name.
+            new Svg(propHeader[i], iconResourceFor(i), iconStylesFor(i), "StagePropertyIcon");
+
+            componentLabels[i] = new Text(
+                propHeader[i],
+                componentName(i),
+                Theme::layer({ &Styles::ComponentLabel }, { &Theme::Styles::Text })
+            );
+
+            // Spacer pushes the trailing controls to the right.
+            new Box(propHeader[i], { &Styles::Spacer }, "StagePropertySpacer");
+
+            // Settings button (Operation, Toolpath) — just before the eye.
+            if (hasSettings(i)) {
+
+                settingsButtons[i] = new Box(
+                    propHeader[i], { &Styles::IconButton }, "StagePropertySettingsButton"
+                );
+
+                settingsIcons[i] = new Svg(
+                    settingsButtons[i],
+                    File("./ToolPath/Settings.svg"),
                     Theme::layer(
-                        { &Styles::ComponentLabel },
-                        { &Theme::Styles::Text }
-                    )
+                        { &Styles::SettingsIcon },
+                        { &Theme::Styles::Icon, &Theme::Styles::IconHover }
+                    ),
+                    "StagePropertySettingsIcon"
                 );
 
-                componentRows[i]->onClick([this, i](Event& e) {
+                const int captured = i;
+                settingsButtons[i]->onClick([this, captured](Event& e) {
 
                     e.propagate = false;
 
-                    if (bool* flag = componentFlag(i)) {
-                        *flag = !*flag;
-                    }
-
-                    if (onComponentToggled) {
-                        onComponentToggled(e);
+                    // For now only the Toolpath settings open a window (the
+                    // whole-stage settings window). Operation is a no-op stub.
+                    if (captured == Toolpath) {
+                        openSettings(e);
                     }
                 });
             }
 
-            this->onClick([this](Event& e) {
-                if (onSelect && state) { onSelect(e, state); }
+            // Visibility eye (rightmost control) — the sole visibility toggle.
+            eyeButtons[i] = new Box(propHeader[i], { &Styles::EyeButton }, "StageComponentEyeButton");
+
+            eyes[i] = new Svg(
+                eyeButtons[i],
+                File("./Eye.svg"),
+                Theme::layer({ &Styles::Eye }, { &Theme::Styles::Text }),
+                "StageComponentEye"
+            );
+
+            eyes[i]->opacity = VisibleAlpha;
+            eyeTarget[i] = VisibleAlpha;
+
+            const int captured = i;
+            eyeButtons[i]->onClick([this, captured](Event& e) {
+
+                e.propagate = false;
+
+                if (bool* flag = componentFlag(captured)) {
+                    *flag = !*flag;
+                }
+
+                if (onComponentToggled) {
+                    onComponentToggled(e);
+                }
             });
+        }
+
+        ~StageRow() {
+            retireSettingsWindow();
         }
 
         Cam::App::Project* activeProject() {
@@ -383,180 +377,134 @@ export namespace Cam::Gui {
             return app->activeProject;
         }
 
-        Cam::App::Stage* displayedState() {
+        void setState(Cam::App::Stage* newState, size_t index) {
 
-            Cam::App::Project* project = activeProject();
+            // Reassigning this row to a different stage retires its window — the
+            // window references the old stage, which may be about to go away.
+            if (settingsWindow && newState != state) {
+                retireSettingsWindow();
+            }
 
-            if (!project) { return nullptr; }
-
-            return project->displayedStage;
-        }
-
-        void setState(Cam::App::Stage* state, size_t index) {
-
-            this->state = state;
+            this->state = newState;
             this->index = index;
         }
 
-        std::string stateName() {
+        // Settings window
+        //--------------------------------------------------
 
-            if (!state) { return "Invalid State"; }
-
-            if (!state->name.empty()) {
-                return state->name;
-            }
-
-            if (state->working) {
-                return "Working State";
-            }
-
-            if (index == 0) { return "Final State"; }
-
-            return "Material State " + std::to_string(index);
+        std::string settingsTitle() const {
+            return state ? stageName() : "Material State";
         }
 
-        std::string stateSubtitle() {
+        // Detach + close our window without deleting it (the Application owns the
+        // lifetime). Severs callbacks/state so the soon-to-be-deleted window can't
+        // touch this (possibly dying) row or a freed stage.
+        void retireSettingsWindow() {
+
+            if (!settingsWindow) { return; }
+
+            settingsWindow->onSaved = nullptr;
+            settingsWindow->onClosed = nullptr;
+            settingsWindow->state = nullptr;
+            settingsWindow->shouldClose = true;
+            settingsWindow = nullptr;
+        }
+
+        void openSettings(Event& e) {
+
+            if (!state) { return; }
+
+            // Already open — just bring it forward.
+            if (settingsWindow && !settingsWindow->shouldClose) {
+                settingsWindow->show();
+                return;
+            }
+
+            Rev::Window* owner = ToolPathSettingsWindow::rootWindow(this);
+
+            if (!owner || !owner->shared) { return; }
+
+            settingsWindow = new ToolPathSettingsWindow(owner, state, settingsTitle());
+
+            settingsWindow->onSaved = [this](Event& ev) {
+                if (onSettingsChanged) { onSettingsChanged(ev); }
+            };
+
+            settingsWindow->onClosed = [this](Event& ev) {
+                settingsWindow = nullptr;
+                if (onSettingsChanged) { onSettingsChanged(ev); }
+            };
+        }
+
+        // Stage display name (without a number — the number is its own column).
+        std::string stageName() const {
 
             if (!state) { return ""; }
 
-            if (state->working && state->model.changed) {
-                return "Unsaved changes";
-            }
+            if (!state->name.empty()) { return state->name; }
 
-            if (state->working) {
-                return "Editing";
-            }
+            if (state->working) { return "Working State"; }
 
-            if (state->hasToolPath) {
-                return "Toolpath ready";
-            }
+            if (index == 0) { return "Final State"; }
 
-            if (index == 0) {
-                return "Final geometry";
-            }
-
-            return "Committed";
-        }
-
-        bool canDelete() {
-
-            if (index == 0) { return false; }
-
-            Cam::App::Project* project = activeProject();
-
-            if (!project) { return false; }
-
-            return index < project->stages.size();
-        }
-
-        bool canEditToolPath() const {
-
-            if (!state) { return false; }
-
-            return state->parent != nullptr;
+            return "Material State";
         }
 
         void computeChildren(Event& e) override {
 
-            bool selected = state && activeProject() && activeProject()->isViewSelected(state);
-            bool working = state && state->working;
-            bool changed = state && state->working && state->model.changed;
-
-            if (indexLabel) {
-                indexLabel->content = std::to_string(index + 1);
+            // If the window closed itself (e.g. via the OS close button) drop our
+            // dangling pointer; the Application has/will delete it.
+            if (settingsWindow && settingsWindow->shouldClose) {
+                settingsWindow = nullptr;
             }
 
-            if (label) {
-                label->content = stateName();
+            const bool selected =
+                state && activeProject() && activeProject()->isViewSelected(state);
+
+            if (toolpathSettings) {
+                toolpathSettings->setState(state);
             }
 
-            if (subtitle) {
-                subtitle->content = stateSubtitle();
+            if (numberText) {
+                numberText->content = state ? std::to_string(index) : "";
             }
 
-            if (deleteIcon) {
-                deleteIcon->resolved.disabled = !canDelete();
-            }
-
-            if (settingsIcon) {
-                settingsIcon->resolved.disabled = !canEditToolPath();
-            }
-
-            // Component toggles reflect the stage's visibility flags. A dot
-            // glyph + muted styling marks a hidden component.
-            if (components) {
-                components->style->visibility = state
-                    ? Visibility::Visible
-                    : Visibility::Hidden;
+            if (nameText) {
+                nameText->content = stageName();
             }
 
             for (int i = 0; i < ComponentCount; i++) {
 
-                if (!componentLabels[i]) { continue; }
+                if (!eyes[i]) { continue; }
 
                 const bool* flag = componentFlag(i);
                 const bool on = flag ? *flag : true;
 
-                componentLabels[i]->content =
-                    std::string(on ? "[x] " : "[ ] ") + componentName(i);
+                // Swap eye / eye-off (re-bakes only when it actually changes).
+                eyes[i]->resource = on ? eyeOnResource : eyeOffResource;
 
-                if (on) { componentLabels[i]->styles.remove(&Theme::Styles::MutedText); }
-                else    { componentLabels[i]->styles.add(&Theme::Styles::MutedText); }
-            }
+                // Transparency: faint when resting, near-opaque on hover.
+                const bool hover = eyeButtons[i] && eyeButtons[i]->targetFlags.hover;
 
-            const bool showToolDropdown = canEditToolPath();
+                const float target = hover
+                    ? HoverAlpha
+                    : (on ? VisibleAlpha : HiddenAlpha);
 
-            if (toolDropdown) {
-                toolDropdown->style->visibility = showToolDropdown
-                    ? Visibility::Visible
-                    : Visibility::Hidden;
-            }
-
-            if (toolDropdown && showToolDropdown) {
-
-                toolDropdown->params.options = ToolPathSettingsWindow::toolOptions(app);
-
-                const std::string toolName = state->toolPath.toolName;
-
-                if (!toolName.empty()) {
-
-                    const Dropdown::Item item = toolDropdown->getItemWithVal(toolName);
-
-                    if (item.value == toolName) {
-                        toolDropdown->params.value = toolName;
-                        toolDropdown->dropdownText->content = item.name;
-                    }
+                if (eyeTarget[i] != target) {
+                    eyes[i]->transition(&eyes[i]->opacity, target, 120);
+                    eyeTarget[i] = target;
                 }
 
-                else {
-                    toolDropdown->params.value = "";
-                    toolDropdown->dropdownText->content = toolDropdown->params.placeholder;
-                }
-
-                toolDropdown->resolved.disabled = false;
-            }
-
-            else if (toolDropdown) {
-                toolDropdown->resolved.disabled = true;
-            }
-
-            if (selected) { styles.add(&Theme::Styles::RowSelected); }
-            else { styles.remove(&Theme::Styles::RowSelected); }
-
-            if (indexLabel) {
-                if (selected) { indexLabel->styles.add(&Theme::Styles::AccentText); }
-                else { indexLabel->styles.remove(&Theme::Styles::AccentText); }
-            }
-
-            if (subtitle) {
-                subtitle->styles.remove(&Theme::Styles::WarningText);
-
-                if (changed) {
-                    subtitle->styles.add(&Theme::Styles::WarningText);
+                // Dim the label of a hidden component.
+                if (componentLabels[i]) {
+                    if (on) { componentLabels[i]->styles.remove(&Theme::Styles::MutedText); }
+                    else    { componentLabels[i]->styles.add(&Theme::Styles::MutedText); }
                 }
             }
 
-            Box::computeChildren(e);
+            // Selection highlight on the node line.
+            if (selected) { header->styles.add(&Theme::Styles::RowSelected); }
+            else          { header->styles.remove(&Theme::Styles::RowSelected); }
         }
     };
 }

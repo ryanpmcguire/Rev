@@ -31,14 +31,17 @@ export namespace Rev::Element {
         Style Header = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
-            .padding = { .left = 2_px, .right = 2_px, .top = 4_px, .bottom = 4_px },
-            .cursor = Cursor::Hand
+            .padding = { .left = 2_px, .right = 2_px, .top = 4_px, .bottom = 4_px }
         };
 
+        // Only the chevron toggles the body, so it (not the header) carries the
+        // hand cursor. A little padding gives it a comfortable click target.
         Style Arrow = {
             .size = { 12_px, 12_px },
             .margin = { .right = 6_px },
-            .text = { .color = rgba(100, 116, 139, 1.0) }
+            .padding = { .left = 2_px, .right = 2_px, .top = 2_px, .bottom = 2_px },
+            .text = { .color = rgba(255, 255, 255, 1.0f) },
+            .cursor = Cursor::Hand
         };
 
         Style Title = {
@@ -56,15 +59,20 @@ export namespace Rev::Element {
         };
     };
 
-    // A collapsible disclosure element. Clicking the header toggles the content
-    // container open/closed. Add content by parenting elements to `container`.
+    // A collapsible disclosure element with two parts:
+    //
+    //   header     — a horizontal row whose first child is the chevron toggle.
+    //                Host arbitrary children here (name, badges, buttons, ...).
+    //   container  — the body, hidden/shown by the chevron. Add content here.
     //
     //   Collapsible* group = new Collapsible(parent, "Stage 1");
-    //   new Text(group->container, "child a");
-    //   new Text(group->container, "child b");
+    //   new Text(group->header, "extra header thing");   // arbitrary header children
+    //   new Text(group->container, "child a");           // body children
     //
-    // Unlike a dropdown menu (an absolutely-positioned overlay), the container
-    // is a full participant in layout when open.
+    // Only the chevron toggles — clicking elsewhere in the header does nothing
+    // (so the host can use header clicks for selection). Unlike a dropdown menu
+    // (an absolutely-positioned overlay), the container fully participates in
+    // layout when open.
     struct Collapsible : public Element {
 
         Box*  header    = nullptr;
@@ -76,7 +84,7 @@ export namespace Rev::Element {
 
         // Arrow points right (▸) when closed and down (▾) when open.
         static constexpr float ClosedRotation = 0.0f;
-        static constexpr float OpenRotation   = 3.14159265f / 2.0f;
+        static constexpr float OpenRotation   = -3.14159265f / 2.0f;
 
         std::function<void(Event&)> onToggle;
 
@@ -98,11 +106,16 @@ export namespace Rev::Element {
                 "CollapsibleArrow"
             );
 
-            titleText = new Text(header, title, { &CollapsibleStyle::Title });
+            // Optional convenience title; hosts may instead add their own header
+            // children. Created only when a title is supplied.
+            if (!title.empty()) {
+                titleText = new Text(header, title, { &CollapsibleStyle::Title });
+            }
 
             container = new Box(this, { &CollapsibleStyle::Container }, "CollapsibleContainer");
 
-            header->onClick([this](Event& e) {
+            // Only the chevron toggles — not the whole header.
+            arrow->onClick([this](Event& e) {
                 toggle(e);
                 e.propagate = false;
             });

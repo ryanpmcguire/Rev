@@ -37,7 +37,8 @@ export namespace Cam::Gui::World {
 
         Cam::App::Stage* state = nullptr;
 
-        View3d::Actor* partActor = nullptr;
+        View3d::Actor* partActor = nullptr;   // prior model (the stock) + edit surface
+        View3d::Actor* modelActor = nullptr;  // this stage's resulting model
         View3d::Actor* deltaActor = nullptr;
         View3d::Actor* pickActor = nullptr;
         View3d::Actor* axisPickMarkerActor = nullptr;
@@ -63,7 +64,8 @@ export namespace Cam::Gui::World {
         // View settings
         //--------------------------------------------------
 
-        bool showPart = false;
+        bool showPart = false;   // prior model
+        bool showModel = false;  // resulting model
         bool showDelta = false;
         bool showPick = false;
         bool showToolPath = false;
@@ -92,6 +94,7 @@ export namespace Cam::Gui::World {
             this->canvas = canvas;
 
             createPartActor();
+            createModelActor();
             createDeltaActor();
             createPickActor();
             createAxisPickMarkerActor();
@@ -104,6 +107,7 @@ export namespace Cam::Gui::World {
             detach();
 
             delete partActor;
+            delete modelActor;
             delete deltaActor;
             delete pickActor;
             delete axisPickMarkerActor;
@@ -111,6 +115,7 @@ export namespace Cam::Gui::World {
             toolPath.destroy();
 
             partActor = nullptr;
+            modelActor = nullptr;
             deltaActor = nullptr;
             pickActor = nullptr;
             axisPickMarkerActor = nullptr;
@@ -130,6 +135,7 @@ export namespace Cam::Gui::World {
             // Draw order:
             // base model, toolpath, transparent delta, invisible pick actor.
             view->addActor(partActor);
+            view->addActor(modelActor);
             view->addActor(toolPath.actor);
             view->addActor(deltaActor);
             view->addActor(axisPickMarkerActor);
@@ -143,6 +149,7 @@ export namespace Cam::Gui::World {
             if (!view || !attached) { return; }
 
             if (partActor) { view->removeActor(partActor); }
+            if (modelActor) { view->removeActor(modelActor); }
             if (deltaActor) { view->removeActor(deltaActor); }
             if (axisPickMarkerActor) { view->removeActor(axisPickMarkerActor); }
             if (pickActor) { view->removeActor(pickActor); }
@@ -171,6 +178,28 @@ export namespace Cam::Gui::World {
                 0.75f,
                 0.75f,
                 0.82f,
+                1.0f
+            };
+        }
+
+        void createModelActor() {
+
+            modelActor = new View3d::Actor();
+
+            modelActor->visible = false;
+            modelActor->selectable = false;
+            modelActor->ownsMesh = true;
+            modelActor->ownsTriangles = false;
+            modelActor->includeInFit = false;
+
+            modelActor->mesh = new Rev::Primitives::Mesh3d(canvas, {});
+
+            // A calm green so the resulting model reads distinctly from the grey
+            // prior model and the red delta when shown together.
+            modelActor->mesh->color = {
+                0.56f,
+                0.80f,
+                0.62f,
                 1.0f
             };
         }
@@ -465,6 +494,7 @@ export namespace Cam::Gui::World {
         void hideAll() {
 
             showPart = false;
+            showModel = false;
             showDelta = false;
             showPick = false;
             showToolPath = false;
@@ -474,34 +504,13 @@ export namespace Cam::Gui::World {
             hoveredFaceId = NoHoveredFace;
         }
 
-        void showDisplayed() {
-
-            showPart = true;
-            showDelta = true;
-            showToolPath = true;
-
-            showPick = false;
-            selectable = false;
-
-            includeInFit = true;
-        }
-
-        void showOverlays() {
-
-            showPart = false;
-            showDelta = true;
-            showToolPath = true;
-
-            showPick = false;
-            selectable = false;
-            includeInFit = false;
-        }
-
+        // Enables face picking on this view. The pick actor is invisible and
+        // works independently of which model layers are shown, so this does not
+        // force any model visible — that stays driven by the visibility requests.
         void enablePicking() {
 
             showPick = true;
             selectable = true;
-            showPart = true;
         }
 
         // Sync
@@ -516,6 +525,7 @@ export namespace Cam::Gui::World {
         void sync(double toolPathPreviewProgress = 1.0) {
 
             syncPart();
+            syncModel();
             syncDelta();
             syncPick();
             syncToolPath(toolPathPreviewProgress);
@@ -543,6 +553,29 @@ export namespace Cam::Gui::World {
             partActor->includeInFit = includeInFit;
 
             applyFaceColors();
+        }
+
+        // The stage's own resulting model — a distinct, separately-toggleable
+        // layer from the prior model shown by partActor.
+        void syncModel() {
+
+            if (!modelActor || !modelActor->mesh) { return; }
+
+            Cam::App::Model* model = selectionModel();
+
+            if (!state || !model || !showModel) {
+                modelActor->visible = false;
+                modelActor->selectable = false;
+                modelActor->includeInFit = false;
+                return;
+            }
+
+            modelActor->mesh->pTriangles = &model->render.triangles;
+            modelActor->mesh->bvhBuilt   = false;
+            modelActor->mesh->dirty      = true;
+            modelActor->visible = true;
+            modelActor->selectable = false;
+            modelActor->includeInFit = includeInFit;
         }
 
         void syncDelta() {

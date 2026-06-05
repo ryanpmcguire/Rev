@@ -68,9 +68,15 @@ export namespace Cam::App {
         // Per-component show/hide, surfaced as the collapsible stage tree in the
         // left panel and honoured by the 3D world view. These only ever hide a
         // component that the view's selection policy would otherwise show.
+        // These are visibility *requests* ("show me, if the view allows it"), not
+        // absolute commands — the world view further filters them by the current
+        // selection (e.g. only the primary selected stage shows its models).
+        // By default a stage shows its prior model (the stock it cuts into) plus
+        // the removed-material delta; the resulting model is hidden because it is
+        // implied by prior − delta.
         struct ComponentVisibility {
-            bool priorModel = true;   // parent stage's resulting model
-            bool model      = true;   // this stage's resulting model
+            bool priorModel = true;   // parent stage's resulting model (the stock)
+            bool model      = false;  // this stage's resulting model (implied)
             bool operation  = true;   // the operation (no geometry yet — stub)
             bool delta      = true;   // removed-volume delta model
             bool toolPath   = true;   // the toolpath

@@ -22,10 +22,7 @@ import Cam.App;
 import Cam.App.Tool;
 
 import Cam.Gui.Tool;
-import Cam.Gui.ToolSettingsWindow;
 import Cam.Gui.Theme;
-
-import Rev.Window;
 
 export namespace Cam::Gui {
 
@@ -90,7 +87,9 @@ export namespace Cam::Gui {
 
         std::vector<ToolRow*> rows;
 
-        ToolSettingsWindow* settingsWindow = nullptr;
+        // Name of a just-created tool whose settings window should be opened once
+        // its row exists (rows own their own windows).
+        std::string pendingSettingsToolName;
 
         std::function<void(Event&)> onSelectTool;
         std::function<void(Event&)> onToolEdited;
@@ -148,10 +147,6 @@ export namespace Cam::Gui {
             list = new Box(this, { &ToolsStyle::List }, "ToolsList");
         }
 
-        ~Tools() {
-            closeSettingsWindow();
-        }
-
         void selectTool(size_t index, Event& e) {
 
             if (!app) { return; }
@@ -164,49 +159,6 @@ export namespace Cam::Gui {
 
                 refresh(e);
             }
-        }
-
-        void closeSettingsWindow() {
-
-            if (!settingsWindow) {
-                return;
-            }
-
-            settingsWindow->shouldClose = true;
-            settingsWindow = nullptr;
-        }
-
-        void openSettingsWindow(const std::string& name, Event& e) {
-
-            Rev::Window* owner = ToolSettingsWindow::rootWindow(this);
-
-            if (!owner || !owner->shared) { return; }
-
-            closeSettingsWindow();
-
-            settingsWindow = new ToolSettingsWindow(
-                owner,
-                name
-            );
-
-            settingsWindow->onSaved = [this](Event& e) {
-                if (onToolEdited) { onToolEdited(e); }
-            };
-
-            settingsWindow->onClosed = [this](Event& e) {
-                if (onToolEdited) { onToolEdited(e); }
-            };
-        }
-
-        void openSettings(size_t index, Event& e) {
-
-            if (!app) { return; }
-
-            Cam::App::Tool* tool = app->toolAt(index);
-
-            if (!tool) { return; }
-
-            openSettingsWindow(tool->name, e);
         }
 
         void openNewToolSettings(Event& e) {
@@ -223,16 +175,14 @@ export namespace Cam::Gui {
                 onSelectTool(e);
             }
 
-            refresh(e);
+            // The new tool's row is created on the next layout pass; ask it to
+            // open its own settings window once it exists (see computeChildren).
+            pendingSettingsToolName = toolName;
 
-            openSettingsWindow(toolName, e);
+            refresh(e);
         }
 
         void computeChildren(Event& e) override {
-
-            if (settingsWindow && settingsWindow->shouldClose) {
-                settingsWindow = nullptr;
-            }
 
             if (!app) {
                 Box::computeChildren(e);
@@ -256,8 +206,9 @@ export namespace Cam::Gui {
                     this->selectTool(index, ev);
                 };
 
-                rows[i]->onOpenSettings = [this](Event& ev, size_t index) {
-                    this->openSettings(index, ev);
+                // Saving in / closing a tool's settings window refreshes tools.
+                rows[i]->onSettingsChanged = [this](Event& ev) {
+                    if (onToolEdited) { onToolEdited(ev); }
                 };
             }
 
@@ -275,6 +226,23 @@ export namespace Cam::Gui {
                 else {
                     rows[i]->setLabel("Invalid Tool");
                 }
+            }
+
+            // A freshly-created tool asked to open its settings — now that its
+            // row exists, delegate to the row (which owns the window).
+            if (!pendingSettingsToolName.empty()) {
+
+                for (size_t i = 0; i < newSize; i++) {
+
+                    Cam::App::Tool* tool = app->toolAt(i);
+
+                    if (tool && tool->name == pendingSettingsToolName) {
+                        rows[i]->openSettings(e);
+                        break;
+                    }
+                }
+
+                pendingSettingsToolName.clear();
             }
 
             Box::computeChildren(e);

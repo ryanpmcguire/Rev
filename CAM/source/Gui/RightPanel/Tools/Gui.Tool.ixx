@@ -16,10 +16,12 @@ import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Svg;
+import Rev.Window;
 
 import Cam.App;
 import Cam.App.Tool;
 import Cam.Gui.Theme;
+import Cam.Gui.ToolSettingsWindow;
 
 export namespace Cam::Gui {
 
@@ -64,8 +66,13 @@ export namespace Cam::Gui {
         Text* label = nullptr;
         Box* settingsButton = nullptr;
 
+        // This row owns its own settings window (if any), so multiple tools can
+        // have settings windows open at once. The Application owns the lifetime;
+        // we keep only a non-owning pointer.
+        ToolSettingsWindow* settingsWindow = nullptr;
+
         std::function<void(Event&, size_t)> onSelect;
-        std::function<void(Event&, size_t)> onOpenSettings;
+        std::function<void(Event&)> onSettingsChanged;
 
         ToolRow(Element* parent, StyleList styles = {}) : Box(parent, styles, "ToolRow") {
 
@@ -107,15 +114,66 @@ export namespace Cam::Gui {
             );
 
             settingsButton->onClick([this](Event& e) {
-                if (onOpenSettings) {
-                    onOpenSettings(e, toolIndex);
-                }
+                openSettings(e);
                 e.propagate = false;
             });
         }
 
+        ~ToolRow() {
+            retireSettingsWindow();
+        }
+
         void setToolIndex(size_t index) {
+
+            // Reassigning this row to a different tool retires its window.
+            if (settingsWindow && index != toolIndex) {
+                retireSettingsWindow();
+            }
+
             toolIndex = index;
+        }
+
+        // Settings window
+        //--------------------------------------------------
+
+        void retireSettingsWindow() {
+
+            if (!settingsWindow) { return; }
+
+            settingsWindow->onSaved = nullptr;
+            settingsWindow->onClosed = nullptr;
+            settingsWindow->shouldClose = true;
+            settingsWindow = nullptr;
+        }
+
+        void openSettings(Event& e) {
+
+            if (!app) { return; }
+
+            Cam::App::Tool* tool = app->toolAt(toolIndex);
+
+            if (!tool) { return; }
+
+            // Already open — just bring it forward.
+            if (settingsWindow && !settingsWindow->shouldClose) {
+                settingsWindow->show();
+                return;
+            }
+
+            Rev::Window* owner = ToolSettingsWindow::rootWindow(this);
+
+            if (!owner || !owner->shared) { return; }
+
+            settingsWindow = new ToolSettingsWindow(owner, tool->name);
+
+            settingsWindow->onSaved = [this](Event& ev) {
+                if (onSettingsChanged) { onSettingsChanged(ev); }
+            };
+
+            settingsWindow->onClosed = [this](Event& ev) {
+                settingsWindow = nullptr;
+                if (onSettingsChanged) { onSettingsChanged(ev); }
+            };
         }
 
         void setLabel(const std::string& text) {
@@ -141,6 +199,11 @@ export namespace Cam::Gui {
         }
 
         void computeChildren(Event& e) override {
+
+            // Drop our pointer if the window closed itself (OS close button).
+            if (settingsWindow && settingsWindow->shouldClose) {
+                settingsWindow = nullptr;
+            }
 
             if (isSelected()) {
                 styles.add(&Theme::Styles::RowSelected);

@@ -41,6 +41,8 @@ class Report:
     verdicts: list[FileVerdict]
     rebuild: dict[str, str]
     changed: list[str]
+    digests: dict[str, dict]   # current digest per file (computed this run)
+    asts: dict[str, dict]      # current ast per file (computed this run)
 
 
 def _parse_flags(manifest: dict, repo: Path, target: dict) -> list[str]:
@@ -148,25 +150,26 @@ def run(manifest: dict, repo: Path, store, update: bool = True) -> Report:
                 and prior_dig["flags"] == new_dig["flags"]:
             level, summary = "L2", "cosmetic only (comments/whitespace)"
         else:
-            # Earn a libclang parse.
+            # norm_hash changed => the change is NOT merely comments/whitespace,
+            # so this file is genuinely dirty and must at least recompile itself.
+            # We never call a real source change "cosmetic" on the strength of an
+            # AST comparison, because the AST can be incomplete under unresolved
+            # cross-module imports (error recovery drops initializers/bodies).
+            # The AST diff is used only to decide *consumer* impact (L3 vs L4).
             ast = comp_mod.comprehend(path, flags, std, extra).to_json()
+            self_dirty = True
+            changed.append(rel)
             if not prior_ast:
-                level, self_dirty, summary = "NEW", True, "no prior baseline"
-                changed.append(rel)
-            elif prior_ast.get("provides") == ast.get("provides") \
-                    and prior_ast.get("idents") == ast.get("idents"):
-                level, summary = "L2", "cosmetic only (formatting)"
+                level, summary = "NEW", "no prior baseline"
             else:
                 impacting = _diff_interface(prior_ast, ast)
-                self_dirty = True
-                changed.append(rel)
                 if impacting:
                     why = ", ".join(f"{n} ({r})" for n, r in impacting[:6])
                     tail = "" if len(impacting) <= 6 else f" +{len(impacting)-6} more"
                     level, summary = "L4", f"interface change: {why}{tail}"
                 else:
                     level = "L3"
-                    summary = "body-only change (abi-only) -- recompile self, no consumers"
+                    summary = "local change -- recompile self, no consumers affected"
 
         digests[rel] = new_dig
         asts[rel] = ast or {}
@@ -188,17 +191,7 @@ def run(manifest: dict, repo: Path, store, update: bool = True) -> Report:
         imports_of[rel] = d.get("requires", [])
 
     if update:
-        for rel, d in digests.items():
-            requires_files = {m: module_file.get(m) for m in d.get("requires", [])}
-            mod = d.get("provides")
-            consumers = sorted(
-                r for r, imps in imports_of.items() if mod and mod in imps
-            )
-            store.write(rel, "graph", {
-                "module": mod,
-                "requires": requires_files,
-                "consumers": consumers,
-            })
+        write_graph(store, digests)
 
     # --- impact analysis -------------------------------------------------
     idents_of = {rel: set(a.get("idents", [])) for rel, a in asts.items()}
@@ -218,4 +211,29 @@ def run(manifest: dict, repo: Path, store, update: bool = True) -> Report:
                 if hits and rel not in rebuild:
                     rebuild[rel] = f"uses {', '.join(sorted(hits)[:3])} <- {Path(v.rel).name}"
 
-    return Report(baseline=baseline, verdicts=verdicts, rebuild=rebuild, changed=changed)
+    return Report(baseline=baseline, verdicts=verdicts, rebuild=rebuild,
+                  changed=changed, digests=digests, asts=asts)
+
+
+def write_graph(store, digests: dict[str, dict]) -> None:
+    module_file = {d["provides"]: rel for rel, d in digests.items() if d.get("provides")}
+    imports_of = {rel: d.get("requires", []) for rel, d in digests.items()}
+    for rel, d in digests.items():
+        mod = d.get("provides")
+        store.write(rel, "graph", {
+            "module": mod,
+            "requires": {m: module_file.get(m) for m in d.get("requires", [])},
+            "consumers": sorted(r for r, imps in imports_of.items() if mod and mod in imps),
+        })
+
+
+def commit_baseline(store, report: Report, rels) -> None:
+    """Persist digest/ast for the given files (called AFTER a successful build,
+    so the baseline reflects what was actually compiled -- never what was merely
+    inspected)."""
+    for rel in rels:
+        if rel in report.digests:
+            store.write(rel, "digest", report.digests[rel])
+        if rel in report.asts and report.asts[rel]:
+            store.write(rel, "ast", report.asts[rel])
+    write_graph(store, report.digests)

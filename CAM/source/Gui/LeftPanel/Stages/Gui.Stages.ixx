@@ -18,10 +18,7 @@ import Cam.App;
 import Cam.App.Project;
 import Cam.App.Stage;
 import Cam.Gui.StageRow;
-import Cam.Gui.ToolPathSettingsWindow;
 import Cam.Gui.Theme;
-
-import Rev.Window;
 
 export namespace Cam::Gui {
 
@@ -46,14 +43,15 @@ export namespace Cam::Gui {
 
         Style List = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            //.overflow = Overflow::Show,
-            .size = { .width = 100_pct },
-            //.background = { .color = rgba(255, 0, 0, 1.0f) }
+            .size = { .width = 100_pct }
         };
     };
 
     using namespace StagesStyle;
 
+    // The stage list. Each row (StageRow) owns its own settings window, so this
+    // manager no longer tracks a single shared window — multiple stages can have
+    // their settings windows open at once.
     struct Stages : public Box {
 
         Cam::App::AppState* app = nullptr;
@@ -65,8 +63,6 @@ export namespace Cam::Gui {
 
         // Dev stress test: cycles DOM child order without destroying rows.
         size_t domPermuteStep = 0;
-
-        ToolPathSettingsWindow* settingsWindow = nullptr;
 
         std::function<void(Event&)> onSelectState;
         std::function<void(Event&)> onDeleteState;
@@ -91,10 +87,6 @@ export namespace Cam::Gui {
             );
         }
 
-        ~Stages() {
-            closeSettingsWindow();
-        }
-
         Cam::App::Project* activeProject() {
 
             if (!app) { return nullptr; }
@@ -111,43 +103,6 @@ export namespace Cam::Gui {
                 if (onSelectState) { onSelectState(e); }
 
                 refresh(e);
-            }
-        }
-
-        void deleteState(Cam::App::Stage* state, Event& e) {
-
-            if (!app || !state) { return; }
-
-            closeSettingsWindowForState(state);
-            clearRowsForState(state);
-
-            if (app->deleteStage(state)) {
-
-                if (onDeleteState) { onDeleteState(e); }
-
-                refresh(e);
-            }
-        }
-
-        void closeSettingsWindow() {
-
-            if (!settingsWindow) {
-                return;
-            }
-
-            settingsWindow->shouldClose = true;
-            settingsWindow->state = nullptr;
-            settingsWindow->onSaved = nullptr;
-            settingsWindow->onClosed = nullptr;
-            settingsWindow = nullptr;
-        }
-
-        void closeSettingsWindowForState(Cam::App::Stage* state) {
-
-            if (!settingsWindow || !state) { return; }
-
-            if (settingsWindow->state && state->contains(settingsWindow->state)) {
-                closeSettingsWindow();
             }
         }
 
@@ -180,114 +135,7 @@ export namespace Cam::Gui {
             refresh(e);
         }
 
-        void clearRowsForState(Cam::App::Stage* state) {
-
-            if (!state) { return; }
-
-            for (StageRow* row : rows) {
-
-                if (!row || !row->state) { continue; }
-
-                if (state->contains(row->state)) {
-                    row->setState(nullptr, row->index);
-                }
-            }
-        }
-
-        static std::string settingsTitleFor(Cam::App::Stage* state, size_t index) {
-
-            if (!state) { return "Material State"; }
-
-            if (!state->name.empty()) {
-                return state->name;
-            }
-
-            if (state->working) {
-                return "Working State";
-            }
-
-            if (index == 0) { return "Final State"; }
-
-            return "Material State " + std::to_string(index);
-        }
-
-        void changeToolPathTool(
-            Cam::App::Stage* state,
-            const std::string& toolName,
-            Event& e
-        ) {
-
-            if (!app || !state || toolName.empty()) { return; }
-
-            Cam::App::Project* project = activeProject();
-
-            if (!project) { return; }
-
-            if (!app->saveToolPathSettings(
-                state,
-                state->toolPath.strategy,
-                toolName,
-                state->toolPath.stepDown,
-                state->toolPath.stepover,
-                state->toolPath.feedRate,
-                state->toolPath.rapidSpeedMmPerSec,
-                state->toolPath.climbMilling,
-                state->toolPath.linkRetractDistance
-            )) {
-                return;
-            }
-
-            if (onToolPathEdited) {
-                onToolPathEdited(e);
-            }
-
-            refresh(e);
-        }
-
-        void openToolPathSettings(Cam::App::Stage* state, Event& e) {
-
-            if (!state || !state->parent) { return; }
-
-            Cam::App::Project* project = activeProject();
-            if (!project) { return; }
-
-            size_t index = project->indexOf(state);
-
-            Rev::Window* owner = ToolPathSettingsWindow::rootWindow(this);
-            if (!owner || !owner->shared) { return; }
-
-            closeSettingsWindow();
-
-            settingsWindow = new ToolPathSettingsWindow(
-                owner,
-                state,
-                settingsTitleFor(state, index)
-            );
-
-            settingsWindow->onSaved = [this](Event& savedEvent) {
-
-                if (onToolPathEdited) {
-                    onToolPathEdited(savedEvent);
-                }
-
-                refresh(savedEvent);
-            };
-
-            settingsWindow->onClosed = [this](Event& closedEvent) {
-
-                if (onToolPathEdited) {
-                    onToolPathEdited(closedEvent);
-                }
-
-                refresh(closedEvent);
-            };
-        }
-
         void computeChildren(Event& e) override {
-
-            if (settingsWindow && settingsWindow->shouldClose) {
-                settingsWindow = nullptr;
-            }
 
             Cam::App::Project* project = activeProject();
 
@@ -299,6 +147,7 @@ export namespace Cam::Gui {
             size_t oldSize = rows.size();
             size_t newSize = project->stages.size();
 
+            // Deleting a row also retires (closes) any settings window it owned.
             for (size_t i = newSize; i < oldSize; i++) {
                 delete rows[i];
             }
@@ -313,16 +162,14 @@ export namespace Cam::Gui {
                     this->selectState(state, ev);
                 };
 
-                rows[i]->onDelete = [this](Event& ev, Cam::App::Stage* state) {
-                    this->deleteState(state, ev);
+                // Saving in (or closing) a stage's settings window re-syncs the
+                // 3D view via the same path tool-path edits use.
+                rows[i]->onSettingsChanged = [this](Event& ev) {
+                    if (onToolPathEdited) { onToolPathEdited(ev); }
+                    refresh(ev);
                 };
 
-                rows[i]->onOpenToolPathSettings = [this](Event& ev, Cam::App::Stage* state) {
-                    this->openToolPathSettings(state, ev);
-                };
-
-                // Toggling a component's visibility re-syncs the 3D view via the
-                // same path tool-path edits use, then refreshes the row glyphs.
+                // Toggling a component's visibility re-syncs the 3D view too.
                 rows[i]->onComponentToggled = [this](Event& ev) {
                     if (onToolPathEdited) { onToolPathEdited(ev); }
                     refresh(ev);
@@ -330,16 +177,7 @@ export namespace Cam::Gui {
             }
 
             for (size_t i = 0; i < newSize; i++) {
-
                 rows[i]->setState(project->stages[i], i);
-
-                rows[i]->onToolPathToolChanged = [this](
-                    Event& ev,
-                    Cam::App::Stage* state,
-                    const std::string& toolName
-                ) {
-                    this->changeToolPathTool(state, toolName, ev);
-                };
             }
 
             Box::computeChildren(e);

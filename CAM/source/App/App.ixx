@@ -26,6 +26,17 @@ import Cam.App.MachineLibrary;
 
 export namespace Cam::App {
 
+    // Per-component visibility requests for the machine's renderable parts,
+    // mirroring the per-stage component visibility. Like those, these are
+    // requests honoured by the world view where the part is actually rendered.
+    struct MachineComponentVisibility {
+        bool spindle   = true;
+        bool tool      = true;
+        bool rotary    = true;
+        bool base      = true;
+        bool workpiece = true;
+    };
+
     struct AppState {
 
         // Projects
@@ -43,6 +54,9 @@ export namespace Cam::App {
 
         // App-wide machine settings (origins, etc.), persisted with the session.
         MachineSettings machine;
+
+        // Visibility requests for the machine's renderable components.
+        MachineComponentVisibility machineVisible;
 
         // Create
         //--------------------------------------------------

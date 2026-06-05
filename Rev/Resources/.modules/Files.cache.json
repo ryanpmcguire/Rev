@@ -10,14 +10,39 @@
       "hash": "ab08018ccd276b79fb2c636bb95b9c543598f9d50505fe92506fcb4dae7810cd",
       "mtime": 1780255242.0136998
     },
+    "CAM/source/Gui/LeftPanel/Stages/Operation.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Operation.svg",
+      "hash": "bc976d33685c12558c866e55953b0fa9f47c6806dd0b444b7a313c3d298d5e91",
+      "mtime": 1780618862.109078
+    },
+    "CAM/source/Gui/LeftPanel/Stages/Delta.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Delta.svg",
+      "hash": "198438610dc6407e7c9c00847abeff83625e9cc15a29dff161c3eb56d900b509",
+      "mtime": 1780618968.364714
+    },
+    "CAM/source/Gui/LeftPanel/Stages/Toolpath.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Toolpath.svg",
+      "hash": "463f728fcbd149c04b974cb591ff440b7ab8827600a320268202f692be7f2be0",
+      "mtime": 1780618873.8585198
+    },
+    "CAM/source/Gui/LeftPanel/Stages/Part.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Part.svg",
+      "hash": "08f0e3f5bc8494e6af905afe3d2166a9a7a6773053fa084c76fe0383c116ed7d",
+      "mtime": 1780618854.859626
+    },
+    "CAM/source/Gui/LeftPanel/Stages/Eye.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Eye.svg",
+      "hash": "a19792bc7231915d80174c177bae04bbba478a858b1b3af680d21de666e91b8b",
+      "mtime": 1780611804.3188756
+    },
+    "CAM/source/Gui/LeftPanel/Stages/Eye-Off.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Eye-Off.svg",
+      "hash": "46d2aef61e5d9c977046f6479efd982317bc7137b4815fa950510cf886b44361",
+      "mtime": 1780611827.51081
+    },
     "CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg",
       "hash": "b7c816301b3066d8060b2b735298ff22d70d50e31e5e73e76964d53cd6777e0e",
-      "mtime": 1779994987.0619895
-    },
-    "CAM/source/Gui/LeftPanel/Stages/Close.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Close.svg",
-      "hash": "3c902b815ddb3681c11e21028ad88c5d45d449fd80ade51c594b29e392e39cb2",
       "mtime": 1779994987.0619895
     },
     "CAM/source/Gui/PreviewBar/StepBack.svg": {
