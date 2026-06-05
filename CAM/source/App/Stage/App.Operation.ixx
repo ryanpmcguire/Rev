@@ -17,7 +17,17 @@ export namespace Cam::App {
     enum class OperationType {
         Import,         // root seed: geometry imported from a STEP file
         Defeature,      // remove selected feature(s)
-        ExtendFeature   // extend selected face(s) outward
+        ExtendFeature,  // extend selected face(s) outward
+        Extrude         // extrude a profile face up to an end face
+    };
+
+    // A named, editable single-face reference exposed by an operation. The GUI
+    // renders these as selectable rows; whichever is "active" gets filled when
+    // the user ctrl+clicks a face in the world view. `face` points into the
+    // operation's own storage (-1 = unset).
+    struct FaceSlot {
+        std::string name;
+        int* face = nullptr;
     };
 
     // An operation transforms a prior material state (Model) into a new one.
@@ -34,6 +44,14 @@ export namespace Cam::App {
         virtual OperationType type() const = 0;
         virtual const char* typeName() const = 0;     // serialization key
         virtual std::string displayName() const = 0;  // GUI label
+
+        // Editable single-face references this operation exposes (default none).
+        // Operations driven by named faces (e.g. extrude) override this so the
+        // tree can present and fill them.
+        virtual std::vector<FaceSlot> faceSlots() { return {}; }
+
+        // True once the operation has everything it needs to produce geometry.
+        virtual bool ready() const { return true; }
 
         // Transform `model` in place (it has already been seeded as a copy of
         // the prior state's model). Returns true on geometric success.
@@ -102,6 +120,51 @@ export namespace Cam::App {
         }
     };
 
+    // Extrude a profile face normal to itself up to an end face's plane, then
+    // fuse the swept solid into the part. Both faces are picked on the prior
+    // model; -1 means "not yet picked".
+    struct ExtrudeOperation : Operation {
+        int profileFace = -1;
+        int endFace = -1;
+
+        OperationType type() const override { return OperationType::Extrude; }
+        const char* typeName() const override { return "Extrude"; }
+        std::string displayName() const override { return "Extrude"; }
+
+        std::vector<FaceSlot> faceSlots() override {
+            return { { "Profile face", &profileFace }, { "End face", &endFace } };
+        }
+
+        bool ready() const override {
+            return profileFace >= 0 && endFace >= 0;
+        }
+
+        bool apply(Model& model) override {
+            if (!ready()) { return false; }
+            return model.extrudeToFace(
+                static_cast<std::size_t>(profileFace),
+                static_cast<std::size_t>(endFace)
+            );
+        }
+
+        Json getState() const override {
+            Json json = Operation::getState();
+            json["profileFace"] = profileFace;
+            json["endFace"] = endFace;
+            return json;
+        }
+
+        void setState(const Json& json) override {
+            Operation::setState(json);
+            if (json.contains("profileFace") && json["profileFace"].is_number_integer()) {
+                profileFace = json["profileFace"].get<int>();
+            }
+            if (json.contains("endFace") && json["endFace"].is_number_integer()) {
+                endFace = json["endFace"].get<int>();
+            }
+        }
+    };
+
     // Factory: reconstruct an operation from its serialized form. Unknown or
     // missing types fall back to a plain Import (no-op) operation, since the
     // stage's resulting model is already baked into its own serialized geometry.
@@ -117,6 +180,7 @@ export namespace Cam::App {
 
         if (type == "Defeature") { op = new DefeatureOperation(); }
         else if (type == "ExtendFeature") { op = new ExtendFeatureOperation(); }
+        else if (type == "Extrude") { op = new ExtrudeOperation(); }
         else { op = new ImportOperation(); }
 
         op->setState(json);

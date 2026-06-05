@@ -802,6 +802,13 @@ export namespace Cam::App {
             return activeProject->extendSelected(distance);
         }
 
+        bool beginExtrude() {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->beginExtrudeFromSelection();
+        }
+
         bool commitWorkingStage() {
 
             if (!activeProject) { return false; }

@@ -64,6 +64,7 @@ export namespace Cam::Gui {
     enum class WorldViewCommand {
         Defeature,
         ExtendFeature,
+        ExtrudeFeature,
         AddTab,
         CenterOrigin,
         DefineAxisX,
@@ -131,6 +132,7 @@ export namespace Cam::Gui {
         GestureTracker<WorldViewCommand> gestures = {
             { "df", WorldViewCommand::Defeature },
             { "ef", WorldViewCommand::ExtendFeature },
+            { "exf", WorldViewCommand::ExtrudeFeature },
             { "co", WorldViewCommand::CenterOrigin },
             { "ax", WorldViewCommand::DefineAxisX },
             { "ay", WorldViewCommand::DefineAxisY },
@@ -233,6 +235,11 @@ export namespace Cam::Gui {
 
                     case WorldViewCommand::ExtendFeature: {
                         extendSelected(e);
+                        break;
+                    }
+
+                    case WorldViewCommand::ExtrudeFeature: {
+                        extrudeFeature(e);
                         break;
                     }
 
@@ -2132,6 +2139,17 @@ export namespace Cam::Gui {
 
             size_t faceId = editable->render.triangleFaceIds[tri];
 
+            // If a face reference (e.g. an extrude's end face) is active in the
+            // tree, this ctrl+click fills it rather than toggling selection.
+            Cam::App::Project* project = activeProject();
+
+            if (project && project->hasActiveFaceReference()) {
+                project->assignActiveFaceReference(faceId);
+                sync(e);
+                notifyStateChanged(e);
+                return;
+            }
+
             editable->toggleFace(faceId);
 
             sync(e);
@@ -2446,6 +2464,25 @@ export namespace Cam::Gui {
             sync(e);
 
             dbg("extended selected feature");
+
+            notifyStateChanged(e);
+
+            return true;
+        }
+
+        // Start an extrude feature from the selected (profile) face. The end
+        // face is left unset and auto-activated, so the next ctrl+click defines
+        // the end plane (see selectFaceAtMouse).
+        bool extrudeFeature(Event& e) {
+
+            if (!app || !app->beginExtrude()) {
+                dbg("extrude feature failed: select a profile face first");
+                return false;
+            }
+
+            sync(e);
+
+            dbg("extrude feature started — ctrl+click a face to set the end plane");
 
             notifyStateChanged(e);
 

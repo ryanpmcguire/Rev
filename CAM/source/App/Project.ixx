@@ -109,6 +109,22 @@ export namespace Cam::App {
             selectedComponentIndex = -1;
         }
 
+        // Active face reference: a single-face slot (of a stage's operation) that
+        // is currently being filled. While set, ctrl+clicking a face in the world
+        // view assigns it to this slot. Picking happens on the stage's parent
+        // (prior) geometry so the face ids reference the operation's input model.
+        Stage* activeRefStage = nullptr;
+        int activeRefSlot = -1;
+
+        bool hasActiveFaceReference() const {
+            return activeRefStage && activeRefSlot >= 0;
+        }
+
+        void clearActiveFaceReference() {
+            activeRefStage = nullptr;
+            activeRefSlot = -1;
+        }
+
         // Raw stock definition (and its auto-generated stages).
         StockDefinition stock;
 
@@ -153,6 +169,7 @@ export namespace Cam::App {
             displayedStage = nullptr;
             viewSelection.clear();
             clearComponentSelection();
+            clearActiveFaceReference();
 
             stock.reset();
 
@@ -1153,6 +1170,9 @@ export namespace Cam::App {
             if (selectedComponentStage && indexOf(selectedComponentStage) == static_cast<size_t>(-1)) {
                 clearComponentSelection();
             }
+            if (activeRefStage && indexOf(activeRefStage) == static_cast<size_t>(-1)) {
+                clearActiveFaceReference();
+            }
 
             loaded = rootStage != nullptr;
             dirty = true;
@@ -1543,6 +1563,132 @@ export namespace Cam::App {
             ExtendFeatureOperation* op = new ExtendFeatureOperation();
             op->distance = distance;
             return applyOperation(op);
+        }
+
+        // Extrude feature
+        //--------------------------------------------------
+
+        // Keep an operation's flat referencedFaces (used for highlighting) in
+        // sync with its named face slots. Operations without slots (defeature /
+        // extend, which use a face *set*) are left untouched.
+        void syncOperationReferencedFaces(Operation* op) {
+
+            if (!op) { return; }
+
+            std::vector<FaceSlot> slots = op->faceSlots();
+
+            if (slots.empty()) { return; }
+
+            op->referencedFaces.clear();
+
+            for (const FaceSlot& slot : slots) {
+                if (slot.face && *slot.face >= 0) {
+                    op->referencedFaces.push_back(static_cast<size_t>(*slot.face));
+                }
+            }
+        }
+
+        // Re-run a stage's operation from its parent geometry (used after a face
+        // slot is (re)assigned). Resets the model to the parent copy so the slot
+        // face ids stay valid, re-applies, and recomputes the delta.
+        bool recomputeOperation(Stage* stage) {
+
+            if (!stage || !stage->operation || !stage->parent) { return false; }
+
+            stage->model = stage->parent->model;
+            stage->model.clearSelection();
+            stage->model.changed = false;
+
+            syncOperationReferencedFaces(stage->operation);
+
+            bool ok = stage->operation->apply(stage->model);
+
+            stage->model.clearSelection();
+            stage->computeDelta(toolLibrary, selectedToolName);
+
+            dirty = true;
+            return ok;
+        }
+
+        // Activate a face slot for filling. While active, the stage shows its
+        // parent (prior) geometry so the user picks faces on the operation's
+        // input model.
+        void setActiveFaceReference(Stage* stage, int slot) {
+
+            activeRefStage = stage;
+            activeRefSlot = slot;
+
+            if (stage && stage->parent) {
+                stage->model = stage->parent->model;
+                stage->model.clearSelection();
+                stage->model.changed = false;
+                stage->clearDelta();
+
+                displayedStage = stage;
+                syncViewSelectionToDisplayed();
+            }
+        }
+
+        // Assign a ctrl+clicked world face to the active slot. Once the operation
+        // has all its faces, it is applied and the reference deactivated.
+        bool assignActiveFaceReference(size_t faceId) {
+
+            if (!hasActiveFaceReference() || !activeRefStage->operation) { return false; }
+
+            std::vector<FaceSlot> slots = activeRefStage->operation->faceSlots();
+
+            if (activeRefSlot >= static_cast<int>(slots.size()) || !slots[activeRefSlot].face) {
+                return false;
+            }
+
+            *slots[activeRefSlot].face = static_cast<int>(faceId);
+
+            syncOperationReferencedFaces(activeRefStage->operation);
+
+            // Keep the referenced faces highlighted.
+            activeRefStage->highlightedOperationFaces =
+                activeRefStage->operation->referencedFaces;
+
+            if (activeRefStage->operation->ready()) {
+                recomputeOperation(activeRefStage);
+                clearActiveFaceReference();
+            }
+
+            dirty = true;
+            return true;
+        }
+
+        // Begin an extrude on the working stage: the profile is the currently
+        // selected face; the end face is left unset and auto-activated so the
+        // next ctrl+click defines it.
+        bool beginExtrudeFromSelection() {
+
+            if (!workingStage || !workingStage->parent) { return false; }
+
+            const auto& sel = workingStage->model.selectedFaceIds;
+
+            if (sel.empty()) { return false; }
+
+            const int profile = static_cast<int>(*sel.begin());
+
+            ExtrudeOperation* op = new ExtrudeOperation();
+            op->profileFace = profile;
+            op->endFace = -1;
+            op->referencedFaces = { static_cast<size_t>(profile) };
+
+            delete workingStage->operation;
+            workingStage->operation = op;
+
+            // Highlight the profile face while picking the end face.
+            workingStage->highlightedOperationFaces = op->referencedFaces;
+
+            // Nothing to apply yet (no end face) — show the parent geometry and
+            // activate the End-face slot (index 1) for the next ctrl+click.
+            selectComponent(workingStage, 2 /* Operation */);
+            setActiveFaceReference(workingStage, 1 /* End face */);
+
+            dirty = true;
+            return true;
         }
 
         bool commitWorkingStage() {

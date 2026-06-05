@@ -1649,6 +1649,129 @@ export namespace Cam::App {
             }
         }
 
+        // Extrude the profile face normal to itself, far enough to reach the end
+        // face's plane, and fuse the swept solid into the part. The sweep
+        // distance is the signed projection of (endPoint - profilePoint) onto the
+        // profile normal, so the prism ends exactly on the end-face plane.
+        bool extrudeToFace(size_t profileFaceId, size_t endFaceId) {
+            operationSerial++;
+
+            if (shape.IsNull()) {
+                logEvent(format("[Extrude #%zu] failed: shape is null", operationSerial));
+                return false;
+            }
+
+            if (profileFaceId >= faces.size() || endFaceId >= faces.size()) {
+                logEvent(format(
+                    "[Extrude #%zu] failed: stale face ids profile=%zu end=%zu faceCount=%zu",
+                    operationSerial, profileFaceId, endFaceId, faces.size()
+                ));
+                return false;
+            }
+
+            const TopoDS_Face& profile = faces[profileFaceId];
+
+            if (profile.IsNull()) {
+                logEvent(format("[Extrude #%zu] failed: profile face is null", operationSerial));
+                return false;
+            }
+
+            Rev::Core::Pos3 normal = faceNormal(profileFaceId);
+            gp_Vec direction(normal.x, normal.y, normal.z);
+
+            if (direction.Magnitude() <= 1e-9) {
+                logEvent(format("[Extrude #%zu] failed: degenerate profile normal", operationSerial));
+                return false;
+            }
+
+            direction.Normalize();
+
+            const Rev::Core::Pos3 p0 = facePoint(profileFaceId);
+            const Rev::Core::Pos3 p1 = facePoint(endFaceId);
+
+            const double distance =
+                (double(p1.x) - p0.x) * normal.x +
+                (double(p1.y) - p0.y) * normal.y +
+                (double(p1.z) - p0.z) * normal.z;
+
+            if (std::fabs(distance) <= 1e-7) {
+                logEvent(format("[Extrude #%zu] failed: end plane coincides with profile", operationSerial));
+                return false;
+            }
+
+            gp_Vec sweep = direction * distance;
+
+            try {
+                TopoDS_Shape accum = ensureSolid(shape);
+
+                TopoDS_Face forwardFace = TopoDS::Face(profile.Oriented(TopAbs_FORWARD));
+
+                BRepPrimAPI_MakePrism prism(forwardFace, sweep);
+                prism.Build();
+
+                if (!prism.IsDone()) {
+                    logEvent(format("[Extrude #%zu] failed: prism IsDone=false", operationSerial));
+                    return false;
+                }
+
+                TopoDS_Shape slab = prism.Shape();
+
+                if (slab.IsNull()) {
+                    logEvent(format("[Extrude #%zu] failed: null swept solid", operationSerial));
+                    return false;
+                }
+
+                BRepAlgoAPI_Fuse fuse(accum, slab);
+                fuse.Build();
+
+                if (!fuse.IsDone()) {
+                    logEvent(format("[Extrude #%zu] failed: fuse IsDone=false", operationSerial));
+                    return false;
+                }
+
+                TopoDS_Shape result = fuse.Shape();
+
+                if (result.IsNull()) {
+                    logEvent(format("[Extrude #%zu] failed: null fused result", operationSerial));
+                    return false;
+                }
+
+                TopoDS_Shape chosen = result;
+
+                try {
+                    ShapeUpgrade_UnifySameDomain unifier(result, true, true, true);
+                    unifier.Build();
+                    TopoDS_Shape unified = unifier.Shape();
+                    if (!unified.IsNull() && isShapeValid(unified)) { chosen = unified; }
+                }
+                catch (const Standard_Failure&) {}
+
+                chosen = ensureSolid(chosen);
+
+                if (!isShapeValid(chosen)) {
+                    logEvent(format("[Extrude #%zu] failed: invalid result after unify", operationSerial));
+                    return false;
+                }
+
+                adoptShape(chosen, true, format("Extrude #%zu", operationSerial));
+
+                logEvent(format(
+                    "[Extrude #%zu] succeeded: distance=%.4f newFaceCount=%zu",
+                    operationSerial, distance, faces.size()
+                ));
+
+                return true;
+            }
+            catch (const Standard_Failure& failure) {
+                logEvent(format("[Extrude #%zu] exception: %s", operationSerial, safeFailureMessage(failure)));
+                return false;
+            }
+            catch (...) {
+                logEvent(format("[Extrude #%zu] unknown exception", operationSerial));
+                return false;
+            }
+        }
+
         std::string debugDump() const {
             std::ostringstream stream;
 

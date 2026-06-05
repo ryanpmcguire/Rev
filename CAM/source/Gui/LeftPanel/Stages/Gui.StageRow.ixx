@@ -251,7 +251,8 @@ export namespace Cam::Gui {
         Box* operationBody = nullptr;
         std::vector<Text*> operationFaceRows;
         Cam::App::Stage* operationFacesBoundState = nullptr;
-        std::size_t operationFacesBoundCount = static_cast<std::size_t>(-1);
+        std::vector<std::size_t> operationFacesBound;
+        int operationActiveSlotBound = -2;
 
         Rev::Core::Resource eyeOnResource;
         Rev::Core::Resource eyeOffResource;
@@ -550,8 +551,26 @@ export namespace Cam::Gui {
             return "Material State";
         }
 
-        // (Re)build the list of referenced-face rows in the Operation body. Each
-        // row highlights its single face in the world view on hover.
+        // Hover a single face in the world view (transient), restoring to the
+        // selection baseline on leave.
+        void wireFaceHover(Text* row, std::size_t faceId) {
+
+            row->onMouseEnter([this, faceId](Event& ev) {
+                if (state) {
+                    state->highlightedOperationFaces = { faceId };
+                    if (onComponentToggled) { onComponentToggled(ev); }
+                }
+            });
+
+            row->onMouseLeave([this](Event& ev) {
+                applyOperationHighlightBaseline();
+                if (onComponentToggled) { onComponentToggled(ev); }
+            });
+        }
+
+        // (Re)build the Operation body. Operations with named face slots (e.g.
+        // extrude) get one selectable/fillable row per slot; others list their
+        // referenced faces for hover-highlighting.
         void rebuildOperationFaces() {
 
             if (!operationBody) { return; }
@@ -561,13 +580,69 @@ export namespace Cam::Gui {
             }
             operationFaceRows.clear();
 
-            const bool hasFaces =
-                state && state->operation && !state->operation->referencedFaces.empty();
-
-            if (!hasFaces) {
+            if (!state || !state->operation) {
                 operationFaceRows.push_back(new Text(
-                    operationBody,
-                    "No referenced faces",
+                    operationBody, "No operation",
+                    Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::MutedText })
+                ));
+                return;
+            }
+
+            std::vector<Cam::App::FaceSlot> slots = state->operation->faceSlots();
+
+            if (!slots.empty()) {
+
+                const int activeSlot =
+                    (activeProject() && activeProject()->activeRefStage == state)
+                        ? activeProject()->activeRefSlot
+                        : -1;
+
+                for (int s = 0; s < static_cast<int>(slots.size()); s++) {
+
+                    const Cam::App::FaceSlot& slot = slots[s];
+                    const int face = slot.face ? *slot.face : -1;
+                    const bool active = (s == activeSlot);
+
+                    std::string label =
+                        (active ? std::string("> ") : std::string("")) +
+                        slot.name + ": " +
+                        (face >= 0 ? "Face " + std::to_string(face) : "pick a face");
+
+                    Text* row = new Text(
+                        operationBody, label,
+                        Theme::layer(
+                            { &Styles::FaceRow },
+                            { face >= 0 ? &Theme::Styles::Text : &Theme::Styles::MutedText }
+                        )
+                    );
+
+                    // Clicking a slot selects the stage + operation and activates
+                    // the slot, so the next ctrl+click in the world view fills it.
+                    const int capturedSlot = s;
+                    row->onClick([this, capturedSlot](Event& e) {
+                        e.propagate = false;
+                        if (Cam::App::Project* p = activeProject()) {
+                            if (onSelect && state) { onSelect(e, state); }
+                            p->selectComponent(state, Operation);
+                            p->setActiveFaceReference(state, capturedSlot);
+                            if (onComponentToggled) { onComponentToggled(e); }
+                        }
+                    });
+
+                    if (face >= 0) {
+                        wireFaceHover(row, static_cast<std::size_t>(face));
+                    }
+
+                    operationFaceRows.push_back(row);
+                }
+
+                return;
+            }
+
+            // Flat referenced faces (defeature / extend).
+            if (state->operation->referencedFaces.empty()) {
+                operationFaceRows.push_back(new Text(
+                    operationBody, "No referenced faces",
                     Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::MutedText })
                 ));
                 return;
@@ -581,20 +656,7 @@ export namespace Cam::Gui {
                     Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::Text })
                 );
 
-                const std::size_t captured = fid;
-
-                row->onMouseEnter([this, captured](Event& ev) {
-                    if (state) {
-                        state->highlightedOperationFaces = { captured };
-                        if (onComponentToggled) { onComponentToggled(ev); }
-                    }
-                });
-
-                row->onMouseLeave([this](Event& ev) {
-                    applyOperationHighlightBaseline();
-                    if (onComponentToggled) { onComponentToggled(ev); }
-                });
-
+                wireFaceHover(row, fid);
                 operationFaceRows.push_back(row);
             }
         }
@@ -612,15 +674,23 @@ export namespace Cam::Gui {
                 toolpathSettings->setState(state);
             }
 
-            // Rebuild the operation's referenced-face list when the stage or its
-            // face count changes.
+            // Rebuild the operation body when the stage, its referenced faces, or
+            // the active face slot changes.
             {
-                const std::size_t faceCount =
-                    (state && state->operation) ? state->operation->referencedFaces.size() : 0;
+                std::vector<std::size_t> faces;
+                if (state && state->operation) { faces = state->operation->referencedFaces; }
 
-                if (state != operationFacesBoundState || faceCount != operationFacesBoundCount) {
+                Cam::App::Project* p = activeProject();
+                const int activeSlot =
+                    (p && p->activeRefStage == state) ? p->activeRefSlot : -1;
+
+                if (state != operationFacesBoundState ||
+                    faces != operationFacesBound ||
+                    activeSlot != operationActiveSlotBound) {
+
                     operationFacesBoundState = state;
-                    operationFacesBoundCount = faceCount;
+                    operationFacesBound = faces;
+                    operationActiveSlotBound = activeSlot;
                     rebuildOperationFaces();
                 }
             }
@@ -629,6 +699,15 @@ export namespace Cam::Gui {
             if (componentLabels[Operation]) {
                 componentLabels[Operation]->content =
                     (state && state->operation) ? state->operation->displayName() : "Operation";
+            }
+
+            // While a face slot of this stage is being filled, auto-expand the
+            // Operation item so the slot to fill is visible.
+            if (propCollapsible[Operation] && !propCollapsible[Operation]->open) {
+                Cam::App::Project* p = activeProject();
+                if (p && p->activeRefStage == state) {
+                    propCollapsible[Operation]->expand(&e);
+                }
             }
 
             if (numberText) {
