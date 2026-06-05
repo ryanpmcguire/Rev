@@ -92,8 +92,35 @@ export namespace Cam::App {
             double volume = 0.0;
         };
 
+        // A lightweight, copyable handle to one face of this model: the owning
+        // model plus the face index. External code (selection, operations, the
+        // GUI) holds these BY VALUE and rebuilds them each frame from the current
+        // model, so they never dangle across geometry rebuilds. A Face* is only
+        // ever used internally, pointing into faceHandles, which is rebuilt in
+        // lockstep with the geometry. Nested in Model so faces (which always
+        // belong to a model) avoid any circular import.
+        struct Face {
+            Model* model = nullptr;
+            size_t id = static_cast<size_t>(-1);
+
+            bool valid() const { return model && id < model->faces.size(); }
+            Rev::Core::Pos3 normal() const { return valid() ? model->faceNormal(id) : Rev::Core::Pos3{}; }
+            Rev::Core::Pos3 point() const { return valid() ? model->facePoint(id) : Rev::Core::Pos3{}; }
+            bool selected() const { return model && model->isFaceSelected(id); }
+
+            bool operator==(const Face& other) const {
+                return model == other.model && id == other.id;
+            }
+            bool operator!=(const Face& other) const { return !(*this == other); }
+        };
+
         TopoDS_Shape shape;
         std::vector<TopoDS_Face> faces;
+
+        // The model's own face handles, one per entry in `faces`, rebuilt with
+        // the geometry (see collectFaces). The canonical per-face store.
+        std::vector<Face> faceHandles;
+
         RenderCache render;
 
         std::set<size_t> selectedFaceIds;
@@ -187,6 +214,7 @@ export namespace Cam::App {
 
             shape = TopoDS_Shape();
             faces.clear();
+            faceHandles.clear();
             render.clear();
             selectedFaceIds.clear();
             axisPickFaceId = NoAxisPickFaceId;
@@ -1180,7 +1208,32 @@ export namespace Cam::App {
                 faces.push_back(TopoDS::Face(exp.Current()));
             }
 
+            rebuildFaceHandles();
+
             dbg("[Topology] collectFaces: collected %zu face(s)", faces.size());
+        }
+
+        // Rebuild the per-face handle store in lockstep with `faces`.
+        void rebuildFaceHandles() {
+            faceHandles.clear();
+            faceHandles.reserve(faces.size());
+            for (size_t i = 0; i < faces.size(); i++) {
+                faceHandles.push_back(Face{ this, i });
+            }
+        }
+
+        // A by-value handle to face `id`. Always carries this model, so it is
+        // valid even right after a copy (faceHandles' own back-pointers may be
+        // stale after a memberwise copy — always go through here, never read a
+        // Face's model from faceHandles directly).
+        Face face(size_t id) { return Face{ this, id }; }
+
+        // The face that render triangle `tri` belongs to (invalid if out of range).
+        Face triangleFace(size_t tri) {
+            if (tri >= render.triangleFaceIds.size()) {
+                return Face{ this, static_cast<size_t>(-1) };
+            }
+            return Face{ this, render.triangleFaceIds[tri] };
         }
 
         void tessellate(double tolerance = 0.1) {

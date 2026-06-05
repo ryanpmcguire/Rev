@@ -129,7 +129,7 @@ class Builder:
     def _needs(self, rel: str) -> bool:
         return rel in self.rebuild_set or not self._obj(rel).exists()
 
-    def _compile(self, rel: str) -> bool:
+    def _compile(self, rel: str, label: str | None = None) -> tuple[bool, str]:
         t = self.target_of[rel]
         obj = self._obj(rel)
         obj.parent.mkdir(parents=True, exist_ok=True)
@@ -146,18 +146,91 @@ class Builder:
                 cmd.append(f"-fmodule-file={m}={self._bmi(m)}")
         cmd += ["-o", str(obj), "-c", str(self.repo / rel)]
 
-        print(f"  CXX  {t['name']}/{Path(rel).name}")
+        print(f"  CXX  {label or (t['name'] + '/' + Path(rel).name)}")
         if self.verbose:
             print("       " + " ".join(cmd))
         p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(self.repo))
         if p.returncode != 0:
-            print(f"FAILED: {rel}\n{p.stdout}\n{p.stderr}")
-            self.failed = True
-            return False
+            return False, (p.stdout + "\n" + p.stderr).strip()
         if p.stderr.strip():
             print(p.stderr)
         self.compiled.add(rel)
-        return True
+        return True, ""
+
+    # -- staleness repair (clang-as-canary recovery) -----------------------
+
+    def _mtime(self, path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return -1.0
+
+    def _bmi_stale(self, rel: str) -> bool:
+        """A module's BMI is stale if it is missing, older than its own source,
+        or older than any BMI it directly imports (mtime is a conservative
+        proxy -- worst case we rebuild a BMI whose content was unchanged)."""
+        mod = self.provides.get(rel)
+        if not rel.endswith(".ixx") or not mod:
+            return False
+        pcm = self._bmi(mod)
+        if not pcm.exists():
+            return True
+        pm = self._mtime(pcm)
+        if pm < self._mtime(self.repo / rel):
+            return True
+        for m in self.requires.get(rel, []):
+            prov = self.provider.get(m)
+            if prov and self._mtime(self._bmi(m)) > pm:
+                return True
+        return False
+
+    def _closure_rels(self, rel: str) -> list[str]:
+        """Provider source files for `rel`'s transitive module imports, in
+        topological (dependency-first) order."""
+        wanted = {self.provider[m] for m in self._closure(rel) if m in self.provider}
+        return [r for r in self._topo() if r in wanted]
+
+    def _repair_closure(self, rel: str, full: bool) -> list[str]:
+        """Rebuild stale (or, if full, all) BMIs in rel's import closure,
+        dependency-first so freshly-bumped BMIs cascade staleness outward."""
+        rebuilt = []
+        for dep in self._closure_rels(rel):
+            if full or self._bmi_stale(dep):
+                ok, out = self._compile(dep, label=f"(repair) {self.target_of[dep]['name']}/{Path(dep).name}")
+                if ok:
+                    rebuilt.append(dep)
+                else:
+                    print(f"  repair of {dep} failed:\n{out}")
+        return rebuilt
+
+    def _attempt(self, rel: str) -> bool:
+        """Compile rel, recovering from stale-BMI failures with escalating,
+        closure-scoped rebuilds -- using clang as the canary."""
+        ok, out = self._compile(rel)
+        if ok:
+            return True
+
+        # Mini nuke: rebuild only the BMIs in this TU's closure that look stale.
+        rebuilt = self._repair_closure(rel, full=False)
+        if rebuilt:
+            print(f"  ...repaired {len(rebuilt)} stale BMI(s); retrying {Path(rel).name}")
+            ok, out = self._compile(rel)
+            if ok:
+                return True
+
+        # Medium nuke: rebuild this TU's entire import closure (content staleness
+        # clang sees that mtime did not). Still scoped to deps, never the project.
+        print(f"  ...escalating: rebuilding full import closure of {Path(rel).name}")
+        self._repair_closure(rel, full=True)
+        ok, out = self._compile(rel)
+        if ok:
+            return True
+
+        # A clean closure that still fails is a genuine compile error, not
+        # staleness -- report it; do NOT nuke the whole project for a real bug.
+        print(f"FAILED: {rel}\n{out}")
+        self.failed = True
+        return False
 
     # -- link --------------------------------------------------------------
 
@@ -267,9 +340,8 @@ class Builder:
         for rel in todo:
             if self.failed:
                 return False
-            self._compile(rel)
-        if self.failed:
-            return False
+            if not self._attempt(rel):
+                return False
 
         # Link any target that had an object (re)compiled, or whose output is missing.
         for t in self.manifest["targets"]:

@@ -38,7 +38,8 @@ export namespace Cam::Gui {
         Style Title = {
             .size = { 100_pct },
             .margin = { .bottom = 4_px },
-            .text = { .size = 12_px }
+            .text = { .size = 12_px },
+            .border = { .bottom = { .width = 1_px, .color = rgba(255, 255, 255, 0.1) } }
         };
 
         Style List = {

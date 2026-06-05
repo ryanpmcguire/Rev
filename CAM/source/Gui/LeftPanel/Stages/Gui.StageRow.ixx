@@ -24,8 +24,10 @@ import Rev.Window;
 import Cam.App;
 import Cam.App.Project;
 import Cam.App.Stage;
+import Cam.App.Model;
 import Cam.App.Operation;
 import Cam.Gui.Theme;
+import Cam.Gui.Face;
 import Cam.Gui.ToolPathSettingsWindow;
 import Cam.Gui.ToolpathSettings;
 
@@ -42,11 +44,18 @@ export namespace Cam::Gui {
         Style Card = {
             .margin = { .bottom = 4_px },
             .border = { .radius = 4_px },
-            .background = { .color = rgba(255, 255, 255, 0.1), .transition = 120_ms }
+            .background = { .color = rgba(255, 255, 255, 0.03), .transition = 120_ms }
+        };
+
+        // Lightens while the pointer is anywhere over the card (applied
+        // declaratively whenever the hover flag is set).
+        Style CardHover = {
+            .applies = { .hover = true },
+            .background = { .color = rgba(255, 255, 255, 0.06) }
         };
 
         Style CardSelected = {
-            .background = { .color = rgba(255, 255, 255, 0.18) }
+            .background = { .color = rgba(255, 255, 255, 0.09) }
         };
 
         // Highlight/cursor for the node header line (selection target).
@@ -81,6 +90,14 @@ export namespace Cam::Gui {
         // Body of an expandable property (placeholder content for now).
         Style PropBody = {
             .padding = { .left = 6_px, .top = 2_px, .bottom = 4_px }
+        };
+
+        // The Operation body lays its Face chips out horizontally (wrapping),
+        // rather than stacking them — each face hugs its own width. This opens
+        // the door to richer face-row UX later.
+        Style OperationBody = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::True },
+            .size = { .width = 100_pct }
         };
 
         Style Dummy = {
@@ -249,7 +266,7 @@ export namespace Cam::Gui {
         // The Operation property body lists the faces the operation referenced;
         // each row highlights its face in the world view on hover.
         Box* operationBody = nullptr;
-        std::vector<Text*> operationFaceRows;
+        std::vector<Element*> operationFaceRows;
         Cam::App::Stage* operationFacesBoundState = nullptr;
         std::vector<std::size_t> operationFacesBound;
         int operationActiveSlotBound = -2;
@@ -277,6 +294,7 @@ export namespace Cam::Gui {
 
             // The whole stage is a subtle card; the chevron follows the theme.
             this->styles.add(&Styles::Card);
+            this->styles.add(&Styles::CardHover);
             arrow->styles.add(&Theme::Styles::Icon);
 
             // Header line: number + name; the selection target.
@@ -327,8 +345,10 @@ export namespace Cam::Gui {
                 }
                 else if (i == Operation) {
                     // The operation body holds the list of referenced faces,
-                    // populated dynamically in computeChildren.
+                    // populated dynamically in computeChildren, laid out
+                    // horizontally as chips.
                     operationBody = propCollapsible[i]->container;
+                    operationBody->styles.add(&Styles::OperationBody);
                 }
                 else {
                     // Placeholder body content (Delta) for now.
@@ -551,31 +571,46 @@ export namespace Cam::Gui {
             return "Material State";
         }
 
-        // Hover a single face in the world view (transient), restoring to the
-        // selection baseline on leave.
-        void wireFaceHover(Text* row, std::size_t faceId) {
+        // The model the operation's faces live on: the prior (parent) model,
+        // whose face ids the operation references. Falls back to this stage's
+        // own model at the root.
+        Cam::App::Model* priorModel() {
+            if (!state) { return nullptr; }
+            return state->parent ? &state->parent->model : &state->model;
+        }
 
-            row->onMouseEnter([this, faceId](Event& ev) {
-                if (state) {
-                    state->highlightedOperationFaces = { faceId };
+        // Create a Face element bound to a Model::Face. Hovering highlights that
+        // face in the world view; leaving restores the selection baseline. The
+        // caller wires onSelect (slots and flat faces select differently).
+        Cam::Gui::Face* makeFaceElement(Cam::App::Model::Face f, const std::string& label) {
+
+            Cam::Gui::Face* el = new Cam::Gui::Face(operationBody);
+            el->setFace(f, label);
+
+            el->onHover = [this](Event& ev, Cam::App::Model::Face hf) {
+                if (state && hf.valid()) {
+                    state->highlightedOperationFaces = { hf.id };
                     if (onComponentToggled) { onComponentToggled(ev); }
                 }
-            });
+            };
 
-            row->onMouseLeave([this](Event& ev) {
+            el->onUnhover = [this](Event& ev) {
                 applyOperationHighlightBaseline();
                 if (onComponentToggled) { onComponentToggled(ev); }
-            });
+            };
+
+            return el;
         }
 
         // (Re)build the Operation body. Operations with named face slots (e.g.
-        // extrude) get one selectable/fillable row per slot; others list their
-        // referenced faces for hover-highlighting.
+        // extrude) get one selectable/fillable Face row per slot; others list
+        // their referenced faces. Each row is a true Face element carrying the
+        // Model::Face it represents.
         void rebuildOperationFaces() {
 
             if (!operationBody) { return; }
 
-            for (Text* row : operationFaceRows) {
+            for (Element* row : operationFaceRows) {
                 delete row;
             }
             operationFaceRows.clear();
@@ -587,6 +622,13 @@ export namespace Cam::Gui {
                 ));
                 return;
             }
+
+            Cam::App::Model* pm = priorModel();
+
+            auto handleFor = [&](int faceId) -> Cam::App::Model::Face {
+                if (faceId >= 0 && pm) { return pm->face(static_cast<std::size_t>(faceId)); }
+                return Cam::App::Model::Face{ pm, static_cast<std::size_t>(-1) };
+            };
 
             std::vector<Cam::App::FaceSlot> slots = state->operation->faceSlots();
 
@@ -608,30 +650,21 @@ export namespace Cam::Gui {
                         slot.name + ": " +
                         (face >= 0 ? "Face " + std::to_string(face) : "pick a face");
 
-                    Text* row = new Text(
-                        operationBody, label,
-                        Theme::layer(
-                            { &Styles::FaceRow },
-                            { face >= 0 ? &Theme::Styles::Text : &Theme::Styles::MutedText }
-                        )
-                    );
+                    Cam::Gui::Face* row = makeFaceElement(handleFor(face), label);
+
+                    if (active) { row->setSelected(true); }
 
                     // Clicking a slot selects the stage + operation and activates
                     // the slot, so the next ctrl+click in the world view fills it.
                     const int capturedSlot = s;
-                    row->onClick([this, capturedSlot](Event& e) {
-                        e.propagate = false;
+                    row->onSelect = [this, capturedSlot](Event& e, Cam::App::Model::Face) {
                         if (Cam::App::Project* p = activeProject()) {
                             if (onSelect && state) { onSelect(e, state); }
                             p->selectComponent(state, Operation);
                             p->setActiveFaceReference(state, capturedSlot);
                             if (onComponentToggled) { onComponentToggled(e); }
                         }
-                    });
-
-                    if (face >= 0) {
-                        wireFaceHover(row, static_cast<std::size_t>(face));
-                    }
+                    };
 
                     operationFaceRows.push_back(row);
                 }
@@ -650,13 +683,19 @@ export namespace Cam::Gui {
 
             for (std::size_t fid : state->operation->referencedFaces) {
 
-                Text* row = new Text(
-                    operationBody,
-                    "Face " + std::to_string(fid),
-                    Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::Text })
-                );
+                Cam::Gui::Face* row = makeFaceElement(handleFor(static_cast<int>(fid)),
+                                                      "Face " + std::to_string(fid));
 
-                wireFaceHover(row, fid);
+                // Clicking a referenced face selects the stage + operation.
+                row->onSelect = [this](Event& e, Cam::App::Model::Face) {
+                    if (onSelect && state) { onSelect(e, state); }
+                    if (Cam::App::Project* p = activeProject()) {
+                        p->selectComponent(state, Operation);
+                    }
+                    applyOperationHighlightBaseline();
+                    if (onComponentToggled) { onComponentToggled(e); }
+                };
+
                 operationFaceRows.push_back(row);
             }
         }

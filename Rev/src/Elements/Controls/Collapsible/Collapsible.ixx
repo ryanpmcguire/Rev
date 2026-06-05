@@ -73,7 +73,11 @@ export namespace Rev::Element {
     // (so the host can use header clicks for selection). Unlike a dropdown menu
     // (an absolutely-positioned overlay), the container fully participates in
     // layout when open.
-    struct Collapsible : public Element {
+    // Extends Box (not Element) so the control's root can paint its own
+    // background/border — hosts (e.g. a CAD tree node) can give the whole
+    // collapsible a card background, hover, and selection colour. The base
+    // Self style sets no background, so a plain collapsible stays transparent.
+    struct Collapsible : public Box {
 
         Box*  header    = nullptr;
         Svg*  arrow     = nullptr;
@@ -93,7 +97,7 @@ export namespace Rev::Element {
             std::string title = "",
             StyleList styles = {},
             bool startOpen = false
-        ) : Element(parent, styles, "Collapsible") {
+        ) : Box(parent, styles, "Collapsible") {
 
             this->styles.prepend(&CollapsibleStyle::Self);
 
