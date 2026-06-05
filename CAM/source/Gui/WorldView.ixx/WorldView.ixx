@@ -1068,7 +1068,9 @@ export namespace Cam::Gui {
                 toolPreviewActor->setWorldTransform(identity);
             }
 
-            toolPreviewActor->visible = true;
+            // Honour the machine tree's Tool visibility request (the spindle is
+            // still synced below, independently of the tool).
+            toolPreviewActor->visible = (!app || app->machineVisible.tool);
 
             if (target.state) { repositionToolPreviewDrawOrder(target.state); }
             else if (toolState) { repositionToolPreviewDrawOrder(toolState); }
@@ -1391,6 +1393,20 @@ export namespace Cam::Gui {
                 view->showModel    = vis.model      && allowModels;
                 view->showDelta    = vis.delta      && allowDelta;
                 view->showToolPath = vis.toolPath   && allowToolPath;
+
+                // A component actively selected in the tree is force-shown, even
+                // if its visibility request is off ("select" temporarily reveals
+                // it). Indices match the stage tree order.
+                if (project->selectedComponentStage == view->state) {
+                    switch (project->selectedComponentIndex) {
+                        case 0: view->showPart     = true; break;  // Prior Model
+                        case 1: view->showModel    = true; break;  // Model
+                        case 2: view->showPart     = true; break;  // Operation → prior model (for face highlight)
+                        case 3: view->showDelta    = true; break;  // Delta
+                        case 4: view->showToolPath = true; break;  // Toolpath
+                        default: break;
+                    }
+                }
 
                 view->includeInFit = isPrimary;
             }

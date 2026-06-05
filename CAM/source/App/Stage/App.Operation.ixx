@@ -1,6 +1,8 @@
 module;
 
+#include <cstddef>
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -24,6 +26,11 @@ export namespace Cam::App {
 
         virtual ~Operation() = default;
 
+        // Faces in the prior model that this operation referenced (the selection
+        // that drove it). Used to highlight the participating faces in the world
+        // view when the operation is hovered/selected in the stage tree.
+        std::vector<std::size_t> referencedFaces;
+
         virtual OperationType type() const = 0;
         virtual const char* typeName() const = 0;     // serialization key
         virtual std::string displayName() const = 0;  // GUI label
@@ -33,14 +40,23 @@ export namespace Cam::App {
         // The default (Import) is a no-op: the model is the imported seed.
         virtual bool apply(Model& model) { return true; }
 
-        // Operation-specific parameters. Base writes only the type tag.
+        // Operation-specific parameters. Base writes the type tag and the
+        // referenced faces; subclasses extend via getState()/setState().
         virtual Json getState() const {
             Json json;
             json["type"] = typeName();
+            json["referencedFaces"] = referencedFaces;
             return json;
         }
 
-        virtual void setState(const Json&) {}
+        virtual void setState(const Json& json) {
+            if (json.is_object() &&
+                json.contains("referencedFaces") &&
+                json["referencedFaces"].is_array()) {
+                referencedFaces =
+                    json["referencedFaces"].get<std::vector<std::size_t>>();
+            }
+        }
 
         static Operation* fromState(const Json& json);
     };
@@ -79,6 +95,7 @@ export namespace Cam::App {
         }
 
         void setState(const Json& json) override {
+            Operation::setState(json);
             if (json.contains("distance") && json["distance"].is_number()) {
                 distance = json["distance"].get<double>();
             }

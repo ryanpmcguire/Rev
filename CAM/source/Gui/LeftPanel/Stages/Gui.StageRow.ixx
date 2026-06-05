@@ -1,6 +1,8 @@
 module;
 
+#include <cstddef>
 #include <string>
+#include <vector>
 #include <functional>
 
 #include <managed.hpp>
@@ -22,6 +24,7 @@ import Rev.Window;
 import Cam.App;
 import Cam.App.Project;
 import Cam.App.Stage;
+import Cam.App.Operation;
 import Cam.Gui.Theme;
 import Cam.Gui.ToolPathSettingsWindow;
 import Cam.Gui.ToolpathSettings;
@@ -32,6 +35,19 @@ export namespace Cam::Gui {
     using namespace Rev::Element;
 
     namespace StageRowStyle::Styles {
+
+        // The whole material state is a subtle rounded card, very slightly
+        // lighter than the panel behind it (a translucent white overlay works in
+        // both light and dark themes). It gets a touch lighter when selected.
+        Style Card = {
+            .margin = { .bottom = 4_px },
+            .border = { .radius = 4_px },
+            .background = { .color = rgba(255, 255, 255, 0.1), .transition = 120_ms }
+        };
+
+        Style CardSelected = {
+            .background = { .color = rgba(255, 255, 255, 0.18) }
+        };
 
         // Highlight/cursor for the node header line (selection target).
         Style HeaderRow = {
@@ -71,8 +87,21 @@ export namespace Cam::Gui {
             .text = { .size = 11_px }
         };
 
+        // A referenced-face row inside the Operation body.
+        Style FaceRow = {
+            .padding = { .left = 2_px, .right = 2_px, .top = 1_px, .bottom = 1_px },
+            .text = { .size = 11_px, .wrap = Wrap::False },
+            .cursor = Cursor::Hand
+        };
+
         Style ComponentLabel = {
             .text = { .size = 12_px, .wrap = Wrap::False }
+        };
+
+        // Subtle highlight on the property row that is actively selected.
+        Style PropSelected = {
+            .border = { .radius = 3_px },
+            .background = { .color = rgba(255, 255, 255, 0.10) }
         };
 
         // Per-property type icon (left of the name). Monochrome SVGs tinted by
@@ -217,6 +246,13 @@ export namespace Cam::Gui {
         // Inline toolpath settings (lives in the Toolpath property body).
         ToolpathSettings* toolpathSettings = nullptr;
 
+        // The Operation property body lists the faces the operation referenced;
+        // each row highlights its face in the world view on hover.
+        Box* operationBody = nullptr;
+        std::vector<Text*> operationFaceRows;
+        Cam::App::Stage* operationFacesBoundState = nullptr;
+        std::size_t operationFacesBoundCount = static_cast<std::size_t>(-1);
+
         Rev::Core::Resource eyeOnResource;
         Rev::Core::Resource eyeOffResource;
 
@@ -238,10 +274,12 @@ export namespace Cam::Gui {
             eyeOnResource  = File("./Eye.svg");
             eyeOffResource = File("./Eye-Off.svg");
 
+            // The whole stage is a subtle card; the chevron follows the theme.
+            this->styles.add(&Styles::Card);
+            arrow->styles.add(&Theme::Styles::Icon);
+
             // Header line: number + name; the selection target.
             header->styles.add(&Styles::HeaderRow);
-            header->styles.add(&Theme::Styles::Row);
-            header->styles.add(&Theme::Styles::RowHover);
 
             numberText = new Text(
                 header, "",
@@ -255,6 +293,8 @@ export namespace Cam::Gui {
 
             header->onClick([this](Event& e) {
                 if (onSelect && state) { onSelect(e, state); }
+                if (Cam::App::Project* p = activeProject()) { p->clearComponentSelection(); }
+                applyOperationHighlightBaseline();
             });
 
             for (int i = 0; i < ComponentCount; i++) {
@@ -274,6 +314,7 @@ export namespace Cam::Gui {
 
                 propHeader[i] = propCollapsible[i]->header;
                 propHeader[i]->styles.add(&Styles::PropHeader);
+                propCollapsible[i]->arrow->styles.add(&Theme::Styles::Icon);
 
                 if (i == Toolpath) {
                     // Real, inline toolpath settings.
@@ -283,8 +324,13 @@ export namespace Cam::Gui {
                         if (onSettingsChanged) { onSettingsChanged(e); }
                     };
                 }
+                else if (i == Operation) {
+                    // The operation body holds the list of referenced faces,
+                    // populated dynamically in computeChildren.
+                    operationBody = propCollapsible[i]->container;
+                }
                 else {
-                    // Placeholder body content (Operation, Delta) for now.
+                    // Placeholder body content (Delta) for now.
                     new Text(
                         propCollapsible[i]->container,
                         "hello world",
@@ -364,6 +410,40 @@ export namespace Cam::Gui {
                     onComponentToggled(e);
                 }
             });
+
+            // Clicking the property row selects the stage AND this component,
+            // force-showing it in the world view (even if its eye is off).
+            const int capturedSelect = i;
+            propHeader[i]->onClick([this, capturedSelect](Event& e) {
+
+                if (onSelect && state) { onSelect(e, state); }
+
+                if (Cam::App::Project* p = activeProject()) {
+                    p->selectComponent(state, capturedSelect);
+                }
+
+                applyOperationHighlightBaseline();
+
+                if (onComponentToggled) { onComponentToggled(e); }
+            });
+
+            // Hovering the Operation property highlights the faces it referenced
+            // (in the prior model) in the world view — a quick way to see which
+            // faces participated in the operation.
+            if (i == Operation) {
+
+                propHeader[i]->onMouseEnter([this](Event& e) {
+                    if (state && state->operation) {
+                        state->highlightedOperationFaces = state->operation->referencedFaces;
+                        if (onComponentToggled) { onComponentToggled(e); }
+                    }
+                });
+
+                propHeader[i]->onMouseLeave([this](Event& e) {
+                    applyOperationHighlightBaseline();
+                    if (onComponentToggled) { onComponentToggled(e); }
+                });
+            }
         }
 
         ~StageRow() {
@@ -375,6 +455,26 @@ export namespace Cam::Gui {
             if (!app) { return nullptr; }
 
             return app->activeProject;
+        }
+
+        bool componentSelected(int i) {
+            Cam::App::Project* p = activeProject();
+            return p && p->selectedComponentStage == state && p->selectedComponentIndex == i;
+        }
+
+        // When the Operation component is the selected one, keep its referenced
+        // faces highlighted persistently; otherwise leave them cleared. Hover
+        // overrides this transiently and restores to it on leave.
+        void applyOperationHighlightBaseline() {
+
+            if (!state) { return; }
+
+            if (componentSelected(Operation) && state->operation) {
+                state->highlightedOperationFaces = state->operation->referencedFaces;
+            }
+            else {
+                state->highlightedOperationFaces.clear();
+            }
         }
 
         void setState(Cam::App::Stage* newState, size_t index) {
@@ -450,6 +550,56 @@ export namespace Cam::Gui {
             return "Material State";
         }
 
+        // (Re)build the list of referenced-face rows in the Operation body. Each
+        // row highlights its single face in the world view on hover.
+        void rebuildOperationFaces() {
+
+            if (!operationBody) { return; }
+
+            for (Text* row : operationFaceRows) {
+                delete row;
+            }
+            operationFaceRows.clear();
+
+            const bool hasFaces =
+                state && state->operation && !state->operation->referencedFaces.empty();
+
+            if (!hasFaces) {
+                operationFaceRows.push_back(new Text(
+                    operationBody,
+                    "No referenced faces",
+                    Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::MutedText })
+                ));
+                return;
+            }
+
+            for (std::size_t fid : state->operation->referencedFaces) {
+
+                Text* row = new Text(
+                    operationBody,
+                    "Face " + std::to_string(fid),
+                    Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::Text })
+                );
+
+                const std::size_t captured = fid;
+
+                row->onMouseEnter([this, captured](Event& ev) {
+                    if (state) {
+                        state->highlightedOperationFaces = { captured };
+                        if (onComponentToggled) { onComponentToggled(ev); }
+                    }
+                });
+
+                row->onMouseLeave([this](Event& ev) {
+                    applyOperationHighlightBaseline();
+                    if (onComponentToggled) { onComponentToggled(ev); }
+                });
+
+                operationFaceRows.push_back(row);
+            }
+        }
+
+        // Structure + content only — no style mutation here (see computeStyle).
         void computeChildren(Event& e) override {
 
             // If the window closed itself (e.g. via the OS close button) drop our
@@ -458,11 +608,27 @@ export namespace Cam::Gui {
                 settingsWindow = nullptr;
             }
 
-            const bool selected =
-                state && activeProject() && activeProject()->isViewSelected(state);
-
             if (toolpathSettings) {
                 toolpathSettings->setState(state);
+            }
+
+            // Rebuild the operation's referenced-face list when the stage or its
+            // face count changes.
+            {
+                const std::size_t faceCount =
+                    (state && state->operation) ? state->operation->referencedFaces.size() : 0;
+
+                if (state != operationFacesBoundState || faceCount != operationFacesBoundCount) {
+                    operationFacesBoundState = state;
+                    operationFacesBoundCount = faceCount;
+                    rebuildOperationFaces();
+                }
+            }
+
+            // The Operation property label reflects the actual operation type.
+            if (componentLabels[Operation]) {
+                componentLabels[Operation]->content =
+                    (state && state->operation) ? state->operation->displayName() : "Operation";
             }
 
             if (numberText) {
@@ -472,6 +638,13 @@ export namespace Cam::Gui {
             if (nameText) {
                 nameText->content = stageName();
             }
+        }
+
+        // Per-frame style computations belong here, not in computeChildren.
+        void computeStyle(Event& e) override {
+
+            const bool selected =
+                state && activeProject() && activeProject()->isViewSelected(state);
 
             for (int i = 0; i < ComponentCount; i++) {
 
@@ -500,11 +673,19 @@ export namespace Cam::Gui {
                     if (on) { componentLabels[i]->styles.remove(&Theme::Styles::MutedText); }
                     else    { componentLabels[i]->styles.add(&Theme::Styles::MutedText); }
                 }
+
+                // Highlight the actively-selected property row.
+                if (propHeader[i]) {
+                    if (componentSelected(i)) { propHeader[i]->styles.add(&Styles::PropSelected); }
+                    else                      { propHeader[i]->styles.remove(&Styles::PropSelected); }
+                }
             }
 
-            // Selection highlight on the node line.
-            if (selected) { header->styles.add(&Theme::Styles::RowSelected); }
-            else          { header->styles.remove(&Theme::Styles::RowSelected); }
+            // Selection highlight on the whole card (a touch lighter).
+            if (selected) { styles.add(&Styles::CardSelected); }
+            else          { styles.remove(&Styles::CardSelected); }
+
+            Element::computeStyle(e);
         }
     };
 }

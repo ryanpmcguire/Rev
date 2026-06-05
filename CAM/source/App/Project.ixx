@@ -92,6 +92,23 @@ export namespace Cam::App {
         Stage* displayedStage = nullptr;
         std::vector<Stage*> viewSelection;
 
+        // Transient component selection: a property (component) of a stage that
+        // is actively selected in the tree. The world view force-shows it even
+        // when its visibility flag is off. The index follows the tree order:
+        // 0 PriorModel, 1 Model, 2 Operation, 3 Delta, 4 Toolpath; -1 = none.
+        Stage* selectedComponentStage = nullptr;
+        int selectedComponentIndex = -1;
+
+        void selectComponent(Stage* stage, int component) {
+            selectedComponentStage = stage;
+            selectedComponentIndex = component;
+        }
+
+        void clearComponentSelection() {
+            selectedComponentStage = nullptr;
+            selectedComponentIndex = -1;
+        }
+
         // Raw stock definition (and its auto-generated stages).
         StockDefinition stock;
 
@@ -135,6 +152,7 @@ export namespace Cam::App {
             workingStage = nullptr;
             displayedStage = nullptr;
             viewSelection.clear();
+            clearComponentSelection();
 
             stock.reset();
 
@@ -1131,6 +1149,11 @@ export namespace Cam::App {
 
             syncViewSelectionToDisplayed();
 
+            // Drop the component selection if its stage was removed.
+            if (selectedComponentStage && indexOf(selectedComponentStage) == static_cast<size_t>(-1)) {
+                clearComponentSelection();
+            }
+
             loaded = rootStage != nullptr;
             dirty = true;
 
@@ -1491,6 +1514,14 @@ export namespace Cam::App {
 
             delete workingStage->operation;
             workingStage->operation = op;
+
+            // Record the faces that drove this operation (the current selection)
+            // before it is consumed/cleared. These ids are valid on the prior
+            // model, since the working model is a copy of it pre-operation.
+            op->referencedFaces.assign(
+                workingStage->model.selectedFaceIds.begin(),
+                workingStage->model.selectedFaceIds.end()
+            );
 
             bool ok = op->apply(workingStage->model);
 

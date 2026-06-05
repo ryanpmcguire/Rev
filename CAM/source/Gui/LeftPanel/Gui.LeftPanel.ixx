@@ -18,6 +18,7 @@ import Rev.Element.Text;
 import Cam.App;
 import Cam.App.Project;
 
+import Cam.Gui.MachineTree;
 import Cam.Gui.Stages;
 import Cam.Gui.StockMenu;
 import Cam.Gui.Theme;
@@ -66,6 +67,7 @@ export namespace Cam::Gui {
         Box* fileButton = nullptr;
         Text* fileButtonLabel = nullptr;
 
+        MachineTree* machineTree = nullptr;
         Stages* materialStates = nullptr;
         StockMenu* stockMenu = nullptr;
 
@@ -75,6 +77,7 @@ export namespace Cam::Gui {
         std::function<void(Event&)> onDeleteState;
         std::function<void(Event&)> onToolPathEdited;
         std::function<void(Event&)> onStockChanged;
+        std::function<void(Event&)> onMachineChanged;
 
         // Create
         //--------------------------------------------------
@@ -110,6 +113,13 @@ export namespace Cam::Gui {
                 selectFile(e);
                 e.propagate = false;
             });
+
+            // "Machine" tree node sits above the material-state list.
+            machineTree = new MachineTree(this);
+
+            machineTree->onChanged = [this](Event& e) {
+                if (onMachineChanged) { onMachineChanged(e); }
+            };
 
             materialStates = new Stages(this);
 

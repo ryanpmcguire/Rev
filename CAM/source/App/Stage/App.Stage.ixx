@@ -1,5 +1,6 @@
 module;
 
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -83,6 +84,13 @@ export namespace Cam::App {
         };
 
         ComponentVisibility visible;
+
+        // Highlight
+        //--------------------------------------------------
+
+        // Transient (not serialized): faces in the prior model to highlight in
+        // the world view when this stage's operation is hovered in the tree.
+        std::vector<std::size_t> highlightedOperationFaces;
 
         // Tool Path
         //--------------------------------------------------

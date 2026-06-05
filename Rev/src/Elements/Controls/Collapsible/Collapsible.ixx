@@ -31,7 +31,7 @@ export namespace Rev::Element {
         Style Header = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
-            .padding = { .left = 2_px, .right = 2_px, .top = 4_px, .bottom = 4_px }
+            .padding = { .left = 6_px, .right = 2_px, .top = 6_px, .bottom = 4_px }
         };
 
         // Only the chevron toggles the body, so it (not the header) carries the
@@ -55,7 +55,7 @@ export namespace Rev::Element {
         Style Container = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 100_pct },
-            .padding = { .left = 14_px }
+            .padding = { .left = 18_px, .top = 2_px }
         };
     };
 

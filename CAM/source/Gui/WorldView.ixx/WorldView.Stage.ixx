@@ -728,6 +728,17 @@ export namespace Cam::Gui::World {
         // Selection display
         //--------------------------------------------------
 
+        bool isHighlightedOperationFace(size_t faceId) const {
+
+            if (!state) { return false; }
+
+            for (std::size_t id : state->highlightedOperationFaces) {
+                if (id == faceId) { return true; }
+            }
+
+            return false;
+        }
+
         void applyFaceColors() {
 
             Cam::App::Model* model = partModel();
@@ -779,6 +790,17 @@ export namespace Cam::Gui::World {
                 1.0f
             };
 
+            // Light pink for faces referenced by a hovered operation.
+            Rev::Core::Color referenced = {
+                1.0f,
+                0.72f,
+                0.80f,
+                1.0f
+            };
+
+            const bool highlightActive =
+                state && !state->highlightedOperationFaces.empty();
+
             // Hover only makes sense when partActor and pickActor share the same
             // geometry (no delta yet); after a defeature they diverge and face IDs
             // from the pick actor no longer correspond to the displayed model.
@@ -804,7 +826,10 @@ export namespace Cam::Gui::World {
 
                 Rev::Core::Color color = base;
 
-                if (faceId == sliceFaceId) {
+                if (highlightActive && isHighlightedOperationFace(faceId)) {
+                    color = referenced;
+                }
+                else if (faceId == sliceFaceId) {
                     color = slicePlane;
                 }
                 else if (model->isAxisPickFace(faceId)) {
