@@ -28,6 +28,12 @@ export namespace Cam::App {
     struct FaceSlot {
         std::string name;
         int* face = nullptr;
+
+        // An optional numeric offset paired with the face. When `offset` is
+        // non-null the GUI shows a small numeric input beside the face picker —
+        // the face defines a reference plane and the offset displaces the result
+        // from it along the profile normal.
+        double* offset = nullptr;
     };
 
     // An operation transforms a prior material state (Model) into a new one.
@@ -125,32 +131,47 @@ export namespace Cam::App {
     // model; -1 means "not yet picked".
     struct ExtrudeOperation : Operation {
         int profileFace = -1;
-        int endFace = -1;
+
+        // The face whose plane the offset is measured from. Defaults to the
+        // profile face itself (-1 means "same as profile"), so a fresh extrude
+        // is simply "offset mm from the profile". The user may instead pick a
+        // different face to offset from.
+        int offsetFace = -1;
+        double offset = 0.0;
 
         OperationType type() const override { return OperationType::Extrude; }
         const char* typeName() const override { return "Extrude"; }
         std::string displayName() const override { return "Extrude"; }
 
+        // The effective origin face: the picked offset face, or the profile.
+        int originFace() const { return offsetFace >= 0 ? offsetFace : profileFace; }
+
         std::vector<FaceSlot> faceSlots() override {
-            return { { "Profile face", &profileFace }, { "End face", &endFace } };
+            return {
+                { "Profile face", &profileFace },
+                { "Offset face", &offsetFace, &offset }
+            };
         }
 
         bool ready() const override {
-            return profileFace >= 0 && endFace >= 0;
+            return profileFace >= 0;
         }
 
         bool apply(Model& model) override {
             if (!ready()) { return false; }
-            return model.extrudeToFace(
+
+            return model.extrudeToFaceOffset(
                 static_cast<std::size_t>(profileFace),
-                static_cast<std::size_t>(endFace)
+                static_cast<std::size_t>(originFace()),
+                offset
             );
         }
 
         Json getState() const override {
             Json json = Operation::getState();
             json["profileFace"] = profileFace;
-            json["endFace"] = endFace;
+            json["offsetFace"] = offsetFace;
+            json["offset"] = offset;
             return json;
         }
 
@@ -159,8 +180,11 @@ export namespace Cam::App {
             if (json.contains("profileFace") && json["profileFace"].is_number_integer()) {
                 profileFace = json["profileFace"].get<int>();
             }
-            if (json.contains("endFace") && json["endFace"].is_number_integer()) {
-                endFace = json["endFace"].get<int>();
+            if (json.contains("offsetFace") && json["offsetFace"].is_number_integer()) {
+                offsetFace = json["offsetFace"].get<int>();
+            }
+            if (json.contains("offset") && json["offset"].is_number()) {
+                offset = json["offset"].get<double>();
             }
         }
     };

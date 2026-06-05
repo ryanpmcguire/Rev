@@ -54,6 +54,11 @@ export namespace Rev::Element {
 
             Event* event = nullptr;
 
+            // The currently focused editable text element (if any). Lets non-text
+            // elements (e.g. the 3D view) cede the keyboard to a focused field
+            // even when both happen to be in the focus set at once.
+            Element* focusedText = nullptr;
+
             // Top-level windows registered by the application (e.g. tool settings popups).
             std::vector<void*>* windowGroup = nullptr;
         };
@@ -136,6 +141,12 @@ export namespace Rev::Element {
                 removeSelf(shared->dirty.restyle);
                 removeSelf(shared->dirty.animate);
                 removeSelf(shared->stencilStack);
+
+                // Don't leave a dangling focused-text pointer if a focused input
+                // is destroyed (e.g. its host rebuilds while it has focus).
+                if (shared->focusedText == this) {
+                    shared->focusedText = nullptr;
+                }
             }
 
             // Before doing anything structural, remove self from parent
@@ -1242,6 +1253,31 @@ export namespace Rev::Element {
             layoutOffsetX += center(resolved.getInner(Axis::Horizontal), layout.rect.w, rStyle.layout.horizontal);
             layoutOffsetY += center(resolved.getInner(Axis::Vertical), layout.rect.h, rStyle.layout.vertical);
 
+            // Apply scroll offset
+            //--------------------------------------------------
+            // Every child is positioned relative to layout.rect, so shifting the
+            // single layout origin scrolls the whole subtree coherently. This is
+            // orthogonal to overflow/clipping: scrolled content still spills out
+            // (and stays hittable) unless the element also sets overflow: Hide.
+
+            Scroll scrollMode = rStyle.scroll;
+            bool scrollX = (scrollMode == Scroll::Horizontal || scrollMode == Scroll::Both);
+            bool scrollY = (scrollMode == Scroll::Vertical || scrollMode == Scroll::Both);
+
+            if (scrollX) {
+                float maxScroll = std::max(0.0f, layout.rect.w - resolved.getInner(Axis::Horizontal));
+                if (resolved.scroll.x < 0.0f) { resolved.scroll.x = 0.0f; }
+                if (resolved.scroll.x > maxScroll) { resolved.scroll.x = maxScroll; }
+                layoutOffsetX -= resolved.scroll.x;
+            }
+
+            if (scrollY) {
+                float maxScroll = std::max(0.0f, layout.rect.h - resolved.getInner(Axis::Vertical));
+                if (resolved.scroll.y < 0.0f) { resolved.scroll.y = 0.0f; }
+                if (resolved.scroll.y > maxScroll) { resolved.scroll.y = maxScroll; }
+                layoutOffsetY -= resolved.scroll.y;
+            }
+
             // Resolve layout position
             layout.rect.x = rect.x + layoutOffsetX;
             layout.rect.y = rect.y + layoutOffsetY;
@@ -1681,12 +1717,18 @@ export namespace Rev::Element {
             }
         }
 
+        // Pixels of scroll per unit of native wheel delta (one notch = 120).
+        static constexpr float scrollSpeed = 0.5f;
+
         // When the mouse scrolls
         virtual void mouseWheel(Event& e) {
 
             dispatcher->tell(&Element::mouseWheel, e);
             if (!e.propagate) { return; }
 
+            // Offer the scroll to children first so the innermost scrollable
+            // element under the cursor consumes it; a parent only takes over
+            // once the child leaves e.propagate set (i.e. it can't move further).
             for (Element* pChild : std::views::reverse(children)) {
 
                 Element& child = *pChild;
@@ -1695,6 +1737,23 @@ export namespace Rev::Element {
                 if (child.targetFlags.hit) { child.mouseWheel(e); }
                 if (!e.propagate) { return; }
             }
+
+            // Consume the scroll if we scroll along the wheel's axis. The new
+            // offset is clamped against content/viewport in resolveRects.
+            Scroll mode = resolved.style.scroll;
+
+            bool canX = (mode == Scroll::Horizontal || mode == Scroll::Both) && e.mouse.wheel.x != 0;
+            bool canY = (mode == Scroll::Vertical || mode == Scroll::Both) && e.mouse.wheel.y != 0;
+
+            if (!canX && !canY) { return; }
+
+            // Wheel up / left (positive delta) reveals earlier content, i.e.
+            // a smaller offset.
+            if (canX) { resolved.scroll.x -= e.mouse.wheel.x * scrollSpeed; }
+            if (canY) { resolved.scroll.y -= e.mouse.wheel.y * scrollSpeed; }
+
+            refresh(e);
+            e.propagate = false;
         }
 
         // When a key is pressed

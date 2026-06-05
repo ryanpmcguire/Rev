@@ -830,10 +830,22 @@ export namespace Rev::Element {
     // Overflow
     //--------------------------------------------------
 
+    // Overflow controls *clipping only* (does content paint outside the box?).
+    // It is intentionally orthogonal to Scroll: an element may scroll its
+    // content while still letting that content spill out, visible and hittable.
     enum class Overflow {
         Unset,
         Show, Hide,
-        Scroll, ScrollH, ScrollV,
+        Inherit,
+    };
+
+    // Scroll controls *which axes the content may be offset along*. It says
+    // nothing about clipping — pair with Overflow::Hide for a classic scroll
+    // pane, or leave Overflow::Show to let scrolled content overflow visibly.
+    enum class Scroll {
+        Unset,
+        None,
+        Horizontal, Vertical, Both,
         Inherit,
     };
 
@@ -872,6 +884,11 @@ export namespace Rev::Element {
         [[nodiscard]] inline operator Overflow() const noexcept {
             return Overflow::Inherit;
         }
+
+        // Cast to Scroll
+        [[nodiscard]] inline operator Scroll() const noexcept {
+            return Scroll::Inherit;
+        }
     };
 
     constexpr InheritCast Inherit{};
@@ -885,6 +902,7 @@ export namespace Rev::Element {
 
         VisibilityStyle visibility;
         Overflow overflow = Overflow::Unset;
+        Scroll scroll = Scroll::Unset;
 
         LayoutStyle layout;
         LrtbStyle position;
@@ -919,6 +937,7 @@ export namespace Rev::Element {
                 .applies = { false, false, false, false, false },
                 .visibility = VisibilityStyle::Null(),
                 .overflow = Overflow::Unset,
+                .scroll = Scroll::Unset,
                 .layout = LayoutStyle::Null(),
                 .position = LrtbStyle::Null(),
                 .size = Size::Null(),
@@ -980,6 +999,7 @@ export namespace Rev::Element {
             if (style.zIndex != 0) { zIndex = style.zIndex; }
             if (style.transition) { transition = style.transition; }
             if (style.overflow != Overflow::Unset) { overflow = style.overflow; }
+            if (style.scroll != Scroll::Unset) { scroll = style.scroll; }
             if (style.cursor != Cursor::Unset) { cursor = style.cursor; }
         }
 
@@ -1036,6 +1056,7 @@ export namespace Rev::Element {
             applies = other.applies;
             visibility = other.visibility;
             overflow = other.overflow;
+            scroll = other.scroll;
             position = other.position;
             layout = other.layout;
             size = other.size;

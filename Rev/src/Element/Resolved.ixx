@@ -169,6 +169,12 @@ export namespace Rev::Element {
         ResolvedSize size;
         ResolvedLrtb mar, pad, pos;
 
+        // Persistent scroll offset (content shifted up/left by these amounts).
+        // Deliberately NOT cleared by reset(): scroll position must survive the
+        // per-frame resolve wipe. Clamped against content/viewport in resolveRects.
+        struct ScrollOffset { float x = 0.0f, y = 0.0f; };
+        ScrollOffset scroll;
+
         SizeDetails min, max;
         float innerWidth;
         float innerHeight;

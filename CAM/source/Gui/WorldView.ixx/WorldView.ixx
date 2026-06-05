@@ -2696,6 +2696,20 @@ export namespace Cam::Gui {
 
         void keyDown(Event& e) override {
 
+            // Give children (e.g. a focused offset/number input) the event FIRST,
+            // then bail if one of them consumed it. This inverts Rev's default
+            // bubble-down order so our view-level shortcuts defer to focused
+            // widgets — Enter inside an input edits that input instead of
+            // committing the working state, etc.
+            Box::keyDown(e);
+            if (!e.propagate) { return; }
+
+            // If a text field is focused anywhere (including a sibling panel that
+            // is dispatched after us), let it own the keyboard. We leave the event
+            // un-consumed so it still reaches that field — without this, our
+            // shortcuts would steal Enter/Delete/letters from the focused input.
+            if (shared && shared->focusedText) { return; }
+
             if (e.keyboard.key == "escape") {
                 clearAllSelections(e);
                 e.propagate = false;
@@ -2770,8 +2784,6 @@ export namespace Cam::Gui {
                 e.propagate = false;
                 return;
             }
-
-            Box::keyDown(e);
         }
     };
 }

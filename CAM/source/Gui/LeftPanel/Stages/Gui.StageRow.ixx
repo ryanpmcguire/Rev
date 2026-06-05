@@ -3,6 +3,7 @@ module;
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <optional>
 #include <functional>
 
 #include <managed.hpp>
@@ -19,6 +20,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Svg;
 import Rev.Element.Collapsible;
+import Rev.Element.NumberInput;
 import Rev.Window;
 
 import Cam.App;
@@ -92,16 +94,58 @@ export namespace Cam::Gui {
             .padding = { .left = 6_px, .top = 2_px, .bottom = 4_px }
         };
 
-        // The Operation body lays its Face chips out horizontally (wrapping),
-        // rather than stacking them — each face hugs its own width. This opens
-        // the door to richer face-row UX later.
+        // The Operation body lays its sections out horizontally: the faces
+        // column on the left, the labeled parameter(s) (e.g. offset) to its right.
         Style OperationBody = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = 100_pct }
+        };
+
+        // The column of face slots (left side of the operation body).
+        Style FacesColumn = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False }
+        };
+
+        // One face slot, shown as "name: [face chip]" on its own line.
+        Style FaceSlotRow = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size = { .width = 100_pct },
+            .padding = { .top = 1_px, .bottom = 1_px }
+        };
+
+        // The slot-name text preceding a face chip.
+        Style SlotLabel = {
+            .margin = { .right = 6_px },
+            .text = { .size = 11_px, .wrap = Wrap::False }
+        };
+
+        // Flat referenced faces (defeature/extend) still flow as wrapping chips.
+        Style FlatFaces = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::True },
             .size = { .width = 100_pct }
         };
 
+        // A labeled parameter row (the offset), horizontal, to the right of the
+        // faces column.
+        Style ParamRow = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .margin = { .left = 12_px },
+            .padding = { .top = 1_px, .bottom = 1_px }
+        };
+
+        Style ParamLabel = {
+            .margin = { .right = 6_px },
+            .text = { .size = 11_px, .wrap = Wrap::False }
+        };
+
         Style Dummy = {
             .text = { .size = 11_px }
+        };
+
+        // The numeric offset input that sits beside a face slot's picker.
+        Style OffsetInput = {
+            .size = { .width = 56_px },
+            .margin = { .top = 1_px, .bottom = 1_px }
         };
 
         // A referenced-face row inside the Operation body.
@@ -582,9 +626,9 @@ export namespace Cam::Gui {
         // Create a Face element bound to a Model::Face. Hovering highlights that
         // face in the world view; leaving restores the selection baseline. The
         // caller wires onSelect (slots and flat faces select differently).
-        Cam::Gui::Face* makeFaceElement(Cam::App::Model::Face f, const std::string& label) {
+        Cam::Gui::Face* makeFaceElement(Element* parent, Cam::App::Model::Face f, const std::string& label) {
 
-            Cam::Gui::Face* el = new Cam::Gui::Face(operationBody);
+            Cam::Gui::Face* el = new Cam::Gui::Face(parent);
             el->setFace(f, label);
 
             el->onHover = [this](Event& ev, Cam::App::Model::Face hf) {
@@ -639,25 +683,45 @@ export namespace Cam::Gui {
                         ? activeProject()->activeRefSlot
                         : -1;
 
+                // The slot that carries an offset (extrude) drives the labeled
+                // offset row to the right of the faces.
+                int offsetSlot = -1;
+                double offsetValue = 0.0;
+
+                // The faces column on the left.
+                Box* facesCol = new Box(operationBody, { &Styles::FacesColumn }, "FacesColumn");
+
+                // Each face slot is its own line: "name: [face chip]".
                 for (int s = 0; s < static_cast<int>(slots.size()); s++) {
 
                     const Cam::App::FaceSlot& slot = slots[s];
                     const int face = slot.face ? *slot.face : -1;
                     const bool active = (s == activeSlot);
 
-                    std::string label =
-                        (active ? std::string("> ") : std::string("")) +
-                        slot.name + ": " +
-                        (face >= 0 ? "Face " + std::to_string(face) : "pick a face");
+                    if (slot.offset) {
+                        offsetSlot = s;
+                        offsetValue = *slot.offset;
+                    }
 
-                    Cam::Gui::Face* row = makeFaceElement(handleFor(face), label);
+                    Box* slotRow = new Box(facesCol, { &Styles::FaceSlotRow }, "FaceSlotRow");
 
-                    if (active) { row->setSelected(true); }
+                    new Text(
+                        slotRow,
+                        (active ? std::string("> ") : std::string("")) + slot.name + ":",
+                        Theme::layer({ &Styles::SlotLabel }, { &Theme::Styles::MutedText })
+                    );
 
-                    // Clicking a slot selects the stage + operation and activates
+                    Cam::Gui::Face* chip = makeFaceElement(
+                        slotRow, handleFor(face),
+                        face >= 0 ? "Face " + std::to_string(face) : "pick a face"
+                    );
+
+                    if (active) { chip->setSelected(true); }
+
+                    // Clicking the chip selects the stage + operation and activates
                     // the slot, so the next ctrl+click in the world view fills it.
                     const int capturedSlot = s;
-                    row->onSelect = [this, capturedSlot](Event& e, Cam::App::Model::Face) {
+                    chip->onSelect = [this, capturedSlot](Event& e, Cam::App::Model::Face) {
                         if (Cam::App::Project* p = activeProject()) {
                             if (onSelect && state) { onSelect(e, state); }
                             p->selectComponent(state, Operation);
@@ -666,13 +730,54 @@ export namespace Cam::Gui {
                         }
                     };
 
-                    operationFaceRows.push_back(row);
+                }
+
+                // Track the whole column (deleting it frees its slot rows).
+                operationFaceRows.push_back(facesCol);
+
+                // The labeled offset input, to the right of the faces column.
+                if (offsetSlot >= 0) {
+
+                    Box* paramRow = new Box(operationBody, { &Styles::ParamRow }, "OffsetRow");
+
+                    NumberInput::Params params = NumberInput::Params::Default();
+                    params.label = "Offset (mm)";
+                    params.placeholder = "0";
+                    params.maxDecimalPlaces = 3;
+
+                    NumberInput* input = new NumberInput(
+                        paramRow, params, { &Styles::OffsetInput }
+                    );
+
+                    input->setValue(offsetValue);
+
+                    const int capturedOffsetSlot = offsetSlot;
+                    input->onValueChange =
+                        [this, capturedOffsetSlot](Event& e, std::optional<double> v) {
+                            if (!v) { return; }
+                            if (Cam::App::Project* p = activeProject()) {
+                                p->setOperationSlotOffset(state, capturedOffsetSlot, *v);
+                                if (onComponentToggled) { onComponentToggled(e); }
+                            }
+                        };
+
+                    // Enter submits the typed value immediately (and consumes the
+                    // key). We only reflect/recompute on commit — Enter or blur —
+                    // never on every keystroke.
+                    input->onKeyDown([input](Event& e) {
+                        if (e.keyboard.enter) {
+                            e.propagate = false;
+                            input->commit(e);
+                        }
+                    });
+
+                    operationFaceRows.push_back(paramRow);
                 }
 
                 return;
             }
 
-            // Flat referenced faces (defeature / extend).
+            // Flat referenced faces (defeature / extend) flow as wrapping chips.
             if (state->operation->referencedFaces.empty()) {
                 operationFaceRows.push_back(new Text(
                     operationBody, "No referenced faces",
@@ -681,9 +786,11 @@ export namespace Cam::Gui {
                 return;
             }
 
+            Box* flatFaces = new Box(operationBody, { &Styles::FlatFaces }, "FlatFaces");
+
             for (std::size_t fid : state->operation->referencedFaces) {
 
-                Cam::Gui::Face* row = makeFaceElement(handleFor(static_cast<int>(fid)),
+                Cam::Gui::Face* row = makeFaceElement(flatFaces, handleFor(static_cast<int>(fid)),
                                                       "Face " + std::to_string(fid));
 
                 // Clicking a referenced face selects the stage + operation.
@@ -695,9 +802,9 @@ export namespace Cam::Gui {
                     applyOperationHighlightBaseline();
                     if (onComponentToggled) { onComponentToggled(e); }
                 };
-
-                operationFaceRows.push_back(row);
             }
+
+            operationFaceRows.push_back(flatFaces);
         }
 
         // Structure + content only — no style mutation here (see computeStyle).

@@ -1702,11 +1702,17 @@ export namespace Cam::App {
             }
         }
 
-        // Extrude the profile face normal to itself, far enough to reach the end
-        // face's plane, and fuse the swept solid into the part. The sweep
-        // distance is the signed projection of (endPoint - profilePoint) onto the
-        // profile normal, so the prism ends exactly on the end-face plane.
-        bool extrudeToFace(size_t profileFaceId, size_t endFaceId) {
+        // Extrude the profile face normal to itself and fuse the swept solid
+        // into the part. The sweep ends on a plane `offset` mm from the origin
+        // face (measured along the profile normal):
+        //
+        //   distance = (originPoint - profilePoint) . profileNormal + offset
+        //
+        // When the origin face IS the profile face, the projection term is ~0,
+        // so the result is a plain extrude by `offset`. When offset is 0 and the
+        // origin is some other face, the prism reaches that face's plane exactly.
+        // This single entry point covers both "to a face" and "by a distance".
+        bool extrudeToFaceOffset(size_t profileFaceId, size_t originFaceId, double offset) {
             operationSerial++;
 
             if (shape.IsNull()) {
@@ -1714,10 +1720,10 @@ export namespace Cam::App {
                 return false;
             }
 
-            if (profileFaceId >= faces.size() || endFaceId >= faces.size()) {
+            if (profileFaceId >= faces.size() || originFaceId >= faces.size()) {
                 logEvent(format(
-                    "[Extrude #%zu] failed: stale face ids profile=%zu end=%zu faceCount=%zu",
-                    operationSerial, profileFaceId, endFaceId, faces.size()
+                    "[Extrude #%zu] failed: stale face ids profile=%zu origin=%zu faceCount=%zu",
+                    operationSerial, profileFaceId, originFaceId, faces.size()
                 ));
                 return false;
             }
@@ -1740,19 +1746,31 @@ export namespace Cam::App {
             direction.Normalize();
 
             const Rev::Core::Pos3 p0 = facePoint(profileFaceId);
-            const Rev::Core::Pos3 p1 = facePoint(endFaceId);
+            const Rev::Core::Pos3 pOrigin = facePoint(originFaceId);
 
-            const double distance =
-                (double(p1.x) - p0.x) * normal.x +
-                (double(p1.y) - p0.y) * normal.y +
-                (double(p1.z) - p0.z) * normal.z;
+            const double base =
+                (double(pOrigin.x) - p0.x) * normal.x +
+                (double(pOrigin.y) - p0.y) * normal.y +
+                (double(pOrigin.z) - p0.z) * normal.z;
+
+            const double distance = base + offset;
 
             if (std::fabs(distance) <= 1e-7) {
-                logEvent(format("[Extrude #%zu] failed: end plane coincides with profile", operationSerial));
+                logEvent(format("[Extrude #%zu] failed: zero sweep distance", operationSerial));
                 return false;
             }
 
             gp_Vec sweep = direction * distance;
+
+            return extrudeProfileSweep(profileFaceId, sweep, distance);
+        }
+
+        // Shared prism + fuse core for the extrude operations. Assumes
+        // profileFaceId is in range and sweep is non-degenerate (the callers
+        // validate). distanceForLog is purely cosmetic in the success message.
+        bool extrudeProfileSweep(size_t profileFaceId, const gp_Vec& sweep, double distanceForLog) {
+
+            const TopoDS_Face& profile = faces[profileFaceId];
 
             try {
                 TopoDS_Shape accum = ensureSolid(shape);
@@ -1810,7 +1828,7 @@ export namespace Cam::App {
 
                 logEvent(format(
                     "[Extrude #%zu] succeeded: distance=%.4f newFaceCount=%zu",
-                    operationSerial, distance, faces.size()
+                    operationSerial, distanceForLog, faces.size()
                 ));
 
                 return true;

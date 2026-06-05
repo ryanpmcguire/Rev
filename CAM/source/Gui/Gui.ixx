@@ -60,16 +60,21 @@ export namespace Cam::Gui {
             this->style->size = { .width = 100_pct, .height = 100_pct };
             //this->style->padding = { 10_px, 10_px, 10_px, 10_px };
 
+            // Children
+            //--------------------------------------------------
+
             tabView = new TabView(this);
 
             body = new Box(this, {}, "InterfaceBody");
+                body->style->layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False };
+                body->style->size = { .width = 100_pct, .height = Grow() };
 
-            body->style->layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False };
-            body->style->size = { .width = 100_pct, .height = Grow() };
+                leftPanel = new LeftPanel(body);
+                worldView = new WorldView(body);
+                rightPanel = new RightPanel(body);
 
-            leftPanel = new LeftPanel(body);
-            worldView = new WorldView(body);
-            rightPanel = new RightPanel(body);
+            // Events
+            //--------------------------------------------------
 
             tabView->onSelectProject = [this](Event& e) {
 

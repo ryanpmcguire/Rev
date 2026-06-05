@@ -380,9 +380,23 @@ export namespace Rev::Element {
 
             Box::gainFocus(e);
 
+            // Register as the focused editable so view-level key handlers defer.
+            if (editable && shared) {
+                shared->focusedText = this;
+            }
+
             if (selectAllOnFocus && !wasFocused) {
                 selectAll();
                 refresh(e);
+            }
+        }
+
+        void loseFocus(Event& e) override {
+
+            Box::loseFocus(e);
+
+            if (shared && shared->focusedText == this) {
+                shared->focusedText = nullptr;
             }
         }
 
@@ -433,6 +447,15 @@ export namespace Rev::Element {
         }
 
         void keyDown(Event& e) override {
+
+            // Ctrl+A selects all. Lives here (not in TextInput) because Text owns
+            // the selection model; works for any selectable or editable text.
+            if (e.keyboard.ctrl && e.keyboard.key == "a" && (editable || selectable)) {
+                selectAll();
+                e.propagate = false;
+                this->refresh(e);
+                return Box::keyDown(e);
+            }
 
             // All keyboard interactions require edit ability
             if (!editable) { return Box::keyDown(e); }

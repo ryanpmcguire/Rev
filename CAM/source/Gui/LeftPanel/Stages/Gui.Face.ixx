@@ -22,24 +22,24 @@ export namespace Cam::Gui {
 
     namespace FaceStyle {
 
-        // A face is a small, semi-rounded chip with a hover background. It is
-        // deliberately unsized — it hugs its label — and relies on its parent
-        // (the operation body) to lay faces out horizontally.
+        // A face is a small, semi-rounded chip. It is deliberately unsized — it
+        // hugs its label. Its background is set per-frame from Theme::distinct so
+        // it stays a touch lighter/darker than its surroundings in either theme
+        // (see Face::computeStyle); only the transition lives in the style here.
         Style Self = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .margin = { .right = 4_px, .top = 1_px, .bottom = 1_px },
             .padding = { .left = 6_px, .right = 6_px, .top = 2_px, .bottom = 2_px },
             .border = { .radius = 4_px },
+            .background = { .transition = 100_ms },
             .cursor = Cursor::Hand
         };
 
+        // Carries no properties — its only job is to flag the chip as having a
+        // hover style so the framework re-styles it on hover-change; the actual
+        // hover colour is computed in Face::computeStyle via Theme::distinct.
         Style Hover = {
-            .applies = { .hover = true },
-            .background = { .color = rgba(255, 255, 255, 0.10), .transition = 100_ms }
-        };
-
-        Style Selected = {
-            .background = { .color = rgba(255, 255, 255, 0.16) }
+            .applies = { .hover = true }
         };
 
         Style Label = {
@@ -57,6 +57,17 @@ export namespace Cam::Gui {
         Cam::App::Model::Face face;
 
         Text* label = nullptr;
+
+        bool selected = false;
+
+        // Resting / hover / selected overlay strengths (over the surroundings).
+        static constexpr float RestAlpha     = 0.05f;
+        static constexpr float HoverAlpha    = 0.11f;
+        static constexpr float SelectedAlpha = 0.15f;
+
+        // Last applied overlay + mode, so we only re-style when they change.
+        float appliedAlpha = -1.0f;
+        Theme::Mode appliedMode = Theme::Mode::Light;
 
         std::function<void(Event&, Cam::App::Model::Face)> onHover;
         std::function<void(Event&)> onUnhover;
@@ -91,9 +102,27 @@ export namespace Cam::Gui {
             if (label) { label->content = text; }
         }
 
-        void setSelected(bool selected) {
-            if (selected) { styles.add(&FaceStyle::Selected); }
-            else          { styles.remove(&FaceStyle::Selected); }
+        void setSelected(bool value) {
+            selected = value;
+        }
+
+        // Per-frame style: keep the chip a touch distinct from its surroundings
+        // in either theme, brighter on hover, brighter still when selected.
+        void computeStyle(Event& e) override {
+
+            float alpha = targetFlags.hover ? HoverAlpha : RestAlpha;
+            if (selected) { alpha = SelectedAlpha; }
+
+            const Theme::Mode currentMode = Theme::currentMode();
+
+            if (alpha != appliedAlpha || currentMode != appliedMode) {
+                appliedAlpha = alpha;
+                appliedMode = currentMode;
+                style->background.color = Theme::distinct(alpha);
+                this->dirty.style = true;
+            }
+
+            Box::computeStyle(e);
         }
     };
 }

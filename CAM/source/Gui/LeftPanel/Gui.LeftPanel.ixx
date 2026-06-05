@@ -32,7 +32,7 @@ export namespace Cam::Gui {
 
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size = { .width = 380_px, .height = Grow() },
+            .size = { .width = 380_px, .height = 100_pct, .max = { .height = 100_pct } },
             .margin = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
             .padding = { .left = 8_px, .right = 8_px, .top = 8_px, .bottom = 8_px },
             .border = { .radius = 6_px },

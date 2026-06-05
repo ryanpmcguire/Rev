@@ -749,6 +749,16 @@ export namespace Cam::Gui::Theme {
         return mode;
     }
 
+    // A theme-aware overlay colour for making a surface stand out from whatever
+    // sits behind it: a translucent white in dark mode (lighter), a translucent
+    // black in light mode (darker). Layer it over a background to nudge an
+    // element a touch lighter/darker than its surroundings in either theme.
+    inline Color distinct(float alpha) {
+        return mode == Mode::Dark
+            ? rgba(255, 255, 255, alpha)
+            : rgba(0, 0, 0, alpha);
+    }
+
     inline void toggleMode() {
         applyMode(mode == Mode::Light ? Mode::Dark : Mode::Light);
     }

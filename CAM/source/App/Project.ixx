@@ -1583,7 +1583,13 @@ export namespace Cam::App {
 
             for (const FaceSlot& slot : slots) {
                 if (slot.face && *slot.face >= 0) {
-                    op->referencedFaces.push_back(static_cast<size_t>(*slot.face));
+                    const size_t id = static_cast<size_t>(*slot.face);
+                    // Slots may coincide (e.g. extrude's offset origin defaulting
+                    // to the profile face) — keep referencedFaces de-duplicated.
+                    if (std::find(op->referencedFaces.begin(), op->referencedFaces.end(), id)
+                        == op->referencedFaces.end()) {
+                        op->referencedFaces.push_back(id);
+                    }
                 }
             }
         }
@@ -1658,6 +1664,34 @@ export namespace Cam::App {
             return true;
         }
 
+        // Set a slot's numeric offset and recompute the operation if ready,
+        // clearing any pending face pick for this stage.
+        bool setOperationSlotOffset(Stage* stage, int slot, double value) {
+
+            if (!stage || !stage->operation) { return false; }
+
+            std::vector<FaceSlot> slots = stage->operation->faceSlots();
+
+            if (slot < 0 || slot >= static_cast<int>(slots.size())) { return false; }
+
+            const FaceSlot& s = slots[slot];
+
+            if (!s.offset) { return false; }
+
+            *s.offset = value;
+
+            if (stage->operation->ready()) {
+                recomputeOperation(stage);
+            }
+
+            if (activeRefStage == stage) {
+                clearActiveFaceReference();
+            }
+
+            dirty = true;
+            return true;
+        }
+
         // Begin an extrude on the working stage: the profile is the currently
         // selected face; the end face is left unset and auto-activated so the
         // next ctrl+click defines it.
@@ -1673,19 +1707,21 @@ export namespace Cam::App {
 
             ExtrudeOperation* op = new ExtrudeOperation();
             op->profileFace = profile;
-            op->endFace = -1;
+            op->offsetFace = profile;   // default origin = the profile face
+            op->offset = 0.0;
             op->referencedFaces = { static_cast<size_t>(profile) };
 
             delete workingStage->operation;
             workingStage->operation = op;
 
-            // Highlight the profile face while picking the end face.
+            // Highlight the profile face.
             workingStage->highlightedOperationFaces = op->referencedFaces;
 
-            // Nothing to apply yet (no end face) — show the parent geometry and
-            // activate the End-face slot (index 1) for the next ctrl+click.
+            // The end condition defaults to "0 mm from the profile" (a no-op
+            // until the user types an offset or picks another origin face), so
+            // recompute now and select the operation so its offset input shows.
             selectComponent(workingStage, 2 /* Operation */);
-            setActiveFaceReference(workingStage, 1 /* End face */);
+            recomputeOperation(workingStage);
 
             dirty = true;
             return true;
