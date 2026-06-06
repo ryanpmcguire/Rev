@@ -122,7 +122,7 @@ export namespace Cam::Gui {
         };
 
         Style SpeedContainerIdle = {
-            .padding = { 2_px, 4_px, 2_px, 4_px },
+            .padding = { .left = 4_px, .right = 4_px, .top = 2_px, .bottom = 2_px },
             .background = { .color = rgba(0, 0, 0, 0.0) },
             .border = { .radius = 4_px, .width = 0_px },
             .shadow = {

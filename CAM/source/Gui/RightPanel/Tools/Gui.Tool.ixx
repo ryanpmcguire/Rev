@@ -34,7 +34,7 @@ export namespace Cam::Gui {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
             .margin = { .bottom = 2_px },
-            .padding = { 4_px, 8_px, 4_px, 8_px },
+            .padding = { .left = 8_px, .right = 8_px, .top = 4_px, .bottom = 4_px },
             .border = { .radius = 4_px },
             .cursor = Cursor::Hand
         };
@@ -46,8 +46,8 @@ export namespace Cam::Gui {
 
         Style SettingsButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .margin = { 0_px, 0_px, 0_px, 2_px },
-            .padding = { 3_px, 4_px, 3_px, 4_px },
+            .margin = { .left = 2_px },
+            .padding = { .left = 4_px, .right = 4_px, .top = 3_px, .bottom = 3_px },
             .cursor = Cursor::Hand
         };
 

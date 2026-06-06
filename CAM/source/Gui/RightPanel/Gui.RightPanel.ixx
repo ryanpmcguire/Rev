@@ -31,20 +31,35 @@ export namespace Cam::Gui {
 
     namespace RightPanelStyle {
 
+        // The panel "frame": fully transparent (no background, no border). Its
+        // padding is the floating gap around the content host below — same inset,
+        // "floating" treatment as the left panel, without any margins.
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 220_px, .height = Grow() },
-            .margin = { 12_px, 12_px, 12_px, 12_px },
-            .padding = { 8_px, 8_px, 8_px, 8_px },
-            .border = { .radius = 6_px },
+            .padding = { 12_px, 12_px, 12_px, 12_px },
             .zIndex = +1
         };
 
+        // The actual visible card: carries the panel background + border, fills
+        // the frame (100% x 100%), and owns the scroll/clip plus the inner content
+        // padding. All panel content lives in here.
+        Style ContentHost = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = 100_pct, .height = 100_pct, .max = { .height = 100_pct } },
+            .padding = { 8_px, 8_px, 8_px, 8_px },
+            .border = { .radius = 6_px },
+            .overflow = Overflow::Hide,
+            .scroll = Scroll::Vertical
+        };
+
+        // Mirrors the left panel's file button: full-width, fixed-height row with
+        // a hairline border, so both panels read as one consistent toolset.
         Style FolderButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size = { .width = 100_pct },
-            .margin = { 0_px, 0_px, 0_px, 4_px },
-            .padding = { 6_px, 10_px, 6_px, 10_px },
+            .size = { .width = 100_pct, .height = 34_px },
+            .margin = { .bottom = 8_px },
+            .padding = { .left = 10_px, .right = 10_px, .top = 10_px, .bottom = 3_px },
             .border = {
                 .width = 1_px,
                 .radius = 5_px
@@ -53,7 +68,7 @@ export namespace Cam::Gui {
         };
 
         Style FolderButtonLabel = {
-            .text = { .size = 12_px }
+            .text = { .size = 13_px }
         };
 
         Style FolderButtonIcon = {
@@ -70,6 +85,8 @@ export namespace Cam::Gui {
 
         Cam::App::AppState* app = nullptr;
 
+        Box* contentHost = nullptr;
+
         Box* folderButton = nullptr;
         Svg* folderButtonIcon = nullptr;
         Text* folderButtonLabel = nullptr;
@@ -84,11 +101,17 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&RightPanelStyle::Self);
-            this->styles.add(&Theme::Styles::Panel);
-            this->styles.add(&Theme::Styles::PanelBorder);
+
+            // The visible, scrollable card. The panel background/border live here
+            // (not on the transparent frame), so the frame's padding reads as a
+            // floating inset around it.
+            contentHost = new Box(this, {}, "RightPanelContent");
+            contentHost->styles.add(&RightPanelStyle::ContentHost);
+            contentHost->styles.add(&Theme::Styles::Panel);
+            contentHost->styles.add(&Theme::Styles::PanelBorder);
 
             folderButton = new Box(
-                this,
+                contentHost,
                 Theme::withButton({
                     &RightPanelStyle::FolderButton,
                     &Theme::Styles::ButtonHover,
@@ -130,7 +153,7 @@ export namespace Cam::Gui {
             });
 
             tools = new Tools(
-                this,
+                contentHost,
                 { &RightPanelStyle::ToolsHost }
             );
 

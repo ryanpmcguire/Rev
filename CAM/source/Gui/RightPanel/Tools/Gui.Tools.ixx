@@ -35,8 +35,8 @@ export namespace Cam::Gui {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .height = Grow() },
             .margin = { 2_px, 2_px, 2_px, 2_px },
-            .padding = { 4_px, 6_px, 4_px, 6_px },
-            .zIndex = +1
+            .padding = { .left = 6_px, .right = 6_px, .top = 4_px, .bottom = 4_px },
+            //.zIndex = +1
         };
 
         Style Title = {
@@ -48,8 +48,8 @@ export namespace Cam::Gui {
         Style NewToolButton = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
             .size = { .width = 100_pct },
-            .margin = { 0_px, 0_px, 0_px, 4_px },
-            .padding = { 6_px, 10_px, 6_px, 10_px },
+            .margin = { .bottom = 4_px },
+            .padding = { .left = 10_px, .right = 10_px, .top = 6_px, .bottom = 6_px },
             .border = {
                 .width = 1_px,
                 .radius = 5_px

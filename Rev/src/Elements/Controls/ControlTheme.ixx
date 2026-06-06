@@ -31,7 +31,7 @@ export namespace Rev::Element::ControlTheme {
         .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
         .size = { Grow() },
         .margin = { .top = 1_px, .bottom = 1_px },
-        .padding = { 6_px, 9_px, 5_px, 9_px },
+        .padding = { .left = 9_px, .right = 9_px, .top = 6_px, .bottom = 5_px },
         .overflow = Overflow::Show,
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
@@ -127,7 +127,7 @@ export namespace Rev::Element::ControlTheme {
 
     Style Option = {
         .size = { 100_pct },
-        .padding = { 6_px, 10_px, 6_px, 10_px },
+        .padding = { .left = 10_px, .right = 10_px, .top = 6_px, .bottom = 6_px },
         .background = { .color = rgba(255, 255, 255, 0.0), .transition = 100_ms },
         .text = { .color = rgba(30, 41, 59, 1.0), .size = 13_px },
         .cursor = Cursor::Hand

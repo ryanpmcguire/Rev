@@ -362,6 +362,99 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return out;
         }
 
+        // Directional boundary offset
+        //--------------------------------------------------
+
+        // True when a source edge lies *along* the keep-out section, not merely
+        // touching it at a corner: we sample the segment and require a majority
+        // of those samples to fall within `eps` of some keep-out segment.  A
+        // shared endpoint alone (one near sample) is not coincidence.
+        static bool segmentCoincident(
+            const Segment& s,
+            const std::vector<Segment>& keepOut,
+            float eps,
+            int samples = 8
+        ) {
+            if (keepOut.empty()) { return false; }
+
+            int near = 0;
+
+            for (int i = 0; i <= samples; i++) {
+
+                Pos p = s.pointAt(float(i) / float(samples));
+
+                float best = 1e30f;
+
+                for (const Segment& o : keepOut) {
+                    best = std::min(best, o.distanceTo(p));
+                }
+
+                if (best <= eps) { near += 1; }
+            }
+
+            return near * 2 >= (samples + 1);
+        }
+
+        // For an Outer ring the part's material is on the interior side, so
+        // moving "toward material" is an inward (interior) offset.  For a Hole
+        // the material wraps the outside, so toward material is exterior.
+        // (Matches offsetTowardMaterial / offsetAwayFromMaterial.)
+        static bool materialIsInterior(ChainRole role) {
+            return role != ChainRole::Hole;
+        }
+
+        // Build the initial boundary profile.  Every edge is pushed by `amount`
+        // (the tool radius), but the direction is decided per segment: an edge
+        // that is coincident with / near the negative keep-out section is pushed
+        // *toward* material (so the tool stays clear of the don't-touch model),
+        // while an edge facing free space is pushed *away* from material (so the
+        // tool fully clears it).  `keepOut` is the negative model's section at
+        // this slice; when it is empty every edge faces free space and this
+        // degenerates to a uniform outset.
+        Profile boundaryOffset(
+            float amount,
+            const std::vector<Segment>& keepOut,
+            float nearEps = 1e-3f
+        ) const {
+
+            Profile out;
+
+            for (const Entry& entry : entries) {
+
+                if (entry.open() || entry.role == ChainRole::Unknown) {
+                    out.push(entry.chain, entry.role);
+
+                    continue;
+                }
+
+                const bool materialInterior = materialIsInterior(entry.role);
+
+                // insetPerSegment takes a signed amount per segment: positive
+                // moves toward the chain interior, negative toward the exterior.
+                std::vector<float> amounts(entry.chain.segments.size());
+
+                for (size_t i = 0; i < entry.chain.segments.size(); i++) {
+
+                    const bool nearKeepOut = segmentCoincident(
+                        entry.chain.segments[i],
+                        keepOut,
+                        nearEps
+                    );
+
+                    // Near keep-out -> toward material; free space -> away.
+                    const bool towardInterior = nearKeepOut
+                        ? materialInterior
+                        : !materialInterior;
+
+                    amounts[i] = towardInterior ? amount : -amount;
+                }
+
+                addOffsetLoops(out, entry, entry.chain.insetPerSegment(amounts));
+            }
+
+            return out;
+        }
+
         // Degeneracy
         //--------------------------------------------------
 

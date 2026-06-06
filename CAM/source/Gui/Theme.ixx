@@ -359,17 +359,17 @@ export namespace Cam::Gui::Theme {
         };
 
         Style SettingsHeaderTitle = {
-            .margin = { 6_px, 0_px, 0_px, 0_px },
+            .margin = { .top = 6_px },
             .text = { .color = palette.settingsHeaderTitle, .size = 21_px }
         };
 
         Style SettingsBody = {
-            .padding = { 20_px, 22_px, 8_px, 22_px },
+            .padding = { .left = 22_px, .right = 22_px, .top = 20_px, .bottom = 8_px },
             .background = { .color = palette.settingsSurface }
         };
 
         Style SettingsSectionLabel = {
-            .margin = { 4_px, 0_px, 10_px, 0_px },
+            .margin = { .top = 4_px, .bottom = 10_px },
             .text = { .color = palette.textMuted, .size = 11_px }
         };
 

@@ -430,6 +430,220 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return out;
         }
 
+        // Offset each segment by its own signed amount, preserving segment
+        // count, type, and direction.  A positive amount moves a segment toward
+        // the chain interior (inset); a negative amount moves it outward
+        // (outset).  Lines stay parallel lines, arcs stay concentric arcs.
+        //
+        // Because neighbors may move in opposite directions, the offset pieces
+        // no longer touch.  Rather than trim within each segment's original
+        // span (which fails when the true corner lies *beyond* the offset
+        // pieces), we extend each segment's support — the infinite line for a
+        // line, the full circle for an arc — intersect consecutive supports,
+        // and adopt the intersection nearest the gap as the new shared corner.
+        // This reconstructs a clean ring with exactly the original segments.
+        Chain insetPerSegment(const std::vector<float>& amounts) const {
+
+            Chain out;
+
+            if (empty()) { return out; }
+
+            const size_t n = segments.size();
+
+            std::vector<Segment> off(n);
+
+            for (size_t i = 0; i < n; i++) {
+
+                const float amount = i < amounts.size() ? amounts[i] : 0.0f;
+
+                off[i] = offsetSegmentSigned(segments[i], amount);
+            }
+
+            const bool isClosed = closed();
+            const size_t joinCount = isClosed ? n : (n > 0 ? n - 1 : 0);
+
+            // Resolve every corner from the *un-mutated* offset supports first,
+            // so each join is independent of the order we apply them in.
+            std::vector<Pos> corners(joinCount);
+
+            for (size_t k = 0; k < joinCount; k++) {
+
+                const Segment& a = off[k];
+                const Segment& b = off[(k + 1) % n];
+
+                Pos gap = (a.end() + b.start()) * 0.5f;
+
+                std::vector<Pos> candidates;
+                supportIntersections(a, b, candidates);
+
+                Pos chosen = gap;
+                float bestDistance = 0.0f;
+                bool found = false;
+
+                for (const Pos& c : candidates) {
+
+                    float d = c.distanceTo(gap);
+
+                    if (!found || d < bestDistance) {
+                        chosen = c;
+                        bestDistance = d;
+                        found = true;
+                    }
+                }
+
+                corners[k] = chosen;
+            }
+
+            for (size_t k = 0; k < joinCount; k++) {
+
+                setSegmentEnd(off[k], corners[k]);
+                setSegmentStart(off[(k + 1) % n], corners[k]);
+            }
+
+            out.segments = off;
+
+            return out;
+        }
+
+        // Signed single-segment offset: positive toward interior, negative
+        // toward exterior.
+        Segment offsetSegmentSigned(const Segment& s, float interiorAmount) const {
+            return offsetSegmentNormal(s, std::abs(interiorAmount), interiorAmount >= 0.0f);
+        }
+
+        // Support intersection
+        //--------------------------------------------------
+
+        // All intersection points of the two segments' extended supports: line
+        // segments extend to their infinite line, arcs to their full circle.
+        static void supportIntersections(const Segment& a, const Segment& b, std::vector<Pos>& out) {
+
+            const bool aArc = a.kind == Segment::Kind::Arc;
+            const bool bArc = b.kind == Segment::Kind::Arc;
+
+            if (!aArc && !bArc) {
+                Pos p;
+                if (lineLineInfinite(a.start(), a.end(), b.start(), b.end(), p)) {
+                    out.push_back(p);
+                }
+                return;
+            }
+
+            if (!aArc && bArc) {
+                lineCircleInfinite(a.start(), a.end(), b.p0, b.f0, out);
+                return;
+            }
+
+            if (aArc && !bArc) {
+                lineCircleInfinite(b.start(), b.end(), a.p0, a.f0, out);
+                return;
+            }
+
+            circleCircle(a.p0, a.f0, b.p0, b.f0, out);
+        }
+
+        static bool lineLineInfinite(const Pos& a0, const Pos& a1, const Pos& b0, const Pos& b1, Pos& out) {
+
+            Pos r = a1 - a0;
+            Pos s = b1 - b0;
+
+            float rxs = r.cross(s);
+
+            if (std::abs(rxs) <= 1e-9f) { return false; }
+
+            float t = (b0 - a0).cross(s) / rxs;
+
+            out = a0 + r * t;
+
+            return true;
+        }
+
+        static void lineCircleInfinite(const Pos& a0, const Pos& a1, const Pos& center, float radius, std::vector<Pos>& out) {
+
+            Pos d = a1 - a0;
+
+            float aa = d.dot(d);
+
+            if (aa <= 1e-12f) { return; }
+
+            Pos f = a0 - center;
+
+            float bb = 2.0f * f.dot(d);
+            float cc = f.dot(f) - radius * radius;
+
+            float disc = bb * bb - 4.0f * aa * cc;
+
+            if (disc < 0.0f) { return; }
+
+            disc = std::sqrt(disc);
+
+            float t0 = (-bb - disc) / (2.0f * aa);
+            float t1 = (-bb + disc) / (2.0f * aa);
+
+            out.push_back(a0 + d * t0);
+
+            if (disc > 1e-9f) {
+                out.push_back(a0 + d * t1);
+            }
+        }
+
+        static void circleCircle(const Pos& c0, float r0, const Pos& c1, float r1, std::vector<Pos>& out) {
+
+            Pos d = c1 - c0;
+
+            float dist = d.pythag();
+
+            if (dist <= 1e-9f) { return; }
+            if (dist > r0 + r1 + 1e-6f) { return; }
+            if (dist < std::abs(r0 - r1) - 1e-6f) { return; }
+
+            float a = (r0 * r0 - r1 * r1 + dist * dist) / (2.0f * dist);
+            float h2 = r0 * r0 - a * a;
+
+            if (h2 < 0.0f) { h2 = 0.0f; }
+
+            float h = std::sqrt(h2);
+
+            Pos mid = c0 + d * (a / dist);
+
+            Pos perp = { -d.y / dist * h, d.x / dist * h };
+
+            out.push_back(mid + perp);
+
+            if (h > 1e-9f) {
+                out.push_back(mid - perp);
+            }
+        }
+
+        // Endpoint setters that keep arcs valid: an arc's endpoint is its angle,
+        // so we recompute the angle and pick the representative nearest the old
+        // one to preserve sweep direction.
+        static void setSegmentEnd(Segment& s, const Pos& p) {
+            if (s.kind == Segment::Kind::Arc) {
+                s.f2 = nearestAngle(std::atan2(p.y - s.p0.y, p.x - s.p0.x), s.f2);
+                return;
+            }
+            s.setEnd(p);
+        }
+
+        static void setSegmentStart(Segment& s, const Pos& p) {
+            if (s.kind == Segment::Kind::Arc) {
+                s.f1 = nearestAngle(std::atan2(p.y - s.p0.y, p.x - s.p0.x), s.f1);
+                return;
+            }
+            s.setStart(p);
+        }
+
+        static float nearestAngle(float angle, float reference) {
+            const float pi = 3.14159265358979f;
+            const float twoPi = 2.0f * pi;
+
+            while (angle - reference > pi) { angle -= twoPi; }
+            while (reference - angle > pi) { angle += twoPi; }
+
+            return angle;
+        }
+
         // inset = toward chain interior.
         // outset = away from chain interior.
         Chain inset(float amount) const {

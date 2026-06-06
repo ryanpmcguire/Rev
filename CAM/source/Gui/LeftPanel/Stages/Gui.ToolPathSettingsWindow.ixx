@@ -62,13 +62,13 @@ export namespace Cam::Gui {
 
         Style RowField = {
             .size = { Grow() },
-            .margin = { 0_px, 4_px, 0_px, 4_px }
+            .margin = { .left = 4_px, .right = 4_px }
         };
 
         Style Footer = {
             .layout = { Axis::Horizontal, Align::End, Align::Center, Wrap::False },
             .size = { 100_pct },
-            .padding = { 14_px, 22_px, 20_px, 22_px }
+            .padding = { .left = 22_px, .right = 22_px, .top = 14_px, .bottom = 20_px }
         };
 
         Style FooterButton = {

@@ -32,7 +32,7 @@ export namespace Cam::Gui {
             .size = { .width = 100_pct },
             .margin = { .top = 2_px, .bottom = 2_px },
             .padding = { .left = 2_px, .right = 2_px, .top = 4_px, .bottom = 4_px },
-            .zIndex = +1
+            //.zIndex = +1
         };
 
         Style Title = {

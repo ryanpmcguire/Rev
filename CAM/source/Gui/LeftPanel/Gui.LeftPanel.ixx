@@ -30,15 +30,26 @@ export namespace Cam::Gui {
 
     namespace LeftPanelStyle {
 
+        // The panel "frame": fully transparent (no background, no border). Its
+        // padding is the floating gap around the content host below — this is what
+        // gives the visible panel its inset, "floating" look without any margins.
         Style Self = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { .width = 380_px, .height = 100_pct, .max = { .height = 100_pct } },
-            .margin = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
+            .padding = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
+            .zIndex = +1
+        };
+
+        // The actual visible card: carries the panel background + border, fills
+        // the frame (100% x 100%), and owns the scroll/clip plus the inner content
+        // padding. All panel content lives in here.
+        Style ContentHost = {
+            .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size = { .width = 100_pct, .height = 100_pct, .max = { .height = 100_pct } },
             .padding = { .left = 8_px, .right = 8_px, .top = 8_px, .bottom = 8_px },
             .border = { .radius = 6_px },
             .overflow = Overflow::Hide,
-            .scroll = Scroll::Vertical,
-            .zIndex = +1
+            .scroll = Scroll::Vertical
         };
 
         Style FileButton = {
@@ -66,6 +77,8 @@ export namespace Cam::Gui {
 
         Cam::App::AppState* app = nullptr;
 
+        Box* contentHost = nullptr;
+
         Box* fileButton = nullptr;
         Text* fileButtonLabel = nullptr;
 
@@ -89,11 +102,17 @@ export namespace Cam::Gui {
             app = Cam::App::AppState::Get(shared->state);
 
             this->styles.add(&LeftPanelStyle::Self);
-            this->styles.add(&Theme::Styles::Panel);
-            this->styles.add(&Theme::Styles::PanelBorder);
+
+            // The visible, scrollable card. The panel background/border live here
+            // (not on the transparent frame), so the frame's padding reads as a
+            // floating inset around it.
+            contentHost = new Box(this, {}, "LeftPanelContent");
+            contentHost->styles.add(&LeftPanelStyle::ContentHost);
+            contentHost->styles.add(&Theme::Styles::Panel);
+            contentHost->styles.add(&Theme::Styles::PanelBorder);
 
             fileButton = new Box(
-                this,
+                contentHost,
                 Theme::withButton({
                     &LeftPanelStyle::FileButton,
                     &Theme::Styles::ButtonHover,
@@ -117,13 +136,13 @@ export namespace Cam::Gui {
             });
 
             // "Machine" tree node sits above the material-state list.
-            machineTree = new MachineTree(this);
+            machineTree = new MachineTree(contentHost);
 
             machineTree->onChanged = [this](Event& e) {
                 if (onMachineChanged) { onMachineChanged(e); }
             };
 
-            materialStates = new Stages(this);
+            materialStates = new Stages(contentHost);
 
             materialStates->onSelectState = [this](Event& e) {
                 if (onSelectState) { onSelectState(e); }
@@ -137,7 +156,7 @@ export namespace Cam::Gui {
                 if (onToolPathEdited) { onToolPathEdited(e); }
             };
 
-            stockMenu = new StockMenu(this);
+            stockMenu = new StockMenu(contentHost);
 
             stockMenu->onChanged = [this](Event& e) {
 

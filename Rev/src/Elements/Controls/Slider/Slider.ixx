@@ -24,13 +24,13 @@ export namespace Rev::Element {
 
         Style Self = {
             .size = { .width = Grow(), .min = { .width = 100_px } },
-            .margin = { 0_px, 0_px, 12_px, 0_px }
+            .margin = { .bottom = 12_px }
         };
 
         Style TextRow = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center },
             .size = { 100_pct },
-            .margin = { 0_px, 0_px, 6_px, 0_px }
+            .margin = { .bottom = 6_px }
         };
 
     }

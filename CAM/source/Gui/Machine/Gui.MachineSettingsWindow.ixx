@@ -48,7 +48,7 @@ export namespace Cam::Gui {
         Style Header = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size = { 100_pct },
-            .padding = { 16_px, 20_px, 12_px, 20_px }
+            .padding = { .left = 20_px, .right = 20_px, .top = 16_px, .bottom = 12_px }
         };
 
         Style Body = {
@@ -80,13 +80,13 @@ export namespace Cam::Gui {
 
         Style RowField = {
             .size = { Grow() },
-            .margin = { 0_px, 4_px, 0_px, 4_px }
+            .margin = { .left = 4_px, .right = 4_px }
         };
 
         Style CheckboxRow = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { 100_pct },
-            .margin = { 0_px, 0_px, 4_px, 0_px }
+            .margin = { .bottom = 4_px }
         };
 
         Style CheckboxField = {
@@ -96,7 +96,7 @@ export namespace Cam::Gui {
         Style FileRow = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
             .size = { 100_pct },
-            .margin = { 0_px, 0_px, 6_px, 0_px }
+            .margin = { .bottom = 6_px }
         };
 
         Style FilePathField = {
@@ -105,7 +105,7 @@ export namespace Cam::Gui {
         };
 
         Style SmallButton = {
-            .margin = { 0_px, 0_px, 0_px, 4_px }
+            .margin = { .left = 4_px }
         };
 
         Style FolderHint = {
@@ -116,7 +116,7 @@ export namespace Cam::Gui {
         Style Footer = {
             .layout = { Axis::Horizontal, Align::End, Align::Center, Wrap::False },
             .size = { 100_pct },
-            .padding = { 12_px, 20_px, 16_px, 20_px }
+            .padding = { .left = 20_px, .right = 20_px, .top = 12_px, .bottom = 16_px }
         };
 
         Style FooterButton = {
