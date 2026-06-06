@@ -511,7 +511,12 @@ export namespace Rev::Element {
                 minOuterWidth = minWidth + minMarginWidth;
             }
 
-            else {
+            // A relative (percentage) width is dictated by the parent top-down, so
+            // its minimum is NOT knowable at this bottom-up stage — and its content
+            // overflows rather than pushing the parent outward. So we skip the
+            // content-inference entirely, leaving min unset (it contributes nothing
+            // upward). Only genuinely content-sized (auto/grow) dimensions infer.
+            else if (resolved.style.size.width.type != Dist::Type::Rel) {
 
                 float maxOfMin = -0.0f;
 
@@ -522,7 +527,7 @@ export namespace Rev::Element {
                 }
 
                 maxOfMin = std::max(maxOfMin, this->resolved.minContentWidth);
-                
+
                 minInnerWidth = maxOfMin;
                 minOuterWidth = maxOfMin + minPaddingWidth + minMarginWidth;
             }
@@ -532,7 +537,8 @@ export namespace Rev::Element {
                 minOuterHeight = minHeight + minMarginHeight;
             }
 
-            else {
+            // Same gate for a relative (percentage) height (see width above).
+            else if (resolved.style.size.height.type != Dist::Type::Rel) {
 
                 float maxOfMin = -0.0f;
 
@@ -589,7 +595,7 @@ export namespace Rev::Element {
                 for (Element* s : parent->children) {
                     if (s == this) { continue; }
                     maxInnerHeight -= s->resolved.min.outerHeight;
-            }
+                }
             }*/
 
             // Ensure minimum dominates (in certain circumstances)
@@ -719,10 +725,12 @@ export namespace Rev::Element {
             // Adjust own minimum outer size to accomodate layout
             //--------------------------------------------------
 
-            // Same gate as resolveMinima: a relative dimension's minimum is
-            // parent-dictated, so do NOT re-derive it from content here — leaving
-            // it as resolveMinima left it (contributing nothing upward). Without
-            // this, this pass would overwrite the gate with the content min again.
+            // A relative (percentage) dimension is parent-dictated top-down; its
+            // minimum is not knowable here and its content overflows rather than
+            // pushing the parent. So we must NOT re-derive its outer minimum from
+            // content — doing so would overwrite the (deliberately unset) value
+            // resolveMinima left, propagating the relative element's content past
+            // the gate and inflating its ancestors. Mirror of the resolveMinima gate.
             if (set(resolved.min.width)) { resolved.min.outerWidth = resolved.min.width + resolved.min.marginWidth; }
             else if (resolved.style.size.width.type != Dist::Type::Rel) { resolved.min.outerWidth = layout.size.w.min + resolved.min.paddingWidth + resolved.min.marginWidth; }
 
@@ -733,6 +741,9 @@ export namespace Rev::Element {
             float layoutPlusPaddingHeight = layout.size.h.min + resolved.style.padding.top.val + resolved.style.padding.bottom.val;
 
             Resolved& res = resolved;
+
+            //if (res.style.size.width.type == Dist::Type::Rel) { res.size.w.min = 0.0f; }
+            //if (res.style.size.height.type == Dist::Type::Rel) { res.size.h.min = 0.0f; }
 
             if (!set(res.size.w.min) && res.size.w.min < layoutPlusPaddingWidth) { res.size.w.min = layoutPlusPaddingWidth; }
             if (!set(res.size.h.min) && res.size.h.min < layoutPlusPaddingHeight) { res.size.h.min = layoutPlusPaddingHeight; }
@@ -888,6 +899,21 @@ export namespace Rev::Element {
                 // If no set val, get from min
                 if (!set(child.resolved.size.w.val)) { child.resolved.size.w.val = child.resolved.size.w.min; }
                 if (!set(child.resolved.size.h.val)) { child.resolved.size.h.val = child.resolved.size.h.min; }
+
+                // A set maximum is a hard ceiling. The steps above can leave the
+                // value (and the content-derived minimum) ABOVE the resolved max
+                // — e.g. a Grow element whose min just floored to its content yet
+                // also declares an explicit max. Clamp them back down so the max
+                // is actually obeyed. An "unset" max is the large sentinel, so
+                // this is a no-op unless a real, smaller max was specified.
+                if (set(child.resolved.size.w.max)) {
+                    if (child.resolved.size.w.min > child.resolved.size.w.max) { child.resolved.size.w.min = child.resolved.size.w.max; }
+                    if (child.resolved.size.w.val > child.resolved.size.w.max) { child.resolved.size.w.val = child.resolved.size.w.max; }
+                }
+                if (set(child.resolved.size.h.max)) {
+                    if (child.resolved.size.h.min > child.resolved.size.h.max) { child.resolved.size.h.min = child.resolved.size.h.max; }
+                    if (child.resolved.size.h.val > child.resolved.size.h.max) { child.resolved.size.h.val = child.resolved.size.h.max; }
+                }
             }
 
             // Measure layout max prior to grow
@@ -1084,11 +1110,19 @@ export namespace Rev::Element {
             //--------------------------------------------------
 
             for (Row& row : layout.rows) {
+
+                // The cross extent a member may fill is its row's measured extent
+                // capped at OUR inner cross size. The measured row extent is
+                // max(member outer) and so includes margins — a relative-plus-margin
+                // sibling can push it past the space we actually have. Every other
+                // grow step is already bounded by getInner; this one must be too.
+                float crossTarget = std::min(row.size.h.val, resolved.getInner(Axis::Vertical));
+
                 for (Element* member : row.members) {
 
                     Element& elem = *member;
 
-                    float availableElemHeight = row.size.h.val - elem.resolved.getOuter(Axis::Vertical);
+                    float availableElemHeight = crossTarget - elem.resolved.getOuter(Axis::Vertical);
 
                     while (true) {
 
@@ -1108,8 +1142,41 @@ export namespace Rev::Element {
 
         void growVerticalMode() {
 
+            // Grow growable dimensions (vertical)
+            //--------------------------------------------------
+            // Main axis (vertical): members within each row share its height.
+            // Mirror of growHorizontalMode's first (horizontal) phase.
+
+            layout.size.h.max = std::min(layout.size.h.max, resolved.getInner(Axis::Vertical));
+
+            for (Row& row : layout.rows) {
+
+                row.size.h.max = std::min(row.size.h.max, layout.size.h.max);
+
+                float availableHeight = row.size.h.max - row.size.h.val;
+
+                // Loop until break conditions are met
+                while (true) {
+
+                    int numGrowable = row.canGrow(Axis::Vertical);
+                    float share = availableHeight / float(numGrowable);
+
+                    // When there's no more space or no more growable elements
+                    if (!numGrowable || availableHeight < 0.01) {
+                        break;
+                    }
+
+                    for (Element* member : row.members) {
+                        float take = member->resolved.grow(share, Axis::Vertical);
+                        row.size.h.val += take;
+                        availableHeight -= take;
+                    }
+                }
+            }
+
             // Grow each row (horizontal)
             //--------------------------------------------------
+            // Cross axis (horizontal): the rows share our inner width.
 
             // Consider moving back to "min" strategy to handle fitting
             layout.size.w.max = std::min(layout.size.w.max, resolved.getInner(Axis::Horizontal));
@@ -1135,13 +1202,20 @@ export namespace Rev::Element {
 
             // Grow each row member (horizontal)
             //--------------------------------------------------
+            // Cross axis (horizontal): each member fills its row's width.
 
             for (Row& row : layout.rows) {
+
+                // Cross extent capped at our inner (mirror of growHorizontalMode):
+                // a relative-plus-margin sibling must not drag a growable member
+                // past the space we actually have.
+                float crossTarget = std::min(row.size.w.val, resolved.getInner(Axis::Horizontal));
+
                 for (Element* member : row.members) {
 
                     Element& elem = *member;
 
-                    float availableElemWidth = row.size.w.val - elem.resolved.getOuter(Axis::Horizontal);
+                    float availableElemWidth = crossTarget - elem.resolved.getOuter(Axis::Horizontal);
 
                     while (true) {
 
@@ -1154,36 +1228,6 @@ export namespace Rev::Element {
 
                         float take = elem.resolved.grow(share, Axis::Horizontal);
                         availableElemWidth -= take;
-                    }
-                }
-            }
-
-            // Grow growable dimensions (horizontal)
-            //--------------------------------------------------
-
-            layout.size.h.max = std::min(layout.size.h.max, resolved.getInner(Axis::Vertical));
-
-            for (Row& row : layout.rows) {
-
-                row.size.h.max = std::min(row.size.h.max, layout.size.h.max);
-                
-                float availableHeight = row.size.h.max - row.size.h.val;
-
-                // Loop until break conditions are met
-                while (true) {
-
-                    int numGrowable = row.canGrow(Axis::Vertical);
-                    float share = availableHeight / float(numGrowable);
-
-                    // When there's no more space or no more growable elements
-                    if (!numGrowable || availableHeight < 0.01) {
-                        break;
-                    }
-
-                    for (Element* member : row.members) {
-                        float take = member->resolved.grow(share, Axis::Vertical);
-                        row.size.h.val += take;
-                        availableHeight -= take;
                     }
                 }
             }

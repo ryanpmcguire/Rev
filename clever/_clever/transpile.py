@@ -68,9 +68,9 @@ def transpile_impl(rel: str, repo: Path, xpp_root: Path,
     and drop module-fragment lines. No header, no relocation -- it defines no
     interface and is included by nobody."""
     src = repo / rel
-    raw = src.read_text(encoding="utf-8", errors="replace")
+    raw = src.read_bytes().decode("latin-1")
     masked = _mask(raw)
-    edits: list[tuple[int, int, str]] = []
+    edits: list[tuple[int, int, str]] = _include_edits(raw, masked, src.parent)
     for m in re.finditer(r"(?m)^[ \t]*module[ \t]*;[ \t]*$", masked):
         edits.append((m.start(), m.end(), ""))
     for m in re.finditer(r"(?m)^[ \t]*(?:export[ \t]+)?module\b[^;]*;", masked):
@@ -82,10 +82,9 @@ def transpile_impl(rel: str, repo: Path, xpp_root: Path,
         edits.append((m.start(), m.end(), repl))
     out = impl_path(xpp_root, rel)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        f"// clever-transpiled implementation source from {rel}\n"
-        f'#line 1 "{str(src).replace(chr(92), "/")}"\n{_apply_edits(raw, edits)}\n',
-        encoding="utf-8")
+    text = (f"// clever-transpiled implementation source from {rel}\n"
+            f'#line 1 "{str(src).replace(chr(92), "/")}"\n{_apply_edits(raw, edits)}\n')
+    out.write_bytes(text.encode("latin-1"))
     return out
 
 
@@ -156,6 +155,60 @@ def _method_spans(masked: str, name_off: int):
             return params_end, init, j, _match_brace(masked, j)
         j += 1
     return None
+
+
+def _include_edits(raw: str, masked: str, src_dir: Path) -> list[tuple[int, int, str]]:
+    """Rewrite file-relative quoted includes (`#include "../x.hpp"`) to absolute
+    paths, since the transpiled file no longer sits next to the original. Quoted
+    includes that resolve via -I (not relative to the source) are left as-is."""
+    edits = []
+    for m in re.finditer(r'(?m)^[ \t]*#[ \t]*include[ \t]+"([^"\n]+)"', raw):
+        if "include" not in masked[m.start():m.end()]:
+            continue  # the match sits inside a comment
+        path = m.group(1)
+        if Path(path).is_absolute():
+            continue
+        cand = src_dir / path
+        try:
+            ok = cand.exists()
+        except OSError:
+            ok = False
+        if ok:
+            edits.append((m.start(1), m.end(1), str(cand.resolve()).replace("\\", "/")))
+    return edits
+
+
+def _strip_defaults(s: str) -> str:
+    """Remove `= <default>` from a parameter list `name(params)`. Defaults are
+    legal only on the declaration, never the out-of-line definition."""
+    i = s.find("(")
+    if i < 0:
+        return s
+    res = list(s[:i + 1])
+    depth = 1
+    skipping = False
+    k = i + 1
+    while k < len(s):
+        ch = s[k]
+        if (depth == 1 and not skipping and ch == "="
+                and s[k - 1] not in "=<>!" and (k + 1 >= len(s) or s[k + 1] != "=")):
+            skipping = True
+            k += 1
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0:
+                res.append(ch)
+                res.append(s[k + 1:])
+                return "".join(res)
+        if depth == 1 and skipping and ch == ",":
+            skipping = False
+        if not skipping:
+            res.append(ch)
+        k += 1
+    return "".join(res)
 
 
 def _var_spans(masked: str, name_off: int):
@@ -262,13 +315,21 @@ def _relocations(tu, rel: str, raw: str, masked: str):
         lead_clean = _LEADING_SPECIFIER.sub("", lead)
         while _LEADING_SPECIFIER.match(lead_clean):
             lead_clean = _LEADING_SPECIFIER.sub("", lead_clean)
-        name_to_params = raw[name_off:params_end]
-        post = raw[params_end:body_open]
-        post = re.sub(r"\b(override|final)\b", "", post)  # illegal out-of-line
+        ret = lead_clean.strip()
+        name_to_params = _strip_defaults(raw[name_off:params_end])  # defaults only on decl
+        post = re.sub(r"\b(override|final)\b", "", raw[params_end:body_open]).strip()
+        sep = (" " + post) if post else ""
         body = raw[body_open:body_close + 1]
-        # Member functions get a `Class::` qualifier; free functions get none.
         qual = ("::".join(cls_chain) + "::") if cls_chain else ""
-        definition = f"{lead_clean}{qual}{name_to_params}{post}{body}"
+        # For member functions with a return type, use a trailing return type so
+        # a nested return type (e.g. `State` == `Animator::State`) resolves in
+        # the class scope. Constructors/destructors/conversions have no return
+        # type; free functions resolve their return type at namespace scope.
+        if ret and cls_chain and c.kind == cx.CursorKind.CXX_METHOD:
+            definition = f"auto {qual}{name_to_params}{sep} -> {ret} {body}"
+        else:
+            head = (ret + " ") if ret else ""
+            definition = f"{head}{qual}{name_to_params}{sep} {body}"
 
         out.append({
             "start": decl_start, "end": body_close + 1,
@@ -296,14 +357,20 @@ def _apply_edits(text: str, edits: list[tuple[int, int, str]]) -> str:
 def transpile(rel: str, repo: Path, xpp_root: Path,
               module_hpp: dict[str, Path], parse_args: list[str]) -> tuple[Path | None, Path | None]:
     src = repo / rel
-    raw = src.read_text(encoding="utf-8", errors="replace")
+    # libclang reports offsets in UTF-8 *bytes*, but we index Python strings by
+    # character. Round-tripping the UTF-8 bytes through latin-1 yields a string
+    # where 1 char == 1 byte, so string indices and libclang byte offsets match
+    # exactly even when the source contains non-ASCII (e.g. in comments).
+    utf8 = src.read_bytes()
+    raw = utf8.decode("latin-1")
     masked = _mask(raw)
     buf, module, imports = _demodularize(raw, masked)  # offset-preserving
     if module is None:
         return None, None
 
+    # Hand libclang the real UTF-8 bytes (latin-1 re-encode reconstructs them).
     tu = _INDEX.parse(str(rel), args=parse_args,
-                      unsaved_files=[(str(rel), buf)],
+                      unsaved_files=[(str(rel), buf.encode("latin-1"))],
                       options=cx.TranslationUnit.PARSE_INCOMPLETE)
 
     edits: list[tuple[int, int, str]] = []
@@ -324,6 +391,8 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
     for m in re.finditer(r"\bexport\b[ \t]+", masked):
         # skip those already covered by module/import line edits
         edits.append((m.start(), m.end(), ""))
+    # 3b) rewrite file-relative quoted includes to absolute paths
+    edits += _include_edits(raw, masked, src.parent)
     # 4) relocate in-class method definitions
     relocs = _relocations(tu, rel, raw, masked)
     defs_by_ns: dict[str, list[str]] = {}
@@ -337,10 +406,10 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
     hpp = hpp_path(xpp_root, module, stem)
     cpp = cpp_path(xpp_root, module, stem)
     hpp.parent.mkdir(parents=True, exist_ok=True)
-    hpp.write_text(
-        f"#pragma once\n// clever-transpiled from {rel}\n"
-        f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n',
-        encoding="utf-8")
+    # Re-encode latin-1 -> bytes restores the original UTF-8 byte stream.
+    hpp_text = (f"#pragma once\n// clever-transpiled from {rel}\n"
+                f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
+    hpp.write_bytes(hpp_text.encode("latin-1"))
 
     # Build .cpp
     out = [f"// clever-transpiled implementation unit for module {module}",
@@ -351,6 +420,6 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
         out.extend(defs)
         if ns:
             out.append("}")
-    cpp.write_text("\n".join(out) + "\n", encoding="utf-8")
+    cpp.write_bytes(("\n".join(out) + "\n").encode("latin-1"))
 
     return hpp, cpp

@@ -41,7 +41,8 @@ export namespace LayoutDiagnose {
         Interface(Element* parent) : Box(parent, {}, "Interface") {
 
             this->style->layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
-            this->style->size = { .width = 100_pct, .height = 100_pct };
+            this->style->size = { .width = 100_pct, .height = 100_pct, .max = { .height = 50_pct } };
+            this->style->padding = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px };
             this->style->background.color = rgba(24, 24, 28, 1.0);
 
             // tabView placeholder: full width, fixed 80px tall.
@@ -58,7 +59,8 @@ export namespace LayoutDiagnose {
             content->style = {
                 .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
                 .size = { .width = 100_pct, .height = Grow() },
-                .background = { .color = rgba(0, 0, 0, 0.0) },
+                .padding = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
+                .background = { .color = rgba(255, 0, 0, 0.1) },
                 .border = outline(6.0f)
             };
 
@@ -67,7 +69,7 @@ export namespace LayoutDiagnose {
             leftPanel->style = {
                 .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
                 .size = { .width = 380_px, .height = 100_pct, .max = { .height = 100_pct } },
-                .margin = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
+                //.margin = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
                 .padding = { .left = 8_px, .right = 8_px, .top = 8_px, .bottom = 8_px },
                 .background = { .color = rgba(40, 40, 50, 1.0) },
                 .border = outline(6.0f),

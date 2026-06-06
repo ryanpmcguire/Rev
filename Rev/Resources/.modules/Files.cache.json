@@ -10,6 +10,16 @@
       "hash": "ab08018ccd276b79fb2c636bb95b9c543598f9d50505fe92506fcb4dae7810cd",
       "mtime": 1780255242.0136998
     },
+    "Rev/resources/Fonts/Arial/Arial.ttf": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/resources/Fonts/Arial/Arial.ttf",
+      "hash": "c9b76220a5be42ead4733611e417cd65c5fd8aeaa33eb56576ac378a37d130a1",
+      "mtime": 1764646698.0
+    },
+    "Rev/src/Elements/Controls/Dropdown/chevron-right.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Dropdown/chevron-right.svg",
+      "hash": "e027b856f5a6eeabee254a34a903dba3e27c3c9bbfecd0a9a9d05da790fccdff",
+      "mtime": 1778114170.2589297
+    },
     "CAM/source/Gui/LeftPanel/Stages/Eye.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Eye.svg",
       "hash": "a19792bc7231915d80174c177bae04bbba478a858b1b3af680d21de666e91b8b",
@@ -58,12 +68,12 @@
     "CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Closed.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Closed.svg",
       "hash": "7c2d4f275901e5d44379fabac851fedace5472abffb62d7039663615e8a39840",
-      "mtime": 1780697414.5283134
+      "mtime": 1780774802.4964561
     },
     "CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Open.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Open.svg",
       "hash": "4768498ac286f816eb89a09ba58680e8c17409dbed659cc22e7e83a16bce9cd1",
-      "mtime": 1780697428.8920574
+      "mtime": 1780774802.4974544
     },
     "CAM/source/Gui/PreviewBar/StepBack.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/PreviewBar/StepBack.svg",
@@ -104,16 +114,6 @@
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/TabView/Close.svg",
       "hash": "69c28e80e19803ec94425c03cd8a56542ee011f0285bb7f5297acb9f16f1e1f7",
       "mtime": 1779994987.0619895
-    },
-    "Rev/resources/Fonts/Arial/Arial.ttf": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/resources/Fonts/Arial/Arial.ttf",
-      "hash": "c9b76220a5be42ead4733611e417cd65c5fd8aeaa33eb56576ac378a37d130a1",
-      "mtime": 1764646698.0
-    },
-    "Rev/src/Elements/Controls/Dropdown/chevron-right.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Dropdown/chevron-right.svg",
-      "hash": "e027b856f5a6eeabee254a34a903dba3e27c3c9bbfecd0a9a9d05da790fccdff",
-      "mtime": 1778114170.2589297
     },
     "Rev/src/Graphics/Primitives/Lines/Shaders/Lines.vert": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Lines/Shaders/Lines.vert",
