@@ -176,6 +176,36 @@ def cmd_build(args) -> int:
     return 0
 
 
+def cmd_transpile(args) -> int:
+    from . import ladder, digest as dg
+    from .store import Store
+    from .xbuilder import XBuilder
+
+    manifest, repo = _load_manifest(args)
+    store = Store(repo / args.build_dir)
+
+    if not args.no_embed:
+        _embed_resources(repo, args.verbose)
+
+    # We only need provides/requires here, computed cheaply (no libclang).
+    tindex = ladder._target_index(manifest)
+    rels = [r for r in tindex if (repo / r).exists()]
+    digests = {}
+    for r in rels:
+        prov, _ = dg.light_scan((repo / r).read_text(encoding="utf-8", errors="replace"))
+        digests[r] = {"provides": prov}
+
+    xb = XBuilder(manifest, repo, store, digests, verbose=args.verbose)
+    if not xb.build():
+        print("Transpiled build failed.")
+        return 1
+    print(f"Transpiled build OK. {len(xb.compiled)} compiled, "
+          f"linked: {', '.join(sorted(xb.__dict__.get('_relinked', set())))}.")
+    if args.run:
+        return xb.run(args.target)
+    return 0
+
+
 def _prompt_force() -> bool:
     print("\nBuild failed -- the incremental BMI set looks too stale/inconsistent")
     print("(a module was rebuilt but its importers were not, so clang rejects the mix).")
@@ -253,6 +283,13 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--no-embed", action="store_true", help="skip the resource-embed pre-step")
     b.add_argument("-v", "--verbose", action="store_true")
     b.set_defaults(func=cmd_build)
+
+    x = sub.add_parser("transpile", help="lower modules to .hpp/.cpp, then classic compile+link")
+    x.add_argument("--run", action="store_true", help="run the executable after a successful build")
+    x.add_argument("--target", help="which executable to run (default: first exe)")
+    x.add_argument("--no-embed", action="store_true", help="skip the resource-embed pre-step")
+    x.add_argument("-v", "--verbose", action="store_true")
+    x.set_defaults(func=cmd_transpile)
 
     s = sub.add_parser("show", help="print one file's comprehension (debug)")
     s.add_argument("file")
