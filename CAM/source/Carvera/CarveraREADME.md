@@ -171,6 +171,101 @@ Key facts:
   `JogSection::issueLegJog` / `maybeExtendLeg` for the chunk-then-extend
   pattern.
 
+## Probing (`G38.2` + `[PRB:...]`)  -- FIRST STEP, in progress
+
+The wired touch probe is exposed in the app via a **temporary "PROBE" button**
+in the jog grid (`JogSection::build` -> `Air::probeTest`).  The flow is
+**two-phase and sequenced** -- the probe move is NEVER sent in the same burst
+as the tool change:
+
+```
+; -- phase 1: ensure the probe tool is loaded (only if not already) --
+host -> "M5" / "G4 P2" / "M6 T<probe>"   ; via the gated changeTool()
+machine -> "Please change the tool to: T<probe>"   ; ATC cycle runs, gate tracks it
+        ... gate walks Seeking -> Standby -> ... -> Complete (sustained Idle) ...
+
+; -- phase 2: fired from tcComplete(), only after the change fully finishes --
+host -> "G91"                 ; relative frame so the target is a delta
+host -> "G38.2 Z-50.000 F100" ; probe straight down up to 50 mm at F100
+host -> "G90"                 ; restore absolute
+machine -> "[PRB:0.000,0.000,-12.345:1]"   ; trigger! flag 1 = contacted
+                                           ; flag 0 = reached target, no touch
+                                           ;   (a "probe fail" -> also alarms)
+```
+
+`probeTest()`: if the probe tool is already loaded it probes immediately;
+otherwise `ensureProbeTool()` starts a gated `changeTool(kProbeToolSlot)` and
+sets `probePending_`, which `tcComplete()` consumes to fire the `G38.2`.  A
+deferred probe is cancelled if the change aborts (`tcAbort`).
+
+> **!! CRITICAL UNRESOLVED: `M6 T0` is NOT "select the probe".**  Observed on
+> the real machine (2026-06-05): with T2 loaded, `M6 T0` made the Carvera
+> **drop T2 and rapid to the ATC area** -- i.e. T0 means *"unload to an empty
+> spindle"*, not *"pick up the wired probe"*.  (The earlier crash was a
+> SEPARATE bug -- the `G38.2` was injected mid-ATC; that is now fixed by the
+> two-phase sequencing above.)  The correct probe selector is still UNKNOWN:
+> the community 3D probe registers as `T999990` but that is a *logical* tag,
+> and `pickToolFromAnywhere` won't even record it (it caps recorded slots at
+> 99).  **Next:** confirm how this machine selects the wired probe -- it may
+> not be an ATC `M6` at all (the wired probe may simply be plugged in and its
+> input always live, in which case `kProbeToolSlot` / the whole tool-change
+> step should be dropped and we probe directly).
+
+Key facts (**community / inferred** unless noted):
+
+- **`G38.2`** = "probe toward target, stop on contact". Implemented on the
+  Carvera's Smoothie fork (G38.2--G38.5; G38.4/.5 probe X/Y). The controller
+  decelerates and stops *itself* the instant the probe closes -- the host does
+  NOT poll position to catch the touch.
+- The result comes back as a single bracketed **`[PRB:x,y,z:flag]`** line.
+  `Air::processLine` parses it -> `ProbeEvent` (`onProbe`) + a "Probe
+  TRIGGERED/FAIL" log line. x/y/z are MACHINE coords at contact.
+- A probe that reaches its target untriggered is a **fail**: Smoothie reports
+  `flag 0` and raises an alarm. Recover with `$X` / reset like any alarm.
+- **Probe tool slot is UNCONFIRMED.** `Air::kProbeToolSlot` is currently `0`
+  (the bare wired probe on the original Carvera). The community 3D probe is the
+  pseudo-slot **`T999990`** (`M6 T999990`). If `M6 T0` doesn't select the probe
+  on this machine, try 999990 and update the constant.
+- The Carvera firmware *also* ships higher-level probe macros (**`M461`** bore,
+  **`M464`** ZProbe, **`M465.x`** 4th-axis, **`M466.x`** bed-level/rect). The
+  community controller found `M464` unreliable on the **Carvera Air** and
+  recommends issuing **`G38.2` + `G10 L20`** directly instead -- which is why
+  this first step uses raw `G38.2` rather than a Carvera macro. See
+  Carvera_Controller issue #269.
+
+### Spindle safety interlock (HARD requirement)
+
+A probe must NEVER be spun.  Air enforces a **spindle interlock** that is the
+single source of truth for "is the spindle allowed to start right now":
+
+- `Air::spindleInhibited_` latches ON whenever the loaded tool is a probe /
+  spindle-disabled slot (`isProbeSlot` -- currently slot 0 and `>= 999990`),
+  and conservatively whenever the loaded tool is unknown (slot 0 on a fresh
+  connect).  It follows `recordLoadedTool`, so swapping a real cutter back in
+  releases it automatically.
+- `requestProbeTool()` engages the latch and forces `M5` + spindle-disarm
+  **before** the `M6` so the spindle is provably off before the probe is in.
+- Every outgoing line passes `spindleGuardBlocks()` (via `rawSend`/`sendLine`)
+  and the program stream passes the same check in `pump()`.  Any `M3`/`M4`
+  while inhibited is **refused** (`commandsSpindleOn` matches M3/M4/M03/M04 but
+  not M5/M30): the line is dropped, an `M5` is forced out, a `SafetyEvent`
+  (`onSafety`) fires, and the running program is stopped.  `setSpindleArmed`
+  also refuses to arm while inhibited.
+- The GUI reflects it: the ArmSection spindle button reads **"SPINDLE LOCKED"**
+  and `onSafety` surfaces violations.
+
+If you add any new code path that emits G-code to the controller, it MUST go
+through `rawSend`/`sendLine` (or the guarded `pump` site) -- do not call
+`client->send()` directly with anything that could start the spindle.
+
+Open questions for the next step:
+
+- Confirm the probe tool slot (0 vs 999990) on the real machine.
+- After a clean trigger, set WCS with `G10 L20 P1 Z<known-offset>` to turn the
+  touch into a usable Z zero.
+- Decide whether to drive probing through the action queue (like tool changes)
+  or keep it a discrete operator action.
+
 ## Custom Carvera M-codes spotted
 
 | Code     | Meaning (inferred)                                         |
@@ -178,6 +273,10 @@ Key facts:
 | M490     | Wait for tool-change confirmation                          |
 | M490.1   | Same, ATC variant                                          |
 | M493     | Tool length probe / touch-off                              |
+| M461     | Probe workpiece feature (e.g. bore diameter)               |
+| M464     | ZProbe macro (unreliable on Carvera Air -- prefer G38.2)   |
+| M465.x   | 4th-axis stock probe                                       |
+| M466.x   | Bed-level / rectangular multi-point probe                  |
 | M497     | ATC carousel ops (move-to-pickup / rotate / drop)          |
 | M497.2   | An ATC sub-op observed during M6 sequencing                |
 

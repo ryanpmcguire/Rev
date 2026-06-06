@@ -38,7 +38,7 @@ export namespace Carvera::Gui {
         enum class RunKind { Unset, Idle, Armed, Executing };
         bool    lastArmedApplied_       = false;
         bool    lastArmedValid_         = false;
-        bool    lastSpindleApplied_     = false;
+        int     lastSpindleApplied_     = 0;   // 0 = off, 1 = armed, 2 = locked
         bool    lastSpindleValid_       = false;
         RunKind lastRunApplied_         = RunKind::Unset;
 
@@ -85,6 +85,13 @@ export namespace Carvera::Gui {
             air().onState     ([bump](Carvera::Air::StateEvent&      e) { bump(e); });
             air().onConnection([bump](Carvera::Air::ConnectionEvent& e) { bump(e); });
             air().onStart     ([bump](Carvera::Air::StartEvent&      e) { bump(e); });
+
+            // Spindle-safety interlock: a probe / spindle-disabled tool tried
+            // (or a program/operator tried) to spin the spindle.  Air has
+            // already forced M5 + stopped the program; surface it loudly here.
+            air().onSafety([this](Carvera::Air::SafetyEvent&) {
+                if (shared && shared->event) { refresh(*shared->event); }
+            });
         }
 
         void computeChildren(Event& e) override {
@@ -104,13 +111,19 @@ export namespace Carvera::Gui {
             }
 
             // -- SPINDLE ARM toggle --
+            // While the spindle interlock is engaged (probe / spindle-disabled
+            // tool loaded) the spindle can't be armed at all -- show LOCKED.
             if (spindleBtn && spindleLabel) {
+                const bool inhibited    = a.isSpindleInhibited();
                 const bool spindleArmed = a.isSpindleArmed();
-                if (!lastSpindleValid_ || spindleArmed != lastSpindleApplied_) {
+                const int  spindleState = inhibited ? 2 : (spindleArmed ? 1 : 0);
+                if (!lastSpindleValid_ || spindleState != lastSpindleApplied_) {
                     spindleBtn->styles.remove(&Style::ArmedBanner);
-                    if (spindleArmed) { spindleBtn->styles.add(&Style::ArmedBanner); }
-                    spindleLabel->content = spindleArmed ? "SPINDLE ARMED" : "SPINDLE ARM";
-                    lastSpindleApplied_ = spindleArmed;
+                    if (spindleArmed && !inhibited) { spindleBtn->styles.add(&Style::ArmedBanner); }
+                    spindleLabel->content = inhibited    ? "SPINDLE LOCKED"
+                                          : spindleArmed ? "SPINDLE ARMED"
+                                                         : "SPINDLE ARM";
+                    lastSpindleApplied_ = spindleState;
                     lastSpindleValid_   = true;
                 }
             }

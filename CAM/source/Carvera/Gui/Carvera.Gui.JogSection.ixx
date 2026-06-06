@@ -214,6 +214,13 @@ export namespace Carvera::Gui {
             makeJogBtn(r2, "-") ->onClick([this](Event& e) { adjustStep(-1); refresh(e); e.propagate = false; });
             btnNY = makeJogBtn(r2, "-Y"); btnNY->onClick([this](Event& e) { jog(0,-jogStepMm,0); e.propagate = false; });
             makeJogBtn(r2, "+") ->onClick([this](Event& e) { adjustStep(+1); refresh(e); e.propagate = false; });
+
+            // TEMPORARY probing test button -- first step toward probe support.
+            // Selects the wired probe tool and probes straight down until the
+            // probe triggers (G38.2).  Watch the log for the "[PRB:...]" reply /
+            // "Probe TRIGGERED" line.  See CarveraREADME.md (Probing section).
+            Box* r3 = new Box(grid, { &Style::JogGridRow }, "R3");
+            makeJogBtn(r3, "PROBE")->onClick([this](Event& e) { air().probeTest(); e.propagate = false; });
         }
 
         void subscribe() {

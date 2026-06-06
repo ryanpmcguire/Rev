@@ -21,6 +21,7 @@ import Rev.Element.Event.GestureTracker;
 import Rev.Element.Box;
 import Rev.Element.Text;
 
+import Rev.Core.Pos;
 import Rev.Core.Pos3;
 import Rev.Core.Color;
 import Rev.Core.Vertex3;
@@ -36,6 +37,7 @@ import Cam.App;
 import Cam.App.Project;
 import Cam.App.Model;
 import Cam.App.Stage;
+import Cam.App.Probe;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
 import Cam.App.ToolPath;
@@ -2595,10 +2597,71 @@ export namespace Cam::Gui {
 
         void mouseMove(Event& e) override {
 
+            // Remember the cursor position so keyboard shortcuts that act "at the
+            // cursor" (e.g. P to drop a probe point) know where to aim.
+            lastMousePos_ = e.mouse.pos;
+            haveMousePos_ = true;
+
             updateAxisPickHover(e);
             updateFaceHover(e);
 
             Box::mouseMove(e);
+        }
+
+        // Add a probe target at the surface point under the cursor, with the
+        // outward surface normal of the face there.  Targets attach to the
+        // currently displayed stage's probe sub-component (auto-enabling it).
+        // Coordinates are in the model/CAD frame -- the same frame toolpath
+        // points use -- so the executor's UserFrame transform applies uniformly.
+        bool addProbePointAtMouse(const Rev::Core::Pos& mousePos, Event& e) {
+
+            if (!app || !view3d) { return false; }
+
+            Cam::App::Stage* state = displayedState();
+            if (!state) { dbg("[Probe] no displayed stage to probe"); return false; }
+
+            Cam::Gui::World::Stage* worldState = displayedMaterialView();
+            if (!worldState) { return false; }
+
+            Cam::App::Model* model = selectionModel();
+            if (!model) { return false; }
+
+            // Precise surface hit point.
+            Rev::Core::Pos3 hitPoint;
+            if (!worldState->hitTestDisplayedPickPoint(
+                    view3d->camera.rayFromMouse(mousePos, view3d->canvasWidth(), view3d->canvasHeight()),
+                    model, hitPoint)) {
+                dbg("[Probe] cursor not over the part");
+                return false;
+            }
+
+            // Face under the cursor -> outward surface normal at the target.
+            Rev::Core::Pos3 normal;
+            View3d::Hit hit;
+            if (worldState->pickActor && view3d->hitTest(mousePos, hit) &&
+                hit.actor == worldState->pickActor &&
+                hit.triangleId < model->render.triangleFaceIds.size()) {
+                const size_t faceId = model->render.triangleFaceIds[hit.triangleId];
+                normal = model->faceNormal(faceId);
+            }
+
+            Cam::App::ProbeTarget target;
+            target.point  = hitPoint;
+            target.normal = normal;
+
+            state->probe.enabled = true;       // pressing P implies "probe this stage"
+            state->probe.targets.push_back(target);
+            state->probe.clearResult();        // new target -> stale fit
+
+            if (Cam::App::Project* project = activeProject()) { project->markDirty(); }
+
+            dbg("[Probe] added point %zu at (%.2f, %.2f, %.2f) n(%.2f, %.2f, %.2f)",
+                state->probe.targets.size() - 1,
+                hitPoint.x, hitPoint.y, hitPoint.z, normal.x, normal.y, normal.z);
+
+            sync(e);
+            notifyStateChanged(e);
+            return true;
         }
 
         void mouseDown(Event& e) override {
@@ -2694,6 +2757,12 @@ export namespace Cam::Gui {
             }
         }
 
+        // Last known cursor position (updated on mouseMove), so keyboard
+        // shortcuts can act at the cursor even though a key event carries no
+        // fresh mouse coordinate.
+        Rev::Core::Pos lastMousePos_{};
+        bool           haveMousePos_ = false;
+
         void keyDown(Event& e) override {
 
             // Give children (e.g. a focused offset/number input) the event FIRST,
@@ -2735,6 +2804,13 @@ export namespace Cam::Gui {
 
             if (e.keyboard.key == "r") {
                 recalculateToolPath(e);
+                e.propagate = false;
+                return;
+            }
+
+            // P: drop a probe point at the cursor on the displayed stage.
+            if (e.keyboard.key == "p") {
+                if (haveMousePos_) { addProbePointAtMouse(lastMousePos_, e); }
                 e.propagate = false;
                 return;
             }

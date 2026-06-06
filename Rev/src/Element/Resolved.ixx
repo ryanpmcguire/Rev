@@ -47,6 +47,14 @@ export namespace Rev::Element {
 
             return take;
         }
+
+        // Once the value is final, the dimension's true minimum and maximum are
+        // exactly that value. Collapsing them here stops later stages and child
+        // elements from seeing a stale bound (e.g. the large "unset"/grow
+        // sentinel that a flex element carries even after it has finished growing).
+        void finalize() {
+            min = max = val;
+        }
     };
 
     struct ResolvedSize {
@@ -56,6 +64,11 @@ export namespace Rev::Element {
         // Clamp all dims
         void clamp() {
             w.clamp(); h.clamp();
+        }
+
+        // Pin every dim's min/max to its final value.
+        void finalize() {
+            w.finalize(); h.finalize();
         }
 
         // Get maximum along axis
@@ -85,11 +98,17 @@ export namespace Rev::Element {
     struct ResolvedLrtb {
 
         ResolvedDim l, r, t, b;
-        
+
         // Clamp all dims
         void clamp() {
             l.clamp(); r.clamp();
             t.clamp(); b.clamp();
+        }
+
+        // Pin every dim's min/max to its final value.
+        void finalize() {
+            l.finalize(); r.finalize();
+            t.finalize(); b.finalize();
         }
 
         // Get maximum along axis
@@ -196,6 +215,18 @@ export namespace Rev::Element {
             size.clamp();
             mar.clamp();
             pad.clamp();
+        }
+
+        // Collapse every resolved dimension's min/max onto its final value. Once
+        // an element's dimensions are fully resolved (post-grow), its true bounds
+        // ARE its values; pinning them here stops a finished element — especially
+        // a flex element that grew into its allotment — from advertising a stale
+        // "unset"/grow sentinel maximum to later stages or to its own children.
+        void finalize() {
+            size.finalize();
+            mar.finalize();
+            pad.finalize();
+            pos.finalize();
         }
 
         void reset() {

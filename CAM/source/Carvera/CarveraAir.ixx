@@ -107,6 +107,20 @@ export namespace Carvera {
         struct ArmEvent        { bool armed = false; bool spindleArmed = false; };
         struct StartEvent      {};
 
+        // Result of a G38.x probe move.  `triggered` is the controller's
+        // success flag from the "[PRB:x,y,z:1|0]" reply -- 1 = the probe made
+        // contact, 0 = the move reached its target without ever triggering
+        // (a probe fail, which on Smoothie also raises an alarm).  x/y/z are
+        // the MACHINE position at the moment of contact.
+        struct ProbeEvent      { float x = 0, y = 0, z = 0; bool triggered = false; };
+
+        // Raised when a spindle-start command (M3/M4) was REFUSED because a
+        // probe / spindle-inhibited tool is loaded.  `blocked` is the exact
+        // line that was suppressed; `reason` is an operator-facing sentence.
+        // When this fires, Air has already forced the spindle off (M5) and
+        // stopped any running program -- a handler should surface it loudly.
+        struct SafetyEvent     { std::string reason; std::string blocked; };
+
         // One payload shared by all four tool-change lifecycle channels; the
         // `phase` field says which transition the machine just entered.
         // `aborted` is set on the Complete channel when the change ended
@@ -179,6 +193,8 @@ export namespace Carvera {
         void onConnection    (const std::function<void(ConnectionEvent&)>& f) { connectionDispatcher.listen(&Air::connectionEvent, f); }
         void onLog           (const std::function<void(LogEvent&)>&        f) { logDispatcher.listen(&Air::logEvent, f); }
         void onArm           (const std::function<void(ArmEvent&)>&        f) { armDispatcher.listen(&Air::armEvent, f); }
+        void onProbe         (const std::function<void(ProbeEvent&)>&      f) { probeDispatcher.listen(&Air::probeEvent, f); }
+        void onSafety        (const std::function<void(SafetyEvent&)>&     f) { safetyDispatcher.listen(&Air::safetyEvent, f); }
 
         // Tool-change lifecycle channels:
         //   Begin     -- a change was just requested (M6 sent, machine seeking).
@@ -310,6 +326,10 @@ export namespace Carvera {
 
         bool isArmed()        const { return armed.load() && connected(); }
         bool isSpindleArmed() const { return spindleArmed.load(); }
+
+        // True when the spindle interlock is active (a probe / spindle-disabled
+        // tool is loaded).  The GUI reflects this to disable spindle controls.
+        bool isSpindleInhibited() const { return spindleInhibited_.load(); }
         bool isExecuting()    const { return executing.load(); }
 
         ToolChangePhase toolChangePhase() const {
@@ -457,6 +477,86 @@ export namespace Carvera {
         }
 
         // ============================================================
+        // Probing  (FIRST-STEP / EXPERIMENTAL -- see CarveraREADME.md)
+        // ============================================================
+        //
+        // Probe-tool selection is UNCONFIRMED on real hardware: `M6 T0` was
+        // observed to UNLOAD the spindle (drop the tool to the ATC), not pick
+        // up the wired probe -- so kProbeToolSlot=0 is almost certainly wrong.
+        // The community 3D probe registers as the pseudo-slot 999990.  Kept as
+        // a one-line constant until we confirm how this machine selects the
+        // probe (it may not be an ATC M6 at all).  See CarveraREADME.md.
+        static constexpr int kProbeToolSlot = 0;
+
+        // Ensure the probe tool is loaded.  Returns success WITHOUT touching the
+        // machine when it is already loaded (the early-exit the caller wants),
+        // otherwise engages the spindle interlock and drives the change through
+        // the SAME gated orchestration as any other tool change (M5 + dwell +
+        // M6, tracked by the tool-change gate).  Crucially this does NOT emit
+        // any probe motion -- that waits for the change to actually complete.
+        OperationResult ensureProbeTool() {
+            if (!connected()) { return OperationResult::failure("Not connected to machine."); }
+            if (loadedSlot.load() == kProbeToolSlot) {
+                return OperationResult::success();   // already loaded -> nothing to do
+            }
+            // SAFETY: engage the interlock + force the spindle off/disarmed
+            // before the probe can possibly be in the spindle.
+            setSpindleInhibited(true, "probe tool change requested");
+            setSpindleArmed(false);
+            return changeTool(kProbeToolSlot);
+        }
+
+        // Probe straight down until the probe triggers (or `maxDepthMm` of
+        // travel is exhausted).  Emits a single G38.2 relative-ish move: G38.2
+        // takes a target in the active WCS, so we first establish a relative
+        // frame with G91 and restore G90 afterwards.  The controller decelerates
+        // and stops itself the instant the probe closes, then prints a
+        // "[PRB:x,y,z:1]" line which processLine() turns into a ProbeEvent.
+        //
+        // No motion is queued through the action queue -- this is a direct,
+        // operator-initiated jog-like probe for bring-up testing.
+        void probeZDown(float maxDepthMm = 50.0f, int feedMmMin = 100) {
+            if (!connected() || !confValid) {
+                pushLog("Probe: connect and wait for position first.");
+                return;
+            }
+            if (maxDepthMm <= 0.0f) { return; }
+            pushLog(std::format(
+                "Probe: G38.2 down up to {:.1f} mm at F{} -- expecting a [PRB:...] reply on contact.",
+                maxDepthMm, feedMmMin));
+            // G91 so the Z target is a relative downward delta regardless of WCS.
+            sendLine("G91\n");
+            sendLine(std::format("G38.2 Z{:.3f} F{}\n", -maxDepthMm, feedMmMin));
+            sendLine("G90\n");
+        }
+
+        // Temporary jog-panel test button.  Makes sure the probe tool is loaded
+        // and then probes down -- but NEVER both in one burst.  If the probe is
+        // already loaded it probes immediately; otherwise it starts the tool
+        // change and arms a deferred probe that fires from tcComplete() once the
+        // change has fully finished (sustained Idle).  This is what prevents the
+        // earlier failure where the G38.2 was injected mid-ATC and crashed the
+        // controller.
+        void probeTest() {
+            if (!connected()) { pushLog("Probe: not connected."); return; }
+
+            if (loadedSlot.load() == kProbeToolSlot) {
+                probeZDown();
+                return;
+            }
+
+            OperationResult r = ensureProbeTool();
+            if (!r.ok) {
+                probePending_ = false;
+                pushLog(std::format("Probe: cannot load probe tool: {}", r.reason));
+                return;
+            }
+            probePending_ = true;
+            pushLog("Probe: changing to the probe tool; will probe down "
+                    "automatically once the change completes.");
+        }
+
+        // ============================================================
         // Arming
         // ============================================================
 
@@ -478,6 +578,11 @@ export namespace Carvera {
         void toggleArm() { if (isArmed()) { disarm(); } else { arm(); } }
 
         void setSpindleArmed(bool value) {
+            if (value && spindleInhibited_.load()) {
+                pushLog("Refused: cannot arm the spindle while a probe / "
+                        "spindle-inhibited tool is loaded.");
+                return;
+            }
             spindleArmed.store(value);
             pushLog(value ? "SPINDLE ARMED." : "Spindle disarmed.");
             emitArm();
@@ -516,6 +621,13 @@ export namespace Carvera {
         // arrives within kRequestedTimeoutMs, the phase tick aborts on
         // timeout.  Either way we do NOT pretend the change is happening.
         OperationResult changeTool(int slot) {
+            // Early-exit: if the requested tool is already loaded there is
+            // nothing to do.  Return SUCCESS (a no-op), not a failure -- the
+            // caller asked for "tool T<slot> loaded" and it already is.
+            if (connected() && slot == loadedSlot.load()) {
+                pushLog(std::format("Tool change skipped: T{} is already loaded.", slot));
+                return OperationResult::success();
+            }
             if (auto r = preflightToolChange(slot); !r.ok) {
                 pushLog(std::format("[changeTool] refused: {}", r.reason));
                 return r;
@@ -606,7 +718,8 @@ export namespace Carvera {
         // by the action methods themselves (defence in depth).
         OperationResult preflightToolChange(int slot) const {
             if (!connected())                { return OperationResult::failure("Not connected to machine."); }
-            if (slot < 1 || slot > 6)        { return OperationResult::failure(std::format("Invalid slot T{}. Carvera ATC has slots 1-6.", slot)); }
+            if (!isProbeSlot(slot) && (slot < 1 || slot > 6))
+                                             { return OperationResult::failure(std::format("Invalid slot T{}. Carvera ATC has slots 1-6 (plus the probe slot).", slot)); }
             if (tcPhase_ == TcPhase::Aborted){ return OperationResult::failure("Previous tool change was aborted. Acknowledge and reset before retrying."); }
             if (tcPhase_ != TcPhase::None)   { return OperationResult::failure(std::format("Another tool change is in progress (phase: {}).", tcPhaseName(tcPhase_))); }
             if (machineState_ == "Alarm")    { return OperationResult::failure("Machine is in Alarm. Press Unlock ($X) or Reset before changing tool."); }
@@ -804,6 +917,8 @@ export namespace Carvera {
         virtual void logEvent               (LogEvent&)        {}
         virtual void armEvent               (ArmEvent&)        {}
         virtual void startEvent             (StartEvent&)      {}
+        virtual void probeEvent             (ProbeEvent&)      {}
+        virtual void safetyEvent            (SafetyEvent&)     {}
         virtual void toolChangeBeginEvent   (ToolChangeEvent&) {}
         virtual void toolChangeStandbyEvent (ToolChangeEvent&) {}
         virtual void toolChangeConfirmEvent (ToolChangeEvent&) {}
@@ -850,6 +965,12 @@ export namespace Carvera {
         float pendingWcsA      = 0;
         bool  pendingWcsAValid = false;
 
+        // Probe-reply handoff: processLine (worker) parses a "[PRB:...]" line
+        // into these; drainTelemetry (main) emits the ProbeEvent.
+        bool  pendingProbe        = false;
+        float pendingProbeX       = 0, pendingProbeY = 0, pendingProbeZ = 0;
+        bool  pendingProbeTrig    = false;
+
         bool             pendingConnection      = false;
         ConnectionStatus pendingConnectionKind  = ConnectionStatus::Disconnected;
         std::string      pendingConnectionMsg;
@@ -884,6 +1005,28 @@ export namespace Carvera {
         std::atomic<bool> armed        { false };
         std::atomic<bool> spindleArmed { false };
         std::atomic<bool> executing    { false };
+
+        // -- Spindle safety interlock -------------------------------
+        //
+        // When a probe (or any spindle-disabled tool) is loaded the spindle
+        // must NEVER turn.  `spindleInhibited_` is the authoritative latch:
+        // while set, every outgoing line is screened and any M3/M4 is REFUSED
+        // (the line is dropped, an M5 is forced out, a SafetyEvent fires, and
+        // any running program is stopped).  It follows the loaded tool, and is
+        // conservatively true whenever the loaded tool is unknown (slot 0).
+        std::atomic<bool> spindleInhibited_   { true };
+        // Set by a safety violation raised from a non-pump path; serviced at
+        // the top of the next pump() tick (which already holds queueMutex) so
+        // the program teardown never re-enters the queue mutex.
+        std::atomic<bool> safetyStopRequested_ { false };
+        // Flagged when setSpindleInhibited (possibly on the worker thread)
+        // changes the latch; drained on the main thread to emit the arm event.
+        std::atomic<bool> pendingArmEmit_      { false };
+
+        // A probe-down was requested but the probe tool wasn't loaded yet; the
+        // G38.2 is deferred until the tool change completes (tcComplete) so it
+        // is never injected into an in-flight ATC cycle.  Main-thread only.
+        bool probePending_ = false;
 
         // -- Program execution (action queue) + ATC gate -----------
 
@@ -958,6 +1101,8 @@ export namespace Carvera {
         Rev::Core::Dispatcher<LogEvent>        logDispatcher;
         Rev::Core::Dispatcher<ArmEvent>        armDispatcher;
         Rev::Core::Dispatcher<StartEvent>      startDispatcher;
+        Rev::Core::Dispatcher<ProbeEvent>      probeDispatcher;
+        Rev::Core::Dispatcher<SafetyEvent>     safetyDispatcher;
         Rev::Core::Dispatcher<ToolChangeEvent> tcBeginDispatcher;
         Rev::Core::Dispatcher<ToolChangeEvent> tcStandbyDispatcher;
         Rev::Core::Dispatcher<ToolChangeEvent> tcConfirmDispatcher;
@@ -979,16 +1124,107 @@ export namespace Carvera {
 
         // Direct, un-logged send (jogging spams these).
         void rawSend(const std::string& line) {
+            if (spindleGuardBlocks(line)) { return; }
             if (connected()) { client->send(line); }
         }
 
         // Logged send for discrete commands.
         void sendLine(const std::string& line) {
             if (!connected()) { pushLog("Not connected."); return; }
+            if (spindleGuardBlocks(line)) { return; }
             client->send(line);
             std::string d = line;
             while (!d.empty() && (d.back() == '\n' || d.back() == '\r')) { d.pop_back(); }
             pushLog(std::format("> {}", d));
+        }
+
+        // ============================================================
+        // Spindle safety interlock
+        // ============================================================
+
+        static bool isProbeSlot(int slot) {
+            // The wired probe (kProbeToolSlot) and the community 3D probe
+            // (pseudo-slot >= 999990) both forbid the spindle.  Slot 0 ("no /
+            // unknown tool") is treated as a probe slot too -- erring toward
+            // never spinning when we aren't certain a cutter is fitted.
+            return slot == kProbeToolSlot || slot >= 999990;
+        }
+
+        // Does `line` command the spindle to START (M3 / M4 / M03 / M04)?
+        // M5 (off) and M30 (program end) are explicitly NOT matches.
+        static bool commandsSpindleOn(const std::string& line) {
+            for (size_t i = 0; i < line.size(); i++) {
+                const char c = line[i];
+                if (c != 'M' && c != 'm') { continue; }
+                if (i > 0) {
+                    const char p = line[i - 1];
+                    if (std::isalnum((unsigned char)p) || p == '.') { continue; }
+                }
+                size_t j = i + 1;
+                int  val = 0;
+                bool any = false;
+                while (j < line.size() && std::isdigit((unsigned char)line[j])) {
+                    val = val * 10 + (line[j] - '0');
+                    j++; any = true;
+                }
+                if (!any) { continue; }
+                if (val == 3 || val == 4) { return true; }   // M30 -> val 30, not matched
+            }
+            return false;
+        }
+
+        // The screen used by rawSend/sendLine.  Returns true (and triggers the
+        // full safety response) when the line must NOT reach the controller.
+        bool spindleGuardBlocks(const std::string& line) {
+            if (!spindleInhibited_.load())   { return false; }
+            if (!commandsSpindleOn(line))    { return false; }
+            raiseSpindleSafetyViolation(line, /*fromPump=*/false);
+            return true;
+        }
+
+        // Set or clear the interlock latch.  Logs + re-emits arm state only on
+        // a real change.  Turning it ON also force-disarms the spindle.
+        // NOTE: may be called on the WORKER thread (via recordLoadedTool from
+        // processLine), so it must not dispatch events directly.  It stores
+        // atomics + logs (both thread-safe) and flags an arm-state emit to be
+        // drained on the main thread in drainTelemetry().
+        void setSpindleInhibited(bool value, const char* why) {
+            const bool prev = spindleInhibited_.exchange(value);
+            if (value) { spindleArmed.store(false); }
+            if (prev != value) {
+                pushLog(std::format("Spindle interlock {} ({}).",
+                                    value ? "ENGAGED" : "released", why));
+                pendingArmEmit_.store(true);
+            }
+        }
+
+        // Central response to an attempt to spin the spindle while inhibited.
+        // 1) force the spindle off, 2) disarm, 3) log + fire SafetyEvent,
+        // 4) stop any running program.  `fromPump` selects a lock-safe path
+        // for the program-stream call site (which already holds queueMutex).
+        void raiseSpindleSafetyViolation(const std::string& blocked, bool fromPump) {
+            // 1) Force the spindle off -- bypass the guard (M5 is always safe).
+            if (connected()) { client->send("M5\n"); }
+            spindleArmed.store(false);
+
+            // Trim the blocked line for display.
+            std::string b = blocked;
+            while (!b.empty() && (b.back() == '\n' || b.back() == '\r')) { b.pop_back(); }
+
+            const std::string reason = std::format(
+                "SAFETY: refused spindle-start command \"{}\" -- a probe / "
+                "spindle-inhibited tool is loaded. Forced M5 and stopped the program.",
+                b);
+
+            // 2/3) Log + notify any handler.
+            pushLog(reason);
+            SafetyEvent e{ reason, b };
+            safetyDispatcher.tell(&Air::safetyEvent, e);
+            emitArm();
+
+            // 4) Stop the program.  From the pump the caller clears the queue
+            // inline (it holds the lock); otherwise defer to the next tick.
+            if (!fromPump) { safetyStopRequested_.store(true); }
         }
 
         // Chain-poll primitive: issues "?" at most once until answered.
@@ -1031,6 +1267,7 @@ export namespace Carvera {
             pendingPosValid     = false;
             pendingResponseSeen = false;
             pendingWcsAValid    = false;
+            pendingProbe        = false;
             confValid           = false;
             dispReady           = false;
             machineState_.clear();
@@ -1039,8 +1276,13 @@ export namespace Carvera {
 
             // A fresh connection knows nothing about what is physically in the
             // spindle -- start as "no tool loaded" so the panel prompts for a
-            // confirm before the first cut.
+            // confirm before the first cut.  Slot 0 is unknown, so engage the
+            // spindle interlock until a real cutter is detected ($G / status).
             loadedSlot.store(0);
+            spindleInhibited_.store(true);
+            spindleArmed.store(false);
+            pendingArmEmit_.store(true);
+            probePending_ = false;
 
             // Drop any in-flight orchestration state.  After a fresh
             // connection we re-derive everything from the controller's
@@ -1115,6 +1357,19 @@ export namespace Carvera {
             // machine that already has a tool loaded immediately reflects that.
             if (!msg.empty() && msg.front() == '[') {
                 pickToolFromAnywhere(msg);
+            }
+
+            // Probe result: "[PRB:0.000,0.000,-12.345:1]".  The trailing flag
+            // is 1 on contact, 0 on a fail (target reached untriggered).  Hand
+            // it to the main thread to emit a ProbeEvent + log.
+            if (size_t pb = msg.find("PRB:"); pb != std::string::npos) {
+                float px = 0, py = 0, pz = 0; int trig = 0;
+                if (sscanf(msg.c_str() + pb + 4, "%f,%f,%f:%d", &px, &py, &pz, &trig) >= 3) {
+                    std::lock_guard lock(stateMutex);
+                    pendingProbe     = true;
+                    pendingProbeX    = px; pendingProbeY = py; pendingProbeZ = pz;
+                    pendingProbeTrig = (trig != 0);
+                }
             }
 
             // === Evidence-driven tool-change state machine advances ===
@@ -1202,6 +1457,13 @@ export namespace Carvera {
             const int prev = loadedSlot.exchange(slot);
             if (prev != slot) {
                 pushLog(std::format("Loaded tool detected: T{}.", slot));
+                // The spindle interlock follows the loaded tool: a probe (or
+                // unknown slot 0) inhibits the spindle; a real cutter releases
+                // it.  This is what re-enables cutting after the probe is
+                // swapped back out for a normal tool.
+                setSpindleInhibited(isProbeSlot(slot),
+                    isProbeSlot(slot) ? "probe/unknown tool loaded"
+                                      : "cutting tool loaded");
             }
         }
 
@@ -1221,6 +1483,10 @@ export namespace Carvera {
             bool             connDirty = false;
             ConnectionStatus connKind  = ConnectionStatus::Disconnected;
             std::string      connMsg;
+
+            bool  probeDirty = false;
+            float probeX = 0, probeY = 0, probeZ = 0;
+            bool  probeTrig = false;
 
             std::deque<std::string> drainedLog;
 
@@ -1251,6 +1517,13 @@ export namespace Carvera {
                     connMsg   = pendingConnectionMsg;
                     pendingConnection = false;
                 }
+
+                if (pendingProbe) {
+                    probeDirty = true;
+                    probeX = pendingProbeX; probeY = pendingProbeY; probeZ = pendingProbeZ;
+                    probeTrig = pendingProbeTrig;
+                    pendingProbe = false;
+                }
             }
 
             // Emit drained log lines.
@@ -1267,6 +1540,27 @@ export namespace Carvera {
                 ConnectionEvent e{ connKind, connMsg };
                 connectionDispatcher.tell(&Air::connectionEvent, e);
             }
+
+            // Emit probe result.
+            if (probeDirty) {
+                if (probeTrig) {
+                    pushLog(std::format(
+                        "Probe TRIGGERED at X{:.3f} Y{:.3f} Z{:.3f}.",
+                        probeX, probeY, probeZ));
+                    beep();
+                }
+                else {
+                    pushLog(std::format(
+                        "Probe FAIL (no contact) -- last point X{:.3f} Y{:.3f} Z{:.3f}.",
+                        probeX, probeY, probeZ));
+                }
+                ProbeEvent e{ probeX, probeY, probeZ, probeTrig };
+                probeDispatcher.tell(&Air::probeEvent, e);
+            }
+
+            // Emit a deferred arm-state change (e.g. the spindle interlock was
+            // toggled by a tool detection on the worker thread).
+            if (pendingArmEmit_.exchange(false)) { emitArm(); }
 
             // Machine-state change -> event.
             if (machineState_ != nstate) {
@@ -1523,8 +1817,26 @@ export namespace Carvera {
         void tcComplete() {
             const int slot = tcSlot;
             loadedSlot.store(slot);
+            // Keep the spindle interlock in sync with the freshly-loaded tool
+            // (tcComplete stores loadedSlot directly, bypassing recordLoadedTool).
+            setSpindleInhibited(isProbeSlot(slot),
+                isProbeSlot(slot) ? "probe tool loaded" : "cutting tool loaded");
             pushLog(std::format("Tool change complete (T{} loaded and touched off).", slot));
             tcTransition(TcPhase::None, "settled in Idle after touch-off");
+
+            // Fire any probe-down that was waiting for this change to finish.
+            if (probePending_) {
+                probePending_ = false;
+                if (isProbeSlot(slot)) {
+                    pushLog("Probe: tool change complete -- probing down now.");
+                    probeZDown();
+                }
+                else {
+                    pushLog(std::format(
+                        "Probe: change completed as T{} (not the probe slot); "
+                        "skipping the deferred probe.", slot));
+                }
+            }
             // Public phase emission picks this up below.
         }
 
@@ -1534,6 +1846,11 @@ export namespace Carvera {
         void tcAbort(std::string reason) {
             pushLog(std::format("TOOL CHANGE ABORTED: {}", reason));
             tcAbortReason_ = std::move(reason);
+            // A deferred probe must never fire after a failed change.
+            if (probePending_) {
+                probePending_ = false;
+                pushLog("Probe: deferred probe cancelled (tool change aborted).");
+            }
             tcTransition(TcPhase::Aborted, "abort path");
         }
 
@@ -1674,6 +1991,11 @@ export namespace Carvera {
 
             std::lock_guard<std::mutex> lock(queueMutex);
 
+            // Service a deferred safety stop raised off the pump path (e.g. an
+            // operator command tried to spin the spindle while inhibited).  We
+            // hold queueMutex here, so the lock-safe clear is correct.
+            if (safetyStopRequested_.exchange(false)) { clearQueueLocked(); }
+
             inFlight -= pendingOk.exchange(0);
             if (inFlight < 0) { inFlight = 0; }
 
@@ -1729,7 +2051,19 @@ export namespace Carvera {
                             return;   // hand off; nothing more streams this tick
                         }
 
-                        client->send(gcodeForStep(s));
+                        const std::string g = gcodeForStep(s);
+
+                        // SAFETY: never let a program spin the spindle while a
+                        // probe / spindle-inhibited tool is loaded.  Refuse the
+                        // line, force M5, fire the event, and abort the program
+                        // in-place (we already hold queueMutex).
+                        if (spindleInhibited_.load() && commandsSpindleOn(g)) {
+                            raiseSpindleSafetyViolation(g, /*fromPump=*/true);
+                            clearQueueLocked();
+                            return;
+                        }
+
+                        client->send(g);
                         steps_.pop_front();
                         inFlight++;
                     }

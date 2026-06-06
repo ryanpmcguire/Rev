@@ -10,6 +10,31 @@
       "hash": "ab08018ccd276b79fb2c636bb95b9c543598f9d50505fe92506fcb4dae7810cd",
       "mtime": 1780255242.0136998
     },
+    "CAM/source/Gui/LeftPanel/Stages/Eye.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Eye.svg",
+      "hash": "a19792bc7231915d80174c177bae04bbba478a858b1b3af680d21de666e91b8b",
+      "mtime": 1780611804.3188756
+    },
+    "CAM/source/Gui/LeftPanel/Stages/Eye-Off.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Eye-Off.svg",
+      "hash": "46d2aef61e5d9c977046f6479efd982317bc7137b4815fa950510cf886b44361",
+      "mtime": 1780611827.51081
+    },
+    "CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg",
+      "hash": "b7c816301b3066d8060b2b735298ff22d70d50e31e5e73e76964d53cd6777e0e",
+      "mtime": 1779994987.0619895
+    },
+    "Rev/src/Elements/Controls/Checkbox/check.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Checkbox/check.svg",
+      "hash": "99cbe3a7e5caca42ac93c23db3b609bdcf5d1000f6e0df4cef07171aff8fe576",
+      "mtime": 1778114170.2589297
+    },
+    "CAM/source/Gui/RightPanel/Choose-Folder.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/RightPanel/Choose-Folder.svg",
+      "hash": "ac9b24eb6d371c443ff2fe8261b77fd42ffea47e919230e495ebacb5a9d69fb2",
+      "mtime": 1779994987.0619895
+    },
     "CAM/source/Gui/LeftPanel/Stages/Operation.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Operation.svg",
       "hash": "bc976d33685c12558c866e55953b0fa9f47c6806dd0b444b7a313c3d298d5e91",
@@ -30,20 +55,15 @@
       "hash": "08f0e3f5bc8494e6af905afe3d2166a9a7a6773053fa084c76fe0383c116ed7d",
       "mtime": 1780618854.859626
     },
-    "CAM/source/Gui/LeftPanel/Stages/Eye.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Eye.svg",
-      "hash": "a19792bc7231915d80174c177bae04bbba478a858b1b3af680d21de666e91b8b",
-      "mtime": 1780611804.3188756
+    "CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Closed.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Closed.svg",
+      "hash": "7c2d4f275901e5d44379fabac851fedace5472abffb62d7039663615e8a39840",
+      "mtime": 1780697414.5283134
     },
-    "CAM/source/Gui/LeftPanel/Stages/Eye-Off.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Eye-Off.svg",
-      "hash": "46d2aef61e5d9c977046f6479efd982317bc7137b4815fa950510cf886b44361",
-      "mtime": 1780611827.51081
-    },
-    "CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/ToolPath/Settings.svg",
-      "hash": "b7c816301b3066d8060b2b735298ff22d70d50e31e5e73e76964d53cd6777e0e",
-      "mtime": 1779994987.0619895
+    "CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Open.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/LeftPanel/Stages/Operations/Lock-Open.svg",
+      "hash": "4768498ac286f816eb89a09ba58680e8c17409dbed659cc22e7e83a16bce9cd1",
+      "mtime": 1780697428.8920574
     },
     "CAM/source/Gui/PreviewBar/StepBack.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/PreviewBar/StepBack.svg",
@@ -64,11 +84,6 @@
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/PreviewBar/Pause.svg",
       "hash": "f8277c9615f9c2a9ef9ef7b89ed19a74b9a7fd7ff0866ba02b5bde51de12b2ec",
       "mtime": 1780005149.278039
-    },
-    "CAM/source/Gui/RightPanel/Choose-Folder.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/RightPanel/Choose-Folder.svg",
-      "hash": "ac9b24eb6d371c443ff2fe8261b77fd42ffea47e919230e495ebacb5a9d69fb2",
-      "mtime": 1779994987.0619895
     },
     "CAM/source/Gui/RightPanel/Tools/Settings.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/CAM/source/Gui/RightPanel/Tools/Settings.svg",
@@ -94,11 +109,6 @@
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/resources/Fonts/Arial/Arial.ttf",
       "hash": "c9b76220a5be42ead4733611e417cd65c5fd8aeaa33eb56576ac378a37d130a1",
       "mtime": 1764646698.0
-    },
-    "Rev/src/Elements/Controls/Checkbox/check.svg": {
-      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Checkbox/check.svg",
-      "hash": "99cbe3a7e5caca42ac93c23db3b609bdcf5d1000f6e0df4cef07171aff8fe576",
-      "mtime": 1778114170.2589297
     },
     "Rev/src/Elements/Controls/Dropdown/chevron-right.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Dropdown/chevron-right.svg",

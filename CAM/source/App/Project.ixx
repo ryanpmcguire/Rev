@@ -463,6 +463,9 @@ export namespace Cam::App {
                     { "hasToolPath", stage->hasToolPath }
                 };
 
+                // Probe sub-component (targets + last fitted result).
+                stageJson["probe"] = stage->probe.getState();
+
                 json["stages"].push_back(stageJson);
             }
 
@@ -663,6 +666,10 @@ export namespace Cam::App {
                         else {
                             stage->toolPath.sliceFaceId = ToolPath::NoSliceFaceId;
                         }
+                    }
+
+                    if (stageJson.contains("probe") && stageJson["probe"].is_object()) {
+                        stage->probe.setState(stageJson["probe"]);
                     }
 
                     newStages[index] = stage;
@@ -1599,7 +1606,19 @@ export namespace Cam::App {
         // face ids stay valid, re-applies, and recomputes the delta.
         bool recomputeOperation(Stage* stage) {
 
-            if (!stage || !stage->operation || !stage->parent) { return false; }
+            if (!stage || !stage->operation) { return false; }
+
+            // The root import has no parent: it re-seeds the model from its own
+            // source file (applying the current scale) rather than from a prior.
+            if (stage->operation->type() == OperationType::Import) {
+                bool ok = stage->operation->apply(stage->model);
+                stage->model.clearSelection();
+                stage->model.changed = false;
+                dirty = true;
+                return ok;
+            }
+
+            if (!stage->parent) { return false; }
 
             stage->model = stage->parent->model;
             stage->model.clearSelection();
@@ -1690,6 +1709,25 @@ export namespace Cam::App {
 
             dirty = true;
             return true;
+        }
+
+        // Update the root import's scale (per-axis) and re-import the geometry.
+        // `locked` ties the axes together for future edits.
+        bool setImportScale(Stage* stage, double sx, double sy, double sz, bool locked) {
+
+            if (!stage || !stage->operation) { return false; }
+            if (stage->operation->type() != OperationType::Import) { return false; }
+
+            ImportOperation* op = static_cast<ImportOperation*>(stage->operation);
+
+            op->scaleX = sx;
+            op->scaleY = sy;
+            op->scaleZ = sz;
+            op->scaleLocked = locked;
+
+            bool ok = recomputeOperation(stage);
+            dirty = true;
+            return ok;
         }
 
         // Begin an extrude on the working stage: the profile is the currently

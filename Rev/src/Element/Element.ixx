@@ -447,7 +447,7 @@ export namespace Rev::Element {
             int growableRows(Axis axis) {
 
                 int count = 0;
-                
+
                 for (Row& row : rows) {
                     count += row.size.canGrow(axis);
                 }
@@ -719,10 +719,23 @@ export namespace Rev::Element {
             // Adjust own minimum outer size to accomodate layout
             //--------------------------------------------------
 
+            // A clipping element scrolls/clips its overflow instead of growing
+            // into it, so its content does NOT establish a minimum that it must
+            // advertise upward. Without this, a height:100% + overflow:Hide scroll
+            // panel propagates its whole content height as a minimum, flooring a
+            // Grow ancestor to that content and over-inflating the layout (the
+            // ancestor then hands its relative children too much room). The panel's
+            // own size still comes from its nominal/explicit dimensions; only this
+            // upward minimum is suppressed — its content children are free to
+            // exceed it and scroll.
+            const bool clips = resolved.style.overflow == Overflow::Hide;
+
             if (set(resolved.min.width)) { resolved.min.outerWidth = resolved.min.width + resolved.min.marginWidth; }
+            else if (clips) { resolved.min.outerWidth = resolved.min.paddingWidth + resolved.min.marginWidth; }
             else { resolved.min.outerWidth = layout.size.w.min + resolved.min.paddingWidth + resolved.min.marginWidth; }
 
             if (set(resolved.min.height)) { resolved.min.outerHeight = resolved.min.height + resolved.min.marginHeight; }
+            else if (clips) { resolved.min.outerHeight = resolved.min.paddingHeight + resolved.min.marginHeight; }
             else { resolved.min.outerHeight = layout.size.h.min + resolved.min.paddingHeight + resolved.min.marginHeight; }
 
             float layoutPlusPaddingWidth = layout.size.w.min + resolved.style.padding.left.val + resolved.style.padding.right.val;
@@ -1017,10 +1030,8 @@ export namespace Rev::Element {
                     layout.size.h.val += row.size.h.val;
                 }
             }
-
-            bool test = true;
         }
-        
+
         void growHorizontalMode() {
 
             // Grow growable dimensions (horizontal)
@@ -1083,20 +1094,20 @@ export namespace Rev::Element {
 
             for (Row& row : layout.rows) {
                 for (Element* member : row.members) {
-                    
+
                     Element& elem = *member;
 
                     float availableElemHeight = row.size.h.val - elem.resolved.getOuter(Axis::Vertical);
 
                     while (true) {
-                        
+
                         int numGrowable = elem.resolved.canGrow(Axis::Vertical);
                         float share = availableElemHeight / float(numGrowable);
 
                         if (!numGrowable || availableElemHeight < 0.01) {
                             break;
                         }
-                        
+
                         float take = elem.resolved.grow(share, Axis::Vertical);
                         availableElemHeight -= take;
                     }
@@ -1136,20 +1147,20 @@ export namespace Rev::Element {
 
             for (Row& row : layout.rows) {
                 for (Element* member : row.members) {
-                    
+
                     Element& elem = *member;
 
                     float availableElemWidth = row.size.w.val - elem.resolved.getOuter(Axis::Horizontal);
 
                     while (true) {
-                        
+
                         int numGrowable = elem.resolved.canGrow(Axis::Horizontal);
                         float share = availableElemWidth / float(numGrowable);
 
                         if (!numGrowable || availableElemWidth < 0.01) {
                             break;
                         }
-                        
+
                         float take = elem.resolved.grow(share, Axis::Horizontal);
                         availableElemWidth -= take;
                     }

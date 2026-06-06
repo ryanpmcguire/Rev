@@ -13,6 +13,7 @@ import Rev.OS.File;
 
 import Cam.App.Model;
 import Cam.App.Operation;
+import Cam.App.Probe;
 import Cam.App.Tool;
 import Cam.App.ToolLibrary;
 import Cam.App.ToolPath;
@@ -81,6 +82,7 @@ export namespace Cam::App {
             bool operation  = true;   // the operation (no geometry yet — stub)
             bool delta      = true;   // removed-volume delta model
             bool toolPath   = true;   // the toolpath
+            bool probe      = true;   // the probe sub-component (targets + result)
         };
 
         ComponentVisibility visible;
@@ -98,6 +100,18 @@ export namespace Cam::App {
         ToolPath toolPath;
         bool hasToolPath = false;
 
+        // Probe
+        //--------------------------------------------------
+
+        // Optional probe sub-component: a break in the machining path (before
+        // this stage's own cut) where the machine task-switches to the probe
+        // tool, touches the listed targets, and fits a persistent frame
+        // correction.  Disabled by default; surfaced as the "Probe" row in the
+        // stage tree.  See Cam.App.Probe.
+        ProbeSpec probe;
+
+        bool hasProbe() const { return probe.enabled; }
+
         // Construction
         //--------------------------------------------------
 
@@ -105,7 +119,9 @@ export namespace Cam::App {
 
             Stage* stage = new Stage();
 
-            stage->operation = new ImportOperation();
+            ImportOperation* op = new ImportOperation();
+            op->sourcePath = file.string();
+            stage->operation = op;
 
             stage->model = Model::FromStep(file);
             stage->model.clearSelection();

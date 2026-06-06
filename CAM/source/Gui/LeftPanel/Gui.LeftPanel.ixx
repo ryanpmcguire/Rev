@@ -36,6 +36,8 @@ export namespace Cam::Gui {
             .margin = { .left = 12_px, .right = 12_px, .top = 12_px, .bottom = 12_px },
             .padding = { .left = 8_px, .right = 8_px, .top = 8_px, .bottom = 8_px },
             .border = { .radius = 6_px },
+            .overflow = Overflow::Hide,
+            .scroll = Scroll::Vertical,
             .zIndex = +1
         };
 

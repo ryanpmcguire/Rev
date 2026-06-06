@@ -9,6 +9,7 @@ module;
 export module Cam.App.Operation;
 
 import Cam.App.Model;
+import Rev.OS.File;
 
 export namespace Cam::App {
 
@@ -85,10 +86,57 @@ export namespace Cam::App {
         static Operation* fromState(const Json& json);
     };
 
+    // The root seed of a material-state tree: imports geometry from a STEP file
+    // and (optionally) scales it. Lives in the final state and is the single
+    // place the source model enters the project. scaleLocked ties the three axes
+    // together so editing one scales uniformly (the default).
     struct ImportOperation : Operation {
+        std::string sourcePath;             // the STEP file this state imported
+        double scaleX = 1.0, scaleY = 1.0, scaleZ = 1.0;
+        bool scaleLocked = true;
+
         OperationType type() const override { return OperationType::Import; }
         const char* typeName() const override { return "Import"; }
         std::string displayName() const override { return "Import"; }
+
+        // Re-seed the model from the source file at the current scale. When no
+        // source is recorded (legacy projects whose geometry is already baked
+        // into the stage), this is a no-op and the existing model is kept.
+        bool apply(Model& model) override {
+            if (sourcePath.empty()) { return true; }
+
+            try {
+                Rev::OS::File file({ .pathname = sourcePath });
+                model.loadStepScaled(file, scaleX, scaleY, scaleZ);
+                return !model.shape.IsNull();
+            }
+            catch (...) {
+                return false;
+            }
+        }
+
+        Json getState() const override {
+            Json json = Operation::getState();
+            json["sourcePath"] = sourcePath;
+            json["scaleX"] = scaleX;
+            json["scaleY"] = scaleY;
+            json["scaleZ"] = scaleZ;
+            json["scaleLocked"] = scaleLocked;
+            return json;
+        }
+
+        void setState(const Json& json) override {
+            Operation::setState(json);
+            if (json.contains("sourcePath") && json["sourcePath"].is_string()) {
+                sourcePath = json["sourcePath"].get<std::string>();
+            }
+            if (json.contains("scaleX") && json["scaleX"].is_number()) { scaleX = json["scaleX"].get<double>(); }
+            if (json.contains("scaleY") && json["scaleY"].is_number()) { scaleY = json["scaleY"].get<double>(); }
+            if (json.contains("scaleZ") && json["scaleZ"].is_number()) { scaleZ = json["scaleZ"].get<double>(); }
+            if (json.contains("scaleLocked") && json["scaleLocked"].is_boolean()) {
+                scaleLocked = json["scaleLocked"].get<bool>();
+            }
+        }
     };
 
     struct DefeatureOperation : Operation {

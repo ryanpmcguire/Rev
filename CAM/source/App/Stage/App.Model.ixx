@@ -32,6 +32,9 @@ module;
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepBuilderAPI_GTransform.hxx>
+#include <gp_GTrsf.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
@@ -1188,6 +1191,73 @@ export namespace Cam::App {
             }
             catch (...) {
                 logEvent("[STEP] loadStep unknown exception");
+                clear();
+                throw;
+            }
+        }
+
+        // Scale a shape about the origin. A uniform scale uses a rigid gp_Trsf
+        // (keeps analytic geometry); a non-uniform scale falls back to a general
+        // transform. Returns the input unchanged for an ~identity scale.
+        static TopoDS_Shape scaleShape(const TopoDS_Shape& shape, double sx, double sy, double sz) {
+
+            if (shape.IsNull()) { return shape; }
+
+            const bool identity =
+                std::fabs(sx - 1.0) < 1e-9 &&
+                std::fabs(sy - 1.0) < 1e-9 &&
+                std::fabs(sz - 1.0) < 1e-9;
+
+            if (identity) { return shape; }
+
+            try {
+                const bool uniform =
+                    std::fabs(sx - sy) < 1e-9 && std::fabs(sy - sz) < 1e-9;
+
+                if (uniform) {
+                    gp_Trsf trsf;
+                    trsf.SetScale(gp_Pnt(0, 0, 0), sx);
+                    BRepBuilderAPI_Transform transform(shape, trsf, true);
+                    transform.Build();
+                    if (transform.IsDone()) { return transform.Shape(); }
+                    return shape;
+                }
+
+                gp_GTrsf gtrsf;
+                gtrsf.SetValue(1, 1, sx);
+                gtrsf.SetValue(2, 2, sy);
+                gtrsf.SetValue(3, 3, sz);
+
+                BRepBuilderAPI_GTransform transform(shape, gtrsf, true);
+                transform.Build();
+                if (transform.IsDone()) { return transform.Shape(); }
+                return shape;
+            }
+            catch (const Standard_Failure&) {
+                return shape;
+            }
+        }
+
+        // Load a STEP file and scale the result about the origin (per-axis).
+        void loadStepScaled(Rev::OS::File& file, double sx, double sy, double sz) {
+
+            logEvent(format("[STEP] loadStepScaled: %s scale=(%.4f, %.4f, %.4f)",
+                file.string().c_str(), sx, sy, sz));
+
+            clear();
+
+            try {
+                TopoDS_Shape loadedShape = loadStepShape(file);
+                TopoDS_Shape scaled = scaleShape(loadedShape, sx, sy, sz);
+                adoptShape(scaled, false, "loadStepScaled");
+            }
+            catch (const std::exception& exception) {
+                logEvent(format("[STEP] loadStepScaled exception: %s", exception.what()));
+                clear();
+                throw;
+            }
+            catch (...) {
+                logEvent("[STEP] loadStepScaled unknown exception");
                 clear();
                 throw;
             }

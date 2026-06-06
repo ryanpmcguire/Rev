@@ -29,7 +29,10 @@ import Cam.App.Stage;
 import Cam.App.Model;
 import Cam.App.Operation;
 import Cam.Gui.Theme;
-import Cam.Gui.Face;
+import Cam.Gui.OperationView;
+import Cam.Gui.FaceOperationView;
+import Cam.Gui.ImportOperationView;
+import Cam.Gui.ProbeView;
 import Cam.Gui.ToolPathSettingsWindow;
 import Cam.Gui.ToolpathSettings;
 
@@ -188,6 +191,10 @@ export namespace Cam::Gui {
             .text = { .color = rgba(208, 150, 48, 1.0) }     // amber endmill
         };
 
+        Style PropIconProbe = {
+            .text = { .color = rgba(150, 96, 200, 1.0) }      // violet probe
+        };
+
         // Pushes the trailing controls (settings + eye) to the right edge.
         Style Spacer = {
             .size = { .width = Grow() }
@@ -237,12 +244,12 @@ export namespace Cam::Gui {
         Text* numberText = nullptr;
         Text* nameText = nullptr;
 
-        static constexpr int ComponentCount = 5;
+        static constexpr int ComponentCount = 6;
 
         // Component indices.
-        enum Component { PriorModel = 0, Model = 1, Operation = 2, Delta = 3, Toolpath = 4 };
+        enum Component { PriorModel = 0, Model = 1, Operation = 2, Delta = 3, Toolpath = 4, Probe = 5 };
 
-        static bool isCollapsible(int c) { return c == Operation || c == Delta || c == Toolpath; }
+        static bool isCollapsible(int c) { return c == Operation || c == Delta || c == Toolpath || c == Probe; }
         static bool hasSettings(int c)   { return c == Operation || c == Toolpath; }
 
         // Eye opacity stops: faint when visible, fainter when hidden, near-opaque
@@ -258,6 +265,7 @@ export namespace Cam::Gui {
                 case Operation:  return "Operation";
                 case Delta:      return "Delta";
                 case Toolpath:   return "Toolpath";
+                case Probe:      return "Probe";
                 default:         return "";
             }
         }
@@ -270,6 +278,7 @@ export namespace Cam::Gui {
                 case Operation:  return &state->visible.operation;
                 case Delta:      return &state->visible.delta;
                 case Toolpath:   return &state->visible.toolPath;
+                case Probe:      return &state->visible.probe;
                 default:         return nullptr;
             }
         }
@@ -282,6 +291,7 @@ export namespace Cam::Gui {
                 case Operation: return File("./Operation.svg");
                 case Delta:     return File("./Delta.svg");
                 case Toolpath:  return File("./Toolpath.svg");
+                case Probe:     return File("./Operation.svg");   // reuse until a probe glyph exists
                 default:        return File("./Part.svg");   // PriorModel, Model
             }
         }
@@ -291,6 +301,7 @@ export namespace Cam::Gui {
                 case Operation: return { &Styles::PropIcon, &Styles::PropIconOperation };
                 case Delta:     return { &Styles::PropIcon, &Styles::PropIconDelta };
                 case Toolpath:  return { &Styles::PropIcon, &Styles::PropIconToolpath };
+                case Probe:     return { &Styles::PropIcon, &Styles::PropIconProbe };
                 default:        return { &Styles::PropIcon, &Styles::PropIconModel };
             }
         }
@@ -307,13 +318,16 @@ export namespace Cam::Gui {
         // Inline toolpath settings (lives in the Toolpath property body).
         ToolpathSettings* toolpathSettings = nullptr;
 
-        // The Operation property body lists the faces the operation referenced;
-        // each row highlights its face in the world view on hover.
+        // The Operation property body hosts a per-type operation view (its own
+        // sub-menu + interaction logic). The view is (re)created when the
+        // operation's type changes.
         Box* operationBody = nullptr;
-        std::vector<Element*> operationFaceRows;
-        Cam::App::Stage* operationFacesBoundState = nullptr;
-        std::vector<std::size_t> operationFacesBound;
-        int operationActiveSlotBound = -2;
+        OperationView* operationView = nullptr;
+        Cam::App::OperationType operationViewType = Cam::App::OperationType::Import;
+
+        // The Probe property body hosts the probe target editor.
+        Box* probeBody = nullptr;
+        ProbeView* probeView = nullptr;
 
         Rev::Core::Resource eyeOnResource;
         Rev::Core::Resource eyeOffResource;
@@ -388,11 +402,13 @@ export namespace Cam::Gui {
                     };
                 }
                 else if (i == Operation) {
-                    // The operation body holds the list of referenced faces,
-                    // populated dynamically in computeChildren, laid out
-                    // horizontally as chips.
+                    // The operation body hosts a per-type operation view, created
+                    // and refreshed in computeChildren.
                     operationBody = propCollapsible[i]->container;
-                    operationBody->styles.add(&Styles::OperationBody);
+                }
+                else if (i == Probe) {
+                    // The probe body hosts the probe target editor.
+                    probeBody = propCollapsible[i]->container;
                 }
                 else {
                     // Placeholder body content (Delta) for now.
@@ -615,196 +631,63 @@ export namespace Cam::Gui {
             return "Material State";
         }
 
-        // The model the operation's faces live on: the prior (parent) model,
-        // whose face ids the operation references. Falls back to this stage's
-        // own model at the root.
-        Cam::App::Model* priorModel() {
-            if (!state) { return nullptr; }
-            return state->parent ? &state->parent->model : &state->model;
+        // Create the operation view appropriate to an operation type. Each
+        // operation type owns its own body element (sub-menu + interactions).
+        OperationView* makeOperationView(Element* parent, Cam::App::OperationType type) {
+            switch (type) {
+                case Cam::App::OperationType::Import:
+                    return new ImportOperationView(parent);
+                default:
+                    return new FaceOperationView(parent);
+            }
         }
 
-        // Create a Face element bound to a Model::Face. Hovering highlights that
-        // face in the world view; leaving restores the selection baseline. The
-        // caller wires onSelect (slots and flat faces select differently).
-        Cam::Gui::Face* makeFaceElement(Element* parent, Cam::App::Model::Face f, const std::string& label) {
-
-            Cam::Gui::Face* el = new Cam::Gui::Face(parent);
-            el->setFace(f, label);
-
-            el->onHover = [this](Event& ev, Cam::App::Model::Face hf) {
-                if (state && hf.valid()) {
-                    state->highlightedOperationFaces = { hf.id };
-                    if (onComponentToggled) { onComponentToggled(ev); }
-                }
-            };
-
-            el->onUnhover = [this](Event& ev) {
-                applyOperationHighlightBaseline();
-                if (onComponentToggled) { onComponentToggled(ev); }
-            };
-
-            return el;
-        }
-
-        // (Re)build the Operation body. Operations with named face slots (e.g.
-        // extrude) get one selectable/fillable Face row per slot; others list
-        // their referenced faces. Each row is a true Face element carrying the
-        // Model::Face it represents.
-        void rebuildOperationFaces() {
+        // Ensure the Operation body hosts a view matching the current operation's
+        // type, then let that view refresh its own content.
+        void syncOperationView(Event& e) {
 
             if (!operationBody) { return; }
 
-            for (Element* row : operationFaceRows) {
-                delete row;
-            }
-            operationFaceRows.clear();
+            const bool hasOp = state && state->operation;
+            const Cam::App::OperationType type =
+                hasOp ? state->operation->type() : Cam::App::OperationType::Import;
 
-            if (!state || !state->operation) {
-                operationFaceRows.push_back(new Text(
-                    operationBody, "No operation",
-                    Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::MutedText })
-                ));
+            if (!hasOp) {
+                if (operationView) { delete operationView; operationView = nullptr; }
                 return;
             }
 
-            Cam::App::Model* pm = priorModel();
+            if (!operationView || operationViewType != type) {
+                if (operationView) { delete operationView; operationView = nullptr; }
+                operationView = makeOperationView(operationBody, type);
+                operationViewType = type;
 
-            auto handleFor = [&](int faceId) -> Cam::App::Model::Face {
-                if (faceId >= 0 && pm) { return pm->face(static_cast<std::size_t>(faceId)); }
-                return Cam::App::Model::Face{ pm, static_cast<std::size_t>(-1) };
-            };
-
-            std::vector<Cam::App::FaceSlot> slots = state->operation->faceSlots();
-
-            if (!slots.empty()) {
-
-                const int activeSlot =
-                    (activeProject() && activeProject()->activeRefStage == state)
-                        ? activeProject()->activeRefSlot
-                        : -1;
-
-                // The slot that carries an offset (extrude) drives the labeled
-                // offset row to the right of the faces.
-                int offsetSlot = -1;
-                double offsetValue = 0.0;
-
-                // The faces column on the left.
-                Box* facesCol = new Box(operationBody, { &Styles::FacesColumn }, "FacesColumn");
-
-                // Each face slot is its own line: "name: [face chip]".
-                for (int s = 0; s < static_cast<int>(slots.size()); s++) {
-
-                    const Cam::App::FaceSlot& slot = slots[s];
-                    const int face = slot.face ? *slot.face : -1;
-                    const bool active = (s == activeSlot);
-
-                    if (slot.offset) {
-                        offsetSlot = s;
-                        offsetValue = *slot.offset;
-                    }
-
-                    Box* slotRow = new Box(facesCol, { &Styles::FaceSlotRow }, "FaceSlotRow");
-
-                    new Text(
-                        slotRow,
-                        (active ? std::string("> ") : std::string("")) + slot.name + ":",
-                        Theme::layer({ &Styles::SlotLabel }, { &Theme::Styles::MutedText })
-                    );
-
-                    Cam::Gui::Face* chip = makeFaceElement(
-                        slotRow, handleFor(face),
-                        face >= 0 ? "Face " + std::to_string(face) : "pick a face"
-                    );
-
-                    if (active) { chip->setSelected(true); }
-
-                    // Clicking the chip selects the stage + operation and activates
-                    // the slot, so the next ctrl+click in the world view fills it.
-                    const int capturedSlot = s;
-                    chip->onSelect = [this, capturedSlot](Event& e, Cam::App::Model::Face) {
-                        if (Cam::App::Project* p = activeProject()) {
-                            if (onSelect && state) { onSelect(e, state); }
-                            p->selectComponent(state, Operation);
-                            p->setActiveFaceReference(state, capturedSlot);
-                            if (onComponentToggled) { onComponentToggled(e); }
-                        }
-                    };
-
-                }
-
-                // Track the whole column (deleting it frees its slot rows).
-                operationFaceRows.push_back(facesCol);
-
-                // The labeled offset input, to the right of the faces column.
-                if (offsetSlot >= 0) {
-
-                    Box* paramRow = new Box(operationBody, { &Styles::ParamRow }, "OffsetRow");
-
-                    NumberInput::Params params = NumberInput::Params::Default();
-                    params.label = "Offset (mm)";
-                    params.placeholder = "0";
-                    params.maxDecimalPlaces = 3;
-
-                    NumberInput* input = new NumberInput(
-                        paramRow, params, { &Styles::OffsetInput }
-                    );
-
-                    input->setValue(offsetValue);
-
-                    const int capturedOffsetSlot = offsetSlot;
-                    input->onValueChange =
-                        [this, capturedOffsetSlot](Event& e, std::optional<double> v) {
-                            if (!v) { return; }
-                            if (Cam::App::Project* p = activeProject()) {
-                                p->setOperationSlotOffset(state, capturedOffsetSlot, *v);
-                                if (onComponentToggled) { onComponentToggled(e); }
-                            }
-                        };
-
-                    // Enter submits the typed value immediately (and consumes the
-                    // key). We only reflect/recompute on commit — Enter or blur —
-                    // never on every keystroke.
-                    input->onKeyDown([input](Event& e) {
-                        if (e.keyboard.enter) {
-                            e.propagate = false;
-                            input->commit(e);
-                        }
-                    });
-
-                    operationFaceRows.push_back(paramRow);
-                }
-
-                return;
-            }
-
-            // Flat referenced faces (defeature / extend) flow as wrapping chips.
-            if (state->operation->referencedFaces.empty()) {
-                operationFaceRows.push_back(new Text(
-                    operationBody, "No referenced faces",
-                    Theme::layer({ &Styles::FaceRow }, { &Theme::Styles::MutedText })
-                ));
-                return;
-            }
-
-            Box* flatFaces = new Box(operationBody, { &Styles::FlatFaces }, "FlatFaces");
-
-            for (std::size_t fid : state->operation->referencedFaces) {
-
-                Cam::Gui::Face* row = makeFaceElement(flatFaces, handleFor(static_cast<int>(fid)),
-                                                      "Face " + std::to_string(fid));
-
-                // Clicking a referenced face selects the stage + operation.
-                row->onSelect = [this](Event& e, Cam::App::Model::Face) {
-                    if (onSelect && state) { onSelect(e, state); }
-                    if (Cam::App::Project* p = activeProject()) {
-                        p->selectComponent(state, Operation);
-                    }
-                    applyOperationHighlightBaseline();
-                    if (onComponentToggled) { onComponentToggled(e); }
+                operationView->onChanged = [this](Event& ev) {
+                    if (onComponentToggled) { onComponentToggled(ev); }
+                };
+                operationView->onSelectStage = [this](Event& ev, Cam::App::Stage* st) {
+                    if (onSelect) { onSelect(ev, st); }
                 };
             }
 
-            operationFaceRows.push_back(flatFaces);
+            operationView->setState(state);
+            operationView->sync(e);
+        }
+
+        // Ensure the Probe body hosts its editor and let it refresh.
+        void syncProbeView(Event& e) {
+
+            if (!probeBody) { return; }
+
+            if (!probeView) {
+                probeView = new ProbeView(probeBody);
+                probeView->onChanged = [this](Event& ev) {
+                    if (onSettingsChanged) { onSettingsChanged(ev); }
+                };
+            }
+
+            probeView->setState(state);
+            probeView->sync(e);
         }
 
         // Structure + content only — no style mutation here (see computeStyle).
@@ -820,26 +703,11 @@ export namespace Cam::Gui {
                 toolpathSettings->setState(state);
             }
 
-            // Rebuild the operation body when the stage, its referenced faces, or
-            // the active face slot changes.
-            {
-                std::vector<std::size_t> faces;
-                if (state && state->operation) { faces = state->operation->referencedFaces; }
+            // Host the per-type operation view and let it refresh itself.
+            syncOperationView(e);
 
-                Cam::App::Project* p = activeProject();
-                const int activeSlot =
-                    (p && p->activeRefStage == state) ? p->activeRefSlot : -1;
-
-                if (state != operationFacesBoundState ||
-                    faces != operationFacesBound ||
-                    activeSlot != operationActiveSlotBound) {
-
-                    operationFacesBoundState = state;
-                    operationFacesBound = faces;
-                    operationActiveSlotBound = activeSlot;
-                    rebuildOperationFaces();
-                }
-            }
+            // Host the probe target editor and let it refresh itself.
+            syncProbeView(e);
 
             // The Operation property label reflects the actual operation type.
             if (componentLabels[Operation]) {
