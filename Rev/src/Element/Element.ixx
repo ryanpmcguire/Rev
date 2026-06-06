@@ -585,12 +585,12 @@ export namespace Rev::Element {
             else { maxInnerHeight = parent->resolved.max.innerHeight - minMarginHeight - minPaddingHeight; }
 
             // Subtract subling outer heights if no set height
-            if (!set(maxHeight)) {
-                /*for (Element* s : parent->children) {
+            /*if (!set(maxHeight) && resolved.style.layout.wrap == Wrap::False) {
+                for (Element* s : parent->children) {
                     if (s == this) { continue; }
-                    //maxInnerHeight -= s->minOuterHeight;
-                }*/
+                    maxInnerHeight -= s->resolved.min.outerHeight;
             }
+            }*/
 
             // Ensure minimum dominates (in certain circumstances)
             if (maxInnerWidth < minInnerWidth) { maxInnerWidth = minInnerWidth; }
@@ -719,24 +719,15 @@ export namespace Rev::Element {
             // Adjust own minimum outer size to accomodate layout
             //--------------------------------------------------
 
-            // A clipping element scrolls/clips its overflow instead of growing
-            // into it, so its content does NOT establish a minimum that it must
-            // advertise upward. Without this, a height:100% + overflow:Hide scroll
-            // panel propagates its whole content height as a minimum, flooring a
-            // Grow ancestor to that content and over-inflating the layout (the
-            // ancestor then hands its relative children too much room). The panel's
-            // own size still comes from its nominal/explicit dimensions; only this
-            // upward minimum is suppressed — its content children are free to
-            // exceed it and scroll.
-            const bool clips = resolved.style.overflow == Overflow::Hide;
-
+            // Same gate as resolveMinima: a relative dimension's minimum is
+            // parent-dictated, so do NOT re-derive it from content here — leaving
+            // it as resolveMinima left it (contributing nothing upward). Without
+            // this, this pass would overwrite the gate with the content min again.
             if (set(resolved.min.width)) { resolved.min.outerWidth = resolved.min.width + resolved.min.marginWidth; }
-            else if (clips) { resolved.min.outerWidth = resolved.min.paddingWidth + resolved.min.marginWidth; }
-            else { resolved.min.outerWidth = layout.size.w.min + resolved.min.paddingWidth + resolved.min.marginWidth; }
+            else if (resolved.style.size.width.type != Dist::Type::Rel) { resolved.min.outerWidth = layout.size.w.min + resolved.min.paddingWidth + resolved.min.marginWidth; }
 
             if (set(resolved.min.height)) { resolved.min.outerHeight = resolved.min.height + resolved.min.marginHeight; }
-            else if (clips) { resolved.min.outerHeight = resolved.min.paddingHeight + resolved.min.marginHeight; }
-            else { resolved.min.outerHeight = layout.size.h.min + resolved.min.paddingHeight + resolved.min.marginHeight; }
+            else if (resolved.style.size.height.type != Dist::Type::Rel) { resolved.min.outerHeight = layout.size.h.min + resolved.min.paddingHeight + resolved.min.marginHeight; }
 
             float layoutPlusPaddingWidth = layout.size.w.min + resolved.style.padding.left.val + resolved.style.padding.right.val;
             float layoutPlusPaddingHeight = layout.size.h.min + resolved.style.padding.top.val + resolved.style.padding.bottom.val;
