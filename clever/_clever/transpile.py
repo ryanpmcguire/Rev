@@ -95,6 +95,7 @@ def transpile_impl(rel: str, repo: Path, xpp_root: Path,
         body = _expand_file_macro(body)
     text = (f"// clever-transpiled implementation source from {rel}\n"
             f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
+    text = _inject_unleak(text)
     out.write_bytes(text.encode("latin-1"))
     return out
 
@@ -222,6 +223,29 @@ def _expand_file_macro(text: str) -> str:
         edits.append((m.start(), k + 1,
                       f"::Rev::Core::Resource::FromFile(__FILE__, ({args}))"))
     return _apply_edits(text, edits)
+
+
+_UNLEAK = ["interface"]  # windows.h macro that clobbers identifiers; NOT far/near
+                         # (those are structural -- windows.h's own FD_ZERO uses FAR)
+
+
+def _inject_unleak(text: str) -> str:
+    """After the include block, #undef the windows.h macros that clobber common
+    identifiers (modules isolate these; headers leak them). Placed after the
+    last #include so it runs once windows.h has defined them."""
+    lines = text.split("\n")
+    last_inc = -1
+    for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("#include"):
+            last_inc = idx
+    if last_inc < 0:
+        return text
+    block = []
+    for macro in _UNLEAK:
+        block += [f"#ifdef {macro}", f"#undef {macro}", "#endif"]
+    block.append("// [clever] un-leaked windows.h identifier macros")
+    lines[last_inc + 1:last_inc + 1] = block
+    return "\n".join(lines)
 
 
 def _strip_defaults(s: str) -> str:
@@ -466,6 +490,7 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
     # Re-encode latin-1 -> bytes restores the original UTF-8 byte stream.
     hpp_text = (f"#pragma once\n// clever-transpiled from {rel}\n"
                 f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
+    hpp_text = _inject_unleak(hpp_text)
     hpp.write_bytes(hpp_text.encode("latin-1"))
 
     # Build .cpp
@@ -480,6 +505,7 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
     cpp_text = "\n".join(out) + "\n"
     if has_managed:
         cpp_text = _expand_file_macro(cpp_text)  # relocated-body File(...) calls
+    cpp_text = _inject_unleak(cpp_text)
     cpp.write_bytes(cpp_text.encode("latin-1"))
 
     return hpp, cpp

@@ -55,19 +55,24 @@ export namespace Sketch::App {
         }
     };
 
-    // Arc defined by a center, a start point A (which fixes the radius), and an
-    // end point B (which fixes the end angle). Swept CCW from A to B.
+    // Arc defined by a center, a start point A and end point B (both on the
+    // circle, fixing the radius), plus a point D somewhere on the arc between
+    // them. D is what makes the arc unambiguous: rather than storing a sweep
+    // direction, chirality is *implicit* in which side of A->B the midpoint D
+    // sits, so the arc is simply the one through A, D, B.
     struct Arc2 {
 
         double cx = 0.0, cy = 0.0;   // center
         double ax = 0.0, ay = 0.0;   // start point
         double bx = 0.0, by = 0.0;   // end point
+        double dx = 0.0, dy = 0.0;   // a point on the arc (mid), encodes chirality
 
         Json toJson() const {
             return Json{
                 { "cx", cx }, { "cy", cy },
                 { "ax", ax }, { "ay", ay },
-                { "bx", bx }, { "by", by }
+                { "bx", bx }, { "by", by },
+                { "dx", dx }, { "dy", dy }
             };
         }
 
@@ -75,7 +80,8 @@ export namespace Sketch::App {
             return {
                 j.value("cx", 0.0), j.value("cy", 0.0),
                 j.value("ax", 0.0), j.value("ay", 0.0),
-                j.value("bx", 0.0), j.value("by", 0.0)
+                j.value("bx", 0.0), j.value("by", 0.0),
+                j.value("dx", 0.0), j.value("dy", 0.0)
             };
         }
     };

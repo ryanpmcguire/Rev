@@ -38,7 +38,6 @@ class Builder:
         # last successful build and can be stale for files edited since.
         self._digests = digests or {}
         self.out = store.root / "out"
-        self.cmake_build = repo / manifest.get("cmake_build_dir", "build")
         c = manifest["compiler"]
         self.cxx = c["cxx"]
         self.ar = c["ar"]
@@ -260,10 +259,9 @@ class Builder:
         return True
 
     def _remap_lib(self, lib: str) -> str:
-        lib = lib.replace("\\", "/")
-        if lib.startswith("-l") or lib.startswith("/") or ":" in lib.split("/")[0]:
-            return lib  # system lib or absolute path
-        return str(self.cmake_build / lib)  # relative to cmake build dir (vcpkg)
+        # Manifest stores absolute library paths (and -l system libs), so there
+        # is nothing CMake-specific to resolve here.
+        return lib.replace("\\", "/")
 
     def _link_exe(self, t: dict) -> bool:
         out = self._target_output(t)
@@ -294,7 +292,7 @@ class Builder:
         print(f"  LINK {t['output']}")
         if self.verbose:
             print("       " + " ".join(cmd))
-        p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(self.cmake_build))
+        p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(self.repo))
         if p.stdout.strip():
             print(p.stdout)
         if p.returncode != 0:
@@ -312,8 +310,7 @@ class Builder:
         for lib in t.get("link_libraries", []):
             p = lib.replace("\\", "/")
             if "vcpkg_installed" in p and "/lib/" in p:
-                rel_bin = p[: p.index("/lib/")] + "/bin"
-                bin_dirs.add(self.cmake_build / rel_bin)
+                bin_dirs.add(Path(p[: p.index("/lib/")] + "/bin"))
         copied = 0
         for d in bin_dirs:
             if not d.is_dir():

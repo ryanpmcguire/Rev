@@ -42,6 +42,15 @@ def _classify_flags(flags: list[str]) -> tuple[list[str], list[str], list[str], 
     return includes, defines, other, std
 
 
+def _abs_lib(lib: str, cmake_build: Path) -> str:
+    """Resolve a harvested link library to an absolute path (or leave `-l`
+    system libs untouched), so the manifest carries no CMake-relative paths."""
+    s = lib.replace("\\", "/")
+    if s.startswith("-l") or Path(s).is_absolute() or (len(s) > 1 and s[1] == ":"):
+        return s
+    return str((cmake_build / s).resolve()).replace("\\", "/")
+
+
 def _rel(p: str, repo: Path) -> str:
     try:
         return str(Path(p.replace("\\", "/")).resolve().relative_to(repo.resolve())).replace("\\", "/")
@@ -91,7 +100,10 @@ def generate(cmake_build: Path, base: Path | None = None) -> dict:
                 if stem in project.targets and stem != tname:
                     depends.append(stem)
                 else:
-                    link_libs.append(lib.replace("\\", "/"))
+                    # Make the manifest self-contained: resolve relative
+                    # (vcpkg) lib paths to absolute against the CMake build dir
+                    # at init time, so the build never needs CMake again.
+                    link_libs.append(_abs_lib(lib, cmake_build))
             if depends:
                 entry["depends"] = depends
             if tgt.kind == "exe":
@@ -119,7 +131,6 @@ def generate(cmake_build: Path, base: Path | None = None) -> dict:
             # version guard must be bypassed since we only parse, never codegen.
             "extra_args": ["-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"],
         },
-        "cmake_build_dir": _rel(str(cmake_build), repo),
         "targets": targets_out,
     }
     return manifest

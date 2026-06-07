@@ -177,7 +177,10 @@ export namespace Sketch::Gui {
             screenToWorld(e.mouse.pos.x, e.mouse.pos.y, cursorX, cursorY);
 
             // Keep the tool preview tracking the cursor while a tool is selected.
-            if (currentTool()) { refresh(e); }
+            if (Sketch::App::Tool* tool = currentTool()) {
+                tool->hover(cursorX, cursorY);
+                refresh(e);
+            }
 
             Box::mouseMove(e);
         }
@@ -283,24 +286,49 @@ export namespace Sketch::Gui {
             });
         }
 
-        void appendArcPath(double cx, double cy, double r, double a0, double a1, Color color) {
+        // Low-level: sample a circular span of `span` radians starting at a0.
+        void appendArcSpan(double cx, double cy, double r, double a0, double span, Color color) {
 
-            if (r <= 0.0) { return; }
+            if (r <= 0.0 || std::fabs(span) < 1e-9) { return; }
 
-            // Ensure a positive (CCW) sweep.
-            while (a1 <= a0) { a1 += TAU; }
-
-            int steps = std::max(2, static_cast<int>(std::ceil((a1 - a0) / (TAU / 64.0))));
+            int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 64.0))));
 
             std::vector<Vertex> pts;
             pts.reserve(steps + 1);
 
             for (int i = 0; i <= steps; i++) {
-                double a = a0 + (a1 - a0) * (static_cast<double>(i) / steps);
+                double a = a0 + span * (static_cast<double>(i) / steps);
                 pts.push_back(worldToScreen(cx + r * std::cos(a), cy + r * std::sin(a)));
             }
 
             geometry->lines.push_back({ .points = std::move(pts), .color = color });
+        }
+
+        // Render the arc through A, D, B. The direction is whichever way (CCW or
+        // CW from A to B) passes through the midpoint D — chirality is implicit
+        // in D, not stored separately.
+        void appendArc(const Sketch::App::Arc2& a, Color color) {
+
+            double r = std::hypot(a.ax - a.cx, a.ay - a.cy);
+            if (r <= 0.0) { return; }
+
+            auto norm = [](double x) {
+                while (x < 0.0)  { x += TAU; }
+                while (x >= TAU) { x -= TAU; }
+                return x;
+            };
+
+            double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
+            double aB = std::atan2(a.by - a.cy, a.bx - a.cx);
+            double aD = std::atan2(a.dy - a.cy, a.dx - a.cx);
+
+            double spanCCW = norm(aB - aA);   // CCW distance A -> B
+            double dD      = norm(aD - aA);   // CCW distance A -> D
+
+            // If D lies on the CCW arc, sweep CCW; otherwise take the CW arc.
+            double span = (dD <= spanCCW) ? spanCCW : (spanCCW - TAU);
+
+            appendArcSpan(a.cx, a.cy, r, aA, span, color);
         }
 
         void appendGeometry(const SketchGeometry& g, Color color) {
@@ -313,14 +341,11 @@ export namespace Sketch::Gui {
             }
 
             for (const Sketch::App::Circle2& c : g.circles) {
-                appendArcPath(c.cx, c.cy, c.r, 0.0, TAU, color);
+                appendArcSpan(c.cx, c.cy, c.r, 0.0, TAU, color);
             }
 
             for (const Sketch::App::Arc2& a : g.arcs) {
-                double r  = std::hypot(a.ax - a.cx, a.ay - a.cy);
-                double a0 = std::atan2(a.ay - a.cy, a.ax - a.cx);
-                double a1 = std::atan2(a.by - a.cy, a.bx - a.cx);
-                appendArcPath(a.cx, a.cy, r, a0, a1, color);
+                appendArc(a, color);
             }
 
             // Points last so their markers sit on top.
@@ -333,17 +358,26 @@ export namespace Sketch::Gui {
 
             geometry->lines.clear();
 
-            Color committedColor{ 0.86f, 0.87f, 0.90f, 1.0f };
-            Color previewColor{ 0.55f, 0.62f, 0.95f, 1.0f };
+            // The four draw roles.
+            Color realColor        { 0.86f, 0.87f, 0.90f, 1.0f };   // true geometry
+            Color constructionColor{ 0.40f, 0.85f, 0.95f, 0.6f };   // reserved
+            Color candidateColor   { 0.85f, 0.85f, 0.88f, 0.5f };   // intent
+            Color helperColor      { 1.0f,  1.0f,  1.0f,  0.1f };   // ghost
 
             if (app && app->activeProject) {
-                appendGeometry(app->activeProject->geometry, committedColor);
+                appendGeometry(app->activeProject->geometry, realColor);
             }
 
             if (Sketch::App::Tool* tool = currentTool()) {
-                SketchGeometry preview;
+
+                Sketch::App::SketchPreview preview;
                 tool->preview(cursorX, cursorY, preview);
-                appendGeometry(preview, previewColor);
+
+                // Draw order: helpers under construction under the candidate, so
+                // the intent geometry reads on top of its ghosts.
+                appendGeometry(preview.helper,       helperColor);
+                appendGeometry(preview.construction, constructionColor);
+                appendGeometry(preview.candidate,    candidateColor);
             }
 
             geometry->compute();

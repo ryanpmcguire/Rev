@@ -11,7 +11,6 @@
       "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
     ]
   },
-  "cmake_build_dir": "C:/Users/Ryan/Desktop/Ryan/Rev/build",
   "targets": [
     {
       "name": "Rev",
@@ -113,7 +112,7 @@
       "output": "Rev/Rev.lib"
     },
     {
-      "name": "Sketch",
+      "name": "LayoutDiagnose",
       "kind": "exe",
       "include_dirs": [
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src",
@@ -138,16 +137,10 @@
       ],
       "sources": [
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/App/App.ixx",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/App/Layer.ixx",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/App/Project.ixx",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/Gui.ixx",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/TabView/TabView.ixx",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/Theme.ixx",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Sketch.Window.ixx",
-        "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/main.cpp"
+        "source/Interface.ixx",
+        "source/main.cpp"
       ],
-      "output": "Sketch/Sketch.exe",
+      "output": "LayoutDiagnose/LayoutDiagnose.exe",
       "depends": [
         "Rev"
       ],
@@ -176,9 +169,9 @@
         "/subsystem:console",
         "-fuse-ld=lld-link"
       ],
-      "implib": "Sketch/Sketch.lib",
-      "pdb": "Sketch/Sketch.pdb",
-      "post_build": "C:\\Windows\\system32\\cmd.exe /C \"cd /D C:\\Users\\Ryan\\Desktop\\Ryan\\Rev\\build\\Sketch && C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noprofile -executionpolicy Bypass -file C:/Users/Ryan/Desktop/Ryan/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary C:/Users/Ryan/Desktop/Ryan/Rev/build/Sketch/Sketch.exe -installedDir C:/Users/Ryan/Desktop/Ryan/Rev/build/vcpkg_installed/x64-windows/debug/bin -OutVariable out\""
+      "implib": "LayoutDiagnose/LayoutDiagnose.lib",
+      "pdb": "LayoutDiagnose/LayoutDiagnose.pdb",
+      "post_build": "C:\\Windows\\system32\\cmd.exe /C \"cd /D C:\\Users\\Ryan\\Desktop\\Ryan\\Rev\\build\\LayoutDiagnose && C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noprofile -executionpolicy Bypass -file C:/Users/Ryan/Desktop/Ryan/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary C:/Users/Ryan/Desktop/Ryan/Rev/build/LayoutDiagnose/LayoutDiagnose.exe -installedDir C:/Users/Ryan/Desktop/Ryan/Rev/build/vcpkg_installed/x64-windows/debug/bin -OutVariable out\""
     }
   ]
 }
