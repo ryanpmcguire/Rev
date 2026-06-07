@@ -25,6 +25,22 @@ from . import transpile as tx
 from .builder import Builder
 
 
+def _transpile_worker(task):
+    """Top-level (picklable) worker for process-based transpile parallelism.
+    Transpiling is GIL-bound (libclang AST walk + tokenize in Python), so
+    threads don't help; separate processes do."""
+    from pathlib import Path
+    from . import transpile as _tx
+    rel, repo, xpp, mhpp, parse_args = task
+    repo = Path(repo); xpp = Path(xpp)
+    mhpp = {k: Path(v) for k, v in mhpp.items()}
+    if rel.endswith(".ixx"):
+        _, cpp = _tx.transpile(rel, repo, xpp, mhpp, parse_args)
+    else:
+        cpp = _tx.transpile_impl(rel, repo, xpp, mhpp)
+    return rel, (str(cpp) if cpp else None)
+
+
 class XBuilder(Builder):
     def __init__(self, manifest, repo, store, digests, verbose=False, jobs=0):
         super().__init__(manifest, repo, store, set(), digests=digests, verbose=verbose)
@@ -35,6 +51,58 @@ class XBuilder(Builder):
         self.jobs = jobs if jobs and jobs > 0 else (os.cpu_count() or 4)
         self._lock = threading.Lock()
         self._n = 0
+        # Incremental state: previous run's hashes/deps vs this run's.
+        self._cache_path = store.root / "xbuild-cache.json"
+        self.prev = self._load_cache()
+        self.cur = {"files": {}, "objs": {}}
+        self._sha_cache: dict[str, str] = {}
+
+    def _load_cache(self) -> dict:
+        import json
+        if self._cache_path.exists():
+            try:
+                return json.loads(self._cache_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {"files": {}, "objs": {}}
+
+    def _save_cache(self) -> None:
+        import json
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(json.dumps(self.cur), encoding="utf-8")
+
+    def _sha(self, path) -> str:
+        import hashlib
+        key = str(path)
+        if key in self._sha_cache:
+            return self._sha_cache[key]
+        try:
+            h = hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+        except OSError:
+            h = ""
+        self._sha_cache[key] = h
+        return h
+
+    def _flags_sig(self, t: dict) -> str:
+        import hashlib
+        return hashlib.sha256(("\0".join(self._base_flags(t))).encode()).hexdigest()[:16]
+
+    def _cpp_path_for(self, rel: str) -> Path:
+        if rel.endswith(".ixx"):
+            return tx.cpp_path(self.xpp, self.provides.get(rel), Path(rel).stem)
+        return tx.impl_path(self.xpp, rel)
+
+    @staticmethod
+    def _parse_depfile(path: Path) -> list[str]:
+        """Return the header paths a .d (makefile-style) depfile lists."""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        text = text.replace("\\\n", " ").replace("\\\r\n", " ")
+        if ":" in text:
+            text = text.split(":", 1)[1]
+        return [tok for tok in text.split() if tok not in ("\\",)]
 
     def _tick(self, total: int, msg: str) -> None:
         with self._lock:
@@ -83,35 +151,87 @@ class XBuilder(Builder):
     def transpile_all(self) -> None:
         digests = {rel: {"provides": self.provides.get(rel)} for rel in self.rels}
         mhpp = tx.build_module_hpp_map(digests, self.xpp)
+        mhpp_str = {k: str(v) for k, v in mhpp.items()}
         total = len(self.rels)
-        self._n = 0
         extra = self.manifest.get("comprehend", {}).get("extra_args", [])
-        print(f"[1/3] Transpiling {total} sources (libclang, -j{self.jobs})...")
 
-        def work(rel):
-            t = self.target_of[rel]
-            if rel.endswith(".ixx"):
-                _, cpp = tx.transpile(rel, self.repo, self.xpp, mhpp, self._parse_args(t) + extra)
-            else:
-                cpp = tx.transpile_impl(rel, self.repo, self.xpp, mhpp)
-            self._tick(total, f"XPP {rel}")
-            return rel, cpp
+        # Decide per source: re-transpile only if its content changed (L1) or
+        # the parse flags changed -- otherwise reuse the existing .hpp/.cpp.
+        import hashlib
+        tasks = []
+        meta: dict[str, tuple[str, str]] = {}  # rel -> (src_sha, pa_sig)
+        reused = 0
+        for rel in self.rels:
+            self.cpp_of[rel] = self._cpp_path_for(rel)
+            src_sha = self._sha(self.repo / rel)
+            pa = (self._parse_args(self.target_of[rel]) + extra) if rel.endswith(".ixx") else []
+            pa_sig = hashlib.sha256("\0".join(pa).encode()).hexdigest()[:16]
+            meta[rel] = (src_sha, pa_sig)
+            prev = self.prev["files"].get(rel)
+            cpp = self.cpp_of[rel]
+            hpp = cpp.with_suffix(".hpp")
+            if (prev and prev.get("src_sha") == src_sha and prev.get("pa") == pa_sig
+                    and cpp.exists() and (not rel.endswith(".ixx") or hpp.exists())):
+                self.cur["files"][rel] = prev  # unchanged: reuse artifacts + hashes
+                reused += 1
+                continue
+            tasks.append((rel, str(self.repo), str(self.xpp), mhpp_str, pa))
 
-        for rel, cpp in self._run_pool(self.rels, work):
-            if cpp:
-                self.cpp_of[rel] = cpp
+        print(f"[1/3] Transpiling: {len(tasks)} changed, {reused} reused (-j{self.jobs})...")
+
+        def consume(pairs):
+            for i, (rel, cpp) in enumerate(pairs, 1):
+                print(f"  [{i:>3}/{len(tasks)}] XPP {rel}")
+                # The files were just rewritten -> drop any cached hashes.
+                self._sha_cache.pop(str(self.cpp_of[rel]), None)
+                hpp = self.cpp_of[rel].with_suffix(".hpp") if rel.endswith(".ixx") else None
+                if hpp:
+                    self._sha_cache.pop(str(hpp), None)
+                src_sha, pa_sig = meta[rel]
+                self.cur["files"][rel] = {
+                    "src_sha": src_sha, "pa": pa_sig,
+                    "hpp_sha": self._sha(hpp) if hpp else "",
+                    "cpp_sha": self._sha(self.cpp_of[rel]),
+                }
+
+        # Transpiling is GIL-bound (Python AST walk) -> PROCESSES for parallelism.
+        if not tasks:
+            pass
+        elif self.jobs == 1:
+            consume(_transpile_worker(t) for t in tasks)
+        else:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=self.jobs) as ex:
+                consume(ex.map(_transpile_worker, tasks))
         print(f"      transpiled into {self.xpp}")
 
     # -- stage: classic compile -------------------------------------------
 
-    def _compile_classic(self, rel: str, total: int = 0) -> bool:
+    def _obj_dirty(self, rel: str, flags_sig: str) -> bool:
+        """A .obj must be rebuilt if it's missing, its own .cpp changed, the
+        flags changed, or any header in its recorded depfile changed."""
+        obj = self._obj(rel)
+        if not obj.exists():
+            return True
+        prev = self.prev["objs"].get(rel)
+        if not prev or prev.get("flags") != flags_sig:
+            return True
+        if prev.get("cpp_sha") != self.cur["files"].get(rel, {}).get("cpp_sha"):
+            return True
+        for dep, sha in prev.get("deps", {}).items():
+            if self._sha(dep) != sha:   # a #included header changed
+                return True
+        return False
+
+    def _compile_classic(self, rel: str, flags_sig: str, total: int = 0) -> bool:
         t = self.target_of[rel]
         cpp = self.cpp_of.get(rel)
         if cpp is None:
             return True
         obj = self._obj(rel)
         obj.parent.mkdir(parents=True, exist_ok=True)
-        cmd = [self.cxx, *self._base_flags(t), "-x", "c++", "-c", str(cpp), "-o", str(obj)]
+        dep = Path(str(obj) + ".d")
+        cmd = [self.cxx, *self._base_flags(t), "-x", "c++", "-MMD", "-MF", str(dep),
+               "-c", str(cpp), "-o", str(obj)]
         self._tick(total, f"CXX {t['name']}/{Path(rel).name}")
         if self.verbose:
             print("       " + " ".join(cmd))
@@ -123,8 +243,13 @@ class XBuilder(Builder):
         if p.stderr.strip():
             with self._lock:
                 print(p.stderr)
+        deps = {d: self._sha(d) for d in self._parse_depfile(dep)}
         with self._lock:
             self.compiled.add(rel)
+            self.cur["objs"][rel] = {
+                "cpp_sha": self.cur["files"].get(rel, {}).get("cpp_sha"),
+                "flags": flags_sig, "deps": deps,
+            }
         return True
 
     # -- orchestration -----------------------------------------------------
@@ -133,15 +258,37 @@ class XBuilder(Builder):
         self.transpile_all()
         total = len(self.rels)
         self._n = 0
-        print(f"[2/3] Compiling {total} transpiled units (classic, no modules, -j{self.jobs})...")
-        results = self._run_pool(self.rels, lambda r: self._compile_classic(r, total))
+        flags_sig = {t["name"]: self._flags_sig(t) for t in self.manifest["targets"]}
+
+        # Decide which objects are actually dirty (content + header propagation).
+        todo = [r for r in self.rels if self._obj_dirty(r, flags_sig[self.target_of[r]["name"]])]
+        # Carry forward cache for objects we are NOT rebuilding.
+        for r in self.rels:
+            if r not in todo and r in self.prev["objs"]:
+                self.cur["objs"][r] = self.prev["objs"][r]
+        print(f"[2/3] Compiling: {len(todo)} dirty, {len(self.rels) - len(todo)} cached (-j{self.jobs})...")
+        results = self._run_pool(
+            todo, lambda r: self._compile_classic(r, flags_sig[self.target_of[r]["name"]], len(todo)))
         if not all(results):
+            self._save_cache()
             return False
-        # Link: static libs first, then executables (reusing base link recipes).
+
+        # Link a target if any of its objects was (re)built, its output is
+        # missing, or a static dependency relinked.
         print("[3/3] Linking...")
+        recompiled = set(self.compiled)
+        relinked = set()
         for t in sorted(self.manifest["targets"], key=lambda x: 0 if x["kind"] == "static" else 1):
+            out = self._target_output(t)
+            touched = any(r in recompiled for r in t["sources"])
+            dep_relinked = any(d in relinked for d in t.get("depends", []))
+            if not (touched or dep_relinked or not out.exists()):
+                continue
             ok = self._link_static(t) if t["kind"] == "static" else self._link_exe(t)
             if not ok:
+                self._save_cache()
                 return False
-            self.__dict__.setdefault("_relinked", set()).add(t["name"])
+            relinked.add(t["name"])
+        self.__dict__["_relinked"] = relinked
+        self._save_cache()
         return True

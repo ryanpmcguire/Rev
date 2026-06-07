@@ -378,8 +378,12 @@ def _relocations(tu, rel: str, raw: str, masked: str):
         params_end, init, body_open, body_close = spans
 
         # Declaration kept in the class: signature, no init list, no body.
+        # Strip the `inline` keyword: we are externalising the definition into
+        # the .cpp, so the function must NOT stay inline (an inline function
+        # whose body lives only in one .cpp emits no usable external symbol ->
+        # undefined at link). `static`/`virtual`/`explicit` are preserved.
         decl_end = init if init is not None else body_open
-        declaration = raw[decl_start:decl_end].rstrip() + ";"
+        declaration = re.sub(r"\binline\b\s*", "", raw[decl_start:decl_end]).rstrip() + ";"
 
         # Out-of-line definition for the .cpp.
         lead_clean = _LEADING_SPECIFIER.sub("", lead)

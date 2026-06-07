@@ -35,6 +35,9 @@ export namespace Sketch::App {
         // actual drawing behaviour is wired up later).
         SketchTool activeTool = SketchTool::None;
 
+        // Generic display setting: stroke width (px) for sketch geometry.
+        float lineThickness = 2.0f;
+
         // Select a tool, toggling it off if it was already active.
         void selectTool(SketchTool tool) {
             activeTool = (activeTool == tool) ? SketchTool::None : tool;

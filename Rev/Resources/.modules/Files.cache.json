@@ -115,6 +115,21 @@
       "hash": "69c28e80e19803ec94425c03cd8a56542ee011f0285bb7f5297acb9f16f1e1f7",
       "mtime": 1779994987.0619895
     },
+    "Rev/src/Graphics/Primitives/FastLines/Shaders/FastLines.vert": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/FastLines/Shaders/FastLines.vert",
+      "hash": "1bbc9fa7c7031597eb30513c7e7318e8189a9129948f1dcdc25b4de13edee0f3",
+      "mtime": 1780865145.2781532
+    },
+    "Rev/src/Graphics/Primitives/FastLines/Shaders/FastLines.frag": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/FastLines/Shaders/FastLines.frag",
+      "hash": "67f0a7d8b5d3aaba448d3966411dc12f5f3ed428921403e152e541e66684df41",
+      "mtime": 1780865153.0536087
+    },
+    "Rev/src/Graphics/Primitives/FastLines/Shaders/FastLines.metal": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/FastLines/Shaders/FastLines.metal",
+      "hash": "5d8d37590e0ade440764ff4ac9a2215f30afeaf56995850177a034bd4628bf04",
+      "mtime": 1780865159.422858
+    },
     "Rev/src/Graphics/Primitives/Lines/Shaders/Lines.vert": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Lines/Shaders/Lines.vert",
       "hash": "eaa10bd2de13979383a14d06c343805ed97c2bde44c7b73569a1d6c743a5cf2d",

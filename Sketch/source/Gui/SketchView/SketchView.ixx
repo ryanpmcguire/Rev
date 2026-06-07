@@ -14,7 +14,7 @@ import Rev.Element.Event;
 import Rev.Element.Style;
 import Rev.Element.Box;
 
-import Rev.Primitive.Lines;
+import Rev.Primitive.FastLines;
 import Rev.Graphics.Canvas;
 
 import Sketch.App;
@@ -50,8 +50,8 @@ export namespace Sketch::Gui {
 
         Sketch::App::AppState* app = nullptr;
 
-        Lines* axes = nullptr;       // gnomon: world X / Y axes
-        Lines* geometry = nullptr;   // committed geometry + live preview
+        FastLines* axes = nullptr;       // gnomon: world X / Y axes
+        FastLines* geometry = nullptr;   // committed geometry + live preview
 
         // Tool state machines (owned; selection mirrors app->activeTool).
         Sketch::App::PointTool  pointTool;
@@ -81,11 +81,11 @@ export namespace Sketch::Gui {
 
             Graphics::Canvas* canvas = shared->canvas;
 
-            axes = new Lines(canvas);
+            axes = new FastLines(canvas);
             axes->strokeWidth = 1.0f;
             axes->smoothing = 1.0f;
 
-            geometry = new Lines(canvas);
+            geometry = new FastLines(canvas);
             geometry->strokeWidth = 2.0f;
             geometry->smoothing = 1.0f;
         }
@@ -221,6 +221,15 @@ export namespace Sketch::Gui {
         }
 
         void keyDown(Event& e) override {
+
+            // Adjust the generic line thickness setting.
+            if (app && (e.keyboard.arrows.up || e.keyboard.arrows.down)) {
+                float step = e.keyboard.arrows.up ? 0.5f : -0.5f;
+                app->lineThickness = std::clamp(app->lineThickness + step, 0.5f, 20.0f);
+                refresh(e);
+                e.propagate = false;
+                return;
+            }
 
             Sketch::App::Tool* tool = currentTool();
 
@@ -358,8 +367,11 @@ export namespace Sketch::Gui {
 
             geometry->lines.clear();
 
+            // Live line thickness from the app-wide setting.
+            if (app) { geometry->strokeWidth = app->lineThickness; }
+
             // The four draw roles.
-            Color realColor        { 0.86f, 0.87f, 0.90f, 1.0f };   // true geometry
+            Color realColor        { 0.86f, 0.87f, 0.90f, 0.5f };   // true geometry
             Color constructionColor{ 0.40f, 0.85f, 0.95f, 0.6f };   // reserved
             Color candidateColor   { 0.85f, 0.85f, 0.88f, 0.5f };   // intent
             Color helperColor      { 1.0f,  1.0f,  1.0f,  0.1f };   // ghost
