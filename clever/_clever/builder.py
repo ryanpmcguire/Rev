@@ -19,6 +19,7 @@ clever.json, then the vcpkg DLL-copy post-build step is replayed at our exe.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections import deque
 from pathlib import Path
@@ -67,9 +68,19 @@ class Builder:
 
     # -- paths -------------------------------------------------------------
 
+    def _safe_key(self, rel: str) -> str:
+        """A drive-less, '..'-free relative subpath for a source, so that
+        joining it under an output dir can never escape (an absolute `rel`
+        otherwise discards the output prefix and lands next to the source)."""
+        ap = Path(rel)
+        if not ap.is_absolute():
+            ap = self.repo / rel
+        drive, tail = os.path.splitdrive(str(ap.resolve()).replace("\\", "/"))
+        return tail.lstrip("/")
+
     def _obj(self, rel: str) -> Path:
         target = self.target_of[rel]["name"]
-        return self.out / "obj" / target / (rel + ".obj")
+        return self.out / "obj" / target / (self._safe_key(rel) + ".obj")
 
     def _bmi(self, module: str) -> Path:
         return self.out / "bmi" / (module + ".pcm")

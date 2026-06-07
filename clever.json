@@ -173,6 +173,75 @@
       "implib": "LayoutDiagnose/LayoutDiagnose.lib",
       "pdb": "LayoutDiagnose/LayoutDiagnose.pdb",
       "post_build": "C:\\Windows\\system32\\cmd.exe /C \"cd /D C:\\Users\\Ryan\\Desktop\\Ryan\\Rev\\build\\LayoutDiagnose && C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noprofile -executionpolicy Bypass -file C:/Users/Ryan/Desktop/Ryan/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary C:/Users/Ryan/Desktop/Ryan/Rev/build/LayoutDiagnose/LayoutDiagnose.exe -installedDir C:/Users/Ryan/Desktop/Ryan/Rev/build/vcpkg_installed/x64-windows/debug/bin -OutVariable out\""
+    },
+    {
+      "name": "Sketch",
+      "kind": "exe",
+      "include_dirs": [
+        "Rev/src",
+        "Rev/resources/.modules",
+        "Rev/external"
+      ],
+      "defines": [
+        "DEBUG",
+        "GLEW_STATIC",
+        "PLATFORM_OPENGL",
+        "_DEBUG",
+        "_DLL",
+        "_MT"
+      ],
+      "compile_flags": [
+        "-O0",
+        "-g",
+        "-Xclang",
+        "-gcodeview",
+        "-Xclang",
+        "--dependent-lib=msvcrtd"
+      ],
+      "sources": [
+        "Sketch/source/App/Layer.ixx",
+        "Sketch/source/App/Project.ixx",
+        "Sketch/source/App/App.ixx",
+        "Sketch/source/Sketch.Window.ixx",
+        "Sketch/source/Gui/Theme.ixx",
+        "Sketch/source/Gui/TabView/TabView.ixx",
+        "Sketch/source/Gui/Toolbar/Toolbar.ixx",
+        "Sketch/source/Gui/Gui.ixx",
+        "Sketch/source/main.cpp",
+        "Rev/external/glm/detail/glm.cpp"
+      ],
+      "output": "Sketch/Sketch.exe",
+      "depends": [
+        "Rev"
+      ],
+      "link_libraries": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glew/bin/win/x64/glew32s.lib",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/freetype/bin/win/x64/freetype.lib",
+        "-lopengl32.lib",
+        "-lws2_32.lib",
+        "-lOle32.lib",
+        "-lShell32.lib",
+        "-lUuid.lib",
+        "-lkernel32",
+        "-luser32",
+        "-lgdi32",
+        "-lwinspool",
+        "-lshell32",
+        "-lole32",
+        "-loleaut32",
+        "-luuid",
+        "-lcomdlg32",
+        "-ladvapi32",
+        "-loldnames"
+      ],
+      "link_flags": [
+        "-Xlinker",
+        "/subsystem:console",
+        "-fuse-ld=lld-link"
+      ],
+      "implib": "Sketch/Sketch.lib",
+      "pdb": "Sketch/Sketch.pdb",
+      "post_build": "C:\\Windows\\system32\\cmd.exe /C \"cd /D C:\\Users\\Ryan\\Desktop\\Ryan\\Rev\\build\\Sketch && C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noprofile -executionpolicy Bypass -file C:/Users/Ryan/Desktop/Ryan/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary C:/Users/Ryan/Desktop/Ryan/Rev/build/Sketch/Sketch.exe -installedDir C:/Users/Ryan/Desktop/Ryan/Rev/build/vcpkg_installed/x64-windows/debug/bin -OutVariable out\""
     }
   ]
 }

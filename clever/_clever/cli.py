@@ -18,19 +18,25 @@ from . import __version__
 from . import manifest as manifest_mod
 
 
+def _manifest_path(args) -> Path:
+    # A positional path (e.g. `clever transpile ./LayoutDiagnose/clever.json`)
+    # takes precedence over the global --manifest default.
+    return Path(getattr(args, "manifest_file", None) or args.manifest)
+
+
 def _load_manifest(args) -> tuple[dict, Path]:
-    mpath = Path(args.manifest).resolve()
+    mpath = _manifest_path(args).resolve()
     if not mpath.exists():
         raise FileNotFoundError(
             f"{mpath} not found. Run `clever init` first to generate it.")
     manifest = manifest_mod.load(mpath)
-    repo = mpath.parent
+    repo = mpath.parent   # manifest's directory is the project root
     return manifest, repo
 
 
 def cmd_init(args) -> int:
     cmake_build = Path(args.cmake_build).resolve()
-    out = Path(args.manifest).resolve()
+    out = _manifest_path(args).resolve()
     manifest_mod.write(cmake_build, out)
     m = manifest_mod.load(out)
     nfiles = sum(len(t["sources"]) for t in m["targets"])
@@ -195,7 +201,7 @@ def cmd_transpile(args) -> int:
         prov, _ = dg.light_scan((repo / r).read_text(encoding="utf-8", errors="replace"))
         digests[r] = {"provides": prov}
 
-    xb = XBuilder(manifest, repo, store, digests, verbose=args.verbose)
+    xb = XBuilder(manifest, repo, store, digests, verbose=args.verbose, jobs=args.jobs)
     if not xb.build():
         print("Transpiled build failed.")
         return 1
@@ -265,15 +271,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--build-dir", default=".clever", help="clever artifact dir (default: .clever)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    mf_help = "path to clever.json (default: ./clever.json); .clever lands beside it"
+
     i = sub.add_parser("init", help="generate clever.json from the CMake build tree")
+    i.add_argument("manifest_file", nargs="?", help="where to write the manifest (default: ./clever.json)")
     i.add_argument("--cmake-build", default="build", help="CMake/Ninja build dir (default: build)")
     i.set_defaults(func=cmd_init)
 
     c = sub.add_parser("check", help="report which files need rebuilding (read-only, no build)")
+    c.add_argument("manifest_file", nargs="?", help=mf_help)
     c.add_argument("--json", action="store_true", help="machine-readable output")
     c.set_defaults(func=cmd_check)
 
     b = sub.add_parser("build", help="compile the dirty set, link, and optionally run")
+    b.add_argument("manifest_file", nargs="?", help=mf_help)
     b.add_argument("--check", action="store_true",
                    help="dry run: print the compile/link plan without building")
     b.add_argument("--force", action="store_true",
@@ -285,6 +296,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.set_defaults(func=cmd_build)
 
     x = sub.add_parser("transpile", help="lower modules to .hpp/.cpp, then classic compile+link")
+    x.add_argument("manifest_file", nargs="?", help=mf_help)
+    x.add_argument("-j", "--jobs", type=int, default=0,
+                   help="parallel transpile/compile jobs (default: CPU count)")
     x.add_argument("--run", action="store_true", help="run the executable after a successful build")
     x.add_argument("--target", help="which executable to run (default: first exe)")
     x.add_argument("--no-embed", action="store_true", help="skip the resource-embed pre-step")

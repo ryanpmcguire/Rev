@@ -49,8 +49,11 @@ def _rel(p: str, repo: Path) -> str:
         return p.replace("\\", "/")
 
 
-def generate(cmake_build: Path) -> dict:
-    repo = cmake_build.parent
+def generate(cmake_build: Path, base: Path | None = None) -> dict:
+    # All stored paths are relative to `base` (the manifest's own directory),
+    # so a clever.json can live in any subdirectory and `.clever` lands beside
+    # it. Paths outside `base` are stored absolute (they still resolve fine).
+    repo = base if base is not None else cmake_build.parent
     project = config_mod.load(cmake_build)
 
     # Representative compile flags per target (every file in a CMake target
@@ -123,7 +126,8 @@ def generate(cmake_build: Path) -> dict:
 
 
 def write(cmake_build: Path, out_path: Path) -> Path:
-    manifest = generate(cmake_build)
+    manifest = generate(cmake_build, base=out_path.resolve().parent)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return out_path
 

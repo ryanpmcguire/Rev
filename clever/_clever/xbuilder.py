@@ -17,21 +17,33 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import concurrent.futures
+import os
+import threading
+
 from . import transpile as tx
 from .builder import Builder
 
 
 class XBuilder(Builder):
-    def __init__(self, manifest, repo, store, digests, verbose=False):
+    def __init__(self, manifest, repo, store, digests, verbose=False, jobs=0):
         super().__init__(manifest, repo, store, set(), digests=digests, verbose=verbose)
-        self.xpp = store.root / "xpp"
-        self.xobj = store.root / "xobj"
-        self.out = store.root / "xout"   # base link methods use self.out
+        self.xpp = store.root / "xpp"    # transpiled .hpp/.cpp
+        self.xobj = store.root / "obj"   # object files
+        self.out = store.root / "out"    # Rev.lib / exe + DLLs (base link uses self.out)
         self.cpp_of: dict[str, Path] = {}
+        self.jobs = jobs if jobs and jobs > 0 else (os.cpu_count() or 4)
+        self._lock = threading.Lock()
+        self._n = 0
 
-    # objects live under xobj/<target>/<rel>.obj
+    def _tick(self, total: int, msg: str) -> None:
+        with self._lock:
+            self._n += 1
+            print(f"  [{self._n:>3}/{total}] {msg}")
+
+    # objects live under xobj/<target>/<safe rel>.obj (safe = drive-less, no '..')
     def _obj(self, rel: str) -> Path:
-        return self.xobj / self.target_of[rel]["name"] / (rel + ".obj")
+        return self.xobj / self.target_of[rel]["name"] / (self._safe_key(rel) + ".obj")
 
     # C++ modules don't leak macros across `import`, but our header `#include`s
     # do. Suppress windows.h's `max`/`min` macros (they clobber std::max/min)
@@ -58,30 +70,38 @@ class XBuilder(Builder):
 
     # -- stage: transpile everything --------------------------------------
 
+    def _run_pool(self, items, fn):
+        """Run fn over items across self.jobs threads; return list of results."""
+        if self.jobs == 1:
+            return [fn(x) for x in items]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.jobs) as ex:
+            return list(ex.map(fn, items))
+
     def transpile_all(self) -> None:
         digests = {rel: {"provides": self.provides.get(rel)} for rel in self.rels}
         mhpp = tx.build_module_hpp_map(digests, self.xpp)
-        n_mod = n_impl = 0
         total = len(self.rels)
-        print(f"[1/3] Transpiling {total} sources (libclang parse per module)...")
-        for i, rel in enumerate(self.rels, 1):
+        self._n = 0
+        extra = self.manifest.get("comprehend", {}).get("extra_args", [])
+        print(f"[1/3] Transpiling {total} sources (libclang, -j{self.jobs})...")
+
+        def work(rel):
             t = self.target_of[rel]
-            kind = "mod " if rel.endswith(".ixx") else "impl"
-            print(f"  XPP  [{i:>3}/{total}] {kind} {rel}")
             if rel.endswith(".ixx"):
-                pa = self._parse_args(t) + self.manifest.get("comprehend", {}).get("extra_args", [])
-                hpp, cpp = tx.transpile(rel, self.repo, self.xpp, mhpp, pa)
-                if cpp:
-                    self.cpp_of[rel] = cpp
-                    n_mod += 1
+                _, cpp = tx.transpile(rel, self.repo, self.xpp, mhpp, self._parse_args(t) + extra)
             else:
-                self.cpp_of[rel] = tx.transpile_impl(rel, self.repo, self.xpp, mhpp)
-                n_impl += 1
-        print(f"      transpiled {n_mod} modules + {n_impl} impl sources into {self.xpp}")
+                cpp = tx.transpile_impl(rel, self.repo, self.xpp, mhpp)
+            self._tick(total, f"XPP {rel}")
+            return rel, cpp
+
+        for rel, cpp in self._run_pool(self.rels, work):
+            if cpp:
+                self.cpp_of[rel] = cpp
+        print(f"      transpiled into {self.xpp}")
 
     # -- stage: classic compile -------------------------------------------
 
-    def _compile_classic(self, rel: str, n: int = 0, total: int = 0) -> bool:
+    def _compile_classic(self, rel: str, total: int = 0) -> bool:
         t = self.target_of[rel]
         cpp = self.cpp_of.get(rel)
         if cpp is None:
@@ -89,16 +109,19 @@ class XBuilder(Builder):
         obj = self._obj(rel)
         obj.parent.mkdir(parents=True, exist_ok=True)
         cmd = [self.cxx, *self._base_flags(t), "-x", "c++", "-c", str(cpp), "-o", str(obj)]
-        print(f"  CXX  [{n:>3}/{total}] {t['name']}/{Path(rel).name}")
+        self._tick(total, f"CXX {t['name']}/{Path(rel).name}")
         if self.verbose:
             print("       " + " ".join(cmd))
         p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(self.repo))
         if p.returncode != 0:
-            print(f"FAILED: {rel}\n{p.stdout}\n{p.stderr}")
+            with self._lock:
+                print(f"FAILED: {rel}\n{p.stdout}\n{p.stderr}")
             return False
         if p.stderr.strip():
-            print(p.stderr)
-        self.compiled.add(rel)
+            with self._lock:
+                print(p.stderr)
+        with self._lock:
+            self.compiled.add(rel)
         return True
 
     # -- orchestration -----------------------------------------------------
@@ -106,10 +129,11 @@ class XBuilder(Builder):
     def build(self) -> bool:
         self.transpile_all()
         total = len(self.rels)
-        print(f"[2/3] Compiling {total} transpiled units (classic, no modules)...")
-        for i, rel in enumerate(self.rels, 1):
-            if not self._compile_classic(rel, i, total):
-                return False
+        self._n = 0
+        print(f"[2/3] Compiling {total} transpiled units (classic, no modules, -j{self.jobs})...")
+        results = self._run_pool(self.rels, lambda r: self._compile_classic(r, total))
+        if not all(results):
+            return False
         # Link: static libs first, then executables (reusing base link recipes).
         print("[3/3] Linking...")
         for t in sorted(self.manifest["targets"], key=lambda x: 0 if x["kind"] == "static" else 1):

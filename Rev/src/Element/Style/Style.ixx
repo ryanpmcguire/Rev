@@ -426,12 +426,24 @@ export namespace Rev::Element {
         BreakLine
     };
 
+    // Whether members are aligned within their row on the cross axis.
+    // Unset (default) skips cross-axis alignment entirely, preserving the
+    // existing start-packed behavior. When set, the cross-axis Align (the
+    // horizontal/vertical value for the axis perpendicular to `direction`) is
+    // applied to each member inside its row.
+    enum class CrossAlign {
+        Unset,
+        True,
+        False
+    };
+
     struct LayoutStyle {
 
         Axis direction = Axis::Unset;
         Align horizontal = Align::Unset;
         Align vertical = Align::Unset;
         Wrap wrap = Wrap::Unset;
+        CrossAlign crossAlign = CrossAlign::Unset;
         Position position = Position::Unset;
 
         Core::DirtyFlag* dirty = nullptr;
@@ -442,6 +454,7 @@ export namespace Rev::Element {
                 Axis::Unset,
                 Align::Unset, Align::Unset,
                 Wrap::Unset,
+                CrossAlign::Unset,
                 Position::Unset,
                 nullptr
             };
@@ -456,6 +469,7 @@ export namespace Rev::Element {
             if (other.horizontal != Align::Unset) { horizontal = other.horizontal; }
             if (other.vertical != Align::Unset) { vertical = other.vertical; }
             if (other.wrap != Wrap::Unset) { wrap = other.wrap; }
+            if (other.crossAlign != CrossAlign::Unset) { crossAlign = other.crossAlign; }
             if (other.position != Position::Unset) { position = other.position; }
         }
     };

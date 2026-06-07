@@ -59,7 +59,11 @@ def cpp_path(xpp_root: Path, module: str, stem: str) -> Path:
 
 
 def impl_path(xpp_root: Path, rel: str) -> Path:
-    return xpp_root / "_impl" / rel
+    # Flatten drive/leading separators so an absolute `rel` can't escape the
+    # output dir and land next to the source.
+    import os
+    _, tail = os.path.splitdrive(rel.replace("\\", "/"))
+    return xpp_root / "_impl" / tail.lstrip("/")
 
 
 def transpile_impl(rel: str, repo: Path, xpp_root: Path,
@@ -369,9 +373,11 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
         return None, None
 
     # Hand libclang the real UTF-8 bytes (latin-1 re-encode reconstructs them).
-    tu = _INDEX.parse(str(rel), args=parse_args,
-                      unsaved_files=[(str(rel), buf.encode("latin-1"))],
-                      options=cx.TranslationUnit.PARSE_INCOMPLETE)
+    # A fresh Index per call keeps transpilation thread-safe (a single shared
+    # libclang Index is not safe for concurrent parses).
+    tu = cx.Index.create().parse(str(rel), args=parse_args,
+                                 unsaved_files=[(str(rel), buf.encode("latin-1"))],
+                                 options=cx.TranslationUnit.PARSE_INCOMPLETE)
 
     edits: list[tuple[int, int, str]] = []
 

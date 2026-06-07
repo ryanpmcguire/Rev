@@ -1366,6 +1366,11 @@ export namespace Rev::Element {
                 }
             };
 
+            // Cross-axis member alignment is opt-in. When enabled, each member is
+            // aligned within its row on the axis perpendicular to `direction`,
+            // using that axis's Align value.
+            bool crossAlign = (rStyle.layout.crossAlign != CrossAlign::Unset);
+
             if (resolved.style.layout.direction == Axis::Vertical) {
 
                 float runningX = 0;
@@ -1374,7 +1379,7 @@ export namespace Rev::Element {
                 for (Row& row : layout.rows) {
 
                     float rowOffsetY = center(layout.rect.h, row.rect.h, rStyle.layout.vertical);
-                    
+
                     row.rect.x = layout.rect.x + runningX;
                     row.rect.y = layout.rect.y + rowOffsetY;
 
@@ -1392,7 +1397,20 @@ export namespace Rev::Element {
                             continue;
                         }
 
-                        member->rect.x = row.rect.x + member->resolved.mar.l.val;
+                        // Cross axis here is horizontal: align the member's outer
+                        // width within the row's width.
+                        float crossOffsetX = 0;
+
+                        if (crossAlign) {
+                            float memberOuterW =
+                                member->rect.w +
+                                member->resolved.mar.l.val +
+                                member->resolved.mar.r.val;
+
+                            crossOffsetX = center(row.rect.w, memberOuterW, rStyle.layout.horizontal);
+                        }
+
+                        member->rect.x = row.rect.x + crossOffsetX + member->resolved.mar.l.val;
                         member->rect.y = row.rect.y + runningY + member->resolved.mar.t.val;
 
                         member->rect.x += member->resolved.pos.l.val;
@@ -1431,8 +1449,21 @@ export namespace Rev::Element {
                             continue;
                         }
 
+                        // Cross axis here is vertical: align the member's outer
+                        // height within the row's height.
+                        float crossOffsetY = 0;
+
+                        if (crossAlign) {
+                            float memberOuterH =
+                                member->rect.h +
+                                member->resolved.mar.t.val +
+                                member->resolved.mar.b.val;
+
+                            crossOffsetY = center(row.rect.h, memberOuterH, rStyle.layout.vertical);
+                        }
+
                         member->rect.x = row.rect.x + runningX + member->resolved.mar.l.val;
-                        member->rect.y = row.rect.y + member->resolved.mar.t.val;
+                        member->rect.y = row.rect.y + crossOffsetY + member->resolved.mar.t.val;
 
                         member->rect.x += member->resolved.pos.l.val;
                         member->rect.y += member->resolved.pos.t.val;

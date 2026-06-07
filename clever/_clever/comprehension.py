@@ -146,6 +146,11 @@ def _mask(text: str) -> str:
             blank(i + 1, end)  # keep the R, blank the literal body
             i = end
             continue
+        # A `'` between two alphanumerics is a C++ digit separator (1'000'000,
+        # 0xFF'FF), NOT a character literal -- do not start a literal here.
+        if c == "'" and 0 < i and i + 1 < n and text[i - 1].isalnum() and text[i + 1].isalnum():
+            i += 1
+            continue
         if c in "\"'":
             j = i + 1
             while j < n:
@@ -194,6 +199,9 @@ def _blank_comments(text: str) -> str:
             close = ")" + "".join(delim) + '"'
             e = text.find(close, k)
             i = n if e == -1 else e + len(close)
+            continue
+        if c == "'" and 0 < i and i + 1 < n and text[i - 1].isalnum() and text[i + 1].isalnum():
+            i += 1
             continue
         if c in "\"'":
             j = i + 1

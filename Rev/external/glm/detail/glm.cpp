@@ -1,3 +1,5 @@
+// clever-transpiled implementation source from C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp
+#line 1 "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp"
 /// @ref core
 /// @file glm/glm.cpp
 
@@ -260,4 +262,5 @@ template struct tdualquat<float32, highp>;
 template struct tdualquat<float64, highp>;
 
 }//namespace glm
+
 
