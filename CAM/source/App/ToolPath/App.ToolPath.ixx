@@ -248,47 +248,94 @@ export namespace Cam::App {
             assignPointTimes();
         }
 
-        void addSegmentPoints(
-            const Segment& segment,
-            float depth,
-            const Slicer::Strategy::CutFrame& frame,
-            int samples = 24
-        ) {
+        static void sampleSegmentUv(const Segment& segment, std::vector<Pos>& out, int samples = 24) {
+
             if (segment.kind == Segment::Kind::Line) {
-                addPoint(segment.start(), depth, frame);
-                addPoint(segment.end(), depth, frame);
+                out.push_back(segment.start());
+                out.push_back(segment.end());
                 return;
             }
 
-            Pos last = segment.at(0.0f);
-
-            for (int i = 1; i <= samples; i++) {
-                Pos p = segment.at(float(i) / float(samples));
-
-                addPoint(last, depth, frame);
-                addPoint(p, depth, frame);
-
-                last = p;
+            for (int i = 0; i <= samples; i++) {
+                out.push_back(segment.at(float(i) / float(samples)));
             }
         }
 
+        // Build motion points from the strategy's paths.  Consecutive segments
+        // that already meet are cut straight through — the end of one path IS the
+        // start of the next.  Wherever they do NOT meet (a new lane, a different
+        // boundary chain, the next slice) we never glide across the part: we
+        // retract along the tool axis to the safe plane, rapid across, then plunge
+        // back down.  So every transition is an explicit, collision-free motion.
         void buildPointsFromStrategy(
             const Slicer::Strategy::Strategy& strategyImpl,
-            const Slicer::Strategy::CutFrame& frame
+            const Slicer::Strategy::CutFrame& frame,
+            float safeDepth
         ) {
             points.clear();
 
+            constexpr float eps = 1e-3f;
+
+            bool have = false;
+            Pos curUv = {};
+            float curDepth = 0.0f;
+
+            auto place = [&](const Pos& uv, float depth, bool rapid, bool cutting) {
+                addPoint(uv, depth, frame, rapid, cutting);
+                curUv = uv;
+                curDepth = depth;
+                have = true;
+            };
+
+            // Reach (uv, depth) without cutting through anything: continue if we
+            // are already there, otherwise retract / rapid / plunge via safe Z.
+            auto moveTo = [&](const Pos& uv, float depth) {
+
+                if (!have) {
+                    place(uv, depth, false, false);
+                    return;
+                }
+
+                if (curUv.distanceTo(uv) <= eps && std::abs(curDepth - depth) <= eps) {
+                    return;
+                }
+
+                place(curUv, safeDepth, true, false);   // retract straight up
+                place(uv, safeDepth, true, false);       // rapid across at safe Z
+                place(uv, depth, true, false);           // plunge to the start
+            };
+
+            auto cutTo = [&](const Pos& uv, float depth) {
+                place(uv, depth, false, true);
+            };
+
+            std::vector<Pos> pts;
+
             for (const Slicer::Strategy::LayerPath& layer : strategyImpl.paths()) {
+
                 if (!layer.points.empty()) {
-                    for (const Pos& p : layer.points) {
-                        addPoint(p, layer.z, frame);
+
+                    moveTo(layer.points.front(), layer.z);
+
+                    for (size_t i = 1; i < layer.points.size(); i++) {
+                        cutTo(layer.points[i], layer.z);
                     }
 
                     continue;
                 }
 
                 for (const Segment& segment : layer.segments) {
-                    addSegmentPoints(segment, layer.z, frame);
+
+                    pts.clear();
+                    sampleSegmentUv(segment, pts);
+
+                    if (pts.empty()) { continue; }
+
+                    moveTo(pts.front(), layer.z);
+
+                    for (size_t i = 1; i < pts.size(); i++) {
+                        cutTo(pts[i], layer.z);
+                    }
                 }
             }
         }
@@ -457,10 +504,19 @@ export namespace Cam::App {
             const Slicer::Strategy::Strategy& strategyImpl =
                 *strategyResult();
 
-            buildPointsFromStrategy(strategyImpl, frame);
-
             Pos3 axisAnchor = {};
             const bool hasAxisAnchor = computeAxisAnchor(strategyImpl, frame, axisAnchor);
+
+            // Safe plane for in-path retracts: the same clearance height the
+            // approach/retract links use.
+            float safeDepth = 0.0f;
+
+            if (hasAxisAnchor) {
+                const Pos3 safeWorld = linkSafePoint(frame, axisAnchor, &toAvoid);
+                safeDepth = frame.dotFromOrigin(safeWorld);
+            }
+
+            buildPointsFromStrategy(strategyImpl, frame, safeDepth);
 
             if (hasAxisAnchor && !points.empty()) {
                 addApproachRetractLinks(axisAnchor, frame, &toAvoid);

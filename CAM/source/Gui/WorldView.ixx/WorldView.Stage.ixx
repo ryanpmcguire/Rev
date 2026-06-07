@@ -22,6 +22,7 @@ import Rev.Element.View3d.Actor3d;
 
 import Cam.App.Stage;
 import Cam.App.Model;
+import Cam.App.Probe;
 import Cam.App.ToolPath;
 
 import Cam.Gui.ToolPath;
@@ -42,8 +43,10 @@ export namespace Cam::Gui::World {
         View3d::Actor* deltaActor = nullptr;
         View3d::Actor* pickActor = nullptr;
         View3d::Actor* axisPickMarkerActor = nullptr;
+        View3d::Actor* probeMarkerActor = nullptr;
 
         std::vector<Rev::Core::Vertex3> axisPickMarkers;
+        std::vector<Rev::Core::Vertex3> probeMarkers;
 
         static constexpr size_t NoAxisPickHover = static_cast<size_t>(-1);
         size_t axisPickHoveredCandidate = NoAxisPickHover;
@@ -98,6 +101,7 @@ export namespace Cam::Gui::World {
             createDeltaActor();
             createPickActor();
             createAxisPickMarkerActor();
+            createProbeMarkerActor();
 
             toolPath.create(canvas);
         }
@@ -111,6 +115,7 @@ export namespace Cam::Gui::World {
             delete deltaActor;
             delete pickActor;
             delete axisPickMarkerActor;
+            delete probeMarkerActor;
 
             toolPath.destroy();
 
@@ -119,6 +124,7 @@ export namespace Cam::Gui::World {
             deltaActor = nullptr;
             pickActor = nullptr;
             axisPickMarkerActor = nullptr;
+            probeMarkerActor = nullptr;
 
             canvas = nullptr;
             state = nullptr;
@@ -139,6 +145,7 @@ export namespace Cam::Gui::World {
             view->addActor(toolPath.actor);
             view->addActor(deltaActor);
             view->addActor(axisPickMarkerActor);
+            view->addActor(probeMarkerActor);
             view->addActor(pickActor);
 
             attached = true;
@@ -152,6 +159,7 @@ export namespace Cam::Gui::World {
             if (modelActor) { view->removeActor(modelActor); }
             if (deltaActor) { view->removeActor(deltaActor); }
             if (axisPickMarkerActor) { view->removeActor(axisPickMarkerActor); }
+            if (probeMarkerActor) { view->removeActor(probeMarkerActor); }
             if (pickActor) { view->removeActor(pickActor); }
             if (toolPath.actor) { view->removeActor(toolPath.actor); }
 
@@ -261,6 +269,27 @@ export namespace Cam::Gui::World {
                 1.0f,
                 0.55f,
                 0.12f,
+                1.0f
+            };
+        }
+
+        void createProbeMarkerActor() {
+
+            probeMarkerActor = new View3d::Actor();
+
+            probeMarkerActor->visible = false;
+            probeMarkerActor->selectable = false;
+            probeMarkerActor->ownsLines = true;
+            probeMarkerActor->includeInFit = false;
+
+            probeMarkerActor->lines = new Rev::Primitives::Lines3d(canvas, {
+                .lines = &probeMarkers
+            });
+
+            probeMarkerActor->lines->color = {
+                0.62f,
+                0.40f,
+                0.85f,
                 1.0f
             };
         }
@@ -530,6 +559,55 @@ export namespace Cam::Gui::World {
             syncPick();
             syncToolPath(toolPathPreviewProgress);
             syncAxisPickMarkers();
+            syncProbeMarkers();
+        }
+
+        // Draw the probe targets as violet crosses, each with a short stick along
+        // its outward surface normal (the approach direction).  A measured point,
+        // once a probing run has filled it, is drawn as a green cross.
+        void syncProbeMarkers() {
+
+            if (!probeMarkerActor || !probeMarkerActor->lines) { return; }
+
+            probeMarkers.clear();
+
+            const bool show =
+                state &&
+                state->visible.probe &&
+                state->probe.enabled &&
+                !state->probe.targets.empty();
+
+            if (!show) {
+                probeMarkerActor->visible = false;
+                probeMarkerActor->lines->dirty = true;
+                return;
+            }
+
+            std::vector<Rev::Core::Pos3> pts;
+            for (const Cam::App::ProbeTarget& t : state->probe.targets) { pts.push_back(t.point); }
+
+            const float size = std::max(axisPickMarkerSize(pts), 1.5f);
+
+            const Rev::Core::Color pointColor   = { 0.66f, 0.42f, 0.92f, 1.0f };
+            const Rev::Core::Color normalColor  = { 0.80f, 0.58f, 1.0f, 0.9f };
+            const Rev::Core::Color measuredColor= { 0.35f, 0.95f, 0.55f, 1.0f };
+
+            for (const Cam::App::ProbeTarget& t : state->probe.targets) {
+
+                appendMarkerCross(probeMarkers, t.point, size, pointColor);
+
+                // Approach stick: from the surface point outward along +normal.
+                const Rev::Core::Pos3 tip = t.point + t.normal * (size * 3.0f);
+                probeMarkers.push_back({ t.point.x, t.point.y, t.point.z, normalColor });
+                probeMarkers.push_back({ tip.x, tip.y, tip.z, normalColor });
+
+                if (t.measured) {
+                    appendMarkerCross(probeMarkers, t.measuredPoint, size * 1.1f, measuredColor);
+                }
+            }
+
+            probeMarkerActor->visible = true;
+            probeMarkerActor->lines->dirty = true;
         }
 
         void syncPart() {

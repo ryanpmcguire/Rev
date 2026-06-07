@@ -826,7 +826,7 @@ export namespace Cam::App {
 
             Rev::OS::File selected = projectFile;
 
-            if (!selected.saveAs("Save CAM Project", "CAM Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0")) { return false; }
+            if (!selected.saveAs("Save CAM Project", "cam Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0")) { return false; }
 
             projectFile = selected;
 

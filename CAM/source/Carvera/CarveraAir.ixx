@@ -98,12 +98,31 @@ export namespace Carvera {
 
         enum class ConnectionStatus { Disconnected, Connecting, Connected, Error };
 
+        // What Air is doing RIGHT NOW, at the granularity of the typed paths it
+        // is executing.  This is the machine's self-awareness -- it never knows
+        // what the part/material looks like (that's the software's job), but it
+        // always knows whether it is travelling, cutting, probing, or changing a
+        // tool.  Derived purely from the operation/path being streamed.
+        enum class Activity { Idle, Traveling, Cutting, Probing, ToolChanging };
+
+        static const char* activityName(Activity a) {
+            switch (a) {
+                case Activity::Idle:         return "Idle";
+                case Activity::Traveling:    return "Traveling";
+                case Activity::Cutting:      return "Cutting";
+                case Activity::Probing:      return "Probing";
+                case Activity::ToolChanging: return "Changing tool";
+            }
+            return "?";
+        }
+
         // -- Event payloads ------------------------------------------
 
         struct TelemetryEvent  { float x = 0, y = 0, z = 0, a = 0; };
         struct StateEvent      { std::string state; };
         struct ConnectionEvent { ConnectionStatus status = ConnectionStatus::Disconnected; std::string message; };
         struct LogEvent        { std::string line; };
+        struct ActivityEvent   { Activity activity = Activity::Idle; };
         struct ArmEvent        { bool armed = false; bool spindleArmed = false; };
         struct StartEvent      {};
 
@@ -195,6 +214,7 @@ export namespace Carvera {
         void onArm           (const std::function<void(ArmEvent&)>&        f) { armDispatcher.listen(&Air::armEvent, f); }
         void onProbe         (const std::function<void(ProbeEvent&)>&      f) { probeDispatcher.listen(&Air::probeEvent, f); }
         void onSafety        (const std::function<void(SafetyEvent&)>&     f) { safetyDispatcher.listen(&Air::safetyEvent, f); }
+        void onActivity      (const std::function<void(ActivityEvent&)>&   f) { activityDispatcher.listen(&Air::activityEvent, f); }
 
         // Tool-change lifecycle channels:
         //   Begin     -- a change was just requested (M6 sent, machine seeking).
@@ -304,6 +324,9 @@ export namespace Carvera {
         // ============================================================
 
         std::string machineState() const { return machineState_; }
+
+        // What Air is doing right now (driven by the typed paths it streams).
+        Activity activity() const { return currentActivity_.load(); }
 
         // Smoothed live position (the value the CAM view tracks).
         bool livePosition(float& x, float& y, float& z, float& a) const {
@@ -487,6 +510,12 @@ export namespace Carvera {
         // a one-line constant until we confirm how this machine selects the
         // probe (it may not be an ATC M6 at all).  See CarveraREADME.md.
         static constexpr int kProbeToolSlot = 0;
+
+        // Sentinel operation tool slot meaning "do not change tools -- use
+        // whatever is currently in the spindle".  Handy for a bench probe test
+        // where the operator has inserted the probe by hand (and while the real
+        // probe-tool selector is still unconfirmed).
+        static constexpr int NoToolChange = -1;
 
         // Ensure the probe tool is loaded.  Returns success WITHOUT touching the
         // machine when it is already loaded (the early-exit the caller wants),
@@ -770,7 +799,11 @@ export namespace Carvera {
         // its place (neocortex vs. motor cortex: plan, but watch the body).
 
         struct Step {
-            enum class Kind { Move, ToolChange, Spindle, Dwell, Raw };
+            // Probe  = G38.2 toward (x,y,z,a) until contact (the "intersect" path).
+            // Note   = a runtime log line (not sent to the machine); marks the
+            //          boundaries of typed operations so the log narrates the
+            //          who/what/why as Air works through the queue.
+            enum class Kind { Move, ToolChange, Spindle, Dwell, Raw, Probe, Note };
             Kind kind = Kind::Raw;
 
             // Move (WCS): feed <= 0 -> rapid G0, feed > 0 -> G1 F<feed>.
@@ -780,39 +813,93 @@ export namespace Carvera {
             int    slot    = 0;   // ToolChange
             double rpm     = 0;   // Spindle (> 0 -> M3 S<rpm>, else M5)
             double seconds = 0;   // Dwell (G4 P<seconds>)
-            std::string raw;      // Raw G-code line (include trailing newline)
+            std::string raw;      // Raw G-code line / Note message
 
             static Step moveTo(double x, double y, double z, double a, double feed) {
                 Step s; s.kind = Kind::Move; s.x = x; s.y = y; s.z = z; s.a = a; s.feed = feed; return s;
+            }
+            static Step probeTo(double x, double y, double z, double a, double feed) {
+                Step s; s.kind = Kind::Probe; s.x = x; s.y = y; s.z = z; s.a = a; s.feed = feed; return s;
             }
             static Step toolChange(int slot) { Step s; s.kind = Kind::ToolChange; s.slot = slot; return s; }
             static Step spindle(double rpm)   { Step s; s.kind = Kind::Spindle;    s.rpm  = rpm;  return s; }
             static Step dwell(double seconds) { Step s; s.kind = Kind::Dwell;      s.seconds = seconds; return s; }
             static Step raw_(std::string g)   { Step s; s.kind = Kind::Raw;        s.raw  = std::move(g); return s; }
+            static Step note(std::string m)   { Step s; s.kind = Kind::Note;       s.raw  = std::move(m); return s; }
         };
 
-        // Hand Air the full program to execute.  Requires arming.
+        // ============================================================
+        // Typed operations  (the "chapters" the GUI hands Air)
+        // ============================================================
+        //
+        // Callers no longer hand Air an anonymous stream of points.  They hand
+        // it a queue of typed OPERATIONS (a "Cut", a "Probe", ...), each owning
+        // a tool and a list of typed PATHS.  Air translates these into the
+        // low-level Step pipeline -- but because the paths are typed, Air emits
+        // the right G-code for each (rapid for travel, G1 F for cut, G38.2 for
+        // intersect), drives the spindle only for cut operations, and narrates
+        // operation boundaries to the log.  This is what lets Air always know
+        // the who/what/why of what it is doing.
+
+        // One waypoint in a path (target frame == the user/machine frame the
+        // caller already resolved; same convention as Step::moveTo coordinates).
+        struct Waypoint { double x = 0, y = 0, z = 0, a = 0; };
+
+        struct Path {
+            // Travel    = rapid repositioning (spindle/probe not engaging).
+            // Cut       = feed-rate cutting move (spindle on for a Cut op).
+            // Intersect = drive slowly toward the last point until the probe
+            //             contacts the part (G38.2); the contact is reported via
+            //             the [PRB:...] reply -> ProbeEvent.
+            enum class Kind { Travel, Cut, Intersect };
+            Kind kind = Kind::Travel;
+            std::vector<Waypoint> points;
+            double feed = 0;   // Cut: cutting feed; Intersect: probe feed; Travel: ignored
+
+            static Path travel()             { Path p; p.kind = Kind::Travel;    return p; }
+            static Path cut(double feed)      { Path p; p.kind = Kind::Cut;       p.feed = feed; return p; }
+            static Path intersect(double feed){ Path p; p.kind = Kind::Intersect; p.feed = feed; return p; }
+        };
+
+        struct Operation {
+            enum class Kind { Cut, Probe };
+            Kind kind = Kind::Cut;
+
+            int         toolSlot = 0;   // tool to ensure loaded for this operation
+            std::string toolName;       // human label (logs only)
+            double      rpm = 0;        // Cut spindle RPM (0 / Probe => spindle never runs)
+
+            std::vector<Path> paths;
+
+            static Operation cut(int slot, std::string name, double rpm) {
+                Operation o; o.kind = Kind::Cut; o.toolSlot = slot; o.toolName = std::move(name); o.rpm = rpm; return o;
+            }
+            static Operation probe(int slot, std::string name) {
+                Operation o; o.kind = Kind::Probe; o.toolSlot = slot; o.toolName = std::move(name); o.rpm = 0; return o;
+            }
+        };
+
+        // Hand Air a queue of typed operations.  Requires arming.  Translates to
+        // the Step pipeline and streams under the usual flow control.
+        bool enqueueOperations(const std::vector<Operation>& ops) {
+            if (!isArmed()) {
+                dbg("[Air] enqueueOperations refused (not armed); %zu ops", ops.size());
+                return false;
+            }
+            const std::vector<Step> program = buildSteps(ops);
+            dbg("[Air] enqueueOperations: %zu ops -> %zu steps", ops.size(), program.size());
+            return enqueueStepsInternal(program);
+        }
+
+        // Hand Air the full program to execute (low-level Step list).  Requires
+        // arming.  Prefer enqueueOperations for new code -- this stays for any
+        // caller that already speaks Steps.
         bool enqueueProgram(const std::vector<Step>& program) {
             if (!isArmed()) {
                 dbg("[Air] enqueueProgram refused (not armed); %zu steps", program.size());
                 return false;
             }
-            {
-                std::lock_guard<std::mutex> lock(queueMutex);
-                steps_.assign(program.begin(), program.end());
-                clearanceZ_       = computeClearance(program);
-                haveLast_         = false;
-                haveReturn_       = false;
-                returnMotionSeen_ = false;
-                returnWaitFrames_ = 0;
-                resetFlow();
-                exec_ = steps_.empty() ? Exec::Idle : Exec::Streaming;
-            }
-            dbg("[Air] enqueueProgram: %zu steps, clearanceZ=%.3f",
-                program.size(), clearanceZ_);
-            executing.store(!program.empty());
-            pump();
-            return true;
+            return enqueueStepsInternal(program);
         }
 
         // Public entry: takes the queue mutex.  Safe to call from outside any
@@ -833,6 +920,7 @@ export namespace Carvera {
             resetFlow();
             executing.store(false);
             exec_             = Exec::Idle;
+            setActivity(Activity::Idle);
             haveLast_         = false;
             haveReturn_       = false;
             returnMotionSeen_ = false;
@@ -919,6 +1007,7 @@ export namespace Carvera {
         virtual void startEvent             (StartEvent&)      {}
         virtual void probeEvent             (ProbeEvent&)      {}
         virtual void safetyEvent            (SafetyEvent&)     {}
+        virtual void activityEvent          (ActivityEvent&)   {}
         virtual void toolChangeBeginEvent   (ToolChangeEvent&) {}
         virtual void toolChangeStandbyEvent (ToolChangeEvent&) {}
         virtual void toolChangeConfirmEvent (ToolChangeEvent&) {}
@@ -1038,6 +1127,13 @@ export namespace Carvera {
         std::mutex        queueMutex;
         std::deque<Step>  steps_;
         Exec              exec_ = Exec::Idle;
+
+        // Air's current self-reported activity (what it's doing right now).
+        // Atomic + deferred-emit because clearQueue() (hence setActivity) can be
+        // called from the socket WORKER thread (disconnect/error), while all
+        // dispatched events must fire on the main thread.
+        std::atomic<Activity> currentActivity_   { Activity::Idle };
+        std::atomic<bool>     pendingActivityEmit_ { false };
         int               inFlight = 0;
         std::atomic<int>  pendingOk { 0 };
 
@@ -1103,6 +1199,7 @@ export namespace Carvera {
         Rev::Core::Dispatcher<StartEvent>      startDispatcher;
         Rev::Core::Dispatcher<ProbeEvent>      probeDispatcher;
         Rev::Core::Dispatcher<SafetyEvent>     safetyDispatcher;
+        Rev::Core::Dispatcher<ActivityEvent>   activityDispatcher;
         Rev::Core::Dispatcher<ToolChangeEvent> tcBeginDispatcher;
         Rev::Core::Dispatcher<ToolChangeEvent> tcStandbyDispatcher;
         Rev::Core::Dispatcher<ToolChangeEvent> tcConfirmDispatcher;
@@ -1562,6 +1659,13 @@ export namespace Carvera {
             // toggled by a tool detection on the worker thread).
             if (pendingArmEmit_.exchange(false)) { emitArm(); }
 
+            // Emit a deferred activity change (setActivity may run on the worker
+            // thread via clearQueue from a disconnect/error).
+            if (pendingActivityEmit_.exchange(false)) {
+                ActivityEvent e{ currentActivity_.load() };
+                activityDispatcher.tell(&Air::activityEvent, e);
+            }
+
             // Machine-state change -> event.
             if (machineState_ != nstate) {
                 dbg("[Air] machine state '%s' -> '%s'",
@@ -1914,6 +2018,103 @@ export namespace Carvera {
 
         void resetFlow() { inFlight = 0; pendingOk.store(0); }
 
+        // Update Air's current activity, logging + broadcasting on change.  This
+        // is the machine's "I'm doing X right now" signal -- always called on the
+        // main thread (from pump / the gate), so emitting the event is safe.
+        // Safe to call from any thread: stores atomically + flags a deferred
+        // emit drained on the main thread (drainTelemetry).  dbg (not pushLog):
+        // travel<->cut alternates often and would spam the operator log;
+        // operation boundaries are narrated by Note steps instead, and the event
+        // lets the GUI reflect the live activity.
+        void setActivity(Activity a) {
+            if (currentActivity_.exchange(a) == a) { return; }
+            dbg("[Air] activity -> %s", activityName(a));
+            pendingActivityEmit_.store(true);
+        }
+
+        // Load a Step program into the queue and start streaming.  Shared by
+        // enqueueProgram and enqueueOperations (arming already checked).
+        bool enqueueStepsInternal(const std::vector<Step>& program) {
+            {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                steps_.assign(program.begin(), program.end());
+                clearanceZ_       = computeClearance(program);
+                haveLast_         = false;
+                haveReturn_       = false;
+                returnMotionSeen_ = false;
+                returnWaitFrames_ = 0;
+                resetFlow();
+                exec_ = steps_.empty() ? Exec::Idle : Exec::Streaming;
+            }
+            executing.store(!program.empty());
+            pump();
+            return true;
+        }
+
+        // Translate typed operations into the low-level Step pipeline.  Owns the
+        // dangerous policy: spindle OFF before every tool change, spindle ON only
+        // for a Cut operation's cut paths (and only if the spindle is armed --
+        // otherwise it is a motion-only dry run), spindle OFF at the end of each
+        // operation, and G38.2 for intersect paths.  A Note step at each
+        // boundary narrates the queue at runtime.
+        std::vector<Step> buildSteps(const std::vector<Operation>& ops) const {
+
+            std::vector<Step> program;
+            program.push_back(Step::raw_("G90\n"));   // absolute positioning
+
+            for (const Operation& op : ops) {
+
+                const char* kindName = (op.kind == Operation::Kind::Probe) ? "Probe" : "Cut";
+                program.push_back(Step::note(std::format(
+                    "== {} operation: T{}{} ==",
+                    kindName, op.toolSlot,
+                    op.toolName.empty() ? std::string() : " (" + op.toolName + ")")));
+
+                // Spindle off, then ensure the operation's tool is loaded.  A
+                // negative slot means "don't change tools" -- use whatever is in
+                // the spindle (e.g. a probe the operator inserted by hand for a
+                // bench test).  Otherwise the pump skips the change when that
+                // slot is already loaded.
+                program.push_back(Step::spindle(0.0));
+                if (op.toolSlot >= 0) {
+                    program.push_back(Step::toolChange(op.toolSlot));
+                }
+
+                bool spindleOn = false;
+
+                for (const Path& path : op.paths) {
+
+                    // Spin up just before the first cut move of a cut op -- but
+                    // only when the spindle is armed (else a dry run).
+                    if (op.kind == Operation::Kind::Cut &&
+                        path.kind == Path::Kind::Cut &&
+                        op.rpm > 0.0 && !spindleOn && isSpindleArmed()) {
+                        program.push_back(Step::spindle(op.rpm));
+                        spindleOn = true;
+                    }
+
+                    for (const Waypoint& w : path.points) {
+                        switch (path.kind) {
+                            case Path::Kind::Travel:
+                                program.push_back(Step::moveTo(w.x, w.y, w.z, w.a, 0.0));   // rapid
+                                break;
+                            case Path::Kind::Cut:
+                                program.push_back(Step::moveTo(w.x, w.y, w.z, w.a, path.feed));
+                                break;
+                            case Path::Kind::Intersect:
+                                program.push_back(Step::probeTo(w.x, w.y, w.z, w.a, path.feed));
+                                break;
+                        }
+                    }
+                }
+
+                if (spindleOn) { program.push_back(Step::spindle(0.0)); }
+            }
+
+            program.push_back(Step::spindle(0.0));   // belt-and-braces spindle off
+            return program;
+        }
+
         static double computeClearance(const std::vector<Step>& program) {
             double maxZ = 0.0;
             bool   any  = false;
@@ -1937,10 +2138,18 @@ export namespace Carvera {
                         : std::format("G0 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}\n", s.x, s.y, s.z, s.a);
                 case Step::Kind::Spindle:
                     return s.rpm > 0.0 ? std::format("M3 S{:.0f}\n", s.rpm) : std::string("M5\n");
+                case Step::Kind::Probe:
+                    // G38.2: probe toward the target; the machine decelerates and
+                    // stops itself on contact, prints [PRB:...] (-> ProbeEvent),
+                    // then "ok" -- so normal flow control waits for completion.
+                    return std::format("G38.2 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f} F{:.1f}\n",
+                                       s.x, s.y, s.z, s.a, s.feed > 0.0 ? s.feed : 100.0);
                 case Step::Kind::Dwell:
                     return std::format("G4 P{:.3f}\n", s.seconds);
                 case Step::Kind::Raw:
                     return s.raw;
+                case Step::Kind::Note:
+                    return std::string();   // never sent; handled in pump()
                 default:
                     return std::string();
             }
@@ -2012,6 +2221,27 @@ export namespace Carvera {
 
                         Step& s = steps_.front();
 
+                        // Note: a runtime narration line; log it and move on (it
+                        // never reaches the controller and costs no flow credit).
+                        if (s.kind == Step::Kind::Note) {
+                            if (!s.raw.empty()) { pushLog(s.raw); }
+                            steps_.pop_front();
+                            continue;
+                        }
+
+                        // Probe (intersect): drain anything in flight first so the
+                        // G38.2 runs from a settled position, then send it ALONE
+                        // (break after) so its [PRB] + ok are unambiguous before
+                        // any following move is queued.
+                        if (s.kind == Step::Kind::Probe) {
+                            if (inFlight > 0) { break; }
+                            setActivity(Activity::Probing);
+                            client->send(gcodeForStep(s));
+                            steps_.pop_front();
+                            inFlight++;
+                            break;
+                        }
+
                         if (s.kind == Step::Kind::ToolChange) {
                             // Skip a tool change to the slot that is already
                             // loaded.  The Carvera silently no-ops `M6 T<n>`
@@ -2045,6 +2275,7 @@ export namespace Carvera {
                                 dbg("[Air] exec: Streaming -> ToolChanging "
                                     "(slot=%d, no return point recorded)", s.slot);
                             }
+                            setActivity(Activity::ToolChanging);
                             beginToolChangeOrchestration(s.slot, /*resetStreamFlow=*/true);
                             steps_.pop_front();
                             exec_ = Exec::ToolChanging;
@@ -2063,6 +2294,13 @@ export namespace Carvera {
                             return;
                         }
 
+                        // Move steps set travel/cut activity from their feed
+                        // (rapid = travel, feed > 0 = cut).  Spindle/dwell/raw
+                        // steps leave the current activity untouched.
+                        if (s.kind == Step::Kind::Move) {
+                            setActivity(s.feed > 0.0 ? Activity::Cutting : Activity::Traveling);
+                        }
+
                         client->send(g);
                         steps_.pop_front();
                         inFlight++;
@@ -2072,6 +2310,7 @@ export namespace Carvera {
                         dbg("[Air] exec: Streaming -> Idle (program complete)");
                         exec_ = Exec::Idle;
                         executing.store(false);
+                        setActivity(Activity::Idle);
                         pushLog("Program complete.");
                     }
                     break;

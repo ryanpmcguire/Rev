@@ -395,22 +395,22 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return near * 2 >= (samples + 1);
         }
 
-        // For an Outer ring the part's material is on the interior side, so
-        // moving "toward material" is an inward (interior) offset.  For a Hole
-        // the material wraps the outside, so toward material is exterior.
-        // (Matches offsetTowardMaterial / offsetAwayFromMaterial.)
-        static bool materialIsInterior(ChainRole role) {
-            return role != ChainRole::Hole;
-        }
-
-        // Build the initial boundary profile.  Every edge is pushed by `amount`
-        // (the tool radius), but the direction is decided per segment: an edge
-        // that is coincident with / near the negative keep-out section is pushed
-        // *toward* material (so the tool stays clear of the don't-touch model),
-        // while an edge facing free space is pushed *away* from material (so the
-        // tool fully clears it).  `keepOut` is the negative model's section at
-        // this slice; when it is empty every edge faces free space and this
-        // degenerates to a uniform outset.
+        // Build the initial boundary profile of the region to clear.
+        //
+        // insetPerSegment takes a signed amount per segment: positive moves a
+        // segment toward its chain's interior, negative toward the exterior.
+        //
+        //   * Outer boundary — decided per segment: an edge coincident with the
+        //     negative keep-out section is pushed inward (retreat, +amount) so
+        //     the tool stays clear of the don't-touch model; an edge facing free
+        //     space is pushed outward (-amount) so the tool fully clears it.
+        //     With no keep-out every edge is free, so the outer simply grows.
+        //
+        //   * Hole — an inner chain is an island of keep-material, so it is
+        //     always grown outward (-amount) by the tool radius, keeping the
+        //     cutter clear of the island all the way around.
+        //
+        // `keepOut` is the negative model's section at this slice.
         Profile boundaryOffset(
             float amount,
             const std::vector<Segment>& keepOut,
@@ -427,13 +427,17 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                     continue;
                 }
 
-                const bool materialInterior = materialIsInterior(entry.role);
+                const bool isHole = entry.role == ChainRole::Hole;
 
-                // insetPerSegment takes a signed amount per segment: positive
-                // moves toward the chain interior, negative toward the exterior.
                 std::vector<float> amounts(entry.chain.segments.size());
 
                 for (size_t i = 0; i < entry.chain.segments.size(); i++) {
+
+                    if (isHole) {
+                        // Grow the island's keep-out boundary outward.
+                        amounts[i] = -amount;
+                        continue;
+                    }
 
                     const bool nearKeepOut = segmentCoincident(
                         entry.chain.segments[i],
@@ -441,12 +445,9 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                         nearEps
                     );
 
-                    // Near keep-out -> toward material; free space -> away.
-                    const bool towardInterior = nearKeepOut
-                        ? materialInterior
-                        : !materialInterior;
-
-                    amounts[i] = towardInterior ? amount : -amount;
+                    // Outer: retreat inward where it hugs keep-out, expand
+                    // outward in free space.
+                    amounts[i] = nearKeepOut ? amount : -amount;
                 }
 
                 addOffsetLoops(out, entry, entry.chain.insetPerSegment(amounts));

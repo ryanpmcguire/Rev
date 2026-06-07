@@ -1,6 +1,7 @@
 module;
 
 #include <cstddef>
+#include <cmath>
 #include <vector>
 #include <limits>
 
@@ -74,9 +75,12 @@ export namespace Rev::Element::View3d {
         // (also identity by default), giving a three-level stack with the
         // camera: viewProj × world × model.
         //
-        // NOTE: hitTest / bounds operate on raw (untransformed) vertices, so
-        // picking and fit assume identity.  This is fine: picking only happens
-        // in edit mode where the transform is identity.
+        // NOTE: bounds() still operates on raw (untransformed) vertices, so fit
+        // assumes identity.  hitTest / hitTestVisible DO account for the
+        // world × model transform (the ray is moved into the actor's local space
+        // and the hit mapped back), so picking/orbit coincide with the on-screen
+        // geometry even when the actor is transformed — tool preview, machine
+        // simulation, execute pose.
         float worldTransform[16] = {
             1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
         };
@@ -111,6 +115,91 @@ export namespace Rev::Element::View3d {
                 v.y,
                 v.z
             };
+        }
+
+        // Transform helpers (column-major, matching the GPU convention)
+        //--------------------------------------------------
+
+        // out = a * b
+        static void mul4(const float a[16], const float b[16], float out[16]) {
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; k++) {
+                        sum += a[k * 4 + row] * b[col * 4 + k];
+                    }
+                    out[col * 4 + row] = sum;
+                }
+            }
+        }
+
+        static bool isIdentity(const float m[16]) {
+            static const float I[16] = {
+                1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
+            };
+            for (int i = 0; i < 16; i++) {
+                if (std::fabs(m[i] - I[i]) > 1e-6f) { return false; }
+            }
+            return true;
+        }
+
+        // Affine transform of a point (w = 1).
+        static Core::Pos3 transformPoint(const float m[16], const Core::Pos3& p) {
+            return {
+                m[0] * p.x + m[4] * p.y + m[8]  * p.z + m[12],
+                m[1] * p.x + m[5] * p.y + m[9]  * p.z + m[13],
+                m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14]
+            };
+        }
+
+        // Affine transform of a direction (w = 0, no translation).
+        static Core::Pos3 transformVec(const float m[16], const Core::Pos3& v) {
+            return {
+                m[0] * v.x + m[4] * v.y + m[8]  * v.z,
+                m[1] * v.x + m[5] * v.y + m[9]  * v.z,
+                m[2] * v.x + m[6] * v.y + m[10] * v.z
+            };
+        }
+
+        // Inverse of an affine matrix (last row 0,0,0,1): inverts the upper 3x3
+        // and the translation. Returns false if the linear part is singular.
+        static bool affineInverse(const float m[16], float out[16]) {
+
+            const float a = m[0], b = m[4], c = m[8];
+            const float d = m[1], e = m[5], f = m[9];
+            const float g = m[2], h = m[6], i = m[10];
+
+            const float A =  (e * i - f * h);
+            const float B = -(d * i - f * g);
+            const float C =  (d * h - e * g);
+
+            const float det = a * A + b * B + c * C;
+
+            if (std::fabs(det) < 1e-12f) { return false; }
+
+            const float invDet = 1.0f / det;
+
+            const float inv00 = A * invDet;
+            const float inv01 = -(b * i - c * h) * invDet;
+            const float inv02 =  (b * f - c * e) * invDet;
+            const float inv10 = B * invDet;
+            const float inv11 =  (a * i - c * g) * invDet;
+            const float inv12 = -(a * f - c * d) * invDet;
+            const float inv20 = C * invDet;
+            const float inv21 = -(a * h - b * g) * invDet;
+            const float inv22 =  (a * e - b * d) * invDet;
+
+            const float tx = m[12], ty = m[13], tz = m[14];
+
+            out[0]  = inv00; out[1]  = inv10; out[2]  = inv20; out[3]  = 0.0f;
+            out[4]  = inv01; out[5]  = inv11; out[6]  = inv21; out[7]  = 0.0f;
+            out[8]  = inv02; out[9]  = inv12; out[10] = inv22; out[11] = 0.0f;
+            out[12] = -(inv00 * tx + inv01 * ty + inv02 * tz);
+            out[13] = -(inv10 * tx + inv11 * ty + inv12 * tz);
+            out[14] = -(inv20 * tx + inv21 * ty + inv22 * tz);
+            out[15] = 1.0f;
+
+            return true;
         }
 
         static bool rayTriangle(
@@ -159,19 +248,51 @@ export namespace Rev::Element::View3d {
         ) {
             if (!mesh) { return false; }
 
+            // The mesh is drawn through world × model, but its triangles live in
+            // raw local space. Move the ray into that local space so the hittable
+            // region coincides with the on-screen geometry, then map the hit back
+            // to world. Identity transforms (the common edit-mode case) take the
+            // raw path unchanged.
+            float combined[16];
+            mul4(worldTransform, modelTransform, combined);
+
+            const bool transformed = !isIdentity(combined);
+
+            Ray localRay = ray;
+            float inv[16];
+
+            if (transformed) {
+                if (!affineInverse(combined, inv)) { return false; }
+                localRay.origin    = transformPoint(inv, ray.origin);
+                localRay.direction = transformVec(inv, ray.direction);
+            }
+
+            // Map a local-space hit (point/t) back into world space. Recomputes t
+            // as the world distance along the world ray so View's nearest-hit
+            // comparison stays consistent across actors with different transforms.
+            auto mapHitBackToWorld = [&]() {
+                if (!outHit.hit || !transformed) { return; }
+                outHit.point = transformPoint(combined, outHit.point);
+                const float dd = ray.direction.dot(ray.direction);
+                outHit.t = (dd > 1e-12f)
+                    ? (outHit.point - ray.origin).dot(ray.direction) / dd
+                    : 0.0f;
+            };
+
             if (mesh->hasAccel()) {
                 float t; size_t triId;
                 if (mesh->hitTestBVH(
-                    ray.origin.x, ray.origin.y, ray.origin.z,
-                    ray.direction.x, ray.direction.y, ray.direction.z,
+                    localRay.origin.x, localRay.origin.y, localRay.origin.z,
+                    localRay.direction.x, localRay.direction.y, localRay.direction.z,
                     t, triId
                 )) {
                     outHit.hit      = true;
                     outHit.kind     = HitKind::Face;
                     outHit.actor    = this;
                     outHit.triangleId = triId;
-                    outHit.point    = ray.origin + ray.direction * t;
+                    outHit.point    = localRay.origin + localRay.direction * t;
                     outHit.t        = t;
+                    mapHitBackToWorld();
                     return true;
                 }
                 return false;
@@ -188,17 +309,19 @@ export namespace Rev::Element::View3d {
                 Core::Pos3 b = vertexPos(triangles[i + 1]);
                 Core::Pos3 c = vertexPos(triangles[i + 2]);
                 float t = 0.0f;
-                if (!rayTriangle(ray, a, b, c, t)) { continue; }
+                if (!rayTriangle(localRay, a, b, c, t)) { continue; }
                 if (t < bestT) {
                     bestT = t;
                     outHit.hit = true;
                     outHit.kind = HitKind::Face;
                     outHit.actor = this;
                     outHit.triangleId = i / 3;
-                    outHit.point = ray.origin + ray.direction * t;
+                    outHit.point = localRay.origin + localRay.direction * t;
                     outHit.t = t;
                 }
             }
+
+            mapHitBackToWorld();
 
             return outHit.hit;
         }

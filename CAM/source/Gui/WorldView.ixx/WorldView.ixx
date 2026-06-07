@@ -1900,95 +1900,180 @@ export namespace Cam::Gui {
             // touch-off, return to the pre-change position) — so this builder no
             // longer emits M5/M6/dwells/clearance lifts around changes; it just
             // says "change to tool N" and lets Air handle the dangerous parts.
-            using Step = Carvera::MachineLink::Step;
-
-            std::vector<Step> program;
-            program.push_back(Step::raw_("G90\n"));   // absolute positioning
+            // We now hand Air a queue of TYPED OPERATIONS (cut / probe), each
+            // owning a tool and a list of typed paths (travel / cut / intersect).
+            // Air translates these to its Step pipeline, owning the dangerous
+            // policy (spindle only for cut paths, G38.2 for intersect, tool
+            // changes, spindle-off boundaries) and narrating the queue as it goes.
+            using Op  = Carvera::MachineLink::Operation;
+            using Pth = Carvera::MachineLink::Path;
+            using Wp  = Carvera::MachineLink::Waypoint;
 
             const double radToDeg = 57.29577951308232;
 
-            std::string loadedTool;   // none loaded yet
-            bool spindleOn  = false;
-            bool emittedAny = false;
+            std::vector<Op> ops;
             bool buildAborted = false;
 
-            // Request a tool change — resolved to a 1-based slot.  Aborts the
-            // build if the tool can't be resolved (never emit an undefined M6).
-            auto emitToolChange = [&](const std::string& toolName) {
-
-                if (toolName.empty()) {
-                    dbg("[Execute] Operation has no tool assigned — aborting program build");
-                    buildAborted = true;
-                    return;
-                }
-
-                const int n = toolNumber(toolName);
-
-                if (n <= 0) {
-                    dbg("[Execute] Tool '%s' not found in library (slot unknown) — aborting",
-                        toolName.c_str());
-                    buildAborted = true;
-                    return;
-                }
-
-                program.push_back(Step::spindle(0.0));   // spindle off before a change
-                spindleOn = false;
-                program.push_back(Step::toolChange(n));  // Air orchestrates the rest
-                emittedAny = true;
+            // CAD world -> user frame -> machine.  The user frame IS the machine
+            // frame: machine X/Y/Z = the user-defined X/Y/Z directions (set by
+            // the "co"/"ax" gestures), with the begin-work point as the origin.
+            auto toMachine = [&](const Rev::Core::Pos3& cad, double aDeg) -> Wp {
+                const Rev::Core::Pos3 inFrame = frame.toFrame(cad);
+                return Wp{
+                    inFrame.x - beginWorkInFrame.x,
+                    inFrame.y - beginWorkInFrame.y,
+                    inFrame.z - beginWorkInFrame.z,
+                    aDeg
+                };
             };
 
-            auto appendState = [&](Cam::App::Stage* state) {
+            // Probe operation (a break to locate the part) BEFORE the stage's
+            // cut: for each target, rapid to the standoff point, then drive
+            // slowly along -normal through the nominal point (G38.2) until touch.
+            auto appendProbeOp = [&](Cam::App::Stage* state) {
+
+                if (!state || !state->probe.enabled || state->probe.targets.empty()) { return; }
+
+                // Build a world-space ToolPath for the probe approaches, then run
+                // it through the SAME IK solver cuts use (getMachineToolPath ->
+                // IKSolver::solve) so probe coordinates are produced identically:
+                // the part's rotary axis is oriented and the position rotated into
+                // the machine frame.  Without this the probe ignored the 4th axis
+                // entirely and drove to the wrong place.
+                //
+                // toolDirection = the outward surface normal: the probe shaft
+                // points out of the surface, exactly as a cutter axis points away
+                // from the material, so the solver orients the feature to the tool.
+                Cam::App::ToolPath probePath;
+
+                for (const Cam::App::ProbeTarget& t : state->probe.targets) {
+
+                    const float nlen = t.normal.pythag();
+                    if (nlen < 1e-4f) {
+                        dbg("[Probe] skipping target with zero normal at "
+                            "(%.2f, %.2f, %.2f)", t.point.x, t.point.y, t.point.z);
+                        continue;
+                    }
+                    const Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
+
+                    Cam::App::ToolPathPoint a;   // standoff (outside surface, +normal)
+                    a.position      = t.point + n * static_cast<float>(t.standoff);
+                    a.toolDirection = n;
+                    a.rapid = true;  a.cutting = false;
+                    probePath.points.push_back(a);
+
+                    Cam::App::ToolPathPoint b;   // through the point (-normal, overtravel)
+                    b.position      = t.point - n * static_cast<float>(t.overtravel);
+                    b.toolDirection = n;
+                    b.rapid = false; b.cutting = false;
+                    probePath.points.push_back(b);
+                }
+
+                if (probePath.points.empty()) { return; }
+
+                const Cam::Machine::MachineDefinition machineDef = buildMachineDefinition(state);
+                const bool hasRotary = !machineDef.part.dof.freeRotations.empty();
+
+                const Cam::Machine::MachineToolPath solved =
+                    Cam::Machine::IKSolver::solve(probePath, machineDef);
+
+                Op op = Op::probe(Carvera::MachineLink::kProbeToolSlot, "Probe");
+
+                // Points come in (standoff, through) pairs, one pair per target.
+                for (size_t k = 0; (2 * k + 1) < solved.points.size(); k++) {
+
+                    const Cam::Machine::MachinePose& sPose = solved.points[2 * k];
+                    const Cam::Machine::MachinePose& tPose = solved.points[2 * k + 1];
+
+                    // On a rotary machine an un-achievable orientation means the
+                    // solved position is bogus -- skip it.  On a 3-axis machine the
+                    // direction residual is expected (no orientation needed) and
+                    // the position is still correct, so don't skip.
+                    if (hasRotary && (!sPose.valid() || !tPose.valid())) {
+                        dbg("[Probe] target %zu unreachable on this machine's rotary "
+                            "axis (IK invalid) — skipping", k);
+                        continue;
+                    }
+
+                    const Wp standoffM = toMachine(sPose.toolWorldPose.position, sPose.rotaryAngle * radToDeg);
+                    const Wp throughM  = toMachine(tPose.toolWorldPose.position, tPose.rotaryAngle * radToDeg);
+
+                    dbg("[Probe] target %zu | standoff machine(%.2f,%.2f,%.2f A%.1f) "
+                        "-> through machine(%.2f,%.2f,%.2f A%.1f)",
+                        k, standoffM.x, standoffM.y, standoffM.z, standoffM.a,
+                        throughM.x, throughM.y, throughM.z, throughM.a);
+
+                    Pth travel = Pth::travel();
+                    travel.points.push_back(standoffM);
+                    op.paths.push_back(travel);
+
+                    Pth inter = Pth::intersect(100.0);   // slow probe feed (mm/min)
+                    inter.points.push_back(throughM);
+                    op.paths.push_back(inter);
+                }
+
+                if (op.paths.empty()) { return; }   // nothing probeable
+
+                ops.push_back(std::move(op));
+            };
+
+            // Cut operation from the stage's toolpath, grouping consecutive poses
+            // into Travel (rapid) / Cut (feed) paths.
+            auto appendCutOp = [&](Cam::App::Stage* state) {
 
                 if (buildAborted) { return; }
                 if (!state || !state->hasToolPath) { return; }
 
                 const Cam::Machine::MachineToolPath* path = getMachineToolPath(state);
-
                 if (!path || path->empty()) { return; }
 
-                // Always emit a tool change when the required tool differs from
-                // what is currently loaded — including the very first operation
-                // (loadedTool is empty at program start) so the Carvera's
-                // automatic tool-measurement cycle always runs before cutting.
-                if (state->toolPath.toolName != loadedTool) {
-                    emitToolChange(state->toolPath.toolName);
-                }
-                if (buildAborted) { return; }
+                const std::string toolName = state->toolPath.toolName;
+                const int slot = toolNumber(toolName);
 
-                loadedTool = state->toolPath.toolName;
+                if (toolName.empty() || slot <= 0) {
+                    dbg("[Execute] cut tool '%s' unresolved (slot %d) — aborting",
+                        toolName.c_str(), slot);
+                    buildAborted = true;
+                    return;
+                }
 
                 const double feed = state->toolPath.feedRate > 0.0
                     ? state->toolPath.feedRate
                     : 250.0;
 
+                Op op = Op::cut(slot, toolName, 12000.0);
+
+                Pth  current;
+                bool haveCurrent  = false;
+                bool currentRapid = true;
+
+                auto flush = [&]() {
+                    if (haveCurrent && !current.points.empty()) { op.paths.push_back(current); }
+                    haveCurrent = false;
+                };
+
                 for (const Cam::Machine::MachinePose& p : path->points) {
 
-                    const Rev::Core::Pos3 pos = p.toolWorldPose.position;
                     const double aDeg = p.rotaryAngle * radToDeg;
 
-                    // CAD world -> user frame -> machine, in one step.  The
-                    // user frame IS the machine frame: machine X/Y/Z = the
-                    // user-defined X/Y/Z directions (set by the "co" / "ax"
-                    // gestures), with the begin-work point as the origin.
-                    const Rev::Core::Pos3 inFrame = frame.toFrame(pos);
-
-                    const double machineX = inFrame.x - beginWorkInFrame.x;
-                    const double machineY = inFrame.y - beginWorkInFrame.y;
-                    const double machineZ = inFrame.z - beginWorkInFrame.z;
-
-                    // Spin up just before the first real cut — but only if the
-                    // spindle is armed.  Unarmed = a motion-only dry run.
-                    if (!p.rapid && !spindleOn &&
-                        Carvera::MachineLink::instance().isSpindleArmed()) {
-                        program.push_back(Step::spindle(12000.0));
-                        spindleOn = true;
+                    if (!haveCurrent || p.rapid != currentRapid) {
+                        flush();
+                        current      = p.rapid ? Pth::travel() : Pth::cut(feed);
+                        currentRapid = p.rapid;
+                        haveCurrent  = true;
                     }
 
-                    program.push_back(Step::moveTo(
-                        machineX, machineY, machineZ, aDeg,
-                        p.rapid ? 0.0 : feed));   // feed 0 → rapid
-                    emittedAny = true;
+                    current.points.push_back(toMachine(p.toolWorldPose.position, aDeg));
                 }
+
+                flush();
+
+                if (!op.paths.empty()) { ops.push_back(std::move(op)); }
+            };
+
+            auto appendState = [&](Cam::App::Stage* state) {
+                appendProbeOp(state);   // locate the part first, if this stage probes
+                appendCutOp(state);
             };
 
             const std::vector<Cam::App::Stage*> sequence =
@@ -2000,25 +2085,32 @@ export namespace Cam::Gui {
                 }
             }
             else {
-                appendState(materialStateWithToolPathForPreview(project));
+                // No cutting toolpaths in the sequence.  Still allow a probe-only
+                // material state (no delta/toolpath) to run on its own -- e.g. a
+                // single bench test probe.  previewSequence() filters to stages
+                // with a toolpath, so fall back to the toolpath preview state, or
+                // the displayed stage if it carries a probe.
+                Cam::App::Stage* fallback = materialStateWithToolPathForPreview(project);
+                if (!fallback && project->displayedStage &&
+                    project->displayedStage->hasProbe()) {
+                    fallback = project->displayedStage;
+                }
+                appendState(fallback);
             }
-
-            // Unconditionally stop the spindle at the end.
-            program.push_back(Step::spindle(0.0));
 
             if (buildAborted) {
-                dbg("[Execute] program build aborted — not streaming");
+                dbg("[Execute] operation build aborted — not streaming");
                 return;
             }
 
-            if (!emittedAny) {
-                dbg("[Execute] no machine path to stream");
+            if (ops.empty()) {
+                dbg("[Execute] no operations to stream");
                 return;
             }
 
-            dbg("[Execute] streaming %zu steps to the machine", program.size());
+            dbg("[Execute] streaming %zu operations to the machine", ops.size());
 
-            link.enqueueProgram(program);
+            link.enqueueOperations(ops);
         }
 
         void syncAllMaterialViews() {
@@ -2617,37 +2709,37 @@ export namespace Cam::Gui {
 
             if (!app || !view3d) { return false; }
 
+            // Picking uses the (invisible, selectable) pick actor, which is only
+            // enabled on the editable working state -- same gate as face picking.
+            if (!displayedModelIsEditable()) {
+                dbg("[Probe] select the working state to add probe points");
+                return false;
+            }
+
             Cam::App::Stage* state = displayedState();
-            if (!state) { dbg("[Probe] no displayed stage to probe"); return false; }
+            if (!state) { return false; }
 
             Cam::Gui::World::Stage* worldState = displayedMaterialView();
-            if (!worldState) { return false; }
+            if (!worldState || !worldState->pickActor) { return false; }
 
             Cam::App::Model* model = selectionModel();
             if (!model) { return false; }
 
-            // Precise surface hit point.
-            Rev::Core::Pos3 hitPoint;
-            if (!worldState->hitTestDisplayedPickPoint(
-                    view3d->camera.rayFromMouse(mousePos, view3d->canvasWidth(), view3d->canvasHeight()),
-                    model, hitPoint)) {
+            // GPU pick: gives BOTH the world-space surface point and the triangle
+            // (-> face -> outward normal) under the cursor.
+            View3d::Hit hit;
+            if (!view3d->hitTest(mousePos, hit)) {
                 dbg("[Probe] cursor not over the part");
                 return false;
             }
+            if (hit.actor != worldState->pickActor) { return false; }
+            if (hit.triangleId >= model->render.triangleFaceIds.size()) { return false; }
 
-            // Face under the cursor -> outward surface normal at the target.
-            Rev::Core::Pos3 normal;
-            View3d::Hit hit;
-            if (worldState->pickActor && view3d->hitTest(mousePos, hit) &&
-                hit.actor == worldState->pickActor &&
-                hit.triangleId < model->render.triangleFaceIds.size()) {
-                const size_t faceId = model->render.triangleFaceIds[hit.triangleId];
-                normal = model->faceNormal(faceId);
-            }
+            const size_t faceId = model->render.triangleFaceIds[hit.triangleId];
 
             Cam::App::ProbeTarget target;
-            target.point  = hitPoint;
-            target.normal = normal;
+            target.point  = hit.point;
+            target.normal = model->faceNormal(faceId);
 
             state->probe.enabled = true;       // pressing P implies "probe this stage"
             state->probe.targets.push_back(target);
@@ -2657,7 +2749,8 @@ export namespace Cam::Gui {
 
             dbg("[Probe] added point %zu at (%.2f, %.2f, %.2f) n(%.2f, %.2f, %.2f)",
                 state->probe.targets.size() - 1,
-                hitPoint.x, hitPoint.y, hitPoint.z, normal.x, normal.y, normal.z);
+                target.point.x, target.point.y, target.point.z,
+                target.normal.x, target.normal.y, target.normal.z);
 
             sync(e);
             notifyStateChanged(e);

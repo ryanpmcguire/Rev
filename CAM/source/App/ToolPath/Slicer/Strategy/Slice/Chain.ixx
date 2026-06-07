@@ -398,36 +398,17 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return interiorNormalAtSegment(s, t) * -1.0f;
         }
 
+        // Uniform offsets are just the per-segment offset with one shared
+        // amount, so they inherit the same arc-aware support joining (extend
+        // each segment's support, intersect consecutive supports, adopt the
+        // nearest crossing as the corner).  This is what keeps offset arcs
+        // properly trimmed to their neighbors instead of floating free.
         Chain offsetInterior(float amount) const {
-
-            Chain out;
-
-            if (empty()) { return out; }
-
-            for (size_t i = 0; i < segments.size(); i++) {
-
-                out.push(offsetSegmentNormal(segments[i], amount, true));
-            }
-
-            out.relinkNeighbors();
-
-            return out;
+            return insetPerSegment(std::vector<float>(segments.size(), amount));
         }
 
         Chain offsetExterior(float amount) const {
-
-            Chain out;
-
-            if (empty()) { return out; }
-
-            for (size_t i = 0; i < segments.size(); i++) {
-
-                out.push(offsetSegmentNormal(segments[i], amount, false));
-            }
-
-            out.relinkNeighbors();
-
-            return out;
+            return insetPerSegment(std::vector<float>(segments.size(), -amount));
         }
 
         // Offset each segment by its own signed amount, preserving segment
@@ -471,22 +452,37 @@ export namespace Cam::App::Slicer::Strategy::Slice {
                 const Segment& a = off[k];
                 const Segment& b = off[(k + 1) % n];
 
-                Pos gap = (a.end() + b.start()) * 0.5f;
-
                 std::vector<Pos> candidates;
                 supportIntersections(a, b, candidates);
 
-                Pos chosen = gap;
-                float bestDistance = 0.0f;
+                // Fallback if the supports don't meet: bridge the gap midpoint.
+                Pos chosen = (a.end() + b.start()) * 0.5f;
+                float bestCost = 0.0f;
                 bool found = false;
 
                 for (const Pos& c : candidates) {
 
-                    float d = c.distanceTo(gap);
+                    // A line/circle (or circle/circle) pair yields two crossings;
+                    // we must pick the one that continues each segment in the
+                    // direction it actually runs, not the far side.  In parameter
+                    // space the natural corner sits just past a's end (t = 1) and
+                    // just before b's start (t = 0), so the right crossing is the
+                    // one minimizing the parametric travel from those endpoints.
+                    float ta = 0.0f;
+                    float tb = 0.0f;
 
-                    if (!found || d < bestDistance) {
+                    float cost;
+
+                    if (paramOnSegment(a, c, ta) && paramOnSegment(b, c, tb)) {
+                        cost = std::abs(ta - 1.0f) + std::abs(tb);
+                    }
+                    else {
+                        cost = c.distanceTo(chosen);
+                    }
+
+                    if (!found || cost < bestCost) {
                         chosen = c;
-                        bestDistance = d;
+                        bestCost = cost;
                         found = true;
                     }
                 }
@@ -657,31 +653,6 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // Relinking
         //--------------------------------------------------
 
-        bool alreadyLinked(size_t i, size_t j, float eps = 1e-4f) const {
-            return segments[i].end().distanceTo(segments[j].start()) <= eps;
-        }
-
-        void relinkNeighbors(float eps = 1e-4f) {
-
-            if (segments.size() < 2) { return; }
-
-            for (size_t i = 0; i < segments.size(); i++) {
-
-                size_t j = (i + 1) % segments.size();
-
-                if (alreadyLinked(i, j, eps)) {
-                    continue;
-                }
-
-                Pos p = segments[i].generalizedIntersection(segments[j], eps);
-
-                if (!p) { continue; }
-
-                segments[i].setEnd(p);
-                segments[j].setStart(p);
-            }
-        }
-
         void healSelfIntersections() {
 
             if (segments.size() < 4) { return; }
@@ -791,125 +762,266 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             return false;
         }
 
-        // Proper crossing of (a,b) and (c,d): returns the crossing point, but
-        // only for a real interior crossing (strict 0<t<1, 0<u<1), so shared
-        // endpoints / collinear touches at legitimate joins are excluded.
-        static bool segmentIntersectionPoint(
-            const Pos& a, const Pos& b,
-            const Pos& c, const Pos& d,
-            Pos& out
-        ) {
-            const float rx = b.x - a.x, ry = b.y - a.y;
-            const float sx = d.x - c.x, sy = d.y - c.y;
+        // Parametric position (0..1) of a point known to lie on a segment's
+        // support.  Lines project onto the chord; arcs convert the polar angle
+        // back to sweep fraction.  Used to split a segment exactly at a crossing.
+        static bool paramOnSegment(const Segment& s, const Pos& p, float& t) {
+            switch (s.kind) {
 
-            const float denom = rx * sy - ry * sx;
+                case Segment::Kind::Arc: {
 
-            if (std::abs(denom) < 1e-12f) { return false; }  // parallel / collinear
+                    float span = s.f2 - s.f1;
 
-            const float t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / denom;
-            const float u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / denom;
+                    if (std::abs(span) <= 1e-9f) { return false; }
 
-            if (t <= 0.0f || t >= 1.0f || u <= 0.0f || u >= 1.0f) { return false; }
+                    float angle = nearestAngle(std::atan2(p.y - s.p0.y, p.x - s.p0.x), s.f1);
 
-            out = { a.x + t * rx, a.y + t * ry };
+                    t = (angle - s.f1) / span;
 
-            return true;
+                    return true;
+                }
+
+                default: {
+
+                    Pos ab = s.end() - s.start();
+
+                    float len2 = ab.dot(ab);
+
+                    if (len2 <= 1e-12f) { return false; }
+
+                    t = (p - s.start()).dot(ab) / len2;
+
+                    return true;
+                }
+            }
         }
 
-        // Fractalize: split a (possibly self-intersecting) chain into its simple
-        // closed sub-loops.  At each self-intersection the loop is pinched into
-        // two: the part between the two crossing edges, and the remainder; both
-        // close at the crossing point.  We recurse until every piece is simple.
-        //
-        // A non-self-intersecting chain is returned unchanged (exact geometry,
-        // arcs preserved); only tangled offsets are linearised via sampling.
-        // Orientation/area filtering (dropping inverted pinch lobes) is left to
-        // the caller, which knows the source winding.
-        std::vector<Chain> splitSimpleLoops(float eps = 1e-4f) const {
+        // Split a segment at parameter t into its two halves, preserving kind:
+        // a line splits into two lines, an arc into two concentric arcs (split
+        // angle), a bezier via de Casteljau.
+        static void splitSegmentAt(const Segment& s, float t, Segment& left, Segment& right) {
+            switch (s.kind) {
 
-            if (!selfIntersects(eps)) {
+                case Segment::Kind::Arc: {
+
+                    float at = s.f1 + (s.f2 - s.f1) * t;
+
+                    left = Segment::Arc(s.p0, s.f0, s.f1, at);
+                    right = Segment::Arc(s.p0, s.f0, at, s.f2);
+
+                    return;
+                }
+
+                case Segment::Kind::Bezier: {
+
+                    Pos p01 = s.p0 + (s.p1 - s.p0) * t;
+                    Pos p12 = s.p1 + (s.p2 - s.p1) * t;
+                    Pos p23 = s.p2 + (s.p3 - s.p2) * t;
+
+                    Pos p012 = p01 + (p12 - p01) * t;
+                    Pos p123 = p12 + (p23 - p12) * t;
+
+                    Pos mid = p012 + (p123 - p012) * t;
+
+                    left = Segment::Bezier(s.p0, p01, p012, mid);
+                    right = Segment::Bezier(mid, p123, p23, s.p3);
+
+                    return;
+                }
+
+                default: {
+
+                    Pos p = s.pointAt(t);
+
+                    left = Segment::Line(s.start(), p);
+                    right = Segment::Line(p, s.end());
+
+                    return;
+                }
+            }
+        }
+
+        // A self-crossing between two non-adjacent segments: the exact crossing
+        // point and the parameter on each segment.
+        struct SelfCrossing {
+            Pos p;
+            size_t i = 0;
+            size_t j = 0;
+            float ti = 0.0f;
+            float tj = 0.0f;
+        };
+
+        // Find the first genuine crossing between two non-adjacent segments,
+        // using exact segment-vs-segment geometry (extended supports intersected,
+        // then validated to lie strictly inside both spans).  Unlike the sampled
+        // selfIntersects() this returns where to cut, not merely whether to.
+        bool firstSelfCrossing(SelfCrossing& out, float eps = 1e-4f) const {
+
+            const size_t n = segments.size();
+
+            if (n < 2) { return false; }
+
+            const bool isClosed = closed(eps);
+
+            for (size_t i = 0; i < n; i++) {
+
+                for (size_t j = i + 2; j < n; j++) {
+
+                    // seg 0 and seg n-1 share a vertex on a closed loop.
+                    if (isClosed && i == 0 && j == n - 1) { continue; }
+
+                    std::vector<Pos> candidates;
+                    supportIntersections(segments[i], segments[j], candidates);
+
+                    for (const Pos& c : candidates) {
+
+                        float ti = 0.0f;
+                        float tj = 0.0f;
+
+                        if (!paramOnSegment(segments[i], c, ti)) { continue; }
+                        if (!paramOnSegment(segments[j], c, tj)) { continue; }
+
+                        if (ti <= eps || ti >= 1.0f - eps) { continue; }
+                        if (tj <= eps || tj >= 1.0f - eps) { continue; }
+
+                        out = { c, i, j, ti, tj };
+
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        // Fractalize: split a self-intersecting chain into the minimum number of
+        // simple closed sub-loops that, drawn together, are indistinguishable
+        // from the original.  At the first crossing the loop is pinched in two —
+        // the span between the crossing edges, and the remainder — both closed
+        // at the crossing point, and each is recursed on until simple.
+        //
+        // Geometry is preserved exactly: the segments on either side of the cut
+        // keep their type (arcs stay arcs) and only the two crossing segments
+        // are split, so the loop count stays minimal and segments do not
+        // multiply.  A simple chain is returned unchanged.  Orientation/area
+        // filtering (dropping inverted pinch lobes) is left to the caller.
+        std::vector<Chain> splitSimpleLoops(float eps = 1e-4f, int budget = 512) const {
+
+            SelfCrossing x;
+
+            if (budget <= 0 || !firstSelfCrossing(x, eps)) {
                 return { *this };
             }
 
-            std::vector<Pos> base;
-            sample(base, 8);
+            Segment iLeft, iRight, jLeft, jRight;
 
-            if (
-                base.size() >= 2 &&
-                base.front().distanceTo(base.back()) <= eps
-            ) {
-                base.pop_back();
-            }
+            splitSegmentAt(segments[x.i], x.ti, iLeft, iRight);
+            splitSegmentAt(segments[x.j], x.tj, jLeft, jRight);
+
+            // Pin all four cut ends exactly onto the crossing point.
+            setSegmentEnd(iLeft, x.p);
+            setSegmentStart(iRight, x.p);
+            setSegmentEnd(jLeft, x.p);
+            setSegmentStart(jRight, x.p);
+
+            // Inner loop: iRight, segs (i+1 .. j-1), jLeft.  Closes at x.p.
+            Chain loopA;
+            loopA.push(iRight);
+            for (size_t k = x.i + 1; k < x.j; k++) { loopA.push(segments[k]); }
+            loopA.push(jLeft);
+
+            // Outer loop: jRight, segs (j+1 .. n-1), segs (0 .. i-1), iLeft.
+            Chain loopB;
+            loopB.push(jRight);
+            for (size_t k = x.j + 1; k < segments.size(); k++) { loopB.push(segments[k]); }
+            for (size_t k = 0; k < x.i; k++) { loopB.push(segments[k]); }
+            loopB.push(iLeft);
 
             std::vector<Chain> out;
-            std::vector<std::vector<Pos>> work;
-            work.push_back(base);
 
-            int guard = 0;
-            const int guardMax = 8192;
+            for (const Chain& part : loopA.splitSimpleLoops(eps, budget - 1)) {
+                out.push_back(part);
+            }
 
-            while (!work.empty() && guard++ < guardMax) {
-
-                std::vector<Pos> poly = work.back();
-                work.pop_back();
-
-                const size_t m = poly.size();
-
-                if (m < 3) { continue; }
-
-                bool found = false;
-                size_t fi = 0, fj = 0;
-                Pos p;
-
-                for (size_t i = 0; i < m && !found; i++) {
-
-                    const Pos& a0 = poly[i];
-                    const Pos& a1 = poly[(i + 1) % m];
-
-                    for (size_t j = i + 2; j < m; j++) {
-
-                        if (i == 0 && j == m - 1) { continue; }  // wrap-adjacent
-
-                        const Pos& b0 = poly[j];
-                        const Pos& b1 = poly[(j + 1) % m];
-
-                        if (segmentIntersectionPoint(a0, a1, b0, b1, p)) {
-                            found = true;
-                            fi = i;
-                            fj = j;
-                            break;
-                        }
-                    }
-                }
-
-                if (!found) {
-
-                    Chain loop;
-
-                    for (size_t k = 0; k < m; k++) {
-                        loop.push(Segment::Line(poly[k], poly[(k + 1) % m]));
-                    }
-
-                    out.push_back(loop);
-                    continue;
-                }
-
-                // Inner loop: crossing point + poly[fi+1 .. fj].
-                std::vector<Pos> loopA;
-                loopA.push_back(p);
-                for (size_t k = fi + 1; k <= fj; k++) { loopA.push_back(poly[k]); }
-
-                // Outer remainder: crossing point + poly[fj+1 ..] + poly[.. fi].
-                std::vector<Pos> loopB;
-                loopB.push_back(p);
-                for (size_t k = fj + 1; k < m; k++) { loopB.push_back(poly[k]); }
-                for (size_t k = 0; k <= fi; k++) { loopB.push_back(poly[k]); }
-
-                work.push_back(loopA);
-                work.push_back(loopB);
+            for (const Chain& part : loopB.splitSimpleLoops(eps, budget - 1)) {
+                out.push_back(part);
             }
 
             return out;
+        }
+
+        // Concentric clearing (depth-first)
+        //--------------------------------------------------
+
+        // Repeatedly offset this ring — inward when `interior`, outward
+        // otherwise — emitting each clean ring into `out`.  When an offset
+        // self-intersects, fracture it into minimal simple loops (geometry
+        // preserved); each genuine loop (winding matching `windingRef`, area
+        // above `minArea`) is emitted and then cleared recursively, depth-first.
+        // Fracturing is capped at `maxSplitDepth` levels so a pathological
+        // region cannot fragment without bound.
+        void gatherConcentric(
+            std::vector<Chain>& out,
+            float step,
+            float minArea,
+            bool interior,
+            int windingRef,
+            int splitDepth,
+            int maxSplitDepth,
+            int maxPasses = 256
+        ) const {
+
+            Chain current = *this;
+
+            for (int pass = 0; pass < maxPasses; pass++) {
+
+                Chain next = interior
+                    ? current.offsetInterior(step)
+                    : current.offsetExterior(step);
+
+                if (next.empty()) { return; }
+
+                if (next.selfIntersects()) {
+
+                    // Out of fracture budget — stop descending this branch.
+                    if (splitDepth >= maxSplitDepth) { return; }
+
+                    for (Chain& loop : next.splitSimpleLoops()) {
+
+                        if (loop.size() < 2) { continue; }
+
+                        const float area = loop.signedArea();
+
+                        if (std::abs(area) <= minArea) { continue; }   // scrap
+
+                        const int sign = area > 0.0f ? 1 : -1;
+
+                        // Drop inverted pinch lobes (opposite the source winding).
+                        if (windingRef != 0 && sign != windingRef) { continue; }
+
+                        out.push_back(loop);
+
+                        loop.gatherConcentric(
+                            out, step, minArea, interior, windingRef,
+                            splitDepth + 1, maxSplitDepth, maxPasses
+                        );
+                    }
+
+                    return;
+                }
+
+                // Clean ring: a collapsed (~zero area) ring is terminal.
+                if (next.closed() && std::abs(next.signedArea()) <= minArea) {
+                    return;
+                }
+
+                out.push_back(next);
+
+                // Too little left to host another distinct pass.
+                if (std::abs(next.signedArea()) <= minArea) { return; }
+
+                current = next;
+            }
         }
 
         // Sampling
@@ -936,6 +1048,117 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
                     out.push_back(s.pointAt(t));
                 }
+            }
+        }
+
+        // Boundary tracing
+        //--------------------------------------------------
+
+        // The portion of a segment between parameters t0 and t1 (t0 <= t1),
+        // preserving kind exactly (arcs stay arcs, so the piece lies exactly on
+        // the original curve).
+        static Segment subSegment(const Segment& s, float t0, float t1) {
+            switch (s.kind) {
+
+                case Segment::Kind::Arc: {
+                    float a0 = s.f1 + (s.f2 - s.f1) * t0;
+                    float a1 = s.f1 + (s.f2 - s.f1) * t1;
+                    return Segment::Arc(s.p0, s.f0, a0, a1);
+                }
+
+                case Segment::Kind::Bezier: {
+                    Segment left, right;
+                    splitSegmentAt(s, t0, left, right);
+
+                    if (t1 >= 1.0f - 1e-6f) { return right; }
+
+                    float u = (t1 - t0) / (1.0f - t0);
+
+                    Segment l2, r2;
+                    splitSegmentAt(right, u, l2, r2);
+
+                    return l2;
+                }
+
+                default: {
+                    return Segment::Line(s.pointAt(t0), s.pointAt(t1));
+                }
+            }
+        }
+
+        // Append the exact path that runs ALONG this chain, forward (increasing
+        // segment index, wrapping), from (fromSeg, fromT) to (toSeg, toT).
+        // Geometry is preserved, so the traced link lies exactly on the boundary
+        // and therefore can never cross it.  "Forward" is the chain's stored
+        // direction.
+        void traceForwardArc(size_t fromSeg, float fromT, size_t toSeg, float toT, std::vector<Segment>& out) const {
+
+            const size_t n = segments.size();
+
+            if (n == 0) { return; }
+
+            fromSeg %= n;
+            toSeg %= n;
+
+            fromT = std::clamp(fromT, 0.0f, 1.0f);
+            toT = std::clamp(toT, 0.0f, 1.0f);
+
+            // Short hop within a single segment, no wrap.
+            if (fromSeg == toSeg && toT >= fromT) {
+                out.push_back(subSegment(segments[fromSeg], fromT, toT));
+                return;
+            }
+
+            // Tail of the starting segment.
+            out.push_back(subSegment(segments[fromSeg], fromT, 1.0f));
+
+            // Whole segments up to (but not including) the target.
+            size_t i = (fromSeg + 1) % n;
+
+            for (size_t guard = 0; guard < n; guard++) {
+
+                if (i == toSeg) { break; }
+
+                out.push_back(segments[i]);
+                i = (i + 1) % n;
+            }
+
+            // Head of the target segment.
+            out.push_back(subSegment(segments[toSeg], 0.0f, toT));
+        }
+
+        // Arc length of the forward trace from (fromSeg,fromT) to (toSeg,toT).
+        float forwardArcLength(size_t fromSeg, float fromT, size_t toSeg, float toT) const {
+
+            std::vector<Segment> tmp;
+            traceForwardArc(fromSeg, fromT, toSeg, toT, tmp);
+
+            float length = 0.0f;
+
+            for (const Segment& s : tmp) { length += s.length(); }
+
+            return length;
+        }
+
+        // Trace along the chain from (fromSeg,fromT) to (toSeg,toT) the SHORTER
+        // way around, emitting exact on-boundary geometry (so it never crosses
+        // the boundary).  This is the link used to reach the next raster lane.
+        void traceArc(size_t fromSeg, float fromT, size_t toSeg, float toT, std::vector<Segment>& out) const {
+
+            const float forward = forwardArcLength(fromSeg, fromT, toSeg, toT);
+            const float backward = forwardArcLength(toSeg, toT, fromSeg, fromT);
+
+            if (forward <= backward) {
+                traceForwardArc(fromSeg, fromT, toSeg, toT, out);
+                return;
+            }
+
+            // Walk the other way: trace forward target -> source, then reverse.
+            std::vector<Segment> tmp;
+            traceForwardArc(toSeg, toT, fromSeg, fromT, tmp);
+
+            for (size_t i = tmp.size(); i-- > 0; ) {
+                out.push_back(tmp[i].reversed());
             }
         }
 

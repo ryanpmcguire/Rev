@@ -718,7 +718,7 @@ export namespace Cam::App {
 
             Rev::OS::File selected;
 
-            if (!selected.open("Open CAM Project", "CAM Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0")) { return false; }
+            if (!selected.open("Open CAM Project", "cam Project\0*.cam\0JSON Files\0*.json\0All Files\0*.*\0")) { return false; }
 
             Project* project = createEmptyProject("Untitled Project");
 
