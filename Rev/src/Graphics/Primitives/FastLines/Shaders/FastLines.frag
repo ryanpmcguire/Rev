@@ -1,8 +1,8 @@
 #version 430 core
 
-// Antialiased stroke via a segment SDF. Round caps and joins fall out of the
-// distance-to-segment math: any fragment within `half` of the segment is solid,
-// with a `v_aa`-wide smoothstep fringe.
+// Antialiased stroke. Body fragments use a segment SDF (round caps fall out of
+// the distance math); convex join-fan fragments use distance to the join point,
+// giving a true round join. Both fade over a `v_aa`-wide smoothstep.
 
 layout(std140, binding = 1) uniform Data {
     vec4  uColor;
@@ -15,8 +15,10 @@ layout(std140, binding = 1) uniform Data {
 in vec2 v_pos;
 flat in vec2 v_p0;
 flat in vec2 v_p1;
+flat in vec2 v_join;
 flat in float v_half;
 flat in float v_aa;
+flat in float v_round;
 
 out vec4 FragColor;
 
@@ -29,8 +31,18 @@ float sdSegment(vec2 p, vec2 a, vec2 b) {
 
 void main() {
 
-    float d = sdSegment(v_pos, v_p0, v_p1) - v_half;
-    float alpha = 1.0 - smoothstep(0.0, v_aa, d);
+    float alpha;
+
+    if (v_round > 0.5) {
+        // Corner fan: fills the inner slice (M -> outer butts), all of which is
+        // inside the stroke, so it is solid. Its outer edge meets the body quads
+        // at the outer butt corners (a clean bevel join).
+        alpha = 1.0;
+    }
+    else {
+        float d = sdSegment(v_pos, v_p0, v_p1) - v_half;
+        alpha = 1.0 - smoothstep(0.0, v_aa, d);
+    }
 
     if (alpha <= 0.0) { discard; }
 

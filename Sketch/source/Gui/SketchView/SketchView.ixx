@@ -342,6 +342,22 @@ export namespace Sketch::Gui {
 
         void appendGeometry(const SketchGeometry& g, Color color) {
 
+            // Polylines are continuous paths: one Line each, so the primitive
+            // miters their interior joins.
+            for (const Sketch::App::Polyline2& pl : g.polylines) {
+
+                if (pl.points.size() < 2) { continue; }
+
+                std::vector<Vertex> pts;
+                pts.reserve(pl.points.size());
+                for (const Sketch::App::Point2& p : pl.points) {
+                    pts.push_back(worldToScreen(p.x, p.y));
+                }
+
+                geometry->lines.push_back({ .points = std::move(pts), .color = color });
+            }
+
+            // Standalone segments (previews / helpers) stay as 2-point lines.
             for (const Sketch::App::Segment2& s : g.segments) {
                 geometry->lines.push_back({
                     .points = { worldToScreen(s.ax, s.ay), worldToScreen(s.bx, s.by) },

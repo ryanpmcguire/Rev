@@ -67,11 +67,13 @@ def impl_path(xpp_root: Path, rel: str) -> Path:
 
 
 def transpile_impl(rel: str, repo: Path, xpp_root: Path,
-                   module_hpp: dict[str, Path]) -> Path:
+                   module_hpp: dict[str, Path],
+                   project_root: Path | None = None) -> tuple[Path, list[str]]:
     """Lower a NON-module source (e.g. main.cpp): rewrite `import` -> `#include`
     and drop module-fragment lines. No header, no relocation -- it defines no
     interface and is included by nobody."""
     src = repo / rel
+    res_paths: list[str] = []
     raw = src.read_bytes().decode("latin-1")
     masked = _mask(raw)
     edits: list[tuple[int, int, str]] = _include_edits(raw, masked, src.parent)
@@ -92,12 +94,12 @@ def transpile_impl(rel: str, repo: Path, xpp_root: Path,
     out.parent.mkdir(parents=True, exist_ok=True)
     body = _apply_edits(raw, edits)
     if has_managed:
-        body = _expand_file_macro(body)
+        body, res_paths = _expand_file_macro(body, src.parent, project_root)
     text = (f"// clever-transpiled implementation source from {rel}\n"
             f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
     text = _inject_unleak(text)
     out.write_bytes(text.encode("latin-1"))
-    return out
+    return out, sorted(set(res_paths))
 
 
 def build_module_hpp_map(digests: dict[str, dict], xpp_root: Path) -> dict[str, Path]:
@@ -194,13 +196,58 @@ _MANAGED_RE = re.compile(r'[<"]managed\.hpp[>"]')
 _MANAGED_INC_RE = re.compile(r'(?m)^[ \t]*#[ \t]*include[ \t]*[<"]managed\.hpp[>"][ \t]*$')
 
 
-def _expand_file_macro(text: str) -> str:
-    """Replay managed.hpp's `#define File(path) Resource::FromFile(__FILE__,(path))`
-    textually, so we can drop the leaking macro header. Only called for files
-    that actually included managed.hpp, where every `File(...)` was the macro
-    (module isolation guaranteed no struct-File collision in those units)."""
+_STR_LIT_RE = re.compile(r'^\s*"((?:[^"\\]|\\.)*)"\s*$')
+
+
+def _resolve_resource(path: str, src_dir: Path, project_root: Path | None) -> Path | None:
+    """Resolve a File("...") path the way Resource::FromFile does: a `./` prefix
+    is relative to the source file's directory; otherwise it's project-root
+    relative."""
+    clean = path.replace("\\", "/")
+    if clean.startswith("./"):
+        cand = (src_dir / clean[2:])
+    elif project_root is not None:
+        cand = (project_root / clean)
+    else:
+        return None
+    try:
+        cand = cand.resolve()
+        return cand if cand.is_file() else None
+    except OSError:
+        return None
+
+
+def _embed_literal(data: str) -> str:
+    """A C++ string literal holding `data` (latin-1 chars == raw bytes).
+
+    Text resources (valid UTF-8) use a raw string literal (compact, fast to
+    compile). Binary resources (e.g. fonts) would be invalid UTF-8 inside the
+    .cpp, so they are emitted as octal escapes in an ordinary literal -- always
+    valid source, unambiguous (3-digit octal), handles any byte."""
+    raw_bytes = data.encode("latin-1")
+    try:
+        raw_bytes.decode("utf-8")
+        is_text = True
+    except UnicodeDecodeError:
+        is_text = False
+    if is_text:
+        delim = "CLEVERRES"
+        while (")" + delim + '"') in data:
+            delim += "X"
+        return f'R"{delim}({data}){delim}"'
+    return '"' + "".join(f"\\{b:03o}" for b in raw_bytes) + '"'
+
+
+def _expand_file_macro(text: str, src_dir: Path | None = None,
+                       project_root: Path | None = None) -> tuple[str, list[str]]:
+    """Replay managed.hpp's `File(path)` macro. A `File("literal")` whose path
+    resolves to a real file is EMBEDDED as `Resource::FromString(<bytes>, <n>)`
+    (so resources are baked in and re-embedded when they change); anything else
+    falls back to `Resource::FromFile(__FILE__, (args))`. Returns the rewritten
+    text and the list of embedded resource file paths (for dirtiness tracking)."""
     masked = _mask(text)
     edits = []
+    res_paths: list[str] = []
     for m in re.finditer(r"\bFile\b", masked):
         j = m.end()
         while j < len(masked) and masked[j] in " \t\r\n":
@@ -220,9 +267,18 @@ def _expand_file_macro(text: str) -> str:
         if k >= len(masked):
             continue
         args = text[j + 1:k]
-        edits.append((m.start(), k + 1,
-                      f"::Rev::Core::Resource::FromFile(__FILE__, ({args}))"))
-    return _apply_edits(text, edits)
+        repl = None
+        lit = _STR_LIT_RE.match(args)
+        if lit and src_dir is not None:
+            res = _resolve_resource(lit.group(1), src_dir, project_root)
+            if res is not None:
+                data = res.read_bytes().decode("latin-1")
+                repl = f"::Rev::Core::Resource::FromString({_embed_literal(data)}, {len(data)})"
+                res_paths.append(str(res).replace("\\", "/"))
+        if repl is None:
+            repl = f"::Rev::Core::Resource::FromFile(__FILE__, ({args}))"
+        edits.append((m.start(), k + 1, repl))
+    return _apply_edits(text, edits), res_paths
 
 
 _UNLEAK = ["interface"]  # windows.h macro that clobbers identifiers; NOT far/near
@@ -428,9 +484,17 @@ def _apply_edits(text: str, edits: list[tuple[int, int, str]]) -> str:
     return "".join(out)
 
 
-def transpile(rel: str, repo: Path, xpp_root: Path,
-              module_hpp: dict[str, Path], parse_args: list[str]) -> tuple[Path | None, Path | None]:
+def _project_root_from_args(parse_args: list[str]) -> Path | None:
+    for a in parse_args:
+        if a.startswith("-DPROJECT_ROOT="):
+            return Path(a.split("=", 1)[1].strip('"').strip())
+    return None
+
+
+def transpile(rel: str, repo: Path, xpp_root: Path, module_hpp: dict[str, Path],
+              parse_args: list[str]) -> tuple[Path | None, Path | None, list[str]]:
     src = repo / rel
+    project_root = _project_root_from_args(parse_args)
     # libclang reports offsets in UTF-8 *bytes*, but we index Python strings by
     # character. Round-tripping the UTF-8 bytes through latin-1 yields a string
     # where 1 char == 1 byte, so string indices and libclang byte offsets match
@@ -440,7 +504,8 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
     masked = _mask(raw)
     buf, module, imports = _demodularize(raw, masked)  # offset-preserving
     if module is None:
-        return None, None
+        return None, None, []
+    res_paths: list[str] = []
 
     # Hand libclang the real UTF-8 bytes (latin-1 re-encode reconstructs them).
     # A fresh Index per call keeps transpilation thread-safe (a single shared
@@ -486,15 +551,19 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
     # Build .hpp
     body = _apply_edits(raw, edits)
     if has_managed:
-        body = _expand_file_macro(body)  # inline-body File(...) calls
+        body, rp = _expand_file_macro(body, src.parent, project_root)  # inline-body File(...)
+        res_paths += rp
     stem = Path(rel).stem
     hpp = hpp_path(xpp_root, module, stem)
     cpp = cpp_path(xpp_root, module, stem)
     hpp.parent.mkdir(parents=True, exist_ok=True)
     # Re-encode latin-1 -> bytes restores the original UTF-8 byte stream.
+    # NOTE: do NOT un-leak `interface` in HEADERS. A header's `#undef interface`
+    # would strip the macro before a *later*-included Windows header (e.g.
+    # shobjidl.h's `typedef interface IFoo`) needs it. The un-leak is applied
+    # only in the .cpp (the final TU, after all system headers are included).
     hpp_text = (f"#pragma once\n// clever-transpiled from {rel}\n"
                 f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
-    hpp_text = _inject_unleak(hpp_text)
     hpp.write_bytes(hpp_text.encode("latin-1"))
 
     # Build .cpp
@@ -508,8 +577,9 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
             out.append("}")
     cpp_text = "\n".join(out) + "\n"
     if has_managed:
-        cpp_text = _expand_file_macro(cpp_text)  # relocated-body File(...) calls
+        cpp_text, rp = _expand_file_macro(cpp_text, src.parent, project_root)  # relocated-body File(...)
+        res_paths += rp
     cpp_text = _inject_unleak(cpp_text)
     cpp.write_bytes(cpp_text.encode("latin-1"))
 
-    return hpp, cpp
+    return hpp, cpp, sorted(set(res_paths))

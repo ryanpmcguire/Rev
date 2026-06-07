@@ -21,7 +21,16 @@ export namespace Rev::Core {
             return data == other.data && size == other.size;
         }
 
-        static Resource FromFile(const std::string& anchor, const std::string& relativePath) 
+        // clever inlines resource bytes at transpile time and rewrites
+        // File("./x") -> Resource::FromString(<bytes literal>, <size>). The
+        // literal has static storage, so the pointer stays valid for the
+        // program's lifetime. (The CMake build still uses FromFile + the atlas.)
+        static Resource FromString(const char* data, size_t size)
+        {
+            return Resource{ reinterpret_cast<const unsigned char*>(data), size };
+        }
+
+        static Resource FromFile(const std::string& anchor, const std::string& relativePath)
         {
             Resource resource{};
 

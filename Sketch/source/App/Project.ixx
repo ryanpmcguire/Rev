@@ -113,6 +113,19 @@ export namespace Sketch::App {
         void addCircle(const Circle2& circle)   { geometry.circles.push_back(circle);   dirty = true; }
         void addArc(const Arc2& arc)            { geometry.arcs.push_back(arc);          dirty = true; }
 
+        // Append a polyline, returning its index so a tool can keep extending it.
+        size_t addPolyline(const Polyline2& line) {
+            geometry.polylines.push_back(line);
+            dirty = true;
+            return geometry.polylines.size() - 1;
+        }
+
+        void replacePolyline(size_t index, const Polyline2& line) {
+            if (index >= geometry.polylines.size()) { return; }
+            geometry.polylines[index] = line;
+            dirty = true;
+        }
+
         void clearGeometry() {
             geometry.clear();
             dirty = true;

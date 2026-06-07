@@ -41,6 +41,28 @@ export namespace Sketch::App {
         }
     };
 
+    // A connected chain of points: one continuous path (the line tool's output).
+    // A 2-point polyline is just a single segment; more points form a chain whose
+    // interior joints are real, linked vertices.
+    struct Polyline2 {
+
+        std::vector<Point2> points;
+
+        Json toJson() const {
+            Json arr = Json::array();
+            for (const Point2& p : points) { arr.push_back(p.toJson()); }
+            return Json{ { "points", arr } };
+        }
+
+        static Polyline2 fromJson(const Json& j) {
+            Polyline2 line;
+            if (auto it = j.find("points"); it != j.end() && it->is_array()) {
+                for (const Json& e : *it) { line.points.push_back(Point2::fromJson(e)); }
+            }
+            return line;
+        }
+    };
+
     struct Circle2 {
 
         double cx = 0.0, cy = 0.0;   // center
@@ -92,18 +114,20 @@ export namespace Sketch::App {
 
         std::vector<Point2> points;
         std::vector<Segment2> segments;
+        std::vector<Polyline2> polylines;
         std::vector<Circle2> circles;
         std::vector<Arc2> arcs;
 
         void clear() {
             points.clear();
             segments.clear();
+            polylines.clear();
             circles.clear();
             arcs.clear();
         }
 
         bool empty() const {
-            return points.empty() && segments.empty()
+            return points.empty() && segments.empty() && polylines.empty()
                 && circles.empty() && arcs.empty();
         }
 
@@ -111,15 +135,17 @@ export namespace Sketch::App {
 
             Json out;
 
-            out["points"]   = Json::array();
-            out["segments"] = Json::array();
-            out["circles"]  = Json::array();
-            out["arcs"]     = Json::array();
+            out["points"]    = Json::array();
+            out["segments"]  = Json::array();
+            out["polylines"] = Json::array();
+            out["circles"]   = Json::array();
+            out["arcs"]      = Json::array();
 
-            for (const Point2& p : points)   { out["points"].push_back(p.toJson()); }
-            for (const Segment2& s : segments) { out["segments"].push_back(s.toJson()); }
-            for (const Circle2& c : circles)  { out["circles"].push_back(c.toJson()); }
-            for (const Arc2& a : arcs)        { out["arcs"].push_back(a.toJson()); }
+            for (const Point2& p : points)      { out["points"].push_back(p.toJson()); }
+            for (const Segment2& s : segments)  { out["segments"].push_back(s.toJson()); }
+            for (const Polyline2& l : polylines) { out["polylines"].push_back(l.toJson()); }
+            for (const Circle2& c : circles)    { out["circles"].push_back(c.toJson()); }
+            for (const Arc2& a : arcs)          { out["arcs"].push_back(a.toJson()); }
 
             return out;
         }
@@ -133,6 +159,9 @@ export namespace Sketch::App {
             }
             if (auto it = j.find("segments"); it != j.end() && it->is_array()) {
                 for (const Json& e : *it) { g.segments.push_back(Segment2::fromJson(e)); }
+            }
+            if (auto it = j.find("polylines"); it != j.end() && it->is_array()) {
+                for (const Json& e : *it) { g.polylines.push_back(Polyline2::fromJson(e)); }
             }
             if (auto it = j.find("circles"); it != j.end() && it->is_array()) {
                 for (const Json& e : *it) { g.circles.push_back(Circle2::fromJson(e)); }

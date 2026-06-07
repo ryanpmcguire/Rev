@@ -31,14 +31,15 @@ def _transpile_worker(task):
     threads don't help; separate processes do."""
     from pathlib import Path
     from . import transpile as _tx
-    rel, repo, xpp, mhpp, parse_args = task
+    rel, repo, xpp, mhpp, parse_args, project_root = task
     repo = Path(repo); xpp = Path(xpp)
     mhpp = {k: Path(v) for k, v in mhpp.items()}
+    pr = Path(project_root) if project_root else None
     if rel.endswith(".ixx"):
-        _, cpp = _tx.transpile(rel, repo, xpp, mhpp, parse_args)
+        _, cpp, res = _tx.transpile(rel, repo, xpp, mhpp, parse_args)
     else:
-        cpp = _tx.transpile_impl(rel, repo, xpp, mhpp)
-    return rel, (str(cpp) if cpp else None)
+        cpp, res = _tx.transpile_impl(rel, repo, xpp, mhpp, pr)
+    return rel, (str(cpp) if cpp else None), res
 
 
 class XBuilder(Builder):
@@ -155,8 +156,16 @@ class XBuilder(Builder):
         total = len(self.rels)
         extra = self.manifest.get("comprehend", {}).get("extra_args", [])
 
-        # Decide per source: re-transpile only if its content changed (L1) or
-        # the parse flags changed -- otherwise reuse the existing .hpp/.cpp.
+        # PROJECT_ROOT (for resolving non-"./" resource paths) from defines.
+        project_root = ""
+        for t in self.manifest["targets"]:
+            for d in t.get("defines", []):
+                if d.startswith("PROJECT_ROOT="):
+                    project_root = d.split("=", 1)[1].strip('"')
+
+        # Decide per source: re-transpile only if its content changed (L1), the
+        # parse flags changed, or an EMBEDDED RESOURCE it references changed --
+        # otherwise reuse the existing .hpp/.cpp.
         import hashlib
         tasks = []
         meta: dict[str, tuple[str, str]] = {}  # rel -> (src_sha, pa_sig)
@@ -170,17 +179,20 @@ class XBuilder(Builder):
             prev = self.prev["files"].get(rel)
             cpp = self.cpp_of[rel]
             hpp = cpp.with_suffix(".hpp")
+            res_ok = prev and all(self._sha(p) == s
+                                  for p, s in prev.get("res_deps", {}).items())
             if (prev and prev.get("src_sha") == src_sha and prev.get("pa") == pa_sig
-                    and cpp.exists() and (not rel.endswith(".ixx") or hpp.exists())):
+                    and res_ok and cpp.exists()
+                    and (not rel.endswith(".ixx") or hpp.exists())):
                 self.cur["files"][rel] = prev  # unchanged: reuse artifacts + hashes
                 reused += 1
                 continue
-            tasks.append((rel, str(self.repo), str(self.xpp), mhpp_str, pa))
+            tasks.append((rel, str(self.repo), str(self.xpp), mhpp_str, pa, project_root))
 
         print(f"[1/3] Transpiling: {len(tasks)} changed, {reused} reused (-j{self.jobs})...")
 
-        def consume(pairs):
-            for i, (rel, cpp) in enumerate(pairs, 1):
+        def consume(triples):
+            for i, (rel, cpp, res) in enumerate(triples, 1):
                 print(f"  [{i:>3}/{len(tasks)}] XPP {rel}")
                 # The files were just rewritten -> drop any cached hashes.
                 self._sha_cache.pop(str(self.cpp_of[rel]), None)
@@ -192,6 +204,7 @@ class XBuilder(Builder):
                     "src_sha": src_sha, "pa": pa_sig,
                     "hpp_sha": self._sha(hpp) if hpp else "",
                     "cpp_sha": self._sha(self.cpp_of[rel]),
+                    "res_deps": {p: self._sha(p) for p in (res or [])},
                 }
 
         # Transpiling is GIL-bound (Python AST walk) -> PROCESSES for parallelism.

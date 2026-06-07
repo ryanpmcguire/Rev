@@ -1,0 +1,189 @@
+{
+  "project": "RevRoot",
+  "compiler": {
+    "cxx": "C:/PROGRA~1/MIB055~1/18/COMMUN~1/VC/Tools/Llvm/x64/bin/clang.exe",
+    "ar": "C:/PROGRA~1/MIB055~1/18/COMMUN~1/VC/Tools/Llvm/x64/bin/llvm-ar.exe",
+    "ranlib": "C:/PROGRA~1/MIB055~1/18/COMMUN~1/VC/Tools/Llvm/x64/bin/llvm-ranlib.exe",
+    "std": "c++23"
+  },
+  "comprehend": {
+    "extra_args": [
+      "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
+    ]
+  },
+  "targets": [
+    {
+      "name": "Rev",
+      "kind": "static",
+      "include_dirs": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/Resources/.modules",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external"
+      ],
+      "defines": [
+        "DEBUG",
+        "GLEW_STATIC",
+        "PLATFORM_OPENGL",
+        "PROJECT_ROOT=\"C:/Users/Ryan/Desktop/Ryan/Rev\"",
+        "_DEBUG",
+        "_DLL",
+        "_MT"
+      ],
+      "compile_flags": [
+        "-O0",
+        "-g",
+        "-Xclang",
+        "-gcodeview",
+        "-Xclang",
+        "--dependent-lib=msvcrtd"
+      ],
+      "sources": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/Resources/.modules/Files.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Animator.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Color.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/DirtyFlag.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Dispatcher.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Font.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/FontAtlas.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Geometry/D3/Pos3.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Geometry/Pos.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Line.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Lrtb.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Observable.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Process.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Rect.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Resource.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Shared.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Svg.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Transform.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Vertex.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/Vertex3.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Core/View.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Element/Element.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Element/Event/Event.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Element/Event/GestureTracker.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Element/Resolved.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Element/Style/Style.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Element/Style/Themes/Default.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Box.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Button/Button.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Checkbox/Checkbox.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Collapsible/Collapsible.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/ControlTheme.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Dropdown/Dropdown.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/NumberInput/NumberInput.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Radio/Radio.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/Slider/Slider.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Controls/TextInput/TextInput.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Display/Chart.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Display/View3D/Actor3d.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Display/View3D/Camera3d.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Display/View3D/View3D.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Svg.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Elements/Text.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/GlobalTime.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/Canvas.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/CommandBuffer.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/FrameBuffer.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/Pipeline.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/Shader.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/Texture.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/TextureBuffer.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/UniformBuffer.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/OpenGL/VertexBuffer.OpenGL.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/FastLines/FastLines.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Lines/Lines.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Lines3d/Lines3d.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Mesh3d/Mesh3d.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Primitive.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Rectangle/Rectangle.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Svg/Svg.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Text/Text.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Primitives/Triangles/Triangles.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Graphics/Vulkan/Vulkan.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Native/Windows/Application.win.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Native/Windows/NativeWindow.win.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/OS/Windows/Client.win.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/OS/Windows/Dialog.win.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/OS/Windows/File.win.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/OS/Windows/Serial.win.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/OS/Windows/Socket.win.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/Window.ixx"
+      ],
+      "output": "Rev/Rev.lib"
+    },
+    {
+      "name": "Sketch",
+      "kind": "exe",
+      "include_dirs": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/Resources/.modules",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external"
+      ],
+      "defines": [
+        "DEBUG",
+        "GLEW_STATIC",
+        "PLATFORM_OPENGL",
+        "_DEBUG",
+        "_DLL",
+        "_MT"
+      ],
+      "compile_flags": [
+        "-O0",
+        "-g",
+        "-Xclang",
+        "-gcodeview",
+        "-Xclang",
+        "--dependent-lib=msvcrtd"
+      ],
+      "sources": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp",
+        "source/App/App.ixx",
+        "source/App/Geometry/Geometry.ixx",
+        "source/App/Layer.ixx",
+        "source/App/Project.ixx",
+        "source/App/Tool/Tool.ixx",
+        "source/Gui/Gui.ixx",
+        "source/Gui/SketchView/SketchView.ixx",
+        "source/Gui/TabView/TabView.ixx",
+        "source/Gui/Theme.ixx",
+        "source/Gui/Toolbar/Toolbar.ixx",
+        "source/Sketch.Window.ixx",
+        "source/main.cpp"
+      ],
+      "output": "Sketch/Sketch.exe",
+      "depends": [
+        "Rev"
+      ],
+      "link_libraries": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glew/bin/win/x64/glew32s.lib",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/freetype/bin/win/x64/freetype.lib",
+        "-lopengl32.lib",
+        "-lws2_32.lib",
+        "-lOle32.lib",
+        "-lShell32.lib",
+        "-lUuid.lib",
+        "-lkernel32",
+        "-luser32",
+        "-lgdi32",
+        "-lwinspool",
+        "-lshell32",
+        "-lole32",
+        "-loleaut32",
+        "-luuid",
+        "-lcomdlg32",
+        "-ladvapi32",
+        "-loldnames"
+      ],
+      "link_flags": [
+        "-Xlinker",
+        "/subsystem:console",
+        "-fuse-ld=lld-link"
+      ],
+      "implib": "Sketch/Sketch.lib",
+      "pdb": "Sketch/Sketch.pdb",
+      "post_build": "C:\\Windows\\system32\\cmd.exe /C \"cd /D C:\\Users\\Ryan\\Desktop\\Ryan\\Rev\\build\\Sketch && C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noprofile -executionpolicy Bypass -file C:/Users/Ryan/Desktop/Ryan/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary C:/Users/Ryan/Desktop/Ryan/Rev/build/Sketch/Sketch.exe -installedDir C:/Users/Ryan/Desktop/Ryan/Rev/build/vcpkg_installed/x64-windows/debug/bin -OutVariable out\""
+    }
+  ]
+}

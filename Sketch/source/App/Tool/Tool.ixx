@@ -1,6 +1,7 @@
 module;
 
 #include <cmath>
+#include <vector>
 
 export module Sketch.App.Tool;
 
@@ -67,37 +68,50 @@ export namespace Sketch::App {
         }
     };
 
-    // Line: click A, click B (commits A->B), and the new A becomes the B just
-    // placed so the next click continues the run. Enter starts a fresh run.
+    // Line: each click adds a vertex to one continuous polyline. The chain is a
+    // real, linked path in the project (extended in place as it grows), so its
+    // interior joins are shared vertices -- not a pile of independent segments.
+    // Enter finalizes the current chain and starts a fresh one.
     struct LineTool : public Tool {
 
-        bool hasA = false;
-        double ax = 0.0, ay = 0.0;
+        std::vector<Point2> pts;     // the current run's vertices
+        long activeIndex = -1;       // its polyline index in the project, or -1
 
         void click(Project& project, double wx, double wy) override {
 
-            if (!hasA) {
-                ax = wx; ay = wy;
-                hasA = true;
-                return;
+            pts.push_back({ wx, wy });
+
+            Polyline2 line;
+            line.points = pts;
+
+            if (pts.size() == 2) {
+                // First real segment: create the polyline and remember it.
+                activeIndex = static_cast<long>(project.addPolyline(line));
             }
-
-            project.addSegment({ ax, ay, wx, wy });
-
-            // Chain: the next segment starts where this one ended.
-            ax = wx; ay = wy;
+            else if (pts.size() > 2 && activeIndex >= 0) {
+                // Extend the existing chain in place.
+                project.replacePolyline(static_cast<size_t>(activeIndex), line);
+            }
         }
 
-        void enter(Project& project) override { hasA = false; }
+        void enter(Project& project) override { reset(); }
 
-        void reset() override { hasA = false; }
+        void reset() override {
+            pts.clear();
+            activeIndex = -1;
+        }
 
-        bool active() const override { return hasA; }
+        bool active() const override { return !pts.empty(); }
 
         void preview(double wx, double wy, SketchPreview& out) const override {
-            if (!hasA) { return; }
-            out.helper.points.push_back({ ax, ay });
-            out.candidate.segments.push_back({ ax, ay, wx, wy });
+
+            if (pts.empty()) { return; }
+
+            // Mark the placed vertices and rubber-band the next segment.
+            for (const Point2& p : pts) { out.helper.points.push_back(p); }
+
+            const Point2& last = pts.back();
+            out.candidate.segments.push_back({ last.x, last.y, wx, wy });
         }
     };
 
