@@ -77,7 +77,7 @@ def transpile_impl(rel: str, repo: Path, xpp_root: Path,
     raw = src.read_bytes().decode("latin-1")
     masked = _mask(raw)
     edits: list[tuple[int, int, str]] = _include_edits(raw, masked, src.parent)
-    for m in re.finditer(r"(?m)^[ \t]*module[ \t]*;[ \t]*$", masked):
+    for m in re.finditer(r"(?m)^[ \t]*module[ \t]*;[ \t]*\r?$", masked):
         edits.append((m.start(), m.end(), ""))
     for m in re.finditer(r"(?m)^[ \t]*(?:export[ \t]+)?module\b[^;]*;", masked):
         edits.append((m.start(), m.end(), ""))
@@ -193,7 +193,8 @@ def _include_edits(raw: str, masked: str, src_dir: Path) -> list[tuple[int, int,
 
 
 _MANAGED_RE = re.compile(r'[<"]managed\.hpp[>"]')
-_MANAGED_INC_RE = re.compile(r'(?m)^[ \t]*#[ \t]*include[ \t]*[<"]managed\.hpp[>"][ \t]*$')
+# `\r?$` so CRLF files match (a trailing \r is not [ \t]).
+_MANAGED_INC_RE = re.compile(r'(?m)^[ \t]*#[ \t]*include[ \t]*[<"]managed\.hpp[>"][ \t]*\r?$')
 
 
 _STR_LIT_RE = re.compile(r'^\s*"((?:[^"\\]|\\.)*)"\s*$')
@@ -517,7 +518,7 @@ def transpile(rel: str, repo: Path, xpp_root: Path, module_hpp: dict[str, Path],
     edits: list[tuple[int, int, str]] = []
 
     # 1) module fragment / module decl lines -> removed
-    for m in re.finditer(r"(?m)^[ \t]*module[ \t]*;[ \t]*$", masked):
+    for m in re.finditer(r"(?m)^[ \t]*module[ \t]*;[ \t]*\r?$", masked):
         edits.append((m.start(), m.end(), ""))
     for m in re.finditer(r"(?m)^[ \t]*(?:export[ \t]+)?module\b[^;]*;", masked):
         edits.append((m.start(), m.end(), ""))

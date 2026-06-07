@@ -28,10 +28,11 @@ export namespace Rev::Primitives {
 
     // A drop-in-API replacement for Lines that triangulates the polyline on the
     // GPU. Points live in a TBO (one vec2 per point); each segment is one
-    // instance of a 12-vertex template and the vertex shader builds the quad +
-    // joins. Upload happens in compute(); draw() only binds and issues the
-    // instanced draw. The CPU-side triangulator in Lines goes away once this
-    // matures (real bevels, packed single-draw, per-vertex colour).
+    // instance of a 15-vertex template (a body trapezoid + a 3-triangle corner
+    // fan) and the vertex shader builds the quad + miter joins. Upload happens in
+    // compute(); draw() only binds and issues the instanced draw. The CPU-side
+    // triangulator in Lines goes away once this matures (packed single-draw,
+    // per-vertex colour).
     struct FastLines : public Primitive {
 
         // Shared
@@ -180,7 +181,7 @@ export namespace Rev::Primitives {
                 dataBuffers[i]->bind(1);    // uniform block at binding 1
 
                 canvas->drawArraysInstanced(
-                    Pipeline::Topology::TriangleList, 0, 12, instanceCounts[i]
+                    Pipeline::Topology::TriangleList, 0, 15, instanceCounts[i]
                 );
             }
         }
