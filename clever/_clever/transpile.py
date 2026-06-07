@@ -84,10 +84,17 @@ def transpile_impl(rel: str, repo: Path, xpp_root: Path,
         repl = (f'#include "{str(hpp).replace(chr(92), "/")}"' if hpp
                 else f"// [clever] unresolved import {m.group(1)}")
         edits.append((m.start(), m.end(), repl))
+    has_managed = bool(_MANAGED_RE.search(masked))
+    if has_managed:
+        for m in _MANAGED_INC_RE.finditer(masked):
+            edits.append((m.start(), m.end(), ""))
     out = impl_path(xpp_root, rel)
     out.parent.mkdir(parents=True, exist_ok=True)
+    body = _apply_edits(raw, edits)
+    if has_managed:
+        body = _expand_file_macro(body)
     text = (f"// clever-transpiled implementation source from {rel}\n"
-            f'#line 1 "{str(src).replace(chr(92), "/")}"\n{_apply_edits(raw, edits)}\n')
+            f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
     out.write_bytes(text.encode("latin-1"))
     return out
 
@@ -180,6 +187,41 @@ def _include_edits(raw: str, masked: str, src_dir: Path) -> list[tuple[int, int,
         if ok:
             edits.append((m.start(1), m.end(1), str(cand.resolve()).replace("\\", "/")))
     return edits
+
+
+_MANAGED_RE = re.compile(r'[<"]managed\.hpp[>"]')
+_MANAGED_INC_RE = re.compile(r'(?m)^[ \t]*#[ \t]*include[ \t]*[<"]managed\.hpp[>"][ \t]*$')
+
+
+def _expand_file_macro(text: str) -> str:
+    """Replay managed.hpp's `#define File(path) Resource::FromFile(__FILE__,(path))`
+    textually, so we can drop the leaking macro header. Only called for files
+    that actually included managed.hpp, where every `File(...)` was the macro
+    (module isolation guaranteed no struct-File collision in those units)."""
+    masked = _mask(text)
+    edits = []
+    for m in re.finditer(r"\bFile\b", masked):
+        j = m.end()
+        while j < len(masked) and masked[j] in " \t\r\n":
+            j += 1
+        if j >= len(masked) or masked[j] != "(":
+            continue
+        depth = 0
+        k = j
+        while k < len(masked):
+            if masked[k] == "(":
+                depth += 1
+            elif masked[k] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        if k >= len(masked):
+            continue
+        args = text[j + 1:k]
+        edits.append((m.start(), k + 1,
+                      f"::Rev::Core::Resource::FromFile(__FILE__, ({args}))"))
+    return _apply_edits(text, edits)
 
 
 def _strip_defaults(s: str) -> str:
@@ -399,6 +441,13 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
         edits.append((m.start(), m.end(), ""))
     # 3b) rewrite file-relative quoted includes to absolute paths
     edits += _include_edits(raw, masked, src.parent)
+    # 3c) managed.hpp leaks a `File(path)` macro that clobbers any `struct File`
+    #     and constructor calls. Drop the include here; the macro is replayed
+    #     textually below (only for files that actually included it).
+    has_managed = bool(_MANAGED_RE.search(masked))
+    if has_managed:
+        for m in _MANAGED_INC_RE.finditer(masked):
+            edits.append((m.start(), m.end(), ""))
     # 4) relocate in-class method definitions
     relocs = _relocations(tu, rel, raw, masked)
     defs_by_ns: dict[str, list[str]] = {}
@@ -408,6 +457,8 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
 
     # Build .hpp
     body = _apply_edits(raw, edits)
+    if has_managed:
+        body = _expand_file_macro(body)  # inline-body File(...) calls
     stem = Path(rel).stem
     hpp = hpp_path(xpp_root, module, stem)
     cpp = cpp_path(xpp_root, module, stem)
@@ -426,6 +477,9 @@ def transpile(rel: str, repo: Path, xpp_root: Path,
         out.extend(defs)
         if ns:
             out.append("}")
-    cpp.write_bytes(("\n".join(out) + "\n").encode("latin-1"))
+    cpp_text = "\n".join(out) + "\n"
+    if has_managed:
+        cpp_text = _expand_file_macro(cpp_text)  # relocated-body File(...) calls
+    cpp.write_bytes(cpp_text.encode("latin-1"))
 
     return hpp, cpp

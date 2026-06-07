@@ -200,8 +200,9 @@
       ],
       "sources": [
         "Sketch/source/App/Layer.ixx",
-        "Sketch/source/App/Geometry/Segment.ixx",
+        "Sketch/source/App/Geometry/Geometry.ixx",
         "Sketch/source/App/Project.ixx",
+        "Sketch/source/App/Tool/Tool.ixx",
         "Sketch/source/App/App.ixx",
         "Sketch/source/Sketch.Window.ixx",
         "Sketch/source/Gui/Theme.ixx",

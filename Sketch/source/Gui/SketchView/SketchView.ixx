@@ -19,6 +19,7 @@ import Rev.Graphics.Canvas;
 
 import Sketch.App;
 import Sketch.App.Project;
+import Sketch.App.Tool;
 import Sketch.Gui.Theme;
 
 export namespace Sketch::Gui {
@@ -29,37 +30,45 @@ export namespace Sketch::Gui {
     using Rev::Core::Vertex;
     using Rev::Core::Color;
 
+    using Sketch::App::SketchGeometry;
+    using Sketch::App::SketchTool;
+
     // A 2D sketch canvas: the flat cousin of the world view.
     //
-    // Camera model is intentionally CPU-only for now — no GPU transform. We keep
-    // a world origin (in pixels from the element's top-left) and a zoom (pixels
-    // per world unit), and map world -> screen by hand each frame. Segments are
-    // drawn with the Lines primitive in screen space (same approach as Chart).
+    // Camera is CPU-only for now: a world origin (pixels from the element's
+    // top-left) plus a zoom (pixels per world unit), mapped to screen by hand.
     //
     //   - Right-drag  : pan
     //   - Mouse wheel : zoom, keeping the point under the cursor invariant
-    //   - Left-drag   : rubber-band a new segment; release commits it
+    //   - Left click  : forwarded to the active tool's state machine
+    //   - Enter / Esc : forwarded to the active tool (finish / cancel)
+    //
+    // The view is a dumb input router: each tool owns its own interaction state.
     struct SketchView : public Box {
+
+        static constexpr double TAU = 6.283185307179586;
 
         Sketch::App::AppState* app = nullptr;
 
         Lines* axes = nullptr;       // gnomon: world X / Y axes
-        Lines* geometry = nullptr;   // committed segments + live preview
+        Lines* geometry = nullptr;   // committed geometry + live preview
+
+        // Tool state machines (owned; selection mirrors app->activeTool).
+        Sketch::App::PointTool  pointTool;
+        Sketch::App::LineTool   lineTool;
+        Sketch::App::CircleTool circleTool;
+        Sketch::App::ArcTool    arcTool;
+        SketchTool lastTool = SketchTool::None;
 
         // CPU camera
-        float originX = 0.0f;        // screen px of world x=0, from rect left
-        float originY = 0.0f;        // screen px of world y=0, from rect top
-        float scale   = 40.0f;       // pixels per world unit
+        float originX = 0.0f, originY = 0.0f;   // screen px of world (0,0)
+        float scale   = 40.0f;                  // pixels per world unit
         bool  initialized = false;
 
-        // Origin captured at the start of a pan. e.mouse.diff is cumulative from
-        // the press point, so we anchor to this rather than accumulating.
-        float panOriginX = 0.0f;
-        float panOriginY = 0.0f;
+        // Origin captured at the start of a pan (e.mouse.diff is cumulative).
+        float panOriginX = 0.0f, panOriginY = 0.0f;
 
-        // In-progress segment (left-drag)
-        bool   drawing = false;
-        double startX = 0.0, startY = 0.0;
+        // Live cursor in world space (drives tool previews).
         double cursorX = 0.0, cursorY = 0.0;
 
         SketchView(Element* parent, StyleList styles = {}) : Box(parent, styles, "SketchView") {
@@ -86,6 +95,38 @@ export namespace Sketch::Gui {
             delete geometry;
         }
 
+        // Tools
+        //--------------------------------------------------
+
+        Sketch::App::Tool* currentTool() {
+            switch (app ? app->activeTool : SketchTool::None) {
+                case SketchTool::Point:  return &pointTool;
+                case SketchTool::Line:   return &lineTool;
+                case SketchTool::Circle: return &circleTool;
+                case SketchTool::Arc:    return &arcTool;
+                default:                 return nullptr;
+            }
+        }
+
+        // Reset the previously-active tool whenever the selection changes, so a
+        // half-finished primitive doesn't leak across tool switches.
+        void syncTool() {
+
+            SketchTool now = app ? app->activeTool : SketchTool::None;
+
+            if (now == lastTool) { return; }
+
+            switch (lastTool) {
+                case SketchTool::Point:  pointTool.reset();  break;
+                case SketchTool::Line:   lineTool.reset();   break;
+                case SketchTool::Circle: circleTool.reset(); break;
+                case SketchTool::Arc:    arcTool.reset();    break;
+                default: break;
+            }
+
+            lastTool = now;
+        }
+
         // CPU transforms
         //--------------------------------------------------
 
@@ -108,14 +149,20 @@ export namespace Sketch::Gui {
             Box::mouseDown(e);
             if (!e.propagate) { return; }
 
-            // Left button begins a new segment.
+            // Left click drives the active tool's state machine.
             if (e.mouse.lb) {
-                screenToWorld(e.mouse.pos.x, e.mouse.pos.y, startX, startY);
-                cursorX = startX;
-                cursorY = startY;
-                drawing = true;
-                refresh(e);
-                e.propagate = false;
+
+                syncTool();
+
+                Sketch::App::Tool* tool = currentTool();
+
+                if (tool && app && app->activeProject) {
+                    double wx, wy;
+                    screenToWorld(e.mouse.pos.x, e.mouse.pos.y, wx, wy);
+                    tool->click(*app->activeProject, wx, wy);
+                    refresh(e);
+                    e.propagate = false;
+                }
             }
 
             // Right button begins a pan: pin the current origin.
@@ -123,6 +170,16 @@ export namespace Sketch::Gui {
                 panOriginX = originX;
                 panOriginY = originY;
             }
+        }
+
+        void mouseMove(Event& e) override {
+
+            screenToWorld(e.mouse.pos.x, e.mouse.pos.y, cursorX, cursorY);
+
+            // Keep the tool preview tracking the cursor while a tool is selected.
+            if (currentTool()) { refresh(e); }
+
+            Box::mouseMove(e);
         }
 
         void mouseDrag(Event& e) override {
@@ -137,41 +194,7 @@ export namespace Sketch::Gui {
                 return;
             }
 
-            // Rubber-band the in-progress segment with the left button.
-            if (e.mouse.lb && drawing) {
-                screenToWorld(e.mouse.pos.x, e.mouse.pos.y, cursorX, cursorY);
-                refresh(e);
-                e.propagate = false;
-                return;
-            }
-
             Box::mouseDrag(e);
-        }
-
-        void mouseUp(Event& e) override {
-
-            // Commit the segment on left release.
-            if (drawing && !e.mouse.lb) {
-
-                double endX, endY;
-                screenToWorld(e.mouse.pos.x, e.mouse.pos.y, endX, endY);
-
-                drawing = false;
-
-                // Ignore zero-length / accidental clicks (< ~3px on screen).
-                double dx = endX - startX;
-                double dy = endY - startY;
-
-                if (std::hypot(dx, dy) * scale > 3.0 && app && app->activeProject) {
-                    app->activeProject->addSegment({ startX, startY, endX, endY });
-                }
-
-                refresh(e);
-                e.propagate = false;
-                return;
-            }
-
-            Box::mouseUp(e);
         }
 
         void mouseWheel(Event& e) override {
@@ -192,6 +215,30 @@ export namespace Sketch::Gui {
 
             refresh(e);
             e.propagate = false;
+        }
+
+        void keyDown(Event& e) override {
+
+            Sketch::App::Tool* tool = currentTool();
+
+            if (tool && app && app->activeProject) {
+
+                if (e.keyboard.enter) {
+                    tool->enter(*app->activeProject);
+                    refresh(e);
+                    e.propagate = false;
+                    return;
+                }
+
+                if (e.keyboard.escape) {
+                    tool->cancel();
+                    refresh(e);
+                    e.propagate = false;
+                    return;
+                }
+            }
+
+            Box::keyDown(e);
         }
 
         // Build + draw
@@ -220,33 +267,91 @@ export namespace Sketch::Gui {
             axes->compute();
         }
 
+        // A point renders as a small fixed-size screen-space plus.
+        void appendPoint(const Sketch::App::Point2& p, Color color) {
+
+            const float h = 4.0f;
+            Vertex s = worldToScreen(p.x, p.y);
+
+            geometry->lines.push_back({
+                .points = { Vertex(s.x - h, s.y), Vertex(s.x + h, s.y) },
+                .color = color
+            });
+            geometry->lines.push_back({
+                .points = { Vertex(s.x, s.y - h), Vertex(s.x, s.y + h) },
+                .color = color
+            });
+        }
+
+        void appendArcPath(double cx, double cy, double r, double a0, double a1, Color color) {
+
+            if (r <= 0.0) { return; }
+
+            // Ensure a positive (CCW) sweep.
+            while (a1 <= a0) { a1 += TAU; }
+
+            int steps = std::max(2, static_cast<int>(std::ceil((a1 - a0) / (TAU / 64.0))));
+
+            std::vector<Vertex> pts;
+            pts.reserve(steps + 1);
+
+            for (int i = 0; i <= steps; i++) {
+                double a = a0 + (a1 - a0) * (static_cast<double>(i) / steps);
+                pts.push_back(worldToScreen(cx + r * std::cos(a), cy + r * std::sin(a)));
+            }
+
+            geometry->lines.push_back({ .points = std::move(pts), .color = color });
+        }
+
+        void appendGeometry(const SketchGeometry& g, Color color) {
+
+            for (const Sketch::App::Segment2& s : g.segments) {
+                geometry->lines.push_back({
+                    .points = { worldToScreen(s.ax, s.ay), worldToScreen(s.bx, s.by) },
+                    .color = color
+                });
+            }
+
+            for (const Sketch::App::Circle2& c : g.circles) {
+                appendArcPath(c.cx, c.cy, c.r, 0.0, TAU, color);
+            }
+
+            for (const Sketch::App::Arc2& a : g.arcs) {
+                double r  = std::hypot(a.ax - a.cx, a.ay - a.cy);
+                double a0 = std::atan2(a.ay - a.cy, a.ax - a.cx);
+                double a1 = std::atan2(a.by - a.cy, a.bx - a.cx);
+                appendArcPath(a.cx, a.cy, r, a0, a1, color);
+            }
+
+            // Points last so their markers sit on top.
+            for (const Sketch::App::Point2& p : g.points) {
+                appendPoint(p, color);
+            }
+        }
+
         void buildGeometry() {
 
             geometry->lines.clear();
 
-            Color segColor{ 0.86f, 0.87f, 0.90f, 1.0f };
+            Color committedColor{ 0.86f, 0.87f, 0.90f, 1.0f };
             Color previewColor{ 0.55f, 0.62f, 0.95f, 1.0f };
 
             if (app && app->activeProject) {
-                for (const Sketch::App::Segment2& s : app->activeProject->segments) {
-                    geometry->lines.push_back({
-                        .points = { worldToScreen(s.ax, s.ay), worldToScreen(s.bx, s.by) },
-                        .color = segColor
-                    });
-                }
+                appendGeometry(app->activeProject->geometry, committedColor);
             }
 
-            if (drawing) {
-                geometry->lines.push_back({
-                    .points = { worldToScreen(startX, startY), worldToScreen(cursorX, cursorY) },
-                    .color = previewColor
-                });
+            if (Sketch::App::Tool* tool = currentTool()) {
+                SketchGeometry preview;
+                tool->preview(cursorX, cursorY, preview);
+                appendGeometry(preview, previewColor);
             }
 
             geometry->compute();
         }
 
         void computePrimitives(Event& e) override {
+
+            syncTool();
 
             // Center the world origin in the view the first time we have a size.
             if (!initialized && rect.w > 0.0f && rect.h > 0.0f) {

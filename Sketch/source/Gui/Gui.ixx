@@ -107,6 +107,13 @@ export namespace Sketch::Gui {
                 return;
             }
 
+            // Forward remaining keys (Enter / Escape) to the sketch view so the
+            // active tool's state machine can react.
+            if (sketchView) {
+                sketchView->keyDown(e);
+                if (!e.propagate) { return; }
+            }
+
             Box::keyDown(e);
         }
     };
