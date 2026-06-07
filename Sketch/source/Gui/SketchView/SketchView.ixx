@@ -71,6 +71,11 @@ export namespace Sketch::Gui {
         // Live cursor in world space (drives tool previews).
         double cursorX = 0.0, cursorY = 0.0;
 
+        // Geometry is built in *world* space and uploaded only when it actually
+        // changes; pan/zoom just swaps the GPU transform (no CPU rebuild).
+        bool geometryDirty = true;
+        Sketch::App::Project* lastProject = nullptr;
+
         SketchView(Element* parent, StyleList styles = {}) : Box(parent, styles, "SketchView") {
 
             app = Sketch::App::AppState::Get(shared->state);
@@ -125,6 +130,7 @@ export namespace Sketch::Gui {
             }
 
             lastTool = now;
+            geometryDirty = true;
         }
 
         // CPU transforms
@@ -160,6 +166,7 @@ export namespace Sketch::Gui {
                     double wx, wy;
                     screenToWorld(e.mouse.pos.x, e.mouse.pos.y, wx, wy);
                     tool->click(*app->activeProject, wx, wy);
+                    geometryDirty = true;
                     refresh(e);
                     e.propagate = false;
                 }
@@ -177,9 +184,13 @@ export namespace Sketch::Gui {
             screenToWorld(e.mouse.pos.x, e.mouse.pos.y, cursorX, cursorY);
 
             // Keep the tool preview tracking the cursor while a tool is selected.
-            if (Sketch::App::Tool* tool = currentTool()) {
-                tool->hover(cursorX, cursorY);
-                refresh(e);
+            // Skip while panning (right button), so a pan doesn't rebuild geometry.
+            if (!e.mouse.rb) {
+                if (Sketch::App::Tool* tool = currentTool()) {
+                    tool->hover(cursorX, cursorY);
+                    geometryDirty = true;
+                    refresh(e);
+                }
             }
 
             Box::mouseMove(e);
@@ -226,6 +237,7 @@ export namespace Sketch::Gui {
             if (app && (e.keyboard.arrows.up || e.keyboard.arrows.down)) {
                 float step = e.keyboard.arrows.up ? 0.5f : -0.5f;
                 app->lineThickness = std::clamp(app->lineThickness + step, 0.5f, 20.0f);
+                geometryDirty = true;
                 refresh(e);
                 e.propagate = false;
                 return;
@@ -237,6 +249,7 @@ export namespace Sketch::Gui {
 
                 if (e.keyboard.enter) {
                     tool->enter(*app->activeProject);
+                    geometryDirty = true;
                     refresh(e);
                     e.propagate = false;
                     return;
@@ -244,6 +257,7 @@ export namespace Sketch::Gui {
 
                 if (e.keyboard.escape) {
                     tool->cancel();
+                    geometryDirty = true;
                     refresh(e);
                     e.propagate = false;
                     return;
@@ -279,35 +293,42 @@ export namespace Sketch::Gui {
             axes->compute();
         }
 
-        // A point renders as a small fixed-size screen-space plus.
+        // A point renders as a small plus. Half-size is in *world* units chosen so
+        // it lands ~4px at the current zoom (the marker scales with zoom for now;
+        // a zoom-independent marker is a later refinement).
         void appendPoint(const Sketch::App::Point2& p, Color color) {
 
-            const float h = 4.0f;
-            Vertex s = worldToScreen(p.x, p.y);
+            const float h = 4.0f / scale;
+            float x = static_cast<float>(p.x);
+            float y = static_cast<float>(p.y);
 
             geometry->lines.push_back({
-                .points = { Vertex(s.x - h, s.y), Vertex(s.x + h, s.y) },
+                .points = { Vertex(x - h, y), Vertex(x + h, y) },
                 .color = color
             });
             geometry->lines.push_back({
-                .points = { Vertex(s.x, s.y - h), Vertex(s.x, s.y + h) },
+                .points = { Vertex(x, y - h), Vertex(x, y + h) },
                 .color = color
             });
         }
 
-        // Low-level: sample a circular span of `span` radians starting at a0.
+        // Low-level: sample a circular span of `span` radians starting at a0,
+        // in world coordinates (the GPU transform maps it to pixels).
         void appendArcSpan(double cx, double cy, double r, double a0, double span, Color color) {
 
             if (r <= 0.0 || std::fabs(span) < 1e-9) { return; }
 
-            int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 64.0))));
+            int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 6400.0))));
 
             std::vector<Vertex> pts;
             pts.reserve(steps + 1);
 
             for (int i = 0; i <= steps; i++) {
                 double a = a0 + span * (static_cast<double>(i) / steps);
-                pts.push_back(worldToScreen(cx + r * std::cos(a), cy + r * std::sin(a)));
+                pts.push_back(Vertex(
+                    static_cast<float>(cx + r * std::cos(a)),
+                    static_cast<float>(cy + r * std::sin(a))
+                ));
             }
 
             geometry->lines.push_back({ .points = std::move(pts), .color = color });
@@ -351,7 +372,7 @@ export namespace Sketch::Gui {
                 std::vector<Vertex> pts;
                 pts.reserve(pl.points.size());
                 for (const Sketch::App::Point2& p : pl.points) {
-                    pts.push_back(worldToScreen(p.x, p.y));
+                    pts.push_back(Vertex(static_cast<float>(p.x), static_cast<float>(p.y)));
                 }
 
                 geometry->lines.push_back({ .points = std::move(pts), .color = color });
@@ -360,7 +381,10 @@ export namespace Sketch::Gui {
             // Standalone segments (previews / helpers) stay as 2-point lines.
             for (const Sketch::App::Segment2& s : g.segments) {
                 geometry->lines.push_back({
-                    .points = { worldToScreen(s.ax, s.ay), worldToScreen(s.bx, s.by) },
+                    .points = {
+                        Vertex(static_cast<float>(s.ax), static_cast<float>(s.ay)),
+                        Vertex(static_cast<float>(s.bx), static_cast<float>(s.by))
+                    },
                     .color = color
                 });
             }
@@ -411,6 +435,16 @@ export namespace Sketch::Gui {
             geometry->compute();
         }
 
+        // World -> pixel transform handed to the geometry primitive. Pan/zoom
+        // only updates this; the points themselves never move on the CPU.
+        void updateTransform() {
+            geometry->transform = {
+                scale, -scale,
+                rect.x + originX, rect.y + originY
+            };
+            // axes keep the identity transform (they're built in pixel space).
+        }
+
         void computePrimitives(Event& e) override {
 
             syncTool();
@@ -420,10 +454,25 @@ export namespace Sketch::Gui {
                 originX = rect.w * 0.5f;
                 originY = rect.h * 0.5f;
                 initialized = true;
+                geometryDirty = true;
             }
 
+            // A project switch swaps out the whole geometry.
+            if (app && app->activeProject != lastProject) {
+                lastProject = app->activeProject;
+                geometryDirty = true;
+            }
+
+            updateTransform();
+
+            // Axes track the viewport, so they rebuild every frame (cheap). The
+            // sketch geometry only rebuilds when it actually changes.
             buildAxes();
-            buildGeometry();
+
+            if (geometryDirty) {
+                buildGeometry();
+                geometryDirty = false;
+            }
 
             Box::computePrimitives(e);
         }

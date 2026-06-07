@@ -28,6 +28,12 @@ layout(std140, binding = 1) uniform Data {
 
 layout(binding = 0) uniform samplerBuffer uPoints;
 
+// World -> pixel transform, applied to the points before geometry generation.
+//   pixel = world * uXform.xy + uXform.zw
+layout(std140, binding = 2) uniform Xform {
+    vec4 uXform;
+};
+
 out vec2 v_pos;
 flat out vec2 v_p0;
 flat out vec2 v_p1;
@@ -38,7 +44,13 @@ flat out float v_round;  // 1 => corner fan, 0 => segment body
 
 const float PI = 3.14159265358979;
 
-vec2 fetch(int i) { return texelFetch(uPoints, i).xy; }
+// Fetch a point and map it world -> pixel. All downstream geometry (offsets,
+// miters, fan) is therefore built in pixel space, so the stroke stays a constant
+// pixel width no matter the zoom.
+vec2 fetch(int i) {
+    vec2 w = texelFetch(uPoints, i).xy;
+    return w * uXform.xy + uXform.zw;
+}
 
 // Bisector miter offset, scaled so the offset edge sits `ext` from the
 // centreline (perpendicular component == ext, so joins never thin). Falls back

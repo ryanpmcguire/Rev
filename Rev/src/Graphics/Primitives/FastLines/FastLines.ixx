@@ -68,6 +68,15 @@ export namespace Rev::Primitives {
             float pad;             // 28
         };
 
+        // A world -> pixel transform applied to every point *before* the geometry
+        // is generated. The whole polyline can be panned/zoomed by swapping this
+        // one value with no CPU re-computation and no re-upload of points. Because
+        // the quad/fan are built in pixel space after this, the stroke width stays
+        // constant regardless of zoom (transform the segments, not the vertices).
+        //   pixel = world * (sx, sy) + (tx, ty)
+        struct Xform { float sx = 1.0f, sy = 1.0f, tx = 0.0f, ty = 0.0f; };
+        Xform transform;
+
         // Instance API (mirrors Lines)
         //--------------------------------------------------
 
@@ -99,6 +108,9 @@ export namespace Rev::Primitives {
         std::vector<UniformBuffer*> dataBuffers;
         std::vector<size_t> instanceCounts;   // segments per line (= points - 1)
 
+        // The world->pixel transform, bound once per draw (binding 2).
+        UniformBuffer* transformBuffer = nullptr;
+
         std::vector<float> scratch;           // xy packing scratch
 
         // Create
@@ -109,6 +121,8 @@ export namespace Rev::Primitives {
             }
 
             shared.create([this]() { this->createShared(); });
+
+            transformBuffer = new UniformBuffer(canvas->context, sizeof(Xform));
         }
 
         // Destroy
@@ -116,6 +130,8 @@ export namespace Rev::Primitives {
 
             for (TextureBuffer* buffer : pointBuffers) { delete buffer; }
             for (UniformBuffer* buffer : dataBuffers) { delete buffer; }
+
+            delete transformBuffer;
 
             shared.destroy([this]() { this->destroyShared(); });
         }
@@ -172,6 +188,10 @@ export namespace Rev::Primitives {
 
             pipeline->bind();
             dummyVao->bind();
+
+            // The world->pixel transform is the same for every line this draw.
+            transformBuffer->set(&transform);
+            transformBuffer->bind(2);
 
             for (size_t i = 0; i < instanceCounts.size(); i++) {
 
