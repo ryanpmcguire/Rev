@@ -12,6 +12,7 @@ module;
 export module Sketch.App.Project;
 
 export import Sketch.App.Layer;
+export import Sketch.App.Segment;
 
 export namespace Sketch::App {
 
@@ -58,6 +59,10 @@ export namespace Sketch::App {
 
         std::vector<Layer> layers;
 
+        // The sketch geometry. Source of truth in memory; serialized into the
+        // geometry layer's JSON on save and re-read on load.
+        std::vector<Segment2> segments;
+
         // Create
         //--------------------------------------------------
 
@@ -88,6 +93,59 @@ export namespace Sketch::App {
             layers.emplace_back(layerName, kind);
             dirty = true;
             return layers.back();
+        }
+
+        // The layer that holds the sketch geometry (first Geometry-kind layer,
+        // falling back to the first layer, creating one if the list is empty).
+        Layer* geometryLayer() {
+            for (Layer& layer : layers) {
+                if (layer.kind == LayerKind::Geometry) { return &layer; }
+            }
+            if (!layers.empty()) { return &layers.front(); }
+            return &addLayer("sketch", LayerKind::Geometry);
+        }
+
+        // Segments
+        //--------------------------------------------------
+
+        void addSegment(const Segment2& segment) {
+            segments.push_back(segment);
+            dirty = true;
+        }
+
+        void clearSegments() {
+            segments.clear();
+            dirty = true;
+        }
+
+        // Write the in-memory segments into the geometry layer's JSON payload.
+        void flushSegmentsToLayer() {
+
+            Layer* geometry = geometryLayer();
+            if (!geometry) { return; }
+
+            Json array = Json::array();
+            for (const Segment2& segment : segments) {
+                array.push_back(segment.toJson());
+            }
+
+            geometry->data["segments"] = array;
+        }
+
+        // Rebuild the in-memory segments from the geometry layer's JSON payload.
+        void parseSegmentsFromLayer() {
+
+            segments.clear();
+
+            Layer* geometry = geometryLayer();
+            if (!geometry) { return; }
+
+            auto it = geometry->data.find("segments");
+            if (it == geometry->data.end() || !it->is_array()) { return; }
+
+            for (const Json& entry : *it) {
+                segments.push_back(Segment2::fromJson(entry));
+            }
         }
 
         bool removeLayer(const std::string& layerName) {
@@ -177,6 +235,9 @@ export namespace Sketch::App {
         // in `.sketch`). Creates the folder, manifest, and per-layer files.
         bool writeToFolder(const std::string& folder) {
 
+            // Make sure the geometry layer reflects the current segments.
+            flushSegmentsToLayer();
+
             std::error_code ec;
             std::filesystem::path root(folder);
 
@@ -261,6 +322,9 @@ export namespace Sketch::App {
             layers = std::move(loaded);
             path = folder;
             name = manifestJson.value("name", displayNameFor(folder));
+
+            parseSegmentsFromLayer();
+
             dirty = false;
             return true;
         }

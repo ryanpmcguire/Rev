@@ -13,6 +13,7 @@ import Rev.Element.Box;
 import Sketch.App;
 import Sketch.Gui.TabView;
 import Sketch.Gui.Toolbar;
+import Sketch.Gui.SketchView;
 import Sketch.Gui.Theme;
 
 export namespace Sketch::Gui {
@@ -27,6 +28,7 @@ export namespace Sketch::Gui {
         TabView* tabView = nullptr;
         Toolbar* toolbar = nullptr;
         Box* body = nullptr;
+        SketchView* sketchView = nullptr;
 
         // Create
         //--------------------------------------------------
@@ -49,11 +51,12 @@ export namespace Sketch::Gui {
             // CAD-style tool strip: basic sketch primitives.
             toolbar = new Toolbar(this);
 
-            // The main content section. Blank for now — this is where the 2D
-            // sketch canvas (profiles / chains / segments) will live.
+            // The main content section: the 2D sketch canvas.
             body = new Box(this, {}, "InterfaceBody");
-            body->style->layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False };
+            body->style->layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False };
             body->style->size = { .width = 100_pct, .height = Grow() };
+
+            sketchView = new SketchView(body);
 
             // Events
             //--------------------------------------------------

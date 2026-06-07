@@ -49,7 +49,10 @@ class XBuilder(Builder):
     # do. Suppress windows.h's `max`/`min` macros (they clobber std::max/min)
     # to restore the module-world behaviour. Applied to both the parse and the
     # classic compile.
-    _LEAK_GUARD = ["-DNOMINMAX"]
+    # NOMINMAX: drop windows.h's max/min macros (clobber std::max/min).
+    # WIN32_LEAN_AND_MEAN: stop windows.h pulling winsock1, which redefines
+    # sockaddr etc. and clashes with the winsock2 the code includes directly.
+    _LEAK_GUARD = ["-DNOMINMAX", "-DWIN32_LEAN_AND_MEAN"]
 
     def _base_flags(self, t: dict) -> list[str]:
         return super()._base_flags(t) + self._LEAK_GUARD

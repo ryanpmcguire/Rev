@@ -200,12 +200,14 @@
       ],
       "sources": [
         "Sketch/source/App/Layer.ixx",
+        "Sketch/source/App/Geometry/Segment.ixx",
         "Sketch/source/App/Project.ixx",
         "Sketch/source/App/App.ixx",
         "Sketch/source/Sketch.Window.ixx",
         "Sketch/source/Gui/Theme.ixx",
         "Sketch/source/Gui/TabView/TabView.ixx",
         "Sketch/source/Gui/Toolbar/Toolbar.ixx",
+        "Sketch/source/Gui/SketchView/SketchView.ixx",
         "Sketch/source/Gui/Gui.ixx",
         "Sketch/source/main.cpp",
         "Rev/external/glm/detail/glm.cpp"
