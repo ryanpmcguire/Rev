@@ -38,6 +38,7 @@ export namespace Sketch::Gui {
     using Sketch::App::SketchTool;
     using Rev::Core::Pos;
     using Sketch::App::Pos2;
+    using Sketch::App::SnapCandidate;
 
     // A 2D sketch canvas: the flat cousin of the world view.
     //
@@ -741,61 +742,91 @@ export namespace Sketch::Gui {
             return true;
         }
 
-        // Magnetism for point placement: nudge a world position onto the highest
-        // priority snappable participant within reach -- not simply the nearest.
-        // Same scoring as selection: axis (tier 2) > real (1) > construction (0),
-        // and points/endpoints/centres outrank curve projections within a tier.
-        //   point  -> the point itself
-        //   line   -> perpendicular foot on the segment
-        //   circle -> radial point on the ring
-        //   arc    -> radial point on the arc (within its sweep)
-        // The world axes (y=0, x=0) and the origin are tier-2 "invisible" features
-        // and therefore win over real geometry.
-        void applySnap(float& wx, float& wy) const {
+        // Gather every snap candidate near `mouse`: each nearby entity yields its
+        // own (feature points + curve foot) via snapCandidates, plus the *exact*
+        // mutual intersections of the nearby entities (and the world axes). Pure
+        // analysis throughout -- nothing here is quantised. The list is scored and
+        // can be drawn directly (one chip per candidate) in a later pass.
+        void collectSnapCandidates(Pos mouse, float thresh, std::vector<SnapCandidate>& out) const {
 
-            float thresh = hitTolerance();
-            int bestScore = -1; float bestDist = 1e30f; float bx = wx, by = wy; bool found = false;
+            using Sketch::App::Stoicheion;
+            using Sketch::App::Segment2;
+            using Sketch::App::snapScore;
 
-            auto consider = [&](int tier, bool isPoint, float d, float sx, float sy) {
-                if (d >= thresh) { return; }
-                int score = participantScore(tier, isPoint);
-                if (!found || score > bestScore || (score == bestScore && d < bestDist)) {
-                    bestScore = score; bestDist = d; bx = sx; by = sy; found = true;
-                }
-            };
-            auto pt = [&](int tier, float px, float py) {
-                consider(tier, true, std::hypot(wx - px, wy - py), px, py);
-            };
+            // Entities near enough to snap to, gathered for intersection too.
+            std::vector<const Stoicheion*> parts;
+            std::vector<int> partTier;
 
             if (app && app->activeProject) {
                 const SketchGeometry& g = app->activeProject->geometry;
-
-                Pos w(wx, wy);
                 for (const auto& ep : g.entities) {
-                    const Sketch::App::Stoicheion& e = *ep;
-                    int tier = e.construction ? 0 : 1;
-
-                    std::vector<Sketch::App::Stoicheion::Anchor> anc;
-                    e.anchors(anc);
-                    for (const auto& a : anc) { pt(tier, a.pos.x, a.pos.y); }
-
-                    Pos foot;
-                    if (e.footOnCurve(w, foot)) {
-                        consider(tier, false, std::hypot(wx - foot.x, wy - foot.y), foot.x, foot.y);
+                    int sub;
+                    if (ep->distanceTo(mouse, sub) < thresh) {
+                        ep->snapCandidates(mouse, out);
+                        parts.push_back(ep.get());
+                        partTier.push_back(ep->construction ? 0 : 1);
                     }
                 }
             }
 
-            // Invisible axis features (tier 2): origin point + the two axis lines.
-            consider(2, true,  std::hypot(wx, wy), 0.0f, 0.0f);   // origin
-            consider(2, false, std::fabs(wy),      wx,   0.0f);   // X axis (y = 0)
-            consider(2, false, std::fabs(wx),      0.0f, wy);     // Y axis (x = 0)
+            // The world axes participate as tier-2 "invisible" lines: the origin is
+            // a point feature, the axis line a curve foot, and each axis a partner
+            // for exact intersections with nearby geometry.
+            const float AX = 1.0e5f;   // effectively infinite for local crossings
+            Segment2 axisX(Pos(-AX, 0.0f), Pos(AX, 0.0f));
+            Segment2 axisY(Pos(0.0f, -AX), Pos(0.0f, AX));
 
-            if (found) { wx = bx; wy = by; }
+            out.push_back({ Pos(0.0f, 0.0f), SnapCandidate::Point, snapScore(SnapCandidate::Point, 2) });
+            if (std::fabs(mouse.y) < thresh) {
+                out.push_back({ Pos(mouse.x, 0.0f), SnapCandidate::OnCurve, snapScore(SnapCandidate::OnCurve, 2) });
+                parts.push_back(&axisX); partTier.push_back(2);
+            }
+            if (std::fabs(mouse.x) < thresh) {
+                out.push_back({ Pos(0.0f, mouse.y), SnapCandidate::OnCurve, snapScore(SnapCandidate::OnCurve, 2) });
+                parts.push_back(&axisY); partTier.push_back(2);
+            }
+
+            // Exact mutual intersections between distinct participants.
+            for (size_t i = 0; i < parts.size(); i++) {
+                for (size_t j = i + 1; j < parts.size(); j++) {
+                    std::vector<Pos> hits;
+                    Sketch::App::intersect(*parts[i], *parts[j], hits);
+                    int tier = std::max(partTier[i], partTier[j]);
+                    for (const Pos& x : hits) {
+                        if ((mouse - x).pythag() < thresh) {
+                            out.push_back({ x, SnapCandidate::Intersection, snapScore(SnapCandidate::Intersection, tier) });
+                        }
+                    }
+                }
+            }
         }
 
-        // Draw one reference's curve (or sub-part) into the highlight primitive.
-        void appendRef(const EntityRef& ref, Color color) {
+        // Magnetism for point placement: collect the candidates near the cursor and
+        // nudge it onto the best one within reach -- highest score (point >
+        // intersection > curve foot), ties broken by distance to the raw cursor.
+        void applySnap(float& wx, float& wy) const {
+
+            float thresh = hitTolerance();
+            Pos mouse(wx, wy);
+
+            std::vector<SnapCandidate> cands;
+            collectSnapCandidates(mouse, thresh, cands);
+
+            int bestScore = -1; float bestDist = 1e30f; Pos best; bool found = false;
+            for (const SnapCandidate& c : cands) {
+                float d = (mouse - c.pos).pythag();
+                if (d >= thresh) { continue; }
+                if (!found || c.score > bestScore || (c.score == bestScore && d < bestDist)) {
+                    bestScore = c.score; bestDist = d; best = c.pos; found = true;
+                }
+            }
+
+            if (found) { wx = best.x; wy = best.y; }
+        }
+
+        // Draw one reference's curve (or sub-part) into the highlight primitive at a
+        // given stroke width (per-line override, so hover and select can differ).
+        void appendRef(const EntityRef& ref, Color color, float width) {
 
             if (!app || !app->activeProject) { return; }
             const SketchGeometry& g = app->activeProject->geometry;
@@ -813,24 +844,26 @@ export namespace Sketch::Gui {
             std::vector<Vertex> vs;
             vs.reserve(pts.size());
             for (const Pos& p : pts) { vs.push_back(Vertex(p.x, p.y)); }
-            highlight->lines.push_back({ .points = std::move(vs), .color = color });
+            highlight->lines.push_back({ .points = std::move(vs), .color = color, .strokeWidth = width });
         }
 
         void buildHighlight() {
 
             highlight->lines.clear();
 
-            // Hover: washed orange-white (transparent). Select: solid pastel
-            // orange that pops. Slightly thicker than the geometry.
-            Color hoverColor { 1.0f, 0.82f, 0.55f, 0.40f };
+            float base = app ? app->lineThickness : 2.0f;
+
+            // Hover: strongly orange (nearly the selection colour), drawn at the
+            // exact width of the geometry it sits over. Select: solid orange that
+            // pops, a few px thicker so it reads as a deliberate selection.
+            Color hoverColor { 1.0f, 0.58f, 0.30f, 0.9f };
             Color selectColor{ 1.0f, 0.62f, 0.28f, 1.0f };
 
-            float base = app ? app->lineThickness : 2.0f;
             highlight->strokeWidth = base + 3.0f;
 
-            for (const EntityRef& ref : selected) { appendRef(ref, selectColor); }
+            for (const EntityRef& ref : selected) { appendRef(ref, selectColor, base + 3.0f); }
 
-            if (hoverValid && !isSelected(hovered)) { appendRef(hovered, hoverColor); }
+            if (hoverValid && !isSelected(hovered)) { appendRef(hovered, hoverColor, base); }
 
             highlight->compute();
         }

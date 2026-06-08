@@ -3,6 +3,7 @@ module;
 #include <vector>
 #include <memory>
 #include <string>
+#include <utility>
 #include <cmath>
 #include <algorithm>
 
@@ -103,6 +104,81 @@ export namespace Sketch::App {
         return a + d * t;
     }
 
+    // Exact intersection of straight segments / circular arcs. These operate on the
+    // *true* analytic forms only -- nothing is ever quantised. Each appends 0..2
+    // exact crossing points to `out`. (A full circle is the arc with sweep == TAU.)
+
+    inline bool arcContains(Pos x, Pos c, float a0, float sweep) {
+        if (sweep >= TAU - 1e-4f) { return true; }
+        return wrapTau((x - c).angle() - a0) <= sweep + 1e-4f;
+    }
+
+    inline void isectSegSeg(Pos p1, Pos p2, Pos p3, Pos p4, std::vector<Pos>& out) {
+        Pos r = p2 - p1, s = p4 - p3;
+        float rxs = r.cross(s);
+        if (std::fabs(rxs) < 1e-12f) { return; }                    // parallel / degenerate
+        Pos qp = p3 - p1;
+        float t = qp.cross(s) / rxs, u = qp.cross(r) / rxs;
+        if (t < -1e-4f || t > 1.0f + 1e-4f || u < -1e-4f || u > 1.0f + 1e-4f) { return; }
+        out.push_back(p1 + r * t);
+    }
+
+    inline void isectSegArc(Pos p1, Pos p2, Pos c, float rad, float a0, float sweep, std::vector<Pos>& out) {
+        Pos d = p2 - p1, f = p1 - c;
+        float A = d.dot(d);
+        if (A < 1e-12f) { return; }
+        float B = 2.0f * f.dot(d);
+        float C = f.dot(f) - rad * rad;
+        float disc = B * B - 4.0f * A * C;
+        if (disc < 0.0f) { return; }
+        disc = std::sqrt(disc);
+        float ts[2] = { (-B - disc) / (2.0f * A), (-B + disc) / (2.0f * A) };
+        for (float t : ts) {
+            if (t < -1e-4f || t > 1.0f + 1e-4f) { continue; }
+            Pos x = p1 + d * t;                                     // exact point on the line *and* circle
+            if (arcContains(x, c, a0, sweep)) { out.push_back(x); }
+        }
+    }
+
+    inline void isectArcArc(Pos c1, float r1, float a1, float s1,
+                            Pos c2, float r2, float a2, float s2, std::vector<Pos>& out) {
+        Pos d = c2 - c1;
+        float dd = d.pythag();
+        if (dd < 1e-6f) { return; }                                 // concentric
+        if (dd > r1 + r2 + 1e-4f) { return; }                       // too far apart
+        if (dd < std::fabs(r1 - r2) - 1e-4f) { return; }            // one inside the other
+        float a = (r1 * r1 - r2 * r2 + dd * dd) / (2.0f * dd);
+        float h2 = r1 * r1 - a * a;
+        float h = (h2 > 0.0f) ? std::sqrt(h2) : 0.0f;
+        Pos mid = c1 + d / dd * a;
+        Pos perp = Pos(-d.y, d.x) / dd;
+        for (float sgn : { 1.0f, -1.0f }) {
+            Pos x = mid + perp * (h * sgn);
+            if (arcContains(x, c1, a1, s1) && arcContains(x, c2, a2, s2)) { out.push_back(x); }
+        }
+    }
+
+    // A single possible place the cursor could snap to, with a score. The view
+    // gathers these from every nearby entity (plus intersections) each frame and
+    // simply picks the highest-scoring one within reach -- and can draw them.
+    //
+    // Priority, highest first: a defined *point* (endpoint, centre, midpoint,
+    // quadrant, vertex) > an *intersection* of two curves > the perpendicular
+    // *foot* on a single curve. The tier (axis 2 > real 1 > construction 0) is a
+    // minor tiebreak within a category.
+    struct SnapCandidate {
+        enum Kind { Point, Intersection, OnCurve };
+        Pos pos;
+        Kind kind = Point;
+        int score = 0;
+    };
+
+    inline int snapScore(SnapCandidate::Kind kind, int tier) {
+        int base = (kind == SnapCandidate::Point) ? 300
+                 : (kind == SnapCandidate::Intersection) ? 200 : 100;
+        return base + tier;
+    }
+
     // ===============================================================
     // Stoicheion (στοιχεῖον) -- the fundamental geometric element.
     //
@@ -150,8 +226,39 @@ export namespace Sketch::App {
         // nearest sub-part index for composite entities (else -1).
         virtual float distanceTo(Pos p, int& nearestSub) const = 0;
 
-        // Snap / point-priority anchors (endpoints, centre, vertices).
+        // Snap / point-priority anchors (endpoints, centre, vertices) -- used for
+        // *selection*.
         virtual void anchors(std::vector<Anchor>& out) const {}
+
+        // Feature snap points: every salient position to magnetise placement onto
+        // (endpoints, centres, midpoints, circle quadrants, ellipse axis-ends, ...).
+        // Defaults to the selection anchors; entities override to add their extras.
+        virtual void snapPoints(std::vector<Pos>& out) const {
+            std::vector<Anchor> a; anchors(a);
+            for (const Anchor& x : a) { out.push_back(x.pos); }
+        }
+
+        // Exact-intersection forms, used to cross one entity with another. An
+        // entity that is *genuinely* straight yields its segment(s); one that is
+        // *genuinely* circular yields its circle/arc. Anything else (ellipses)
+        // yields neither -- it produces no intersections rather than being
+        // approximated. Nothing here is ever quantised.
+        virtual void asLineSegments(std::vector<std::pair<Pos, Pos>>& out) const {}
+        virtual bool asCircle(Pos& c, float& r, float& a0, float& sweep) const { return false; }
+
+        // Yield this entity's own snap candidates for a cursor at `mouse`: every
+        // feature point (scored Point) and the perpendicular foot (scored OnCurve).
+        // Intersections are between *pairs* of entities, so the view adds those.
+        virtual void snapCandidates(Pos mouse, std::vector<SnapCandidate>& out) const {
+            int tier = construction ? 0 : 1;
+            std::vector<Pos> sps;
+            snapPoints(sps);
+            for (const Pos& p : sps) { out.push_back({ p, SnapCandidate::Point, snapScore(SnapCandidate::Point, tier) }); }
+            Pos foot;
+            if (footOnCurve(mouse, foot)) {
+                out.push_back({ foot, SnapCandidate::OnCurve, snapScore(SnapCandidate::OnCurve, tier) });
+            }
+        }
 
         // Nearest point on the body for snapping onto the curve; false if none.
         virtual bool footOnCurve(Pos p, Pos& out) const { return false; }
@@ -170,6 +277,25 @@ export namespace Sketch::App {
             controlPoints(out);
         }
     };
+
+    // Exact mutual intersection of two entities. Uses only their true analytic
+    // forms (straight segments / circular arcs); if either is neither (an ellipse),
+    // no points are produced -- never an approximation.
+    inline void intersect(const Stoicheion& A, const Stoicheion& B, std::vector<Pos>& out) {
+
+        std::vector<std::pair<Pos, Pos>> as, bs;
+        A.asLineSegments(as);
+        B.asLineSegments(bs);
+
+        Pos ac, bc; float ar, br, aa0, asw, ba0, bsw;
+        bool aCirc = A.asCircle(ac, ar, aa0, asw);
+        bool bCirc = B.asCircle(bc, br, ba0, bsw);
+
+        for (const auto& sa : as) { for (const auto& sb : bs) { isectSegSeg(sa.first, sa.second, sb.first, sb.second, out); } }
+        if (bCirc) { for (const auto& sa : as) { isectSegArc(sa.first, sa.second, bc, br, ba0, bsw, out); } }
+        if (aCirc) { for (const auto& sb : bs) { isectSegArc(sb.first, sb.second, ac, ar, aa0, asw, out); } }
+        if (aCirc && bCirc) { isectArcArc(ac, ar, aa0, asw, bc, br, ba0, bsw, out); }
+    }
 
     // Point
     //--------------------------------------------------
@@ -212,6 +338,10 @@ export namespace Sketch::App {
         void tessellate(std::vector<Pos>& out) const override { out.push_back(a); out.push_back(b); }
         float distanceTo(Pos p, int& sub) const override { sub = -1; return (p - closestOnSegment(p, a, b)).pythag(); }
         void anchors(std::vector<Anchor>& out) const override { out.push_back({ a, -1, false }); out.push_back({ b, -1, false }); }
+        void snapPoints(std::vector<Pos>& out) const override {
+            out.push_back(a); out.push_back(b); out.push_back((a + b) * 0.5f);   // + midpoint
+        }
+        void asLineSegments(std::vector<std::pair<Pos, Pos>>& out) const override { out.push_back({ a, b }); }
         bool footOnCurve(Pos p, Pos& out) const override { out = closestOnSegment(p, a, b); return true; }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&a); out.push_back(&b); }
     };
@@ -261,6 +391,15 @@ export namespace Sketch::App {
         void anchors(std::vector<Anchor>& out) const override {
             for (size_t i = 0; i < points.size(); i++) { out.push_back({ points[i], static_cast<int>(i), true }); }
         }
+        void snapPoints(std::vector<Pos>& out) const override {
+            for (const Pos2& p : points) { out.push_back(p); }                          // vertices
+            for (size_t s = 0; s + 1 < points.size(); s++) {
+                out.push_back((points[s] + points[s + 1]) * 0.5f);                       // segment midpoints
+            }
+        }
+        void asLineSegments(std::vector<std::pair<Pos, Pos>>& out) const override {
+            for (size_t s = 0; s + 1 < points.size(); s++) { out.push_back({ points[s], points[s + 1] }); }
+        }
         bool footOnCurve(Pos p, Pos& out) const override {
             int sub; if (points.size() < 2) { return false; }
             distanceTo(p, sub);
@@ -308,6 +447,14 @@ export namespace Sketch::App {
         void tessellate(std::vector<Pos>& out) const override { sampleArc(out, c, r, 0.0f, TAU, spanSteps(TAU)); }
         float distanceTo(Pos p, int& sub) const override { sub = -1; return std::fabs((p - c).pythag() - r); }
         void anchors(std::vector<Anchor>& out) const override { out.push_back({ c, -1, false }); }
+        void snapPoints(std::vector<Pos>& out) const override {
+            out.push_back(c);                                   // centre + four quadrants
+            out.push_back(c + Pos(r, 0.0f)); out.push_back(c + Pos(-r, 0.0f));
+            out.push_back(c + Pos(0.0f, r)); out.push_back(c + Pos(0.0f, -r));
+        }
+        bool asCircle(Pos& cc, float& rr, float& a0, float& sweep) const override {
+            cc = c; rr = r; a0 = 0.0f; sweep = TAU; return true;
+        }
         bool footOnCurve(Pos p, Pos& out) const override {
             Pos d = p - c; float dd = d.pythag();
             out = (dd > 1e-6f) ? (c + d / dd * r) : (c + Pos(r, 0.0f));
@@ -353,6 +500,16 @@ export namespace Sketch::App {
         void anchors(std::vector<Anchor>& out) const override {
             out.push_back({ c, -1, false }); out.push_back({ a, -1, false }); out.push_back({ b, -1, false });
         }
+        void snapPoints(std::vector<Pos>& out) const override {
+            out.push_back(c); out.push_back(a); out.push_back(b);
+            float r = radius();
+            if (r > 0.0f) { out.push_back(c + Pos::fromAngle((a - c).angle() + span() * 0.5f) * r); }  // arc midpoint
+        }
+        bool asCircle(Pos& cc, float& rr, float& a0, float& sweep) const override {
+            float r = radius();
+            if (r <= 0.0f) { return false; }
+            cc = c; rr = r; a0 = (a - c).angle(); sweep = span(); return true;
+        }
         bool footOnCurve(Pos p, Pos& out) const override {
             float r = radius(); if (r <= 0.0f) { return false; }
             float aP = wrapTau((p - c).angle() - (a - c).angle());
@@ -388,6 +545,11 @@ export namespace Sketch::App {
             sub = -1; Pos foot; footNearest(p, 0.0f, TAU, foot); return (p - foot).pythag();
         }
         void anchors(std::vector<Anchor>& out) const override { out.push_back({ c, -1, false }); }
+        void snapPoints(std::vector<Pos>& out) const override {
+            out.push_back(c);                            // centre + the four axis ends
+            out.push_back(c + u); out.push_back(c - u);
+            out.push_back(c + v); out.push_back(c - v);
+        }
         bool footOnCurve(Pos p, Pos& out) const override { footNearest(p, 0.0f, TAU, out); return true; }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&c); }
 
