@@ -208,35 +208,21 @@ export namespace Sketch::App {
             return j;
         }
 
-        // A salient point: an anchor for snapping and point-priority selection.
-        // `sub`/`vertex` address a part within a composite entity (polylines).
-        struct Anchor { Pos pos; int sub = -1; bool vertex = false; };
-
         // Rendering: append this entity's polyline approximation (world space).
         // Point-like entities append a single position, drawn as a dot.
         virtual void tessellate(std::vector<Pos>& out) const = 0;
         virtual bool isPoint() const { return false; }
 
-        // Render just one part (a polyline vertex/segment); defaults to the whole.
-        virtual void tessellatePart(int sub, bool vertex, std::vector<Pos>& out) const {
-            tessellate(out);
-        }
+        // Hit-testing: distance from p to the drawn curve.
+        virtual float distanceTo(Pos p) const = 0;
 
-        // Hit-testing: distance from p to the drawn curve. `nearestSub` receives the
-        // nearest sub-part index for composite entities (else -1).
-        virtual float distanceTo(Pos p, int& nearestSub) const = 0;
-
-        // Snap / point-priority anchors (endpoints, centre, vertices) -- used for
-        // *selection*.
-        virtual void anchors(std::vector<Anchor>& out) const {}
+        // Point-priority anchors (endpoints, centre) -- used for *selection*.
+        virtual void anchors(std::vector<Pos>& out) const {}
 
         // Feature snap points: every salient position to magnetise placement onto
         // (endpoints, centres, midpoints, circle quadrants, ellipse axis-ends, ...).
         // Defaults to the selection anchors; entities override to add their extras.
-        virtual void snapPoints(std::vector<Pos>& out) const {
-            std::vector<Anchor> a; anchors(a);
-            for (const Anchor& x : a) { out.push_back(x.pos); }
-        }
+        virtual void snapPoints(std::vector<Pos>& out) const { anchors(out); }
 
         // Exact-intersection forms, used to cross one entity with another. An
         // entity that is *genuinely* straight yields its segment(s); one that is
@@ -263,19 +249,9 @@ export namespace Sketch::App {
         // Nearest point on the body for snapping onto the curve; false if none.
         virtual bool footOnCurve(Pos p, Pos& out) const { return false; }
 
-        // Composite sub-structure (polylines): number of selectable sub-segments
-        // (0 = atomic), and vertex removal (returns whether the entity is still
-        // valid afterwards). Atomic entities ignore both.
-        virtual int subCount() const { return 0; }
-        virtual bool eraseVertex(int v) { return false; }
-
-        // Mutable control points. The no-arg form yields every absolute point (for
-        // coincidence detection); the part form yields just the points a given
-        // sub-part move should translate (defaults to all).
+        // Mutable control points -- every absolute point defining the entity (used
+        // both for moving and for coincidence detection between entities).
         virtual void controlPoints(std::vector<Pos2*>& out) = 0;
-        virtual void controlPoints(int sub, bool vertex, std::vector<Pos2*>& out) {
-            controlPoints(out);
-        }
     };
 
     // Exact mutual intersection of two entities. Uses only their true analytic
@@ -313,8 +289,8 @@ export namespace Sketch::App {
 
         void tessellate(std::vector<Pos>& out) const override { out.push_back(p); }
         bool isPoint() const override { return true; }
-        float distanceTo(Pos q, int& sub) const override { sub = -1; return (q - p).pythag(); }
-        void anchors(std::vector<Anchor>& out) const override { out.push_back({ p, -1, false }); }
+        float distanceTo(Pos q) const override { return (q - p).pythag(); }
+        void anchors(std::vector<Pos>& out) const override { out.push_back(p); }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&p); }
     };
 
@@ -336,94 +312,14 @@ export namespace Sketch::App {
         }
 
         void tessellate(std::vector<Pos>& out) const override { out.push_back(a); out.push_back(b); }
-        float distanceTo(Pos p, int& sub) const override { sub = -1; return (p - closestOnSegment(p, a, b)).pythag(); }
-        void anchors(std::vector<Anchor>& out) const override { out.push_back({ a, -1, false }); out.push_back({ b, -1, false }); }
+        float distanceTo(Pos p) const override { return (p - closestOnSegment(p, a, b)).pythag(); }
+        void anchors(std::vector<Pos>& out) const override { out.push_back(a); out.push_back(b); }
         void snapPoints(std::vector<Pos>& out) const override {
             out.push_back(a); out.push_back(b); out.push_back((a + b) * 0.5f);   // + midpoint
         }
         void asLineSegments(std::vector<std::pair<Pos, Pos>>& out) const override { out.push_back({ a, b }); }
         bool footOnCurve(Pos p, Pos& out) const override { out = closestOnSegment(p, a, b); return true; }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&a); out.push_back(&b); }
-    };
-
-    // Polyline (a connected chain; interior joints are shared, movable vertices)
-    //--------------------------------------------------
-    struct Polyline2 : public Stoicheion {
-
-        std::vector<Pos2> points;
-
-        const char* kind() const override { return "polyline"; }
-        std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Polyline2>(*this); }
-        Json data() const override {
-            Json arr = Json::array();
-            for (const Pos2& p : points) { arr.push_back(p.toJson()); }
-            return Json{ { "points", arr } };
-        }
-        void load(const Json& j) override {
-            points.clear();
-            if (auto it = j.find("points"); it != j.end() && it->is_array()) {
-                for (const Json& e : *it) { points.push_back(Pos2::fromJson(e)); }
-            }
-        }
-
-        void tessellate(std::vector<Pos>& out) const override {
-            for (const Pos2& p : points) { out.push_back(p); }
-        }
-        void tessellatePart(int sub, bool vertex, std::vector<Pos>& out) const override {
-            if (vertex) {
-                if (sub >= 0 && sub < static_cast<int>(points.size())) { out.push_back(points[sub]); }
-            }
-            else if (sub >= 0 && sub + 1 < static_cast<int>(points.size())) {
-                out.push_back(points[sub]); out.push_back(points[sub + 1]);
-            }
-            else { tessellate(out); }
-        }
-
-        float distanceTo(Pos p, int& nearestSub) const override {
-            nearestSub = -1;
-            float best = 1e30f;
-            for (size_t s = 0; s + 1 < points.size(); s++) {
-                float d = (p - closestOnSegment(p, points[s], points[s + 1])).pythag();
-                if (d < best) { best = d; nearestSub = static_cast<int>(s); }
-            }
-            return best;
-        }
-        void anchors(std::vector<Anchor>& out) const override {
-            for (size_t i = 0; i < points.size(); i++) { out.push_back({ points[i], static_cast<int>(i), true }); }
-        }
-        void snapPoints(std::vector<Pos>& out) const override {
-            for (const Pos2& p : points) { out.push_back(p); }                          // vertices
-            for (size_t s = 0; s + 1 < points.size(); s++) {
-                out.push_back((points[s] + points[s + 1]) * 0.5f);                       // segment midpoints
-            }
-        }
-        void asLineSegments(std::vector<std::pair<Pos, Pos>>& out) const override {
-            for (size_t s = 0; s + 1 < points.size(); s++) { out.push_back({ points[s], points[s + 1] }); }
-        }
-        bool footOnCurve(Pos p, Pos& out) const override {
-            int sub; if (points.size() < 2) { return false; }
-            distanceTo(p, sub);
-            if (sub < 0) { return false; }
-            out = closestOnSegment(p, points[sub], points[sub + 1]);
-            return true;
-        }
-        int subCount() const override { return points.size() > 1 ? static_cast<int>(points.size()) - 1 : 0; }
-        bool eraseVertex(int v) override {
-            if (v >= 0 && v < static_cast<int>(points.size())) { points.erase(points.begin() + v); }
-            return points.size() >= 2;
-        }
-        void controlPoints(std::vector<Pos2*>& out) override {
-            for (Pos2& p : points) { out.push_back(&p); }
-        }
-        void controlPoints(int sub, bool vertex, std::vector<Pos2*>& out) override {
-            if (vertex && sub >= 0 && sub < static_cast<int>(points.size())) {
-                out.push_back(&points[sub]);
-            }
-            else if (!vertex && sub >= 0 && sub + 1 < static_cast<int>(points.size())) {
-                out.push_back(&points[sub]); out.push_back(&points[sub + 1]);
-            }
-            else { controlPoints(out); }
-        }
     };
 
     // Circle
@@ -445,8 +341,8 @@ export namespace Sketch::App {
         }
 
         void tessellate(std::vector<Pos>& out) const override { sampleArc(out, c, r, 0.0f, TAU, spanSteps(TAU)); }
-        float distanceTo(Pos p, int& sub) const override { sub = -1; return std::fabs((p - c).pythag() - r); }
-        void anchors(std::vector<Anchor>& out) const override { out.push_back({ c, -1, false }); }
+        float distanceTo(Pos p) const override { return std::fabs((p - c).pythag() - r); }
+        void anchors(std::vector<Pos>& out) const override { out.push_back(c); }
         void snapPoints(std::vector<Pos>& out) const override {
             out.push_back(c);                                   // centre + four quadrants
             out.push_back(c + Pos(r, 0.0f)); out.push_back(c + Pos(-r, 0.0f));
@@ -489,16 +385,15 @@ export namespace Sketch::App {
             float sp = span();
             sampleArc(out, c, r, (a - c).angle(), sp, spanSteps(sp));
         }
-        float distanceTo(Pos p, int& sub) const override {
-            sub = -1;
+        float distanceTo(Pos p) const override {
             float r = radius();
             if (r <= 0.0f) { return (p - a).pythag(); }
             float aP = wrapTau((p - c).angle() - (a - c).angle());
             if (aP <= span()) { return std::fabs((p - c).pythag() - r); }
             return std::min((p - a).pythag(), (p - b).pythag());
         }
-        void anchors(std::vector<Anchor>& out) const override {
-            out.push_back({ c, -1, false }); out.push_back({ a, -1, false }); out.push_back({ b, -1, false });
+        void anchors(std::vector<Pos>& out) const override {
+            out.push_back(c); out.push_back(a); out.push_back(b);
         }
         void snapPoints(std::vector<Pos>& out) const override {
             out.push_back(c); out.push_back(a); out.push_back(b);
@@ -541,10 +436,10 @@ export namespace Sketch::App {
         }
 
         void tessellate(std::vector<Pos>& out) const override { sampleEllipse(out, c, u, v, 0.0f, TAU, spanSteps(TAU)); }
-        float distanceTo(Pos p, int& sub) const override {
-            sub = -1; Pos foot; footNearest(p, 0.0f, TAU, foot); return (p - foot).pythag();
+        float distanceTo(Pos p) const override {
+            Pos foot; footNearest(p, 0.0f, TAU, foot); return (p - foot).pythag();
         }
-        void anchors(std::vector<Anchor>& out) const override { out.push_back({ c, -1, false }); }
+        void anchors(std::vector<Pos>& out) const override { out.push_back(c); }
         void snapPoints(std::vector<Pos>& out) const override {
             out.push_back(c);                            // centre + the four axis ends
             out.push_back(c + u); out.push_back(c - u);
@@ -595,13 +490,11 @@ export namespace Sketch::App {
         void tessellate(std::vector<Pos>& out) const override {
             float sp = span(); sampleEllipse(out, c, u, v, a0, sp, spanSteps(sp));
         }
-        float distanceTo(Pos p, int& sub) const override {
-            sub = -1; Pos foot; footNearest(p, foot); return (p - foot).pythag();
+        float distanceTo(Pos p) const override {
+            Pos foot; footNearest(p, foot); return (p - foot).pythag();
         }
-        void anchors(std::vector<Anchor>& out) const override {
-            out.push_back({ c, -1, false });
-            out.push_back({ startPoint(), -1, false });
-            out.push_back({ endPoint(), -1, false });
+        void anchors(std::vector<Pos>& out) const override {
+            out.push_back(c); out.push_back(startPoint()); out.push_back(endPoint());
         }
         bool footOnCurve(Pos p, Pos& out) const override { footNearest(p, out); return true; }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&c); }
@@ -626,7 +519,6 @@ export namespace Sketch::App {
 
         if      (kind == "point")      { e = std::make_unique<Point2>(); }
         else if (kind == "segment")    { e = std::make_unique<Segment2>(); }
-        else if (kind == "polyline")   { e = std::make_unique<Polyline2>(); }
         else if (kind == "circle")     { e = std::make_unique<Circle2>(); }
         else if (kind == "arc")        { e = std::make_unique<Arc2>(); }
         else if (kind == "ellipse")    { e = std::make_unique<Ellipse2>(); }

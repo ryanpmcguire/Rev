@@ -61,17 +61,12 @@ export namespace Sketch::Gui {
         FastLines* geometry = nullptr;   // committed geometry + live preview
         FastLines* highlight = nullptr;  // hover/selection overdraw (orange)
 
-        // A stable reference to one selectable entity (or a sub-part of it). Index
-        // (not pointer) so a selection survives appending new geometry. `sub` and
-        // `vertex` address a part within a composite entity (a polyline's segment
-        // or vertex); `sub == -1` means the whole entity.
+        // A stable reference to one selectable entity, by index (not pointer) so a
+        // selection survives appending new geometry. Every entity is atomic now, so
+        // there is no sub-part addressing.
         struct EntityRef {
             size_t index = 0;
-            int sub = -1;
-            bool vertex = false;
-            bool operator==(const EntityRef& o) const {
-                return index == o.index && sub == o.sub && vertex == o.vertex;
-            }
+            bool operator==(const EntityRef& o) const { return index == o.index; }
         };
 
         std::vector<EntityRef> selected;
@@ -103,7 +98,6 @@ export namespace Sketch::Gui {
         EntityRef pendingRef;         // the entity under the press (for the deferred commit)
         bool pendingHit    = false;
         bool pendingCtrl   = false;
-        bool pendingDouble = false;
 
         // Tool state machines (owned; selection mirrors app->activeTool).
         Sketch::App::PointTool      pointTool;
@@ -571,9 +565,7 @@ export namespace Sketch::Gui {
         }
 
         // Draw a single entity: let it tessellate itself into a polyline, then push
-        // it as one Line (the primitive miters interior joins). Point-like entities
-        // become a dot; composite entities (polylines) also get a dot at each
-        // vertex so individual joints can be grabbed.
+        // it as one Line. Point-like entities become a dot.
         void appendEntity(FastLines* dst, const Sketch::App::Stoicheion& e, Color color) {
 
             std::vector<Pos> pts;
@@ -585,19 +577,10 @@ export namespace Sketch::Gui {
                 return;
             }
 
-            if (pts.size() >= 2) {
-                std::vector<Vertex> vs;
-                vs.reserve(pts.size());
-                for (const Pos& p : pts) { vs.push_back(Vertex(p.x, p.y)); }
-                dst->lines.push_back({ .points = std::move(vs), .color = color });
-            }
-
-            // Vertex dots (polyline joints).
-            std::vector<Sketch::App::Stoicheion::Anchor> anc;
-            e.anchors(anc);
-            for (const auto& a : anc) {
-                if (a.vertex) { appendPoint(dst, Sketch::App::Point2(a.pos), color); }
-            }
+            std::vector<Vertex> vs;
+            vs.reserve(pts.size());
+            for (const Pos& p : pts) { vs.push_back(Vertex(p.x, p.y)); }
+            dst->lines.push_back({ .points = std::move(vs), .color = color });
         }
 
         void appendGeometry(FastLines* dst, const SketchGeometry& g, Color color) {
@@ -682,23 +665,19 @@ export namespace Sketch::Gui {
                 }
             };
 
-            // Anchor points first, so on an exact tie at a joint the point wins over
-            // the curve sharing that spot (you can grab the vertex itself).
+            // Anchor points first, so on an exact tie at an endpoint the point wins
+            // over the curve sharing that spot (you can grab the endpoint itself).
             for (size_t i = 0; i < g.entities.size(); i++) {
                 const auto& e = *g.entities[i];
                 int tier = e.construction ? 0 : 1;
-                std::vector<Sketch::App::Stoicheion::Anchor> anc;
+                std::vector<Pos> anc;
                 e.anchors(anc);
-                for (const auto& a : anc) {
-                    consider(tier, true, (w - a.pos).pythag(), { i, a.sub, a.vertex });
-                }
+                for (const Pos& a : anc) { consider(tier, true, (w - a).pythag(), { i }); }
             }
             for (size_t i = 0; i < g.entities.size(); i++) {
                 const auto& e = *g.entities[i];
                 int tier = e.construction ? 0 : 1;
-                int sub = -1;
-                float d = e.distanceTo(w, sub);
-                consider(tier, false, d, { i, sub, false });
+                consider(tier, false, e.distanceTo(w), { i });
             }
             return found;
         }
@@ -760,8 +739,7 @@ export namespace Sketch::Gui {
             if (app && app->activeProject) {
                 const SketchGeometry& g = app->activeProject->geometry;
                 for (const auto& ep : g.entities) {
-                    int sub;
-                    if (ep->distanceTo(mouse, sub) < thresh) {
+                    if (ep->distanceTo(mouse) < thresh) {
                         ep->snapCandidates(mouse, out);
                         parts.push_back(ep.get());
                         partTier.push_back(ep->construction ? 0 : 1);
@@ -824,8 +802,8 @@ export namespace Sketch::Gui {
             if (found) { wx = best.x; wy = best.y; }
         }
 
-        // Draw one reference's curve (or sub-part) into the highlight primitive at a
-        // given stroke width (per-line override, so hover and select can differ).
+        // Draw one reference's curve into the highlight primitive at a given stroke
+        // width (per-line override, so hover and select can differ).
         void appendRef(const EntityRef& ref, Color color, float width) {
 
             if (!app || !app->activeProject) { return; }
@@ -833,7 +811,7 @@ export namespace Sketch::Gui {
             if (ref.index >= g.entities.size()) { return; }
 
             std::vector<Pos> pts;
-            g.entities[ref.index]->tessellatePart(ref.sub, ref.vertex, pts);
+            g.entities[ref.index]->tessellate(pts);
             if (pts.empty()) { return; }
 
             if (pts.size() == 1) {
@@ -871,24 +849,6 @@ export namespace Sketch::Gui {
         // Selection / editing actions
         //--------------------------------------------------
 
-        // True if the entity has selectable sub-segments (a polyline).
-        bool isComposite(size_t index) const {
-            if (!app || !app->activeProject) { return false; }
-            const auto& g = app->activeProject->geometry;
-            return index < g.entities.size() && g.entities[index]->subCount() > 0;
-        }
-
-        void selectWholePolyline(size_t index) {
-            if (!app || !app->activeProject) { return; }
-            const auto& g = app->activeProject->geometry;
-            if (index >= g.entities.size()) { return; }
-            int n = g.entities[index]->subCount();
-            for (int s = 0; s < n; s++) {
-                EntityRef r{ index, s, false };
-                if (!isSelected(r)) { selected.push_back(r); }
-            }
-        }
-
         // Left press in selection mode. Rather than commit a selection change
         // immediately, we *arm* the gesture: capture what was clicked, optionally
         // grab a freshly-clicked curve so a drag has something to move, and build
@@ -906,7 +866,6 @@ export namespace Sketch::Gui {
             pendingRef    = ref;
             pendingHit    = hit;
             pendingCtrl   = ctrl;
-            pendingDouble = hit && e.mouse.lb.isDoubleClick() && isComposite(ref.index);
             selectPending = true;
             moveArmed     = false;
             moveDragged   = false;
@@ -935,17 +894,13 @@ export namespace Sketch::Gui {
 
         // Commit the deferred selection for a clean (non-drag) click. Normal click
         // replaces the selection; Ctrl toggles; clicking empty space clears (unless
-        // Ctrl). Double-click grabs the whole polyline.
+        // Ctrl).
         void commitSelectClick() {
 
             const EntityRef& ref = pendingRef;
 
             if (pendingHit) {
-                if (pendingDouble) {
-                    if (!pendingCtrl) { selected.clear(); }
-                    selectWholePolyline(ref.index);
-                }
-                else if (pendingCtrl) {
+                if (pendingCtrl) {
                     // Toggle: drop it if already selected, otherwise add.
                     auto it = std::find(selected.begin(), selected.end(), ref);
                     if (it != selected.end()) { selected.erase(it); }
@@ -995,13 +950,11 @@ export namespace Sketch::Gui {
                 drivers.push_back({ &x, &y });
             };
 
-            // Each ref's entity yields the control points its sub-part move should
-            // translate (whole-entity for atomic kinds, one vertex / two endpoints
-            // for polyline parts).
+            // Each selected entity contributes all of its control points as drivers.
             for (const EntityRef& r : refs) {
                 if (r.index >= g.entities.size()) { continue; }
                 std::vector<Pos2*> cps;
-                g.entities[r.index]->controlPoints(r.sub, r.vertex, cps);
+                g.entities[r.index]->controlPoints(cps);
                 for (Pos2* p : cps) { addSlot(p->x, p->y); }
             }
 
@@ -1039,46 +992,19 @@ export namespace Sketch::Gui {
             highlightDirty = true;
         }
 
-        // Delete the selected curves. Selecting any segment of a polyline removes
-        // the whole polyline (splitting is a later refinement).
+        // Delete the selected entities.
         bool deleteSelected() {
 
             if (!app || !app->activeProject || selected.empty()) { return false; }
 
             auto& g = app->activeProject->geometry;
 
-            std::vector<size_t> wholeDelete;
+            std::vector<size_t> idx;
+            for (const EntityRef& r : selected) { idx.push_back(r.index); }
 
-            // Per-entity vertex removals (polyline vertices) -> entity index.
-            std::vector<std::pair<size_t, std::vector<int>>> vertDel;
-            auto vertsFor = [&](size_t i) -> std::vector<int>& {
-                for (auto& e : vertDel) { if (e.first == i) { return e.second; } }
-                vertDel.push_back({ i, {} });
-                return vertDel.back().second;
-            };
-
-            for (const EntityRef& r : selected) {
-                if (r.vertex) { vertsFor(r.index).push_back(r.sub); }
-                else          { wholeDelete.push_back(r.index); }   // whole / sub-segment -> drop entity
-            }
-
-            // Drop individual vertices (descending so indices stay valid); an entity
-            // left invalid (a polyline with < 2 points) is removed wholesale.
-            for (auto& e : vertDel) {
-                if (e.first >= g.entities.size()) { continue; }
-                std::sort(e.second.begin(), e.second.end());
-                e.second.erase(std::unique(e.second.begin(), e.second.end()), e.second.end());
-                bool valid = true;
-                for (auto it = e.second.rbegin(); it != e.second.rend(); ++it) {
-                    valid = g.entities[e.first]->eraseVertex(*it);
-                }
-                if (!valid) { wholeDelete.push_back(e.first); }
-            }
-
-            // Erase whole entities (unique, descending).
-            std::sort(wholeDelete.begin(), wholeDelete.end());
-            wholeDelete.erase(std::unique(wholeDelete.begin(), wholeDelete.end()), wholeDelete.end());
-            for (auto it = wholeDelete.rbegin(); it != wholeDelete.rend(); ++it) {
+            std::sort(idx.begin(), idx.end());
+            idx.erase(std::unique(idx.begin(), idx.end()), idx.end());
+            for (auto it = idx.rbegin(); it != idx.rend(); ++it) {
                 if (*it < g.entities.size()) { g.entities.erase(std::next(g.entities.begin(), *it)); }
             }
 
@@ -1088,8 +1014,7 @@ export namespace Sketch::Gui {
             return true;
         }
 
-        // Toggle the construction flag on each selected entity (once per entity, so
-        // selecting several segments of one polyline doesn't double-toggle it).
+        // Toggle the construction flag on each selected entity (once per entity).
         bool toggleSelectedConstruction() {
 
             if (!app || !app->activeProject || selected.empty()) { return false; }

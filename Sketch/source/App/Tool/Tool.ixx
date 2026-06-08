@@ -80,43 +80,42 @@ export namespace Sketch::App {
         }
     };
 
-    // Line: each click adds a vertex to one continuous polyline, extended in place.
+    // Line: each click drops an *independent* segment from the previous point to
+    // the new one. A run is just a sequence of segments whose shared endpoints
+    // happen to be coincident -- continuity is emergent, not stored. The tool keeps
+    // a list of the segments it created this run only so the construction toggle can
+    // flip them together while drawing.
     struct LineTool : public Tool {
 
-        std::vector<Pos2> pts;       // the current run's vertices
-        long activeIndex = -1;       // its entity index in the project, or -1
+        bool hasPrev = false;
+        Pos prev;                       // the previous vertex
+        std::vector<size_t> created;    // entity indices placed this run
 
         void click(Project& project, Pos w) override {
-
-            pts.push_back(w);
-
-            auto line = std::make_unique<Polyline2>();
-            line->points = pts;
-            line->construction = construction;
-
-            if (pts.size() == 2) {
-                activeIndex = static_cast<long>(project.add(std::move(line)));
+            if (hasPrev) {
+                created.push_back(commit(project, std::make_unique<Segment2>(prev, w)));
             }
-            else if (pts.size() > 2 && activeIndex >= 0) {
-                project.replace(static_cast<size_t>(activeIndex), std::move(line));
-            }
+            prev = w;
+            hasPrev = true;
         }
 
         void applyConstruction(Project& project) override {
-            if (activeIndex >= 0 && static_cast<size_t>(activeIndex) < project.geometry.entities.size()) {
-                project.geometry.entities[static_cast<size_t>(activeIndex)]->construction = construction;
-                project.dirty = true;
+            for (size_t idx : created) {
+                if (idx < project.geometry.entities.size()) {
+                    project.geometry.entities[idx]->construction = construction;
+                }
             }
+            project.dirty = true;
         }
 
         void enter(Project& project) override { reset(); }
-        void reset() override { pts.clear(); activeIndex = -1; }
-        bool active() const override { return !pts.empty(); }
+        void reset() override { hasPrev = false; created.clear(); }
+        bool active() const override { return hasPrev; }
 
         void preview(Pos w, SketchPreview& out) const override {
-            if (pts.empty()) { return; }
-            for (const Pos2& p : pts) { out.helper.add(std::make_unique<Point2>(p)); }
-            out.candidate.add(std::make_unique<Segment2>(pts.back(), w));
+            if (!hasPrev) { return; }
+            out.helper.add(std::make_unique<Point2>(prev));
+            out.candidate.add(std::make_unique<Segment2>(prev, w));   // rubber-band
         }
     };
 
