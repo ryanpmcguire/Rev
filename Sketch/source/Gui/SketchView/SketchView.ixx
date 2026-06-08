@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <vector>
+#include <memory>
 #include <cmath>
 #include <algorithm>
 #include <iterator>
@@ -15,6 +16,7 @@ import Rev.Core.Pos;
 
 import Rev.Element;
 import Rev.Element.Event;
+import Rev.Element.Event.GestureTracker;
 import Rev.Element.Style;
 import Rev.Element.Box;
 
@@ -40,6 +42,14 @@ export namespace Sketch::Gui {
     using Sketch::App::Pos2;
     using Sketch::App::SnapCandidate;
 
+    // Keyboard relation commands, matched as key sequences by the GestureTracker.
+    // New relations drop in as new bindings ("rd" distance, "rt" tangent, ...).
+    enum class SketchCommand {
+        RelateCoincident,
+        Lock,
+        ToggleConstruction,
+    };
+
     // A 2D sketch canvas: the flat cousin of the world view.
     //
     // Camera is CPU-only for now: a world origin (pixels from the element's
@@ -61,12 +71,14 @@ export namespace Sketch::Gui {
         FastLines* geometry = nullptr;   // committed geometry + live preview
         FastLines* highlight = nullptr;  // hover/selection overdraw (orange)
 
-        // A stable reference to one selectable entity, by index (not pointer) so a
-        // selection survives appending new geometry. Every entity is atomic now, so
-        // there is no sub-part addressing.
+        // A stable reference to one selectable thing, by entity index (not pointer)
+        // so a selection survives appending new geometry. `point` addresses one of
+        // the entity's defining points (slot into its control points / anchors);
+        // `point == -1` means the whole entity.
         struct EntityRef {
             size_t index = 0;
-            bool operator==(const EntityRef& o) const { return index == o.index; }
+            int point = -1;
+            bool operator==(const EntityRef& o) const { return index == o.index && point == o.point; }
         };
 
         std::vector<EntityRef> selected;
@@ -84,11 +96,11 @@ export namespace Sketch::Gui {
         // to release, and *skipped* if a drag happened in between (so dragging a
         // member of a multi-selection moves the whole set without collapsing it).
         //
-        // A "slot" is one mutable point in the geometry (x,y by pointer plus its
-        // value at drag start). The move set is the control points of the moved
-        // primitives, plus every other point that was coincident with one of them
-        // -- so coincident geometry travels along.
-        struct MoveSlot { float* x; float* y; float ox; float oy; };
+        // A "slot" is one mutable point in the geometry (x,y by pointer, its value
+        // at drag start, and the point's stable ref so its motion capacity can be
+        // queried). The proposed drag is masked by each point's capacity before it
+        // is applied; related points then follow via resolveRelations().
+        struct MoveSlot { float* x; float* y; float ox; float oy; Sketch::App::PointRef ref; };
         std::vector<MoveSlot> moveSlots;
 
         bool selectPending = false;   // a left gesture whose selection commit is deferred to up
@@ -98,6 +110,13 @@ export namespace Sketch::Gui {
         EntityRef pendingRef;         // the entity under the press (for the deferred commit)
         bool pendingHit    = false;
         bool pendingCtrl   = false;
+
+        // Keyboard relation commands ("rc" = relate coincident, "cl" = lock, ...).
+        GestureTracker<SketchCommand> gestures = {
+            { "rc", SketchCommand::RelateCoincident },
+            { "cl", SketchCommand::Lock },
+            { "cc", SketchCommand::ToggleConstruction },   // shares the "c" prefix with "cl"
+        };
 
         // Tool state machines (owned; selection mirrors app->activeTool).
         Sketch::App::PointTool      pointTool;
@@ -148,6 +167,20 @@ export namespace Sketch::Gui {
             // Highlight: thicker orange overdraw for hover / selection.
             highlight = new FastLines(canvas);
             highlight->smoothing = 0.8f;
+
+            gestures.onGesture = [this](SketchCommand command, Event& e) {
+                bool changed = false;
+                switch (command) {
+                    case SketchCommand::RelateCoincident:   changed = relateCoincident();        break;
+                    case SketchCommand::Lock:               changed = lockSelected();            break;
+                    case SketchCommand::ToggleConstruction: changed = toggleConstructionCommand(); break;
+                }
+                if (changed) {
+                    geometryDirty = true;
+                    highlightDirty = true;
+                    refresh(e);
+                }
+            };
         }
 
         ~SketchView() {
@@ -316,8 +349,10 @@ export namespace Sketch::Gui {
 
             // Resolve a deferred selection gesture on release: a clean click (no
             // drag) commits the normal select/toggle; a drag leaves the selection
-            // untouched (it was just moved).
-            if (e.mouse.lb && selectPending && !currentTool()) {
+            // untouched (it was just moved). NB: the left button is already released
+            // by the time mouseUp fires (so we don't gate on e.mouse.lb) -- a pending
+            // selection only ever comes from a prior left press.
+            if (selectPending && !currentTool()) {
 
                 if (!moveDragged) { commitSelectClick(); }
 
@@ -357,6 +392,15 @@ export namespace Sketch::Gui {
 
         void keyDown(Event& e) override {
 
+            // Command sequences ("rc" coincident, "cl" lock, "cc" construction).
+            // The tracker consumes an in-progress sequence (e.g. a lone "r"/"c"
+            // prefix) and fires onGesture on a match; everything else (f, Del, Esc,
+            // arrows) passes through to the handlers below.
+            if (gestures.track(e)) {
+                e.propagate = false;
+                return;
+            }
+
             // Adjust the generic line thickness setting.
             if (app && (e.keyboard.arrows.up || e.keyboard.arrows.down)) {
                 float step = e.keyboard.arrows.up ? 0.5f : -0.5f;
@@ -386,26 +430,7 @@ export namespace Sketch::Gui {
                 return;
             }
 
-            // Construction toggle. With a selection: flip those primitives. With
-            // none: flip the "drawing construction" mode and re-stamp the current
-            // tool's in-progress geometry (and all future additions inherit it).
-            if (e.keyboard.key == "c") {
-                if (!selected.empty()) {
-                    toggleSelectedConstruction();
-                }
-                else {
-                    drawingConstruction = !drawingConstruction;
-                    if (Sketch::App::Tool* tool = currentTool()) {
-                        tool->construction = drawingConstruction;
-                        if (app && app->activeProject) { tool->applyConstruction(*app->activeProject); }
-                    }
-                }
-                geometryDirty = true;
-                highlightDirty = true;
-                refresh(e);
-                e.propagate = false;
-                return;
-            }
+            // (Construction toggle is now the "cc" gesture; lock is "cl".)
 
             // Esc clears the selection when not in a drawing tool.
             if (e.keyboard.escape && !currentTool() && !selected.empty()) {
@@ -588,10 +613,12 @@ export namespace Sketch::Gui {
         }
 
         // Render committed geometry, colouring each entity by whether it is
-        // construction (grey) or real (white).
+        // construction (grey) or real (white). Locked datums (origin / axes) are
+        // not drawn here -- the crisp red/green gnomon stands in for them, and they
+        // light up only on hover / selection.
         void appendCommitted(FastLines* dst, const SketchGeometry& g, Color real, Color cons) {
             for (const auto& e : g.entities) {
-                if (e) { appendEntity(dst, *e, e->construction ? cons : real); }
+                if (e && !e->locked) { appendEntity(dst, *e, e->construction ? cons : real); }
             }
         }
 
@@ -665,19 +692,22 @@ export namespace Sketch::Gui {
                 }
             };
 
-            // Anchor points first, so on an exact tie at an endpoint the point wins
-            // over the curve sharing that spot (you can grab the endpoint itself).
+            // Defining points first (so an endpoint wins over the curve sharing its
+            // spot). Each anchor is a control-point slot, in the same order as
+            // controlPoints(), so the ref addresses exactly that point.
             for (size_t i = 0; i < g.entities.size(); i++) {
                 const auto& e = *g.entities[i];
-                int tier = e.construction ? 0 : 1;
+                int tier = tierOf(e);
                 std::vector<Pos> anc;
                 e.anchors(anc);
-                for (const Pos& a : anc) { consider(tier, true, (w - a).pythag(), { i }); }
+                for (size_t s = 0; s < anc.size(); s++) {
+                    consider(tier, true, (w - anc[s]).pythag(), { i, static_cast<int>(s) });
+                }
             }
             for (size_t i = 0; i < g.entities.size(); i++) {
                 const auto& e = *g.entities[i];
-                int tier = e.construction ? 0 : 1;
-                consider(tier, false, e.distanceTo(w), { i });
+                int tier = tierOf(e);
+                consider(tier, false, e.distanceTo(w), { i, -1 });
             }
             return found;
         }
@@ -721,16 +751,20 @@ export namespace Sketch::Gui {
             return true;
         }
 
+        // Tier for scoring: locked datums (origin / axes) are tier-2 authority, real
+        // geometry tier 1, construction tier 0.
+        static int tierOf(const Sketch::App::Stoicheion& e) {
+            return e.locked ? 2 : (e.construction ? 0 : 1);
+        }
+
         // Gather every snap candidate near `mouse`: each nearby entity yields its
         // own (feature points + curve foot) via snapCandidates, plus the *exact*
-        // mutual intersections of the nearby entities (and the world axes). Pure
-        // analysis throughout -- nothing here is quantised. The list is scored and
-        // can be drawn directly (one chip per candidate) in a later pass.
+        // mutual intersections of the nearby entities. The origin and axes are just
+        // ordinary (locked) entities now, so they fall out for free. Pure analysis
+        // throughout -- nothing here is quantised.
         void collectSnapCandidates(Pos mouse, float thresh, std::vector<SnapCandidate>& out) const {
 
             using Sketch::App::Stoicheion;
-            using Sketch::App::Segment2;
-            using Sketch::App::snapScore;
 
             // Entities near enough to snap to, gathered for intersection too.
             std::vector<const Stoicheion*> parts;
@@ -742,26 +776,9 @@ export namespace Sketch::Gui {
                     if (ep->distanceTo(mouse) < thresh) {
                         ep->snapCandidates(mouse, out);
                         parts.push_back(ep.get());
-                        partTier.push_back(ep->construction ? 0 : 1);
+                        partTier.push_back(tierOf(*ep));
                     }
                 }
-            }
-
-            // The world axes participate as tier-2 "invisible" lines: the origin is
-            // a point feature, the axis line a curve foot, and each axis a partner
-            // for exact intersections with nearby geometry.
-            const float AX = 1.0e5f;   // effectively infinite for local crossings
-            Segment2 axisX(Pos(-AX, 0.0f), Pos(AX, 0.0f));
-            Segment2 axisY(Pos(0.0f, -AX), Pos(0.0f, AX));
-
-            out.push_back({ Pos(0.0f, 0.0f), SnapCandidate::Point, snapScore(SnapCandidate::Point, 2) });
-            if (std::fabs(mouse.y) < thresh) {
-                out.push_back({ Pos(mouse.x, 0.0f), SnapCandidate::OnCurve, snapScore(SnapCandidate::OnCurve, 2) });
-                parts.push_back(&axisX); partTier.push_back(2);
-            }
-            if (std::fabs(mouse.x) < thresh) {
-                out.push_back({ Pos(0.0f, mouse.y), SnapCandidate::OnCurve, snapScore(SnapCandidate::OnCurve, 2) });
-                parts.push_back(&axisY); partTier.push_back(2);
             }
 
             // Exact mutual intersections between distinct participants.
@@ -772,7 +789,8 @@ export namespace Sketch::Gui {
                     int tier = std::max(partTier[i], partTier[j]);
                     for (const Pos& x : hits) {
                         if ((mouse - x).pythag() < thresh) {
-                            out.push_back({ x, SnapCandidate::Intersection, snapScore(SnapCandidate::Intersection, tier) });
+                            out.push_back({ x, SnapCandidate::Intersection,
+                                            Sketch::App::snapScore(SnapCandidate::Intersection, tier) });
                         }
                     }
                 }
@@ -809,9 +827,20 @@ export namespace Sketch::Gui {
             if (!app || !app->activeProject) { return; }
             const SketchGeometry& g = app->activeProject->geometry;
             if (ref.index >= g.entities.size()) { return; }
+            const Sketch::App::Stoicheion& e = *g.entities[ref.index];
+
+            // A point ref highlights just that defining point as a dot.
+            if (ref.point >= 0) {
+                std::vector<Pos> anc;
+                e.anchors(anc);
+                if (ref.point < static_cast<int>(anc.size())) {
+                    appendPoint(highlight, Sketch::App::Point2(anc[ref.point]), color);
+                }
+                return;
+            }
 
             std::vector<Pos> pts;
-            g.entities[ref.index]->tessellate(pts);
+            e.tessellate(pts);
             if (pts.empty()) { return; }
 
             if (pts.size() == 1) {
@@ -921,71 +950,54 @@ export namespace Sketch::Gui {
         // Movement
         //--------------------------------------------------
 
-        // Visit every mutable control point in the geometry as (x&, y&).
-        template <class F>
-        void forEachPointSlot(F f) {
-            if (!app || !app->activeProject) { return; }
-            auto& g = app->activeProject->geometry;
-            for (auto& e : g.entities) {
-                std::vector<Pos2*> cps;
-                e->controlPoints(cps);
-                for (Pos2* p : cps) { f(p->x, p->y); }
-            }
-        }
-
-        // Build the move set for the given primitives: their own control points
-        // ("drivers"), plus every other point coincident with a driver
-        // ("followers"), so touching geometry moves along. Captures each point's
-        // start value; the slot pointers stay valid for the gesture because a move
-        // only assigns values (never inserts/erases).
+        // Build the move set: just the selected points (a point ref → that one
+        // control point; a whole-entity ref → all of its control points), each
+        // tagged with its stable PointRef so its motion capacity can be queried at
+        // drag time. Locked datums are never grabbed.
         void beginMove(const std::vector<EntityRef>& refs) {
 
             moveSlots.clear();
             if (!app || !app->activeProject) { return; }
             auto& g = app->activeProject->geometry;
 
-            std::vector<std::pair<float*, float*>> drivers;
-            auto addSlot = [&](float& x, float& y) {
-                for (auto& d : drivers) { if (d.first == &x) { return; } }
-                drivers.push_back({ &x, &y });
+            auto addSlot = [&](Pos2* p, Sketch::App::PointRef ref) {
+                for (auto& s : moveSlots) { if (s.x == &p->x) { return; } }   // dedup by pointer
+                moveSlots.push_back({ &p->x, &p->y, p->x, p->y, ref });
             };
 
-            // Each selected entity contributes all of its control points as drivers.
             for (const EntityRef& r : refs) {
                 if (r.index >= g.entities.size()) { continue; }
+                Sketch::App::Stoicheion& e = *g.entities[r.index];
+                if (e.locked) { continue; }
+                Sketch::App::Id eid = e.id;
                 std::vector<Pos2*> cps;
-                g.entities[r.index]->controlPoints(cps);
-                for (Pos2* p : cps) { addSlot(p->x, p->y); }
-            }
-
-            // Followers: any other control point sitting on a driver at drag start.
-            const float eps = 1e-4f;
-            std::vector<std::pair<float*, float*>> followers;
-            forEachPointSlot([&](float& x, float& y) {
-                for (auto& d : drivers)   { if (d.first == &x) { return; } }
-                for (auto& fl : followers){ if (fl.first == &x) { return; } }
-                for (auto& d : drivers) {
-                    if (std::fabs(x - *d.first) <= eps && std::fabs(y - *d.second) <= eps) {
-                        followers.push_back({ &x, &y });
-                        return;
-                    }
+                e.controlPoints(cps);
+                if (r.point < 0) {
+                    for (size_t s = 0; s < cps.size(); s++) { addSlot(cps[s], { eid, static_cast<int>(s) }); }
                 }
-            });
-
-            for (auto& d : drivers)   { moveSlots.push_back({ d.first,  d.second,  *d.first,  *d.second }); }
-            for (auto& fl : followers){ moveSlots.push_back({ fl.first, fl.second, *fl.first, *fl.second }); }
+                else if (r.point < static_cast<int>(cps.size())) {
+                    addSlot(cps[r.point], { eid, r.point });
+                }
+            }
         }
 
-        // Translate the move set by the gesture's total offset (pixels since the
-        // press, mapped to world units), applied to each slot's captured start.
+        // Apply the proposed drag (pixels since the press, mapped to world). Each
+        // point only accepts the part of the proposal its capacity allows -- so a
+        // locked point stays put and a segment with one locked end deforms. Then
+        // related points follow via resolveRelations().
         void applyMove(const Event& e) {
 
             if (!app || !app->activeProject) { return; }
+            auto& g = app->activeProject->geometry;
 
-            float dwx =  e.mouse.diff.x / scale;
-            float dwy = -e.mouse.diff.y / scale;
+            Pos proposal(e.mouse.diff.x / scale, -e.mouse.diff.y / scale);
 
-            for (auto& s : moveSlots) { *s.x = s.ox + dwx; *s.y = s.oy + dwy; }
+            for (auto& s : moveSlots) {
+                Pos allowed = g.capacityOf(s.ref).mask(proposal);
+                *s.x = s.ox + allowed.x;
+                *s.y = s.oy + allowed.y;
+            }
+            g.resolveRelations();
 
             app->activeProject->dirty = true;
             geometryDirty  = true;
@@ -1000,7 +1012,9 @@ export namespace Sketch::Gui {
             auto& g = app->activeProject->geometry;
 
             std::vector<size_t> idx;
-            for (const EntityRef& r : selected) { idx.push_back(r.index); }
+            for (const EntityRef& r : selected) {
+                if (r.index < g.entities.size() && !g.entities[r.index]->locked) { idx.push_back(r.index); }
+            }
 
             std::sort(idx.begin(), idx.end());
             idx.erase(std::unique(idx.begin(), idx.end()), idx.end());
@@ -1011,6 +1025,79 @@ export namespace Sketch::Gui {
             app->activeProject->dirty = true;
             selected.clear();
             hoverValid = false;
+            return true;
+        }
+
+        // "rc" -- relate the two selected defining points as coincident (the first
+        // is the authority; the second follows). A test of the relation structure.
+        bool relateCoincident() {
+
+            if (!app || !app->activeProject) { return false; }
+            auto& g = app->activeProject->geometry;
+
+            std::vector<EntityRef> pts;
+            for (const EntityRef& r : selected) {
+                if (r.point >= 0 && r.index < g.entities.size()) { pts.push_back(r); }
+            }
+            if (pts.size() != 2) { return false; }
+
+            // Authority: a locked datum is always the master (it must not move), so
+            // the other point follows it. Otherwise the first-selected is master.
+            if (g.entities[pts[1].index]->locked && !g.entities[pts[0].index]->locked) {
+                std::swap(pts[0], pts[1]);
+            }
+
+            auto ref = [&](const EntityRef& r) {
+                return Sketch::App::PointRef{ g.entities[r.index]->id, r.point };
+            };
+
+            app->activeProject->addRelation(
+                std::make_unique<Sketch::App::Coincident>(ref(pts[0]), ref(pts[1])));
+            g.resolveRelations();
+
+            selected.clear();
+            hoverValid = false;
+            return true;
+        }
+
+        // "cl" -- lock each selected point in place with a Lock relation, giving it
+        // zero motion capacity. (Datums are already locked.)
+        bool lockSelected() {
+
+            if (!app || !app->activeProject) { return false; }
+            auto& g = app->activeProject->geometry;
+
+            int locked = 0;
+            for (const EntityRef& r : selected) {
+                if (r.point < 0 || r.index >= g.entities.size()) { continue; }
+                Sketch::App::Stoicheion& e = *g.entities[r.index];
+                if (e.locked) { continue; }
+                std::vector<Pos2*> cps;
+                e.controlPoints(cps);
+                if (r.point >= static_cast<int>(cps.size())) { continue; }
+                Pos at = *cps[r.point];
+                app->activeProject->addRelation(
+                    std::make_unique<Sketch::App::Lock>(Sketch::App::PointRef{ e.id, r.point }, at));
+                locked++;
+            }
+
+            if (locked > 0) { g.resolveRelations(); selected.clear(); hoverValid = false; }
+            return locked > 0;
+        }
+
+        // "cc" -- toggle construction: flip the selected entities, or (with nothing
+        // selected) flip the drawing mode so future geometry inherits it.
+        bool toggleConstructionCommand() {
+            if (!selected.empty()) {
+                toggleSelectedConstruction();
+            }
+            else {
+                drawingConstruction = !drawingConstruction;
+                if (Sketch::App::Tool* tool = currentTool()) {
+                    tool->construction = drawingConstruction;
+                    if (app && app->activeProject) { tool->applyConstruction(*app->activeProject); }
+                }
+            }
             return true;
         }
 
@@ -1048,8 +1135,9 @@ export namespace Sketch::Gui {
             };
 
             // Each entity tessellates to its polyline approximation; the sampled
-            // points bound it (circles/ellipses included).
+            // points bound it. Locked datums (the huge axes) are excluded.
             for (const auto& e : g.entities) {
+                if (e->locked) { continue; }
                 std::vector<Pos> pts;
                 e->tessellate(pts);
                 for (const Pos& p : pts) { acc(p.x, p.y); }

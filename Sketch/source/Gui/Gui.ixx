@@ -41,7 +41,7 @@ export namespace Sketch::Gui {
 
             this->style->layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
             this->styles.add(&Theme::Styles::Background);
-            this->style->size = { .width = 100_pct, .height = 100_pct };
+            this->style->size = { .width = 100_pct, .height = Grow() };
 
             // Children
             //--------------------------------------------------

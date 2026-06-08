@@ -451,6 +451,10 @@ export namespace Rev {
             bool closeButton = true;
             bool minimizeButton = true;
             bool maximizeButton = true;
+
+            // No OS title bar, but a native resizable frame. See WM_NCCALCSIZE /
+            // WM_NCHITTEST below.
+            bool nativeFrameless = false;
         };
 
         enum class Relationship {
@@ -484,6 +488,9 @@ export namespace Rev {
         // client rect (drag continuity beyond the window edge).
         int buttonsDown = 0;
         Relationship relationship = Relationship::EmbeddedChild;
+
+        // Frameless-but-native-resizable window (no title bar, WS_THICKFRAME kept).
+        bool nativeFrameless = false;
 
         inline static NativeWindow* currentWindow = nullptr;
         inline static NativeWindow* resourceRoot = nullptr;
@@ -554,6 +561,7 @@ export namespace Rev {
             this->size = details.size;
             this->callback = callback;
             this->relationship = relationship;
+            this->nativeFrameless = details.nativeFrameless;
 
             // --------------------------------------------------
             // Enable Per-Monitor DPI Awareness once per process
@@ -615,7 +623,16 @@ export namespace Rev {
                     createParent = relatedHwnd;
                 }
 
-                if (details.borderless || !details.decorated) {
+                if (details.nativeFrameless) {
+                    // Keep the full overlapped style so WS_THICKFRAME (native
+                    // resize + Aero snap), WS_CAPTION (drop shadow / snap layout)
+                    // and the min/max boxes survive. The visible frame + title bar
+                    // are then suppressed in WM_NCCALCSIZE, and resize hit zones
+                    // are reported from WM_NCHITTEST.
+                    style |= WS_OVERLAPPEDWINDOW;
+                }
+
+                else if (details.borderless || !details.decorated) {
                     style = WS_POPUP | WS_VISIBLE;
                 }
 
@@ -662,6 +679,15 @@ export namespace Rev {
 
             if (!handle) {
                 throw std::runtime_error("[NativeWindow] Failed to create window");
+            }
+
+            // Frameless: force a non-client recalc so WM_NCCALCSIZE collapses the
+            // title bar/frame right away (otherwise it can flash on first paint).
+            if (nativeFrameless) {
+                SetWindowPos(
+                    handle, nullptr, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
+                );
             }
 
             // Set scale and notify parent
@@ -730,6 +756,42 @@ export namespace Rev {
                 SWP_NOACTIVATE |
                 SWP_NOSIZE
             );
+        }
+
+        // Actual window top-left in screen (physical) pixels — the window origin,
+        // including any OS border/title bar, as opposed to the client origin
+        // reported by WM_MOVE. Used to pin a drag so a decorated window doesn't
+        // jump by the frame offset when repositioned via SetWindowPos.
+        void getWindowPos(int& x, int& y) const {
+
+            if (!handle) {
+                x = posX;
+                y = posY;
+                return;
+            }
+
+            RECT rect;
+            GetWindowRect(handle, &rect);
+
+            x = rect.left;
+            y = rect.top;
+        }
+
+        // Screen (physical) position of the client area's top-left corner, queried
+        // live from the OS. This is the authoritative origin for converting an
+        // absolute mouse screen position into window-local coordinates — unlike a
+        // cached details.x/y, it is always correct regardless of how the window was
+        // last moved (native drag, our drag, SetWindowPos, multi-monitor, etc.).
+        void getClientPos(int& x, int& y) const {
+
+            POINT origin = { 0, 0 };
+
+            if (handle) {
+                ClientToScreen(handle, &origin);
+            }
+
+            x = origin.x;
+            y = origin.y;
         }
 
         void setTitle(const std::string& title) {
@@ -1010,6 +1072,84 @@ export namespace Rev {
                     });
                     
                     return 0;
+                }
+
+                // Frameless: suppress the OS title bar / frame by reclaiming the
+                // non-client area into the client. We leave a 1px border all
+                // around (so a thin frame remains visible); when maximized we inset
+                // by the real frame metrics so content doesn't spill over the
+                // taskbar / adjacent monitors.
+                case (WM_NCCALCSIZE): {
+
+                    if (wp == TRUE && self && self->nativeFrameless) {
+
+                        NCCALCSIZE_PARAMS* params =
+                            reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+
+                        RECT& rc = params->rgrc[0];
+
+                        if (IsZoomed(h)) {
+
+                            int fx = GetSystemMetrics(SM_CXFRAME)
+                                   + GetSystemMetrics(SM_CXPADDEDBORDER);
+                            int fy = GetSystemMetrics(SM_CYFRAME)
+                                   + GetSystemMetrics(SM_CXPADDEDBORDER);
+
+                            rc.left   += fx;
+                            rc.right  -= fx;
+                            rc.top    += fy;
+                            rc.bottom -= fy;
+                        }
+
+                        else {
+                            // 1px frame all around, no title bar.
+                            rc.left   += 1;
+                            rc.top    += 1;
+                            rc.right  -= 1;
+                            rc.bottom -= 1;
+                        }
+
+                        return 0;
+                    }
+
+                    break;
+                }
+
+                // Frameless: report resize zones along the (now invisible) edges so
+                // DefWindowProc performs native resize / snap. No HTCAPTION is
+                // returned, so the window is resize-only for now (move was the old
+                // manual logic, intentionally dropped).
+                case (WM_NCHITTEST): {
+
+                    if (self && self->nativeFrameless) {
+
+                        POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+
+                        RECT r;
+                        GetWindowRect(h, &r);
+
+                        // Grab band wider than the visible 1px so it's usable.
+                        int grip = (int)(8 * self->scale);
+                        if (grip < 4) { grip = 4; }
+
+                        bool left   = pt.x <  r.left   + grip;
+                        bool right  = pt.x >= r.right  - grip;
+                        bool top    = pt.y <  r.top    + grip;
+                        bool bottom = pt.y >= r.bottom - grip;
+
+                        if (top && left)     { return HTTOPLEFT; }
+                        if (top && right)    { return HTTOPRIGHT; }
+                        if (bottom && left)  { return HTBOTTOMLEFT; }
+                        if (bottom && right) { return HTBOTTOMRIGHT; }
+                        if (left)            { return HTLEFT; }
+                        if (right)           { return HTRIGHT; }
+                        if (top)             { return HTTOP; }
+                        if (bottom)          { return HTBOTTOM; }
+
+                        return HTCLIENT;
+                    }
+
+                    break;
                 }
 
                 // When the window gains focus

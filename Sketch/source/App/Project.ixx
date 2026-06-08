@@ -72,6 +72,7 @@ export namespace Sketch::App {
         explicit Project(std::string name) : name(std::move(name)) {
             // A fresh workspace starts with one empty geometry layer.
             layers.emplace_back("sketch", LayerKind::Geometry);
+            ensureDatums();
         }
 
         // Layers
@@ -123,9 +124,40 @@ export namespace Sketch::App {
             dirty = true;
         }
 
+        size_t addRelation(std::unique_ptr<Relation> relation) {
+            size_t index = geometry.addRelation(std::move(relation));
+            dirty = true;
+            return index;
+        }
+
         void clearGeometry() {
             geometry.clear();
             dirty = true;
+        }
+
+        // Ensure the datum geometry exists: the locked origin point and the two
+        // world axes. They are construction + locked (can't move or delete) and act
+        // as the root authority everything else can be related to.
+        void ensureDatums() {
+
+            for (const auto& e : geometry.entities) { if (e && e->locked) { return; } }
+
+            constexpr float AX = 1.0e5f;   // axes as long, locked construction segments
+
+            auto datum = [&](std::unique_ptr<Stoicheion> e) {
+                e->construction = true;
+                e->locked = true;
+                return geometry.add(std::move(e));
+            };
+
+            size_t originIndex = datum(std::make_unique<Point2>(Pos(0.0f, 0.0f)));
+            datum(std::make_unique<Segment2>(Pos(-AX, 0.0f), Pos(AX, 0.0f)));   // X axis
+            datum(std::make_unique<Segment2>(Pos(0.0f, -AX), Pos(0.0f, AX)));   // Y axis
+
+            // The origin is not locked by fiat -- it is locked to mathematical (0,0)
+            // by an explicit Lock relation, the root of all authority.
+            Id originId = geometry.entities[originIndex]->id;
+            geometry.addRelation(std::make_unique<Lock>(PointRef{ originId, 0 }, Pos(0.0f, 0.0f)));
         }
 
         // Write the in-memory geometry into the geometry layer's JSON payload.
@@ -324,6 +356,7 @@ export namespace Sketch::App {
             name = manifestJson.value("name", displayNameFor(folder));
 
             parseGeometryFromLayer();
+            ensureDatums();
 
             dirty = false;
             return true;

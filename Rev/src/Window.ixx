@@ -55,6 +55,11 @@ export namespace Rev {
             bool fullscreen = false;
             bool embedded = false;
 
+            // No OS title bar, but a native resizable frame (WS_THICKFRAME): the
+            // frame is suppressed via WM_NCCALCSIZE and resize is driven by
+            // WM_NCHITTEST, giving native resize/snap with a custom 1px look.
+            bool nativeFrameless = false;
+
             bool closeButton = true;
             bool minimizeButton = true;
             bool maximizeButton = true;
@@ -78,7 +83,8 @@ export namespace Rev {
                     .fullscreen = fullscreen,
                     .closeButton = closeButton,
                     .minimizeButton = minimizeButton,
-                    .maximizeButton = maximizeButton
+                    .maximizeButton = maximizeButton,
+                    .nativeFrameless = nativeFrameless
                 };
             }
         };
@@ -91,9 +97,6 @@ export namespace Rev {
         Details details;
 
         bool shouldClose = false;
-
-        int xPin = 0; int yPin = 0;
-        Pos downPos = { 0, 0 };
 
         static NativeWindow::Relationship relationshipFor(
             Window* owner,
@@ -235,42 +238,9 @@ export namespace Rev {
             // Children
             //--------------------------------------------------
 
-            if (!details.decorated) {
-
-                Box* upper = new Box(this);
-
-                Style testStyle = {
-                    .size = { .width = 100_pct, .height = 20_px },
-                    .background = { .color = rgba(255, 255, 255, 1.0) }
-                };
-
-                upper->style = {
-                    .size = { .width = 100_pct, .height = 20_px },
-                    .background = { .color = rgba(255, 255, 255, 1.0) }
-                };
-
-                upper->onMouseDown([this](Event& e) {
-
-                    this->xPin = this->details.x;
-                    this->yPin = this->details.y;
-
-                    // Anchor the drag in absolute screen space. Local coordinates
-                    // are useless here: as the window follows the cursor its origin
-                    // moves too, so the local position stays ~constant. Screen space
-                    // is an inertial frame, so the delta below is always honest.
-                    downPos = e.mouse.screenPos;
-                });
-
-                upper->onDrag([this](Event& e) {
-
-                    Pos diff = e.mouse.screenPos - downPos;
-
-                    this->details.x = xPin + diff.x;
-                    this->details.y = yPin + diff.y;
-
-                    this->setPos(this->details.x, this->details.y);
-                });
-            }
+            // Window movement and resizing are now handled natively by the OS
+            // (see NativeWindow WM_NCCALCSIZE / WM_NCHITTEST for the frameless
+            // mode). The old manual screen-space drag bar has been removed.
 
             // Follow guidelines supplied by details
             //--------------------------------------------------
@@ -655,17 +625,25 @@ export namespace Rev {
         }
 
         // Convert an absolute screen coordinate (physical px, as supplied by the
-        // native layer) into window-local logical coordinates, using this window's
-        // own screen origin (details.x/y) and DPI scale. Screen space is
-        // independent of the window origin, so this stays correct even while the
-        // window is being dragged or resized.
+        // native layer) into window-local logical coordinates.
+        //
+        // The origin we subtract is the *client* area's top-left in screen space,
+        // queried live from the OS via getClientPos() — NOT the cached details.x/y.
+        // details.x/y is written from WM_MOVE (client origin) but also from setPos
+        // (window origin, incl. frame), so it has two meanings and goes stale; a
+        // hit-test built on it is off by the window's screen position, which only
+        // happens to cancel out near (0,0). The live client origin is authoritative
+        // everywhere on the desktop and across monitors.
         Pos screenToLocal(float screenX, float screenY) const {
 
             float s = (window && window->scale != 0.0f) ? window->scale : 1.0f;
 
+            int ox = 0, oy = 0;
+            if (window) { window->getClientPos(ox, oy); }
+
             return {
-                (screenX - float(details.x)) / s,
-                (screenY - float(details.y)) / s
+                (screenX - float(ox)) / s,
+                (screenY - float(oy)) / s
             };
         }
 

@@ -20,7 +20,12 @@ int main() {
     Window* window = new Window(application->windows, { "Hello World", { 800, 600 } });
     Interface* interface = new Interface(window);
 
-    Window* window2 = new Window(application->windows, { "Another Window", { 800, 600 } });
+    // Frameless test window: no OS title bar, but native resize via a 1px frame.
+    Window* window2 = new Window(application->windows, {
+        .name = "Another Window",
+        .size = { 800, 600 },
+        .nativeFrameless = true
+    });
     Interface* interface2 = new Interface(window2);
 
     application->run();

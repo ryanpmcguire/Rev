@@ -4,6 +4,11 @@ module;
 #include <memory>
 #include <string>
 #include <utility>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <random>
+#include <functional>
 #include <cmath>
 #include <algorithm>
 
@@ -20,6 +25,32 @@ export namespace Sketch::App {
 
     inline constexpr float PI  = 3.14159265358979323846f;
     inline constexpr float TAU = 2.0f * PI;
+
+    // Stable identity
+    //--------------------------------------------------
+    // Every entity and every relation carries a unique 64-bit id, persisted as a
+    // 16-digit hex string. Ids are the durable handle relations reference by; the
+    // pointer graph between them is a derived cache rebuilt from ids on load.
+
+    using Id = std::uint64_t;
+
+    // A fresh random id (never 0, since 0 means "unassigned").
+    inline Id newId() {
+        static std::mt19937_64 rng(std::random_device{}());
+        Id v = 0;
+        while (v == 0) { v = rng(); }
+        return v;
+    }
+
+    inline std::string idToHex(Id id) {
+        char buf[17];
+        std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(id));
+        return std::string(buf);
+    }
+
+    inline Id idFromHex(const std::string& s) {
+        return s.empty() ? 0 : static_cast<Id>(std::strtoull(s.c_str(), nullptr, 16));
+    }
 
     // A JSON-serialisable 2D position: Rev's Pos plus a clean round-trip to
     // { "x", "y" }. The stored point type for every geometric entity, so the
@@ -191,7 +222,9 @@ export namespace Sketch::App {
     // ===============================================================
     struct Stoicheion {
 
+        Id id = 0;                   // stable unique identity (assigned on commit)
         bool construction = false;   // reference geometry, not real output
+        bool locked = false;         // datum (origin / axes): can't move or delete
 
         virtual ~Stoicheion() = default;
 
@@ -203,8 +236,10 @@ export namespace Sketch::App {
 
         Json toJson() const {
             Json j = data();
+            j["id"] = idToHex(id);
             j["kind"] = kind();
             j["construction"] = construction;
+            j["locked"] = locked;
             return j;
         }
 
@@ -236,7 +271,7 @@ export namespace Sketch::App {
         // feature point (scored Point) and the perpendicular foot (scored OnCurve).
         // Intersections are between *pairs* of entities, so the view adds those.
         virtual void snapCandidates(Pos mouse, std::vector<SnapCandidate>& out) const {
-            int tier = construction ? 0 : 1;
+            int tier = locked ? 2 : (construction ? 0 : 1);
             std::vector<Pos> sps;
             snapPoints(sps);
             for (const Pos& p : sps) { out.push_back({ p, SnapCandidate::Point, snapScore(SnapCandidate::Point, tier) }); }
@@ -526,15 +561,208 @@ export namespace Sketch::App {
         else { return nullptr; }
 
         e->load(j);
+        e->id = idFromHex(j.value("id", std::string()));
+        if (e->id == 0) { e->id = newId(); }
         e->construction = j.value("construction", false);
+        e->locked = j.value("locked", false);
         return e;
     }
 
-    // The full contents of a sketch: one polymorphic list of entities. Used both as
-    // the project's committed geometry and as a tool's transient preview.
+    // ===============================================================
+    // Relation -- a constraint/relationship between entities.
+    //
+    // Mirrors the Stoicheion pattern: an overridable base whose concrete types each
+    // store their own data and serialise themselves under a "kind" tag. A relation
+    // references the entities it constrains by their stable ids (so it survives
+    // edits and re-ordering). Concrete relation types (coincident, tangent, ...)
+    // arrive on top of this scaffold.
+    // ===============================================================
+    // A reference to one defining point of an entity: the entity's stable id plus
+    // the slot index into its control points (segment end 0/1, circle centre 0...).
+    // This is how a relation names a point without knowing what kind of entity owns
+    // it. Resolved to a mutable Pos2* through the entity at apply time.
+    struct PointRef {
+        Id entity = 0;
+        int slot = 0;
+
+        bool operator==(const PointRef& o) const { return entity == o.entity && slot == o.slot; }
+
+        Json toJson() const { return Json{ { "e", idToHex(entity) }, { "s", slot } }; }
+        static PointRef fromJson(const Json& j) {
+            return { idFromHex(j.value("e", std::string())), j.value("s", 0) };
+        }
+    };
+
+    // The instantaneous freedom of a point: which displacements it can accept. The
+    // master stroke -- capacity is not binary. A point may be Free (the whole
+    // plane), constrained to a Line (one direction only), or Locked (no motion).
+    // A proposed displacement is *masked* onto the allowed subspace before it is
+    // applied; capacities compose by intersection back along the authority chain.
+    struct Capacity {
+        enum Kind { Free, Line, Locked };
+        Kind kind = Free;
+        Pos dir;                       // unit direction when Line
+
+        static Capacity free()        { return { Free,   Pos() }; }
+        static Capacity locked()      { return { Locked, Pos() }; }
+        static Capacity line(Pos d)   { float l = d.pythag(); return { Line, (l > 1e-9f) ? d / l : Pos() }; }
+
+        // Project a proposed displacement onto the allowed subspace (the signed dot
+        // product picks how far along an allowed line the proposal carries).
+        Pos mask(Pos delta) const {
+            if (kind == Locked) { return Pos(0.0f, 0.0f); }
+            if (kind == Line)   { return dir * delta.dot(dir); }
+            return delta;
+        }
+
+        // Intersect two capacities -- the point must satisfy both.
+        static Capacity combine(Capacity a, Capacity b) {
+            if (a.kind == Locked || b.kind == Locked) { return locked(); }
+            if (a.kind == Free) { return b; }
+            if (b.kind == Free) { return a; }
+            // Both lines: parallel ⇒ the same line; otherwise only the origin ⇒ locked.
+            return (std::fabs(a.dir.cross(b.dir)) < 1e-6f) ? a : locked();
+        }
+    };
+
+    struct Relation {
+
+        Id id = 0;                   // stable unique identity (assigned on commit)
+
+        virtual ~Relation() = default;
+
+        virtual const char* kind() const = 0;
+        virtual std::unique_ptr<Relation> clone() const = 0;
+        virtual Json data() const = 0;          // type-specific payload
+        virtual void load(const Json& j) = 0;   // read type-specific payload
+
+        // Enforce this relation on the geometry, type-agnostically: the relation
+        // resolves the entities it references by id (via `lookup`) and commands
+        // their points. It never learns what kind of entity it operates on.
+        virtual void apply(const std::function<Stoicheion*(Id)>& lookup) {}
+
+        // How this relation restricts the motion capacity of point `p`. `resolve`
+        // computes the full capacity of any other point, so a relation can defer to
+        // the authority chain (a coincident slave inherits its master's freedom).
+        // Default: this relation imposes no restriction.
+        virtual Capacity capacity(const PointRef& p,
+                                  const std::function<Capacity(const PointRef&)>& resolve) const {
+            return Capacity::free();
+        }
+
+        Json toJson() const {
+            Json j = data();
+            j["id"] = idToHex(id);
+            j["kind"] = kind();
+            return j;
+        }
+    };
+
+    // Set point `r`'s position on its entity (resolved via `lookup`); no-op if the
+    // entity or slot is gone. Reading is the const-correct mirror.
+    inline bool readPoint(const std::function<Stoicheion*(Id)>& lookup, const PointRef& r, Pos& out) {
+        Stoicheion* e = lookup(r.entity);
+        if (!e) { return false; }
+        std::vector<Pos2*> cps;
+        e->controlPoints(cps);
+        if (r.slot < 0 || r.slot >= static_cast<int>(cps.size())) { return false; }
+        out = *cps[static_cast<size_t>(r.slot)];
+        return true;
+    }
+    inline bool writePoint(const std::function<Stoicheion*(Id)>& lookup, const PointRef& r, Pos p) {
+        Stoicheion* e = lookup(r.entity);
+        if (!e || e->locked) { return false; }   // datums never move
+        std::vector<Pos2*> cps;
+        e->controlPoints(cps);
+        if (r.slot < 0 || r.slot >= static_cast<int>(cps.size())) { return false; }
+        *cps[static_cast<size_t>(r.slot)] = p;
+        return true;
+    }
+
+    // Coincident: point B is held equal to point A. A is the authority (the master);
+    // B follows. (Symmetric in meaning, directional in resolution -- the order is
+    // the authority order.)
+    struct Coincident : public Relation {
+
+        PointRef a, b;
+
+        Coincident() = default;
+        Coincident(const PointRef& a, const PointRef& b) : a(a), b(b) {}
+
+        const char* kind() const override { return "coincident"; }
+        std::unique_ptr<Relation> clone() const override { return std::make_unique<Coincident>(*this); }
+        Json data() const override { return Json{ { "a", a.toJson() }, { "b", b.toJson() } }; }
+        void load(const Json& j) override {
+            a = PointRef::fromJson(j.value("a", Json::object()));
+            b = PointRef::fromJson(j.value("b", Json::object()));
+        }
+
+        void apply(const std::function<Stoicheion*(Id)>& lookup) override {
+            Pos pa;
+            if (readPoint(lookup, a, pa)) { writePoint(lookup, b, pa); }   // B := A
+        }
+
+        // The slave inherits its master's freedom: it can only go where A can go.
+        Capacity capacity(const PointRef& p,
+                          const std::function<Capacity(const PointRef&)>& resolve) const override {
+            return (p == b) ? resolve(a) : Capacity::free();
+        }
+    };
+
+    // Lock: a point is pinned in place (it is held at `at`). The fundamental zero-
+    // freedom constraint -- even the origin is locked to mathematical (0,0) by one
+    // of these, rather than being locked by fiat.
+    struct Lock : public Relation {
+
+        PointRef point;
+        Pos2 at;
+
+        Lock() = default;
+        Lock(const PointRef& point, Pos at) : point(point), at(at) {}
+
+        const char* kind() const override { return "lock"; }
+        std::unique_ptr<Relation> clone() const override { return std::make_unique<Lock>(*this); }
+        Json data() const override { return Json{ { "point", point.toJson() }, { "at", at.toJson() } }; }
+        void load(const Json& j) override {
+            point = PointRef::fromJson(j.value("point", Json::object()));
+            at = Pos2::fromJson(j.value("at", Json::object()));
+        }
+
+        void apply(const std::function<Stoicheion*(Id)>& lookup) override {
+            writePoint(lookup, point, at);   // re-assert the locked position
+        }
+
+        Capacity capacity(const PointRef& p,
+                          const std::function<Capacity(const PointRef&)>& resolve) const override {
+            return (p == point) ? Capacity::locked() : Capacity::free();
+        }
+    };
+
+    // Factory: reconstruct a relation from its JSON envelope (by "kind").
+    inline std::unique_ptr<Relation> relationFromJson(const Json& j) {
+
+        const std::string kind = j.value("kind", std::string());
+        if (kind.empty()) { return nullptr; }
+
+        std::unique_ptr<Relation> r;
+        if      (kind == "coincident") { r = std::make_unique<Coincident>(); }
+        else if (kind == "lock")       { r = std::make_unique<Lock>(); }
+
+        if (!r) { return nullptr; }
+
+        r->load(j);
+        r->id = idFromHex(j.value("id", std::string()));
+        if (r->id == 0) { r->id = newId(); }
+        return r;
+    }
+
+    // The full contents of a sketch: the polymorphic list of entities and the
+    // relations between them. Used both as the project's committed geometry and as
+    // a tool's transient preview.
     struct SketchGeometry {
 
         std::vector<std::unique_ptr<Stoicheion>> entities;
+        std::vector<std::unique_ptr<Relation>>   relations;
 
         SketchGeometry() = default;
         SketchGeometry(SketchGeometry&&) = default;
@@ -542,19 +770,61 @@ export namespace Sketch::App {
         SketchGeometry(const SketchGeometry&) = delete;
         SketchGeometry& operator=(const SketchGeometry&) = delete;
 
-        void clear() { entities.clear(); }
-        bool empty() const { return entities.empty(); }
+        void clear() { entities.clear(); relations.clear(); }
+        bool empty() const { return entities.empty() && relations.empty(); }
 
-        // Append, returning the new index (so a tool can keep extending it).
+        // Resolve an entity by its stable id (linear for now; a cached id->pointer
+        // map comes later).
+        Stoicheion* byId(Id id) const {
+            for (const auto& e : entities) { if (e && e->id == id) { return e.get(); } }
+            return nullptr;
+        }
+
+        // Enforce every relation on the current geometry.
+        void resolveRelations() {
+            auto lookup = [this](Id id) { return byId(id); };
+            for (auto& r : relations) { if (r) { r->apply(lookup); } }
+        }
+
+        // The motion capacity of a point: the intersection of every relation's
+        // restriction on it, resolved along the authority chain back to the root.
+        Capacity capacityOf(const PointRef& p) const {
+            std::vector<PointRef> visiting;
+            return capacityImpl(p, visiting);
+        }
+
+        Capacity capacityImpl(const PointRef& p, std::vector<PointRef>& visiting) const {
+            for (const PointRef& v : visiting) { if (v == p) { return Capacity::free(); } }  // cycle guard
+            visiting.push_back(p);
+            auto resolve = [this, &visiting](const PointRef& q) { return capacityImpl(q, visiting); };
+            Capacity cap = Capacity::free();
+            for (const auto& r : relations) {
+                if (r) { cap = Capacity::combine(cap, r->capacity(p, resolve)); }
+            }
+            visiting.pop_back();
+            return cap;
+        }
+
+        // Append an entity, assigning it a stable id if it doesn't have one yet.
+        // Returns the new index (so a tool can keep extending it).
         size_t add(std::unique_ptr<Stoicheion> e) {
+            if (e->id == 0) { e->id = newId(); }
             entities.push_back(std::move(e));
             return entities.size() - 1;
         }
 
+        size_t addRelation(std::unique_ptr<Relation> r) {
+            if (r->id == 0) { r->id = newId(); }
+            relations.push_back(std::move(r));
+            return relations.size() - 1;
+        }
+
         Json toJson() const {
             Json out;
-            out["entities"] = Json::array();
-            for (const auto& e : entities) { if (e) { out["entities"].push_back(e->toJson()); } }
+            out["entities"]  = Json::array();
+            out["relations"] = Json::array();
+            for (const auto& e : entities)  { if (e) { out["entities"].push_back(e->toJson()); } }
+            for (const auto& r : relations) { if (r) { out["relations"].push_back(r->toJson()); } }
             return out;
         }
 
@@ -563,6 +833,11 @@ export namespace Sketch::App {
             if (auto it = j.find("entities"); it != j.end() && it->is_array()) {
                 for (const Json& e : *it) {
                     if (auto ent = stoicheionFromJson(e)) { g.entities.push_back(std::move(ent)); }
+                }
+            }
+            if (auto it = j.find("relations"); it != j.end() && it->is_array()) {
+                for (const Json& e : *it) {
+                    if (auto rel = relationFromJson(e)) { g.relations.push_back(std::move(rel)); }
                 }
             }
             return g;
