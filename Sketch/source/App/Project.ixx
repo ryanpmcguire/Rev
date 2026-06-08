@@ -2,6 +2,7 @@ module;
 
 #include <string>
 #include <vector>
+#include <memory>
 #include <algorithm>
 #include <fstream>
 #include <filesystem>
@@ -108,23 +109,17 @@ export namespace Sketch::App {
         // Geometry
         //--------------------------------------------------
 
-        void addPoint(const Point2& point)     { geometry.points.push_back(point);     dirty = true; }
-        void addSegment(const Segment2& seg)    { geometry.segments.push_back(seg);     dirty = true; }
-        void addCircle(const Circle2& circle)   { geometry.circles.push_back(circle);   dirty = true; }
-        void addArc(const Arc2& arc)            { geometry.arcs.push_back(arc);          dirty = true; }
-        void addEllipse(const Ellipse2& e)      { geometry.ellipses.push_back(e);        dirty = true; }
-        void addEllipseArc(const EllipseArc2& e){ geometry.ellipseArcs.push_back(e);     dirty = true; }
-
-        // Append a polyline, returning its index so a tool can keep extending it.
-        size_t addPolyline(const Polyline2& line) {
-            geometry.polylines.push_back(line);
+        // Append any entity, returning its index (so a tool can keep extending it,
+        // e.g. the line tool growing a polyline in place).
+        size_t add(std::unique_ptr<Stoicheion> entity) {
+            size_t index = geometry.add(std::move(entity));
             dirty = true;
-            return geometry.polylines.size() - 1;
+            return index;
         }
 
-        void replacePolyline(size_t index, const Polyline2& line) {
-            if (index >= geometry.polylines.size()) { return; }
-            geometry.polylines[index] = line;
+        void replace(size_t index, std::unique_ptr<Stoicheion> entity) {
+            if (index >= geometry.entities.size()) { return; }
+            geometry.entities[index] = std::move(entity);
             dirty = true;
         }
 
