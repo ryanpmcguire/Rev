@@ -61,7 +61,7 @@ export namespace Sketch::Gui {
         // selection survives appending new geometry (push_back never invalidates
         // earlier indices). `sub` is the segment within a polyline.
         struct SegmentRef {
-            enum class Kind { PolySeg, Segment, Circle, Arc, Ellipse, EllipseArc };
+            enum class Kind { PolySeg, Segment, Circle, Arc, Ellipse, EllipseArc, Point, PolyVert };
             Kind kind = Kind::Segment;
             size_t index = 0;
             size_t sub = 0;
@@ -77,6 +77,29 @@ export namespace Sketch::Gui {
 
         // Whether new geometry is being drawn as construction (reference) geometry.
         bool drawingConstruction = false;
+
+        // Drag-to-move state.
+        //
+        // Selection and movement share the same gesture: a left press over the
+        // selection arms a potential move; the selection change itself is deferred
+        // to release, and *skipped* if a drag happened in between (so dragging a
+        // member of a multi-selection moves the whole set without collapsing it).
+        //
+        // A "slot" is one mutable point in the geometry (x,y by pointer plus its
+        // value at drag start). The move set is the control points of the moved
+        // primitives, plus every other point that was coincident with one of them
+        // -- so coincident geometry travels along.
+        struct MoveSlot { double* x; double* y; double ox; double oy; };
+        std::vector<MoveSlot> moveSlots;
+
+        bool selectPending = false;   // a left gesture whose selection commit is deferred to up
+        bool moveArmed     = false;   // pressed over the selection: a move is possible
+        bool moveDragged   = false;   // the press has since moved past the click threshold
+
+        SegmentRef pendingRef;        // the curve under the press (for the deferred commit)
+        bool pendingHit    = false;
+        bool pendingCtrl   = false;
+        bool pendingDouble = false;
 
         // Tool state machines (owned; selection mirrors app->activeTool).
         Sketch::App::PointTool      pointTool;
@@ -216,7 +239,7 @@ export namespace Sketch::Gui {
                     }
                 }
                 else {
-                    handleSelectClick(e);
+                    armSelectOrMove(e);
                 }
             }
 
@@ -242,8 +265,9 @@ export namespace Sketch::Gui {
                     if (hoverValid) { hoverValid = false; highlightDirty = true; }
                     refresh(e);
                 }
-                else {
-                    // Selection mode: hover-highlight the nearest curve.
+                else if (!e.mouse.lb) {
+                    // Selection mode: hover-highlight the nearest curve. (Skipped
+                    // while the left button is held -- that gesture is a move.)
                     SegmentRef ref;
                     bool hit = findHit(cursorX, cursorY, hitTolerance(), ref);
                     if (hit != hoverValid || (hit && !(ref == hovered))) {
@@ -274,7 +298,43 @@ export namespace Sketch::Gui {
                 return;
             }
 
+            // Left drag over an armed selection: translate the move set. A small
+            // threshold keeps an ordinary click (with hand jitter) from nudging
+            // geometry; once the gesture qualifies as a drag it stays a drag.
+            if (e.mouse.lb && moveArmed) {
+                if (!moveDragged && e.mouse.diff.pythag() > 3.0f) { moveDragged = true; }
+                if (moveDragged) {
+                    applyMove(e);
+                    refresh(e);
+                    e.propagate = false;
+                    return;
+                }
+            }
+
             Box::mouseDrag(e);
+        }
+
+        void mouseUp(Event& e) override {
+
+            // Resolve a deferred selection gesture on release: a clean click (no
+            // drag) commits the normal select/toggle; a drag leaves the selection
+            // untouched (it was just moved).
+            if (e.mouse.lb && selectPending && !currentTool()) {
+
+                if (!moveDragged) { commitSelectClick(); }
+
+                selectPending = false;
+                moveArmed = false;
+                moveDragged = false;
+                moveSlots.clear();
+
+                geometryDirty = true;
+                highlightDirty = true;
+                refresh(e);
+                e.propagate = false;
+            }
+
+            Box::mouseUp(e);
         }
 
         void mouseWheel(Event& e) override {
@@ -477,25 +537,25 @@ export namespace Sketch::Gui {
             appendArcSpan(dst, a.cx, a.cy, r, aA, arcSpan(a), color);
         }
 
-        // Sample an elliptical span (eccentric anomaly t0 .. t0+span).
-        void appendEllipseSpan(FastLines* dst, double cx, double cy, double rx, double ry,
-                               double t0, double span, Color color) {
-            if ((rx <= 0.0 && ry <= 0.0) || std::fabs(span) < 1e-9) { return; }
+        // Sample a parametric span (t0 .. t0+span) of an ellipse C + cos t U + sin t V.
+        void appendEllipseSpan(FastLines* dst, double cx, double cy, double ux, double uy,
+                               double vx, double vy, double t0, double span, Color color) {
+            double u2 = ux * ux + uy * uy, v2 = vx * vx + vy * vy;
+            if ((u2 < 1e-18 && v2 < 1e-18) || std::fabs(span) < 1e-9) { return; }
             int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 6400.0))));
             std::vector<Vertex> pts;
             pts.reserve(steps + 1);
             for (int i = 0; i <= steps; i++) {
                 double t = t0 + span * (static_cast<double>(i) / steps);
-                pts.push_back(Vertex(
-                    static_cast<float>(cx + rx * std::cos(t)),
-                    static_cast<float>(cy + ry * std::sin(t))
-                ));
+                double x, y;
+                Sketch::App::ellipsePointAt(cx, cy, ux, uy, vx, vy, t, x, y);
+                pts.push_back(Vertex(static_cast<float>(x), static_cast<float>(y)));
             }
             dst->lines.push_back({ .points = std::move(pts), .color = color });
         }
 
         void appendEllipse(FastLines* dst, const Sketch::App::Ellipse2& e, Color color) {
-            appendEllipseSpan(dst, e.cx, e.cy, e.rx, e.ry, 0.0, TAU, color);
+            appendEllipseSpan(dst, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, 0.0, TAU, color);
         }
 
         // Signed sweep a0 -> a1 passing through ad (chirality implicit in ad).
@@ -507,7 +567,7 @@ export namespace Sketch::Gui {
         }
 
         void appendEllipseArc(FastLines* dst, const Sketch::App::EllipseArc2& e, Color color) {
-            appendEllipseSpan(dst, e.cx, e.cy, e.rx, e.ry, e.a0, ellipseArcSpan(e), color);
+            appendEllipseSpan(dst, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, ellipseArcSpan(e), color);
         }
 
         void appendGeometry(FastLines* dst, const SketchGeometry& g, Color color) {
@@ -545,7 +605,11 @@ export namespace Sketch::Gui {
                 appendEllipseArc(dst, e, color);
             }
 
-            // Points last so their markers sit on top.
+            // Points last so their markers sit on top -- standalone points and the
+            // joints of every polyline (so individual vertices can be grabbed).
+            for (const Sketch::App::Polyline2& pl : g.polylines) {
+                for (const Sketch::App::Point2& p : pl.points) { appendPoint(dst, p, color); }
+            }
             for (const Sketch::App::Point2& p : g.points) {
                 appendPoint(dst, p, color);
             }
@@ -579,6 +643,10 @@ export namespace Sketch::Gui {
             }
             for (const Sketch::App::EllipseArc2& e : g.ellipseArcs) {
                 appendEllipseArc(dst, e, e.construction ? cons : real);
+            }
+            for (const Sketch::App::Polyline2& pl : g.polylines) {
+                Color c = pl.construction ? cons : real;
+                for (const Sketch::App::Point2& p : pl.points) { appendPoint(dst, p, c); }
             }
             for (const Sketch::App::Point2& p : g.points) {
                 appendPoint(dst, p, p.construction ? cons : real);
@@ -614,15 +682,17 @@ export namespace Sketch::Gui {
         // Nearest point on an elliptical span (no closed form), via coarse
         // sampling. Returns the distance and writes the snap point.
         static double nearestOnEllipse(double px, double py, double cx, double cy,
-                                       double rx, double ry, double t0, double span,
-                                       double& sx, double& sy) {
-            if (rx <= 0.0 && ry <= 0.0) { sx = cx; sy = cy; return std::hypot(px - cx, py - cy); }
+                                       double ux, double uy, double vx, double vy,
+                                       double t0, double span, double& sx, double& sy) {
+            if (ux * ux + uy * uy < 1e-18 && vx * vx + vy * vy < 1e-18) {
+                sx = cx; sy = cy; return std::hypot(px - cx, py - cy);
+            }
             const int N = 96;
             double best = 1e30;
             for (int i = 0; i <= N; i++) {
                 double t = t0 + span * (static_cast<double>(i) / N);
-                double ex = cx + rx * std::cos(t);
-                double ey = cy + ry * std::sin(t);
+                double ex, ey;
+                Sketch::App::ellipsePointAt(cx, cy, ux, uy, vx, vy, t, ex, ey);
                 double d = std::hypot(px - ex, py - ey);
                 if (d < best) { best = d; sx = ex; sy = ey; }
             }
@@ -661,6 +731,20 @@ export namespace Sketch::Gui {
                 consider(tier, isPoint, d, ref);
             };
 
+            // Discrete points first, so on an exact tie at a joint the point wins
+            // over the curve sharing that spot (you can grab the vertex itself).
+            for (size_t i = 0; i < g.points.size(); i++) {
+                const auto& p = g.points[i];
+                consider(p.construction ? 0 : 1, true, std::hypot(wx - p.x, wy - p.y), { SegmentRef::Kind::Point, i, 0 });
+            }
+            for (size_t i = 0; i < g.polylines.size(); i++) {
+                int tier = g.polylines[i].construction ? 0 : 1;
+                const auto& pts = g.polylines[i].points;
+                for (size_t v = 0; v < pts.size(); v++) {
+                    consider(tier, true, std::hypot(wx - pts[v].x, wy - pts[v].y), { SegmentRef::Kind::PolyVert, i, v });
+                }
+            }
+
             for (size_t i = 0; i < g.polylines.size(); i++) {
                 int tier = g.polylines[i].construction ? 0 : 1;
                 const auto& pts = g.polylines[i].points;
@@ -686,18 +770,20 @@ export namespace Sketch::Gui {
             for (size_t i = 0; i < g.ellipses.size(); i++) {
                 const auto& e = g.ellipses[i];
                 double sx, sy;
-                double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.rx, e.ry, 0.0, TAU, sx, sy);
+                double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, 0.0, TAU, sx, sy);
                 consider(e.construction ? 0 : 1, false, d, { SegmentRef::Kind::Ellipse, i, 0 });
             }
             for (size_t i = 0; i < g.ellipseArcs.size(); i++) {
                 const auto& e = g.ellipseArcs[i];
                 double span = ellipseArcSpan(e);
                 double sx, sy;
-                double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.rx, e.ry, e.a0, span, sx, sy);
+                double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, span, sx, sy);
                 double te = e.a0 + span;
-                bool isPoint =
-                    std::hypot(wx - (e.cx + e.rx * std::cos(e.a0)), wy - (e.cy + e.ry * std::sin(e.a0))) < thresh ||
-                    std::hypot(wx - (e.cx + e.rx * std::cos(te)),    wy - (e.cy + e.ry * std::sin(te)))    < thresh;
+                double s0x, s0y, sex, sey;
+                Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, s0x, s0y);
+                Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, te,    sex, sey);
+                bool isPoint = std::hypot(wx - s0x, wy - s0y) < thresh ||
+                               std::hypot(wx - sex, wy - sey) < thresh;
                 consider(e.construction ? 0 : 1, isPoint, d, { SegmentRef::Kind::EllipseArc, i, 0 });
             }
             return found;
@@ -810,18 +896,21 @@ export namespace Sketch::Gui {
                     int tier = e.construction ? 0 : 1;
                     pt(tier, e.cx, e.cy);
                     double sx, sy;
-                    double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.rx, e.ry, 0.0, TAU, sx, sy);
+                    double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, 0.0, TAU, sx, sy);
                     consider(tier, false, d, sx, sy);
                 }
                 for (const auto& e : g.ellipseArcs) {
                     int tier = e.construction ? 0 : 1;
                     double span = ellipseArcSpan(e);
                     double te = e.a0 + span;
+                    double s0x, s0y, sex, sey;
+                    Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, s0x, s0y);
+                    Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, te,    sex, sey);
                     pt(tier, e.cx, e.cy);
-                    pt(tier, e.cx + e.rx * std::cos(e.a0), e.cy + e.ry * std::sin(e.a0));
-                    pt(tier, e.cx + e.rx * std::cos(te),    e.cy + e.ry * std::sin(te));
+                    pt(tier, s0x, s0y);
+                    pt(tier, sex, sey);
                     double sx, sy;
-                    double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.rx, e.ry, e.a0, span, sx, sy);
+                    double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, span, sx, sy);
                     consider(tier, false, d, sx, sy);
                 }
             }
@@ -876,6 +965,18 @@ export namespace Sketch::Gui {
                     appendEllipseArc(highlight, g.ellipseArcs[ref.index], color);
                     break;
                 }
+                case SegmentRef::Kind::Point: {
+                    if (ref.index >= g.points.size()) { return; }
+                    appendPoint(highlight, g.points[ref.index], color);
+                    break;
+                }
+                case SegmentRef::Kind::PolyVert: {
+                    if (ref.index >= g.polylines.size()) { return; }
+                    const auto& pts = g.polylines[ref.index].points;
+                    if (ref.sub >= pts.size()) { return; }
+                    appendPoint(highlight, pts[ref.sub], color);
+                    break;
+                }
             }
         }
 
@@ -912,37 +1013,199 @@ export namespace Sketch::Gui {
             }
         }
 
-        // Normal click replaces the selection; Ctrl appends; clicking empty space
-        // clears (unless Ctrl). Double-click grabs the whole polyline.
-        void handleSelectClick(Event& e) {
+        // Left press in selection mode. Rather than commit a selection change
+        // immediately, we *arm* the gesture: capture what was clicked, optionally
+        // grab a freshly-clicked curve so a drag has something to move, and build
+        // the move set. The selection itself is committed on release (and only if
+        // the gesture wasn't a drag) -- see commitSelectClick / mouseUp.
+        void armSelectOrMove(Event& e) {
 
             double wx, wy;
             screenToWorld(e.mouse.pos.x, e.mouse.pos.y, wx, wy);
 
             SegmentRef ref;
-            bool hit = findHit(wx, wy, hitTolerance(), ref);
+            bool hit  = findHit(wx, wy, hitTolerance(), ref);
             bool ctrl = e.keyboard.ctrl;
 
+            pendingRef    = ref;
+            pendingHit    = hit;
+            pendingCtrl   = ctrl;
+            pendingDouble = hit && e.mouse.lb.isDoubleClick() && ref.kind == SegmentRef::Kind::PolySeg;
+            selectPending = true;
+            moveArmed     = false;
+            moveDragged   = false;
+            moveSlots.clear();
+
             if (hit) {
-                if (e.mouse.lb.isDoubleClick() && ref.kind == SegmentRef::Kind::PolySeg) {
-                    if (!ctrl) { selected.clear(); }
+                // Plain-clicking an unselected curve grabs it up front, so a drag
+                // has a target and the highlight follows the move. Pressing on an
+                // already-selected curve (or any Ctrl press) leaves the selection
+                // alone until release, so a drag won't collapse or toggle it.
+                if (!ctrl && !isSelected(ref)) {
+                    selected.clear();
+                    selected.push_back(ref);
+                }
+
+                std::vector<SegmentRef> moveSet = selected;
+                if (!isSelected(ref)) { moveSet.push_back(ref); }
+                beginMove(moveSet);
+                moveArmed = !moveSlots.empty();
+            }
+
+            highlightDirty = true;
+            refresh(e);
+            e.propagate = false;
+        }
+
+        // Commit the deferred selection for a clean (non-drag) click. Normal click
+        // replaces the selection; Ctrl toggles; clicking empty space clears (unless
+        // Ctrl). Double-click grabs the whole polyline.
+        void commitSelectClick() {
+
+            const SegmentRef& ref = pendingRef;
+
+            if (pendingHit) {
+                if (pendingDouble) {
+                    if (!pendingCtrl) { selected.clear(); }
                     selectWholePolyline(ref.index);
                 }
-                else if (ctrl) {
-                    if (!isSelected(ref)) { selected.push_back(ref); }
+                else if (pendingCtrl) {
+                    // Toggle: drop it if already selected, otherwise add.
+                    auto it = std::find(selected.begin(), selected.end(), ref);
+                    if (it != selected.end()) { selected.erase(it); }
+                    else                      { selected.push_back(ref); }
                 }
                 else {
                     selected.clear();
                     selected.push_back(ref);
                 }
             }
-            else if (!ctrl) {
+            else if (!pendingCtrl) {
                 selected.clear();
             }
 
             highlightDirty = true;
-            refresh(e);
-            e.propagate = false;
+        }
+
+        // Movement
+        //--------------------------------------------------
+
+        // Visit every mutable control point in the geometry as (x&, y&).
+        template <class F>
+        void forEachPointSlot(F f) {
+            if (!app || !app->activeProject) { return; }
+            auto& g = app->activeProject->geometry;
+            for (auto& p : g.points)    { f(p.x, p.y); }
+            for (auto& pl : g.polylines){ for (auto& p : pl.points) { f(p.x, p.y); } }
+            for (auto& s : g.segments)  { f(s.ax, s.ay); f(s.bx, s.by); }
+            for (auto& c : g.circles)   { f(c.cx, c.cy); }
+            for (auto& a : g.arcs)      { f(a.cx, a.cy); f(a.ax, a.ay); f(a.bx, a.by); f(a.dx, a.dy); }
+            for (auto& e : g.ellipses)  { f(e.cx, e.cy); }
+            for (auto& e : g.ellipseArcs){ f(e.cx, e.cy); }
+        }
+
+        // Build the move set for the given primitives: their own control points
+        // ("drivers"), plus every other point coincident with a driver
+        // ("followers"), so touching geometry moves along. Captures each point's
+        // start value; the slot pointers stay valid for the gesture because a move
+        // only assigns values (never inserts/erases).
+        void beginMove(const std::vector<SegmentRef>& refs) {
+
+            moveSlots.clear();
+            if (!app || !app->activeProject) { return; }
+            auto& g = app->activeProject->geometry;
+
+            std::vector<std::pair<double*, double*>> drivers;
+            auto addSlot = [&](double& x, double& y) {
+                for (auto& d : drivers) { if (d.first == &x) { return; } }
+                drivers.push_back({ &x, &y });
+            };
+
+            for (const SegmentRef& r : refs) {
+                switch (r.kind) {
+                    case SegmentRef::Kind::Point:
+                        if (r.index < g.points.size()) {
+                            auto& p = g.points[r.index]; addSlot(p.x, p.y);
+                        }
+                        break;
+                    case SegmentRef::Kind::PolyVert:
+                        if (r.index < g.polylines.size()) {
+                            auto& pts = g.polylines[r.index].points;
+                            if (r.sub < pts.size()) { addSlot(pts[r.sub].x, pts[r.sub].y); }
+                        }
+                        break;
+                    case SegmentRef::Kind::PolySeg:
+                        if (r.index < g.polylines.size()) {
+                            auto& pts = g.polylines[r.index].points;
+                            if (r.sub + 1 < pts.size()) {
+                                addSlot(pts[r.sub].x,     pts[r.sub].y);
+                                addSlot(pts[r.sub + 1].x, pts[r.sub + 1].y);
+                            }
+                        }
+                        break;
+                    case SegmentRef::Kind::Segment:
+                        if (r.index < g.segments.size()) {
+                            auto& s = g.segments[r.index];
+                            addSlot(s.ax, s.ay); addSlot(s.bx, s.by);
+                        }
+                        break;
+                    case SegmentRef::Kind::Circle:
+                        if (r.index < g.circles.size()) {
+                            auto& c = g.circles[r.index]; addSlot(c.cx, c.cy);
+                        }
+                        break;
+                    case SegmentRef::Kind::Arc:
+                        if (r.index < g.arcs.size()) {
+                            auto& a = g.arcs[r.index];
+                            addSlot(a.cx, a.cy); addSlot(a.ax, a.ay);
+                            addSlot(a.bx, a.by); addSlot(a.dx, a.dy);
+                        }
+                        break;
+                    case SegmentRef::Kind::Ellipse:
+                        if (r.index < g.ellipses.size()) {
+                            auto& el = g.ellipses[r.index]; addSlot(el.cx, el.cy);
+                        }
+                        break;
+                    case SegmentRef::Kind::EllipseArc:
+                        if (r.index < g.ellipseArcs.size()) {
+                            auto& el = g.ellipseArcs[r.index]; addSlot(el.cx, el.cy);
+                        }
+                        break;
+                }
+            }
+
+            // Followers: any other control point sitting on a driver at drag start.
+            const double eps = 1e-6;
+            std::vector<std::pair<double*, double*>> followers;
+            forEachPointSlot([&](double& x, double& y) {
+                for (auto& d : drivers)   { if (d.first == &x) { return; } }
+                for (auto& fl : followers){ if (fl.first == &x) { return; } }
+                for (auto& d : drivers) {
+                    if (std::fabs(x - *d.first) <= eps && std::fabs(y - *d.second) <= eps) {
+                        followers.push_back({ &x, &y });
+                        return;
+                    }
+                }
+            });
+
+            for (auto& d : drivers)   { moveSlots.push_back({ d.first,  d.second,  *d.first,  *d.second }); }
+            for (auto& fl : followers){ moveSlots.push_back({ fl.first, fl.second, *fl.first, *fl.second }); }
+        }
+
+        // Translate the move set by the gesture's total offset (pixels since the
+        // press, mapped to world units), applied to each slot's captured start.
+        void applyMove(const Event& e) {
+
+            if (!app || !app->activeProject) { return; }
+
+            double dwx =  static_cast<double>(e.mouse.diff.x) / scale;
+            double dwy = -static_cast<double>(e.mouse.diff.y) / scale;
+
+            for (auto& s : moveSlots) { *s.x = s.ox + dwx; *s.y = s.oy + dwy; }
+
+            app->activeProject->dirty = true;
+            geometryDirty  = true;
+            highlightDirty = true;
         }
 
         // Delete the selected curves. Selecting any segment of a polyline removes
@@ -952,7 +1215,15 @@ export namespace Sketch::Gui {
             if (!app || !app->activeProject || selected.empty()) { return false; }
 
             auto& g = app->activeProject->geometry;
-            std::vector<size_t> polys, segs, circs, arcs, ells, ellArcs;
+            std::vector<size_t> polys, segs, circs, arcs, ells, ellArcs, pts;
+
+            // Per-polyline vertex removals (PolyVert): polyline index -> vertices.
+            std::vector<std::pair<size_t, std::vector<size_t>>> polyVerts;
+            auto vertsFor = [&](size_t i) -> std::vector<size_t>& {
+                for (auto& e : polyVerts) { if (e.first == i) { return e.second; } }
+                polyVerts.push_back({ i, {} });
+                return polyVerts.back().second;
+            };
 
             for (const SegmentRef& r : selected) {
                 switch (r.kind) {
@@ -962,6 +1233,8 @@ export namespace Sketch::Gui {
                     case SegmentRef::Kind::Arc:        arcs.push_back(r.index);    break;
                     case SegmentRef::Kind::Ellipse:    ells.push_back(r.index);    break;
                     case SegmentRef::Kind::EllipseArc: ellArcs.push_back(r.index); break;
+                    case SegmentRef::Kind::Point:      pts.push_back(r.index);     break;
+                    case SegmentRef::Kind::PolyVert:   vertsFor(r.index).push_back(r.sub); break;
                 }
             }
 
@@ -973,6 +1246,15 @@ export namespace Sketch::Gui {
                 }
             };
 
+            // Drop individual polyline vertices; a polyline left with <2 points is
+            // removed wholesale (added to the polyline kill list).
+            for (auto& e : polyVerts) {
+                if (e.first >= g.polylines.size()) { continue; }
+                removeAt(g.polylines[e.first].points, e.second);
+                if (g.polylines[e.first].points.size() < 2) { polys.push_back(e.first); }
+            }
+
+            removeAt(g.points, pts);
             removeAt(g.polylines, polys);
             removeAt(g.segments, segs);
             removeAt(g.circles, circs);
@@ -1023,6 +1305,13 @@ export namespace Sketch::Gui {
                     case SegmentRef::Kind::EllipseArc:
                         if (r.index < g.ellipseArcs.size()) { g.ellipseArcs[r.index].construction = !g.ellipseArcs[r.index].construction; }
                         break;
+                    case SegmentRef::Kind::Point:
+                        if (r.index < g.points.size()) { g.points[r.index].construction = !g.points[r.index].construction; }
+                        break;
+                    case SegmentRef::Kind::PolyVert:
+                        // A vertex has no flag of its own; toggle its parent polyline.
+                        if (r.index < g.polylines.size()) { g.polylines[r.index].construction = !g.polylines[r.index].construction; }
+                        break;
                 }
             }
 
@@ -1048,8 +1337,14 @@ export namespace Sketch::Gui {
             for (const auto& s : g.segments) { acc(s.ax, s.ay); acc(s.bx, s.by); }
             for (const auto& c : g.circles) { acc(c.cx - c.r, c.cy - c.r); acc(c.cx + c.r, c.cy + c.r); }
             for (const auto& a : g.arcs) { double r = std::hypot(a.ax - a.cx, a.ay - a.cy); acc(a.cx - r, a.cy - r); acc(a.cx + r, a.cy + r); }
-            for (const auto& e : g.ellipses) { acc(e.cx - e.rx, e.cy - e.ry); acc(e.cx + e.rx, e.cy + e.ry); }
-            for (const auto& e : g.ellipseArcs) { acc(e.cx - e.rx, e.cy - e.ry); acc(e.cx + e.rx, e.cy + e.ry); }
+            for (const auto& e : g.ellipses) {
+                double hx = std::hypot(e.ux, e.vx), hy = std::hypot(e.uy, e.vy);
+                acc(e.cx - hx, e.cy - hy); acc(e.cx + hx, e.cy + hy);
+            }
+            for (const auto& e : g.ellipseArcs) {
+                double hx = std::hypot(e.ux, e.vx), hy = std::hypot(e.uy, e.vy);
+                acc(e.cx - hx, e.cy - hy); acc(e.cx + hx, e.cy + hy);
+            }
             for (const auto& p : g.points) { acc(p.x, p.y); }
 
             if (!any) { return; }

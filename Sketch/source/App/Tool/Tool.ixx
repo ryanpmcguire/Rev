@@ -365,83 +365,93 @@ export namespace Sketch::App {
     };
 
     // Ellipse (axis-aligned): click centre, click a corner of the bounding box.
+    // Ellipse: click the centre, then a major-axis point A (sets the rotation and
+    // semi-major axis), then a second perimeter point B (sets the semi-minor axis).
     struct EllipseTool : public Tool {
 
         bool hasCenter = false;
-        double cx = 0.0, cy = 0.0;
+        bool hasMajor  = false;
+        double cx = 0.0, cy = 0.0;     // centre C
+        double ax = 0.0, ay = 0.0;     // major-axis point A
 
         void click(Project& project, double wx, double wy) override {
-            if (!hasCenter) {
-                cx = wx; cy = wy;
-                hasCenter = true;
-                return;
-            }
-            Ellipse2 e{ cx, cy, std::fabs(wx - cx), std::fabs(wy - cy) };
+
+            if (!hasCenter) { cx = wx; cy = wy; hasCenter = true; return; }
+
+            if (!hasMajor) { ax = wx; ay = wy; hasMajor = true; return; }
+
+            EllipseFit f = fitEllipse(cx, cy, ax, ay, wx, wy);
+            Ellipse2 e{ cx, cy, f.ux, f.uy, f.vx, f.vy };
             e.construction = construction;
             project.addEllipse(e);
-            hasCenter = false;
+            reset();
         }
 
         void enter(Project& project) override { reset(); }
-        void reset() override { hasCenter = false; }
+        void reset() override { hasCenter = false; hasMajor = false; }
         bool active() const override { return hasCenter; }
 
         void preview(double wx, double wy, SketchPreview& out) const override {
+
             if (!hasCenter) { return; }
             out.helper.points.push_back({ cx, cy });
-            out.candidate.ellipses.push_back({ cx, cy, std::fabs(wx - cx), std::fabs(wy - cy) });
+
+            if (!hasMajor) {
+                // Rubber-band the major axis; ghost a circle of that radius.
+                double rx = wx - cx, ry = wy - cy;
+                out.candidate.points.push_back({ wx, wy });
+                out.candidate.ellipses.push_back({ cx, cy, rx, ry, -ry, rx });
+                return;
+            }
+
+            out.helper.points.push_back({ ax, ay });
+            EllipseFit f = fitEllipse(cx, cy, ax, ay, wx, wy);
+            out.candidate.ellipses.push_back({ cx, cy, f.ux, f.uy, f.vx, f.vy });
+            out.candidate.points.push_back({ wx, wy });
         }
     };
 
-    // Elliptical arc: click centre, click a corner (shape), click the start, then
-    // sweep and click the end. Chirality uses the same integrator as ArcTool, but
-    // on the ellipse's eccentric anomaly.
+    // Elliptical arc: click the centre, then the major-axis point A (which is also
+    // the arc's start), then point B (which fixes the semi-minor axis *and* is the
+    // arc's end). Chirality uses the same swept-parameter integrator as ArcTool, on
+    // the ellipse's eccentric anomaly: the start sits at local parameter 0 (point A
+    // is on the major axis) and the sweep is accumulated as B is dragged around.
     struct EllipseArcTool : public Tool {
 
         bool hasCenter = false;
-        bool hasShape = false;
-        bool hasStart = false;
-        double cx = 0.0, cy = 0.0;
-        double rx = 0.0, ry = 0.0;
-        double a0 = 0.0;       // start parameter
+        bool hasMajor  = false;
+        double cx = 0.0, cy = 0.0;     // centre C
+        double ax = 0.0, ay = 0.0;     // major-axis point A (arc start, param 0)
         double prevT = 0.0;
         double sweep = 0.0;
 
-        // Eccentric anomaly of a world point relative to the ellipse.
-        double paramOf(double wx, double wy) const {
-            double dx = wx - cx, dy = wy - cy;
-            if (rx < 1e-9 || ry < 1e-9) { return std::atan2(dy, dx); }
-            return std::atan2(dy / ry, dx / rx);
+        // Parameter of B, using the conjugate axis B itself implies.
+        double paramOfEnd(double wx, double wy) const {
+            EllipseFit f = fitEllipse(cx, cy, ax, ay, wx, wy);
+            return ellipseParamOf(cx, cy, f.ux, f.uy, f.vx, f.vy, wx, wy);
         }
 
         void click(Project& project, double wx, double wy) override {
 
             if (!hasCenter) { cx = wx; cy = wy; hasCenter = true; return; }
 
-            if (!hasShape) {
-                rx = std::fabs(wx - cx);
-                ry = std::fabs(wy - cy);
-                hasShape = true;
+            if (!hasMajor) {
+                ax = wx; ay = wy;
+                prevT = 0.0; sweep = 0.0;
+                hasMajor = true;
                 return;
             }
 
-            if (!hasStart) {
-                a0 = paramOf(wx, wy);
-                prevT = a0;
-                sweep = 0.0;
-                hasStart = true;
-                return;
-            }
-
-            EllipseArc2 e{ cx, cy, rx, ry, a0, a0 + sweep, a0 + sweep * 0.5 };
+            EllipseFit f = fitEllipse(cx, cy, ax, ay, wx, wy);
+            EllipseArc2 e{ cx, cy, f.ux, f.uy, f.vx, f.vy, 0.0, sweep, sweep * 0.5 };
             e.construction = construction;
             project.addEllipseArc(e);
             reset();
         }
 
         void hover(double wx, double wy) override {
-            if (!hasStart) { return; }
-            double t = paramOf(wx, wy);
+            if (!hasMajor) { return; }
+            double t = paramOfEnd(wx, wy);
             double step = t - prevT;
             while (step <= -PI) { step += TAU; }
             while (step >   PI) { step -= TAU; }
@@ -452,7 +462,7 @@ export namespace Sketch::App {
         }
 
         void enter(Project& project) override { reset(); }
-        void reset() override { hasCenter = false; hasShape = false; hasStart = false; sweep = 0.0; }
+        void reset() override { hasCenter = false; hasMajor = false; sweep = 0.0; prevT = 0.0; }
         bool active() const override { return hasCenter; }
 
         void preview(double wx, double wy, SketchPreview& out) const override {
@@ -460,24 +470,23 @@ export namespace Sketch::App {
             if (!hasCenter) { return; }
             out.helper.points.push_back({ cx, cy });
 
-            // Defining the shape: ghost the candidate ellipse.
-            if (!hasShape) {
-                out.candidate.ellipses.push_back({ cx, cy, std::fabs(wx - cx), std::fabs(wy - cy) });
+            if (!hasMajor) {
+                double rx = wx - cx, ry = wy - cy;
+                out.candidate.points.push_back({ wx, wy });
+                out.candidate.ellipses.push_back({ cx, cy, rx, ry, -ry, rx });
                 return;
             }
 
-            // Ghost the full ellipse while picking start / end.
-            out.helper.ellipses.push_back({ cx, cy, rx, ry });
+            out.helper.points.push_back({ ax, ay });
 
-            if (!hasStart) {
-                double t = paramOf(wx, wy);
-                out.candidate.points.push_back({ cx + rx * std::cos(t), cy + ry * std::sin(t) });
-                return;
-            }
+            // Ghost the full ellipse B currently implies, plus the candidate arc.
+            EllipseFit f = fitEllipse(cx, cy, ax, ay, wx, wy);
+            out.helper.ellipses.push_back({ cx, cy, f.ux, f.uy, f.vx, f.vy });
+            out.candidate.ellipseArcs.push_back({ cx, cy, f.ux, f.uy, f.vx, f.vy, 0.0, sweep, sweep * 0.5 });
 
-            out.candidate.ellipseArcs.push_back({ cx, cy, rx, ry, a0, a0 + sweep, a0 + sweep * 0.5 });
-            double te = a0 + sweep;
-            out.candidate.points.push_back({ cx + rx * std::cos(te), cy + ry * std::sin(te) });
+            double ex, ey;
+            ellipsePointAt(cx, cy, f.ux, f.uy, f.vx, f.vy, sweep, ex, ey);
+            out.candidate.points.push_back({ ex, ey });
         }
     };
 }
