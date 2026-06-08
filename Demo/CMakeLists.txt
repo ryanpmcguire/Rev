@@ -52,7 +52,7 @@ target_sources(HelloWorld
     FILE_SET cxx_modules TYPE CXX_MODULES FILES ${MODULE_SOURCES}
 )
 
-target_link_libraries(HelloWorld PRIVATE Rev)
+target_link_libraries(HelloWorld PRIVATE Rev gdiplus comdlg32 shell32)
 
 target_compile_definitions(HelloWorld PRIVATE
     $<$<CONFIG:Debug>:DEBUG>

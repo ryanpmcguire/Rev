@@ -1,27 +1,28 @@
-#include <stdexcept>
 #include <dbg.hpp>
-
 
 import Rev.Application;
 import Rev.Window;
-import Rev.Socket;
 import Rev.Serial;
+import Rev.SocketClient;
 import Rev.Element.Event;
 
-import Interface;
+import LithoControl.Interface;
 
 using namespace Rev;
-using namespace HelloWorld;
+using namespace LithoControl;
 
 int main() {
 
     Application* application = new Application();
 
-    Window* window = new Window(application->windows);
-    Interface* interface = new Interface(window);
+    Window* window = new Window(application->windows, Window::Details{
+        .name   = "LithoControl  v2.0",
+        .width  = 1500,
+        .height = 900
+    });
 
-    Window* window2 = new Window(application->windows);
-    Interface* interface2 = new Interface(window2);
+    Interface* iface = new Interface(window);
+    (void)iface;
 
     application->run();
 
