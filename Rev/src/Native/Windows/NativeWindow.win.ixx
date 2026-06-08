@@ -760,9 +760,16 @@ export namespace Rev {
             // Return if no handle or no cursor change
             if (!handle || cursor == newCursor)
                 return;
-        
+
             cursor = newCursor; // cache
-        
+
+            // Hidden cursor: clear the class cursor and hide it.
+            if (newCursor == Element::Cursor::None) {
+                SetClassLongPtrW(handle, GCLP_HCURSOR, reinterpret_cast<LONG_PTR>(nullptr));
+                SetCursor(nullptr);
+                return;
+            }
+
             LPCWSTR cursorId = IDC_ARROW; // default fallback
         
             // Directly match enum to Win32 cursor

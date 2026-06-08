@@ -792,7 +792,8 @@ export namespace Rev::Element {
         ArrowsVertical,
         ArrowsDiagonalUp,
         ArrowsDiagonalDown,
-        ArrowsOmni
+        ArrowsOmni,
+        None        // hidden cursor
     };
 
     // Display

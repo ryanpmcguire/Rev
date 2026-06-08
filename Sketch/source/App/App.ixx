@@ -10,6 +10,7 @@ export module Sketch.App;
 import Rev.OS.File;
 
 import Sketch.App.Project;
+import Sketch.App.Persist;
 
 export namespace Sketch::App {
 
@@ -20,7 +21,10 @@ export namespace Sketch::App {
         Point,
         Line,
         Arc,
-        Circle
+        Circle,
+        Box,
+        Ellipse,
+        EllipseArc
     };
 
     // The application-wide state: the open sketch documents and which one is
@@ -36,7 +40,7 @@ export namespace Sketch::App {
         SketchTool activeTool = SketchTool::None;
 
         // Generic display setting: stroke width (px) for sketch geometry.
-        float lineThickness = 2.0f;
+        float lineThickness = 1.0f;
 
         // Select a tool, toggling it off if it was already active.
         void selectTool(SketchTool tool) {
@@ -57,9 +61,22 @@ export namespace Sketch::App {
         }
 
         AppState() {
-            // Start with a single empty document so there is always something
-            // to look at.
-            newProject();
+            loadSessionOrDefault();
+        }
+
+        // Session
+        //--------------------------------------------------
+
+        void saveSession() {
+            Persist::save(projects, activeProject);
+        }
+
+        // Reopen the previous session's workspaces, or start fresh if there is no
+        // usable session.
+        void loadSessionOrDefault() {
+            if (!Persist::load(projects, activeProject)) {
+                newProject();
+            }
         }
 
         ~AppState() {
@@ -92,6 +109,8 @@ export namespace Sketch::App {
 
             activeProject = project;
 
+            saveSession();
+
             return project;
         }
 
@@ -110,6 +129,7 @@ export namespace Sketch::App {
             }
 
             activeProject = project;
+            saveSession();
             return true;
         }
 
@@ -131,6 +151,7 @@ export namespace Sketch::App {
 
             if (projects.empty()) {
                 activeProject = nullptr;
+                saveSession();
                 return true;
             }
 
@@ -143,6 +164,7 @@ export namespace Sketch::App {
                 activeProject = projects[index];
             }
 
+            saveSession();
             return true;
         }
 
@@ -155,6 +177,8 @@ export namespace Sketch::App {
             if (it == projects.end()) { return false; }
 
             activeProject = project;
+
+            saveSession();
 
             return true;
         }
@@ -177,7 +201,10 @@ export namespace Sketch::App {
                 return saveProjectAs();
             }
 
-            return activeProject->save();
+            if (!activeProject->save()) { return false; }
+
+            saveSession();
+            return true;
         }
 
         // Pick a parent directory and write a fresh `<Name>.sketch` workspace
@@ -194,7 +221,10 @@ export namespace Sketch::App {
                 std::filesystem::path(parent.pathname) /
                 Project::folderNameFor(activeProject->name);
 
-            return activeProject->saveAs(folder.string());
+            if (!activeProject->saveAs(folder.string())) { return false; }
+
+            saveSession();
+            return true;
         }
 
         // Shutdown

@@ -16,11 +16,12 @@ export namespace Sketch::App {
     struct Point2 {
 
         double x = 0.0, y = 0.0;
+        bool construction = false;   // reference geometry, not real output
 
-        Json toJson() const { return Json{ { "x", x }, { "y", y } }; }
+        Json toJson() const { return Json{ { "x", x }, { "y", y }, { "construction", construction } }; }
 
         static Point2 fromJson(const Json& j) {
-            return { j.value("x", 0.0), j.value("y", 0.0) };
+            return { j.value("x", 0.0), j.value("y", 0.0), j.value("construction", false) };
         }
     };
 
@@ -28,15 +29,18 @@ export namespace Sketch::App {
 
         double ax = 0.0, ay = 0.0;   // start point
         double bx = 0.0, by = 0.0;   // end point
+        bool construction = false;
 
         Json toJson() const {
-            return Json{ { "ax", ax }, { "ay", ay }, { "bx", bx }, { "by", by } };
+            return Json{ { "ax", ax }, { "ay", ay }, { "bx", bx }, { "by", by },
+                         { "construction", construction } };
         }
 
         static Segment2 fromJson(const Json& j) {
             return {
                 j.value("ax", 0.0), j.value("ay", 0.0),
-                j.value("bx", 0.0), j.value("by", 0.0)
+                j.value("bx", 0.0), j.value("by", 0.0),
+                j.value("construction", false)
             };
         }
     };
@@ -47,11 +51,12 @@ export namespace Sketch::App {
     struct Polyline2 {
 
         std::vector<Point2> points;
+        bool construction = false;
 
         Json toJson() const {
             Json arr = Json::array();
             for (const Point2& p : points) { arr.push_back(p.toJson()); }
-            return Json{ { "points", arr } };
+            return Json{ { "points", arr }, { "construction", construction } };
         }
 
         static Polyline2 fromJson(const Json& j) {
@@ -59,6 +64,7 @@ export namespace Sketch::App {
             if (auto it = j.find("points"); it != j.end() && it->is_array()) {
                 for (const Json& e : *it) { line.points.push_back(Point2::fromJson(e)); }
             }
+            line.construction = j.value("construction", false);
             return line;
         }
     };
@@ -67,13 +73,15 @@ export namespace Sketch::App {
 
         double cx = 0.0, cy = 0.0;   // center
         double r = 0.0;              // radius
+        bool construction = false;
 
         Json toJson() const {
-            return Json{ { "cx", cx }, { "cy", cy }, { "r", r } };
+            return Json{ { "cx", cx }, { "cy", cy }, { "r", r }, { "construction", construction } };
         }
 
         static Circle2 fromJson(const Json& j) {
-            return { j.value("cx", 0.0), j.value("cy", 0.0), j.value("r", 0.0) };
+            return { j.value("cx", 0.0), j.value("cy", 0.0), j.value("r", 0.0),
+                     j.value("construction", false) };
         }
     };
 
@@ -88,13 +96,15 @@ export namespace Sketch::App {
         double ax = 0.0, ay = 0.0;   // start point
         double bx = 0.0, by = 0.0;   // end point
         double dx = 0.0, dy = 0.0;   // a point on the arc (mid), encodes chirality
+        bool construction = false;
 
         Json toJson() const {
             return Json{
                 { "cx", cx }, { "cy", cy },
                 { "ax", ax }, { "ay", ay },
                 { "bx", bx }, { "by", by },
-                { "dx", dx }, { "dy", dy }
+                { "dx", dx }, { "dy", dy },
+                { "construction", construction }
             };
         }
 
@@ -103,7 +113,57 @@ export namespace Sketch::App {
                 j.value("cx", 0.0), j.value("cy", 0.0),
                 j.value("ax", 0.0), j.value("ay", 0.0),
                 j.value("bx", 0.0), j.value("by", 0.0),
-                j.value("dx", 0.0), j.value("dy", 0.0)
+                j.value("dx", 0.0), j.value("dy", 0.0),
+                j.value("construction", false)
+            };
+        }
+    };
+
+    // Axis-aligned ellipse: centre + the two semi-axes (rx along x, ry along y).
+    // (Rotated ellipses are a later refinement.) Parametric, by eccentric anomaly
+    // t: P(t) = (cx + rx*cos t, cy + ry*sin t).
+    struct Ellipse2 {
+
+        double cx = 0.0, cy = 0.0;
+        double rx = 0.0, ry = 0.0;
+        bool construction = false;
+
+        Json toJson() const {
+            return Json{ { "cx", cx }, { "cy", cy }, { "rx", rx }, { "ry", ry },
+                         { "construction", construction } };
+        }
+
+        static Ellipse2 fromJson(const Json& j) {
+            return { j.value("cx", 0.0), j.value("cy", 0.0),
+                     j.value("rx", 0.0), j.value("ry", 0.0),
+                     j.value("construction", false) };
+        }
+    };
+
+    // An elliptical arc: an ellipse plus start / end / mid parameters (eccentric
+    // anomalies). As with the circular arc, chirality is implicit in the mid
+    // parameter `ad` (the swept midpoint), so the arc is the one through a0, ad, a1.
+    struct EllipseArc2 {
+
+        double cx = 0.0, cy = 0.0;
+        double rx = 0.0, ry = 0.0;
+        double a0 = 0.0, a1 = 0.0, ad = 0.0;   // start / end / mid parameter
+        bool construction = false;
+
+        Json toJson() const {
+            return Json{
+                { "cx", cx }, { "cy", cy }, { "rx", rx }, { "ry", ry },
+                { "a0", a0 }, { "a1", a1 }, { "ad", ad },
+                { "construction", construction }
+            };
+        }
+
+        static EllipseArc2 fromJson(const Json& j) {
+            return {
+                j.value("cx", 0.0), j.value("cy", 0.0),
+                j.value("rx", 0.0), j.value("ry", 0.0),
+                j.value("a0", 0.0), j.value("a1", 0.0), j.value("ad", 0.0),
+                j.value("construction", false)
             };
         }
     };
@@ -117,6 +177,8 @@ export namespace Sketch::App {
         std::vector<Polyline2> polylines;
         std::vector<Circle2> circles;
         std::vector<Arc2> arcs;
+        std::vector<Ellipse2> ellipses;
+        std::vector<EllipseArc2> ellipseArcs;
 
         void clear() {
             points.clear();
@@ -124,28 +186,35 @@ export namespace Sketch::App {
             polylines.clear();
             circles.clear();
             arcs.clear();
+            ellipses.clear();
+            ellipseArcs.clear();
         }
 
         bool empty() const {
             return points.empty() && segments.empty() && polylines.empty()
-                && circles.empty() && arcs.empty();
+                && circles.empty() && arcs.empty()
+                && ellipses.empty() && ellipseArcs.empty();
         }
 
         Json toJson() const {
 
             Json out;
 
-            out["points"]    = Json::array();
-            out["segments"]  = Json::array();
-            out["polylines"] = Json::array();
-            out["circles"]   = Json::array();
-            out["arcs"]      = Json::array();
+            out["points"]      = Json::array();
+            out["segments"]    = Json::array();
+            out["polylines"]   = Json::array();
+            out["circles"]     = Json::array();
+            out["arcs"]        = Json::array();
+            out["ellipses"]    = Json::array();
+            out["ellipseArcs"] = Json::array();
 
-            for (const Point2& p : points)      { out["points"].push_back(p.toJson()); }
-            for (const Segment2& s : segments)  { out["segments"].push_back(s.toJson()); }
-            for (const Polyline2& l : polylines) { out["polylines"].push_back(l.toJson()); }
-            for (const Circle2& c : circles)    { out["circles"].push_back(c.toJson()); }
-            for (const Arc2& a : arcs)          { out["arcs"].push_back(a.toJson()); }
+            for (const Point2& p : points)        { out["points"].push_back(p.toJson()); }
+            for (const Segment2& s : segments)    { out["segments"].push_back(s.toJson()); }
+            for (const Polyline2& l : polylines)  { out["polylines"].push_back(l.toJson()); }
+            for (const Circle2& c : circles)      { out["circles"].push_back(c.toJson()); }
+            for (const Arc2& a : arcs)            { out["arcs"].push_back(a.toJson()); }
+            for (const Ellipse2& e : ellipses)    { out["ellipses"].push_back(e.toJson()); }
+            for (const EllipseArc2& e : ellipseArcs) { out["ellipseArcs"].push_back(e.toJson()); }
 
             return out;
         }
@@ -168,6 +237,12 @@ export namespace Sketch::App {
             }
             if (auto it = j.find("arcs"); it != j.end() && it->is_array()) {
                 for (const Json& e : *it) { g.arcs.push_back(Arc2::fromJson(e)); }
+            }
+            if (auto it = j.find("ellipses"); it != j.end() && it->is_array()) {
+                for (const Json& e : *it) { g.ellipses.push_back(Ellipse2::fromJson(e)); }
+            }
+            if (auto it = j.find("ellipseArcs"); it != j.end() && it->is_array()) {
+                for (const Json& e : *it) { g.ellipseArcs.push_back(EllipseArc2::fromJson(e)); }
             }
 
             return g;

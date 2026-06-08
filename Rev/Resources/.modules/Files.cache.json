@@ -247,13 +247,28 @@
     },
     "Sketch/source/Gui/Toolbar/Arc.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/Toolbar/Arc.svg",
-      "hash": "d8f80ad096f218d0c3dba4b0716b41e5aa82abae6d7aeb48991aacfd2a5c40f2",
-      "mtime": 1780857285.4998174
+      "hash": "387b12d1720d6711434ad1e175cf45a9960283908954c2c5126f04fc023f68bc",
+      "mtime": 1780882180.8968482
     },
     "Sketch/source/Gui/Toolbar/Circle.svg": {
       "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/Toolbar/Circle.svg",
       "hash": "c6fc3a8ef6ca801819e144103a5ad9a96ba6a8273181f64097c1a041dfa6644e",
       "mtime": 1780857289.1440952
+    },
+    "Sketch/source/Gui/Toolbar/Box.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/Toolbar/Box.svg",
+      "hash": "2e3ee4eac9a5df324cc0ed57dab4c5bf8bec2c08314e7c1e48f39561c9e56ad7",
+      "mtime": 1780882086.047405
+    },
+    "Sketch/source/Gui/Toolbar/Ellipse.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/Toolbar/Ellipse.svg",
+      "hash": "0990dd9ac84bcea64d5c37d0eed4839530208b0a660444b183fc3c418bf44c3c",
+      "mtime": 1780882089.57568
+    },
+    "Sketch/source/Gui/Toolbar/EllipseArc.svg": {
+      "absolute": "C:/Users/Ryan/Desktop/Ryan/Rev/Sketch/source/Gui/Toolbar/EllipseArc.svg",
+      "hash": "284a4a95a4b1c284f4c010627e10ef9a96d125be706323f3ea8e1c15d21ad8ec",
+      "mtime": 1780882185.0571878
     }
   },
   "project_root": "C:/Users/Ryan/Desktop/Ryan/Rev"

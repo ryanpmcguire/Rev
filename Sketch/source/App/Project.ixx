@@ -112,6 +112,8 @@ export namespace Sketch::App {
         void addSegment(const Segment2& seg)    { geometry.segments.push_back(seg);     dirty = true; }
         void addCircle(const Circle2& circle)   { geometry.circles.push_back(circle);   dirty = true; }
         void addArc(const Arc2& arc)            { geometry.arcs.push_back(arc);          dirty = true; }
+        void addEllipse(const Ellipse2& e)      { geometry.ellipses.push_back(e);        dirty = true; }
+        void addEllipseArc(const EllipseArc2& e){ geometry.ellipseArcs.push_back(e);     dirty = true; }
 
         // Append a polyline, returning its index so a tool can keep extending it.
         size_t addPolyline(const Polyline2& line) {

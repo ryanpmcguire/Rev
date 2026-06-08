@@ -142,10 +142,13 @@ export namespace Sketch::Gui {
 
             using Sketch::App::SketchTool;
 
-            addTool(SketchTool::Point,  File("./Point.svg"));
-            addTool(SketchTool::Line,   File("./Line.svg"));
-            addTool(SketchTool::Arc,    File("./Arc.svg"));
-            addTool(SketchTool::Circle, File("./Circle.svg"));
+            addTool(SketchTool::Point,      File("./Point.svg"));
+            addTool(SketchTool::Line,       File("./Line.svg"));
+            addTool(SketchTool::Arc,        File("./Arc.svg"));
+            addTool(SketchTool::Circle,     File("./Circle.svg"));
+            addTool(SketchTool::Box,        File("./Box.svg"));
+            addTool(SketchTool::Ellipse,    File("./Ellipse.svg"));
+            addTool(SketchTool::EllipseArc, File("./EllipseArc.svg"));
         }
 
         void addTool(Sketch::App::SketchTool tool, Rev::Core::Resource iconResource) {

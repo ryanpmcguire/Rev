@@ -54,13 +54,24 @@ export namespace Sketch::App {
 
         // True while a primitive is mid-definition (a click is pending).
         virtual bool active() const { return false; }
+
+        // Whether geometry produced by this tool is *construction* (reference)
+        // geometry rather than real output. The view drives this.
+        bool construction = false;
+
+        // Stamp the current construction flag onto any in-progress committed
+        // primitive (the line tool's growing chain). Tools that commit atomically
+        // don't need it.
+        virtual void applyConstruction(Project& project) {}
     };
 
     // Point: each click drops a point. No multi-step state.
     struct PointTool : public Tool {
 
         void click(Project& project, double wx, double wy) override {
-            project.addPoint({ wx, wy });
+            Point2 p{ wx, wy };
+            p.construction = construction;
+            project.addPoint(p);
         }
 
         void preview(double wx, double wy, SketchPreview& out) const override {
@@ -83,6 +94,7 @@ export namespace Sketch::App {
 
             Polyline2 line;
             line.points = pts;
+            line.construction = construction;
 
             if (pts.size() == 2) {
                 // First real segment: create the polyline and remember it.
@@ -91,6 +103,13 @@ export namespace Sketch::App {
             else if (pts.size() > 2 && activeIndex >= 0) {
                 // Extend the existing chain in place.
                 project.replacePolyline(static_cast<size_t>(activeIndex), line);
+            }
+        }
+
+        void applyConstruction(Project& project) override {
+            if (activeIndex >= 0 && static_cast<size_t>(activeIndex) < project.geometry.polylines.size()) {
+                project.geometry.polylines[static_cast<size_t>(activeIndex)].construction = construction;
+                project.dirty = true;
             }
         }
 
@@ -130,7 +149,9 @@ export namespace Sketch::App {
             }
 
             double r = std::hypot(wx - cx, wy - cy);
-            project.addCircle({ cx, cy, r });
+            Circle2 c{ cx, cy, r };
+            c.construction = construction;
+            project.addCircle(c);
             hasCenter = false;
         }
 
@@ -193,7 +214,9 @@ export namespace Sketch::App {
             double bx, by, dx, dy;
             resolve(wx, wy, bx, by, dx, dy);
 
-            project.addArc({ cx, cy, ax, ay, bx, by, dx, dy });
+            Arc2 a{ cx, cy, ax, ay, bx, by, dx, dy };
+            a.construction = construction;
+            project.addArc(a);
             reset();
         }
 
@@ -287,6 +310,174 @@ export namespace Sketch::App {
 
             out.candidate.arcs.push_back({ cx, cy, ax, ay, bx, by, dx, dy });
             out.candidate.points.push_back({ bx, by });          // show point B
+        }
+    };
+
+    // Box: click a corner, click the opposite corner -> four line segments. Like
+    // a rectangle tool in any CAD program.
+    struct BoxTool : public Tool {
+
+        bool hasFirst = false;
+        double fx = 0.0, fy = 0.0;
+
+        static void corners(double x0, double y0, double x1, double y1,
+                            double& ax, double& ay, double& bx, double& by,
+                            double& ccx, double& ccy, double& dx, double& dy) {
+            ax = x0; ay = y0;   // first corner
+            bx = x1; by = y0;
+            ccx = x1; ccy = y1; // opposite corner
+            dx = x0; dy = y1;
+        }
+
+        void click(Project& project, double wx, double wy) override {
+
+            if (!hasFirst) {
+                fx = wx; fy = wy;
+                hasFirst = true;
+                return;
+            }
+
+            double ax, ay, bx, by, ccx, ccy, dx, dy;
+            corners(fx, fy, wx, wy, ax, ay, bx, by, ccx, ccy, dx, dy);
+
+            Segment2 s1{ ax, ay, bx, by };   s1.construction = construction; project.addSegment(s1);
+            Segment2 s2{ bx, by, ccx, ccy }; s2.construction = construction; project.addSegment(s2);
+            Segment2 s3{ ccx, ccy, dx, dy }; s3.construction = construction; project.addSegment(s3);
+            Segment2 s4{ dx, dy, ax, ay };   s4.construction = construction; project.addSegment(s4);
+
+            hasFirst = false;
+        }
+
+        void enter(Project& project) override { reset(); }
+        void reset() override { hasFirst = false; }
+        bool active() const override { return hasFirst; }
+
+        void preview(double wx, double wy, SketchPreview& out) const override {
+            if (!hasFirst) { return; }
+            double ax, ay, bx, by, ccx, ccy, dx, dy;
+            corners(fx, fy, wx, wy, ax, ay, bx, by, ccx, ccy, dx, dy);
+            out.helper.points.push_back({ fx, fy });
+            out.candidate.segments.push_back({ ax, ay, bx, by });
+            out.candidate.segments.push_back({ bx, by, ccx, ccy });
+            out.candidate.segments.push_back({ ccx, ccy, dx, dy });
+            out.candidate.segments.push_back({ dx, dy, ax, ay });
+        }
+    };
+
+    // Ellipse (axis-aligned): click centre, click a corner of the bounding box.
+    struct EllipseTool : public Tool {
+
+        bool hasCenter = false;
+        double cx = 0.0, cy = 0.0;
+
+        void click(Project& project, double wx, double wy) override {
+            if (!hasCenter) {
+                cx = wx; cy = wy;
+                hasCenter = true;
+                return;
+            }
+            Ellipse2 e{ cx, cy, std::fabs(wx - cx), std::fabs(wy - cy) };
+            e.construction = construction;
+            project.addEllipse(e);
+            hasCenter = false;
+        }
+
+        void enter(Project& project) override { reset(); }
+        void reset() override { hasCenter = false; }
+        bool active() const override { return hasCenter; }
+
+        void preview(double wx, double wy, SketchPreview& out) const override {
+            if (!hasCenter) { return; }
+            out.helper.points.push_back({ cx, cy });
+            out.candidate.ellipses.push_back({ cx, cy, std::fabs(wx - cx), std::fabs(wy - cy) });
+        }
+    };
+
+    // Elliptical arc: click centre, click a corner (shape), click the start, then
+    // sweep and click the end. Chirality uses the same integrator as ArcTool, but
+    // on the ellipse's eccentric anomaly.
+    struct EllipseArcTool : public Tool {
+
+        bool hasCenter = false;
+        bool hasShape = false;
+        bool hasStart = false;
+        double cx = 0.0, cy = 0.0;
+        double rx = 0.0, ry = 0.0;
+        double a0 = 0.0;       // start parameter
+        double prevT = 0.0;
+        double sweep = 0.0;
+
+        // Eccentric anomaly of a world point relative to the ellipse.
+        double paramOf(double wx, double wy) const {
+            double dx = wx - cx, dy = wy - cy;
+            if (rx < 1e-9 || ry < 1e-9) { return std::atan2(dy, dx); }
+            return std::atan2(dy / ry, dx / rx);
+        }
+
+        void click(Project& project, double wx, double wy) override {
+
+            if (!hasCenter) { cx = wx; cy = wy; hasCenter = true; return; }
+
+            if (!hasShape) {
+                rx = std::fabs(wx - cx);
+                ry = std::fabs(wy - cy);
+                hasShape = true;
+                return;
+            }
+
+            if (!hasStart) {
+                a0 = paramOf(wx, wy);
+                prevT = a0;
+                sweep = 0.0;
+                hasStart = true;
+                return;
+            }
+
+            EllipseArc2 e{ cx, cy, rx, ry, a0, a0 + sweep, a0 + sweep * 0.5 };
+            e.construction = construction;
+            project.addEllipseArc(e);
+            reset();
+        }
+
+        void hover(double wx, double wy) override {
+            if (!hasStart) { return; }
+            double t = paramOf(wx, wy);
+            double step = t - prevT;
+            while (step <= -PI) { step += TAU; }
+            while (step >   PI) { step -= TAU; }
+            sweep += step;
+            if (sweep >  TAU) { sweep -= TAU; }
+            if (sweep < -TAU) { sweep += TAU; }
+            prevT = t;
+        }
+
+        void enter(Project& project) override { reset(); }
+        void reset() override { hasCenter = false; hasShape = false; hasStart = false; sweep = 0.0; }
+        bool active() const override { return hasCenter; }
+
+        void preview(double wx, double wy, SketchPreview& out) const override {
+
+            if (!hasCenter) { return; }
+            out.helper.points.push_back({ cx, cy });
+
+            // Defining the shape: ghost the candidate ellipse.
+            if (!hasShape) {
+                out.candidate.ellipses.push_back({ cx, cy, std::fabs(wx - cx), std::fabs(wy - cy) });
+                return;
+            }
+
+            // Ghost the full ellipse while picking start / end.
+            out.helper.ellipses.push_back({ cx, cy, rx, ry });
+
+            if (!hasStart) {
+                double t = paramOf(wx, wy);
+                out.candidate.points.push_back({ cx + rx * std::cos(t), cy + ry * std::sin(t) });
+                return;
+            }
+
+            out.candidate.ellipseArcs.push_back({ cx, cy, rx, ry, a0, a0 + sweep, a0 + sweep * 0.5 });
+            double te = a0 + sweep;
+            out.candidate.points.push_back({ cx + rx * std::cos(te), cy + ry * std::sin(te) });
         }
     };
 }
