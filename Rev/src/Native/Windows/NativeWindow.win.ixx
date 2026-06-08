@@ -477,6 +477,12 @@ export namespace Rev {
         bool dirty = false;
         bool invalidatePending = false;
         bool destroyed = false;
+
+        // Number of mouse buttons currently held. Used to drive mouse capture:
+        // capture on the first press, release on the last release. Capture keeps
+        // move / button-up messages flowing here even when the cursor leaves the
+        // client rect (drag continuity beyond the window edge).
+        int buttonsDown = 0;
         Relationship relationship = Relationship::EmbeddedChild;
 
         inline static NativeWindow* currentWindow = nullptr;
@@ -859,12 +865,11 @@ export namespace Rev {
 
             event.subject = this;
 
-            // Scale mouse button positions
-            if (event.type == WinEvent::Type::MouseButton || event.type == WinEvent::Type::MouseMove) {
-                event.c = (float)event.c / scale;
-                event.d = (float)event.d / scale;
-            }
-            
+            // NOTE: mouse coordinates are delivered as absolute *screen* pixels
+            // (physical, unscaled). Window converts to window-local logical
+            // coordinates using its own screen origin and DPI scale. We no longer
+            // divide here — screen space must stay in physical px so it lines up
+            // with SetWindowPos / setPos for window drag + resize.
             if (callback) { callback(event); }
             
             return event;
@@ -892,6 +897,39 @@ export namespace Rev {
             });
 
             return true;
+        }
+
+        // Mouse button + capture management.
+        //--------------------------------------------------
+
+        // Convert the client-relative coordinates in lParam to absolute screen
+        // (physical) pixels, then notify a MouseButton event. Capture on the
+        // first button down so the matching up + any drag-out moves still arrive.
+        void onButtonDown(HWND h, int button, LPARAM lp) {
+
+            if (buttonsDown++ == 0) {
+                SetCapture(h);
+            }
+
+            POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            ClientToScreen(h, &pt);
+
+            notifyEvent({ WinEvent::Type::MouseButton, (uint64_t)button, 1, pt.x, pt.y });
+        }
+
+        void onButtonUp(HWND h, int button, LPARAM lp) {
+
+            POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            ClientToScreen(h, &pt);
+
+            notifyEvent({ WinEvent::Type::MouseButton, (uint64_t)button, 0, pt.x, pt.y });
+
+            // Release only once the last held button comes up. Our own
+            // ReleaseCapture posts WM_CAPTURECHANGED, but by then buttonsDown is
+            // already 0, so the handler there treats it as a no-op.
+            if (buttonsDown > 0 && --buttonsDown == 0) {
+                ReleaseCapture();
+            }
         }
 
         // Get self (user pointer) from window handle
@@ -1106,12 +1144,14 @@ export namespace Rev {
 
                 // When the mouse moves
                 case (WM_MOUSEMOVE): {
-                
+
+                    POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+                    ClientToScreen(h, &pt);
+
                     self->notifyEvent({
                         WinEvent::Type::MouseMove,
                         0, 0,
-                        GET_X_LPARAM(lp),
-                        GET_Y_LPARAM(lp)
+                        pt.x, pt.y
                     });
 
                     return 0;
@@ -1162,20 +1202,34 @@ export namespace Rev {
                 }
 
                 // Mouse up
-                case (WM_LBUTTONUP): { self->notifyEvent({ WinEvent::Type::MouseButton, 0, 0, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_RBUTTONUP): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 0, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_MBUTTONUP): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 0, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                
+                case (WM_LBUTTONUP): { self->onButtonUp(h, 0, lp); return 0; }
+                case (WM_RBUTTONUP): { self->onButtonUp(h, 1, lp); return 0; }
+                case (WM_MBUTTONUP): { self->onButtonUp(h, 2, lp); return 0; }
+
                 // Mouse down
-                case (WM_LBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 0, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_RBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_MBUTTONDOWN): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-        
+                case (WM_LBUTTONDOWN): { self->onButtonDown(h, 0, lp); return 0; }
+                case (WM_RBUTTONDOWN): { self->onButtonDown(h, 1, lp); return 0; }
+                case (WM_MBUTTONDOWN): { self->onButtonDown(h, 2, lp); return 0; }
+
                 // Win32 double-click: treat as a normal press so Rev detects it via
                 // Event::Button::isDoubleClick() (not ButtonAction::DoubleClick).
-                case (WM_LBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 0, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_RBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 1, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
-                case (WM_MBUTTONDBLCLK): { self->notifyEvent({ WinEvent::Type::MouseButton, 2, 1, GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }); return 0; }
+                case (WM_LBUTTONDBLCLK): { self->onButtonDown(h, 0, lp); return 0; }
+                case (WM_RBUTTONDBLCLK): { self->onButtonDown(h, 1, lp); return 0; }
+                case (WM_MBUTTONDBLCLK): { self->onButtonDown(h, 2, lp); return 0; }
+
+                // Capture lost involuntarily (alt-tab, a competing SetCapture)
+                // while a button is held — synthesize a release so Rev's press /
+                // drag target flags don't get stuck. Our own ReleaseCapture also
+                // routes here but only after buttonsDown has reached 0.
+                case (WM_CAPTURECHANGED): {
+
+                    if (self && self->buttonsDown > 0) {
+                        self->buttonsDown = 0;
+                        self->notifyEvent({ WinEvent::Type::CaptureLost });
+                    }
+
+                    return 0;
+                }
       
                 // Keyboard (WM_SYSKEY* is required for Alt / Alt+key on Windows)
                 case (WM_KEYDOWN):

@@ -254,22 +254,16 @@ export namespace Rev {
                     this->xPin = this->details.x;
                     this->yPin = this->details.y;
 
-                    downPos = {
-                        this->details.x + e.mouse.pos.x,
-                        this->details.y + e.mouse.pos.y
-                    };
-
-                    dbg("MouseDown");
+                    // Anchor the drag in absolute screen space. Local coordinates
+                    // are useless here: as the window follows the cursor its origin
+                    // moves too, so the local position stays ~constant. Screen space
+                    // is an inertial frame, so the delta below is always honest.
+                    downPos = e.mouse.screenPos;
                 });
 
                 upper->onDrag([this](Event& e) {
 
-                    Pos screenPos = {
-                        this->details.x + e.mouse.pos.x,
-                        this->details.y + e.mouse.pos.y
-                    };
-
-                    Pos diff = screenPos - downPos;
+                    Pos diff = e.mouse.screenPos - downPos;
 
                     this->details.x = xPin + diff.x;
                     this->details.y = yPin + diff.y;
@@ -660,6 +654,21 @@ export namespace Rev {
             window->setRect(x, y, w, h);
         }
 
+        // Convert an absolute screen coordinate (physical px, as supplied by the
+        // native layer) into window-local logical coordinates, using this window's
+        // own screen origin (details.x/y) and DPI scale. Screen space is
+        // independent of the window origin, so this stays correct even while the
+        // window is being dragged or resized.
+        Pos screenToLocal(float screenX, float screenY) const {
+
+            float s = (window && window->scale != 0.0f) ? window->scale : 1.0f;
+
+            return {
+                (screenX - float(details.x)) / s,
+                (screenY - float(details.y)) / s
+            };
+        }
+
         // Responding to window events
         //--------------------------------------------------
 
@@ -760,6 +769,7 @@ export namespace Rev {
                 case (WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
                 case (WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
                 case (WinEvent::MouseWheel): { this->onMouseWheel(event.c, event.d); break; }
+                case (WinEvent::CaptureLost): { this->onCaptureLost(); break; }
 
                 case (WinEvent::Keyboard): { this->onKeyboard(event.a, event.b); break; }
                 case (WinEvent::Character): { this->onCharacter(event.a); break; }
@@ -840,12 +850,15 @@ export namespace Rev {
         //--------------------------------------------------
 
         // When a mouse button is clicked or released
-        void onMouseButton(int button, int action, int x, int y) {
+        void onMouseButton(int button, int action, int screenX, int screenY) {
 
             //dbg("[Window] mouseButton");
 
-            // Get mouse position
-            event.mouse.pos = { float(x), float(y) };
+            // Native supplies absolute screen coordinates; store them and derive
+            // the window-local logical position used for hit-testing/dispatch.
+            event.mouse.screenPos = { float(screenX), float(screenY) };
+            event.mouse.pos = screenToLocal(float(screenX), float(screenY));
+
             if (action == NativeWindow::ButtonAction::Press) { event.mouse.down = event.mouse.pos; }
             if (action == NativeWindow::ButtonAction::Release) { event.mouse.up = event.mouse.pos; }
 
@@ -874,12 +887,13 @@ export namespace Rev {
             }
         }
 
-        // When the mouse moves
-        void onCursorPos(float x, float y) {
+        // When the mouse moves. Native supplies absolute screen coordinates.
+        void onCursorPos(float screenX, float screenY) {
 
             //dbg("CursorPos");
 
-            event.mouse.pos = { x, y };
+            event.mouse.screenPos = { screenX, screenY };
+            event.mouse.pos = screenToLocal(screenX, screenY);
             event.mouse.diff = event.mouse.pos - event.mouse.down;
             event.resetBeforeDispatch();
 
@@ -910,10 +924,25 @@ export namespace Rev {
             this->setTargets(event);
 
             this->mouseWheel(event);
-            
+
             if (event.causedRefresh) {
                 this->refresh(event);
             }
+        }
+
+        // When mouse capture is lost mid-drag (see NativeWindow WM_CAPTURECHANGED).
+        // Synthesize a release so press/drag target flags don't get stuck on.
+        void onCaptureLost() {
+
+            event.mouse.lb.set(NativeWindow::ButtonAction::Release, event.mouse.pos);
+            event.mouse.rb.set(NativeWindow::ButtonAction::Release, event.mouse.pos);
+
+            event.resetBeforeDispatch();
+            this->setTargets(event);
+
+            this->mouseUp(event);
+
+            this->refresh(event);
         }
 
         // When a key is depressed or released

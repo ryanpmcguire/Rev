@@ -8,7 +8,7 @@ struct WinEvent {
         Focus, Defocus,
         Move, Resize, Maximize, Minimize, Restore,
         Scale, Clear, Paint,
-        MouseButton, MouseMove, MouseWheel,
+        MouseButton, MouseMove, MouseWheel, CaptureLost,
         Keyboard, Character
     };
 

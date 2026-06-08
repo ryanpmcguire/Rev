@@ -77,6 +77,12 @@ export namespace Rev::Element {
             Cursor cursor = Cursor::Unset;
 
             Pos pos, down, up;
+
+            // Absolute screen position (physical px) of the cursor, supplied by
+            // the native layer. Independent of this window's origin, so drag /
+            // resize math built on it stays stable while the window itself moves.
+            Pos screenPos;
+
             Pos drag, diff;
             Pos dragStart, dragEnd;
             Pos wheel;
