@@ -7,40 +7,66 @@ module;
 
 export module Sketch.App.Geometry;
 
+import Rev.Core.Pos;
+
 export namespace Sketch::App {
 
     using Json = nlohmann::json;
+    using Rev::Core::Pos;
+
+    // A JSON-serialisable 2D position: Rev's Pos plus a clean
+    // round-trip to { "x", "y" }. Used as the stored point type for every sketch
+    // primitive, so geometry math gets Pos's vector algebra (b - a, normalize,
+    // dot, cross, angleTo, ...) for free.
+    struct Pos2 : public Pos {
+
+        using Pos::Pos;                                   // inherit (x,y) constructors
+        Pos2() = default;
+        Pos2(const Pos& p) : Pos(p) {}
+
+        Json toJson() const { return Json{ { "x", x }, { "y", y } }; }
+
+        static Pos2 fromJson(const Json& j) {
+            return Pos2(j.value("x", 0.0), j.value("y", 0.0));
+        }
+    };
 
     // The basic 2D sketch primitives, all in world (sketch) coordinates.
     // Compound shapes are built from these later.
 
-    struct Point2 {
+    // A point is a position with a construction flag.
+    struct Point2 : public Pos2 {
 
-        double x = 0.0, y = 0.0;
         bool construction = false;   // reference geometry, not real output
+
+        Point2() = default;
+        Point2(float x, float y) : Pos2(x, y) {}
+        Point2(const Pos& p) : Pos2(p) {}
 
         Json toJson() const { return Json{ { "x", x }, { "y", y }, { "construction", construction } }; }
 
         static Point2 fromJson(const Json& j) {
-            return { j.value("x", 0.0), j.value("y", 0.0), j.value("construction", false) };
+            Point2 p(j.value("x", 0.0), j.value("y", 0.0));
+            p.construction = j.value("construction", false);
+            return p;
         }
     };
 
     struct Segment2 {
 
-        double ax = 0.0, ay = 0.0;   // start point
-        double bx = 0.0, by = 0.0;   // end point
+        Pos2 a;   // start point
+        Pos2 b;   // end point
         bool construction = false;
 
         Json toJson() const {
-            return Json{ { "ax", ax }, { "ay", ay }, { "bx", bx }, { "by", by },
+            return Json{ { "a", a.toJson() }, { "b", b.toJson() },
                          { "construction", construction } };
         }
 
         static Segment2 fromJson(const Json& j) {
             return {
-                j.value("ax", 0.0), j.value("ay", 0.0),
-                j.value("bx", 0.0), j.value("by", 0.0),
+                Pos2::fromJson(j.value("a", Json::object())),
+                Pos2::fromJson(j.value("b", Json::object())),
                 j.value("construction", false)
             };
         }
@@ -72,17 +98,17 @@ export namespace Sketch::App {
 
     struct Circle2 {
 
-        double cx = 0.0, cy = 0.0;   // center
-        double r = 0.0;              // radius
+        Pos2 c;          // center
+        float r = 0.0f;  // radius
         bool construction = false;
 
         Json toJson() const {
-            return Json{ { "cx", cx }, { "cy", cy }, { "r", r }, { "construction", construction } };
+            return Json{ { "c", c.toJson() }, { "r", r }, { "construction", construction } };
         }
 
         static Circle2 fromJson(const Json& j) {
-            return { j.value("cx", 0.0), j.value("cy", 0.0), j.value("r", 0.0),
-                     j.value("construction", false) };
+            return { Pos2::fromJson(j.value("c", Json::object())),
+                     j.value("r", 0.0f), j.value("construction", false) };
         }
     };
 
@@ -90,29 +116,24 @@ export namespace Sketch::App {
     // fixes the radius). There is no stored chirality: the arc is *always* the one
     // swept counterclockwise from A to B. The two possible arcs through A and B are
     // distinguished purely by the order of the endpoints (swapping A and B selects
-    // the complementary arc). This keeps the form intersection-ready and lets path
-    // integration recover loop sign from traversal direction alone.
+    // the complementary arc).
     struct Arc2 {
 
-        double cx = 0.0, cy = 0.0;   // center
-        double ax = 0.0, ay = 0.0;   // start point (CCW start)
-        double bx = 0.0, by = 0.0;   // end point   (CCW end)
+        Pos2 c;   // center
+        Pos2 a;   // start point (CCW start)
+        Pos2 b;   // end point   (CCW end)
         bool construction = false;
 
         Json toJson() const {
-            return Json{
-                { "cx", cx }, { "cy", cy },
-                { "ax", ax }, { "ay", ay },
-                { "bx", bx }, { "by", by },
-                { "construction", construction }
-            };
+            return Json{ { "c", c.toJson() }, { "a", a.toJson() }, { "b", b.toJson() },
+                         { "construction", construction } };
         }
 
         static Arc2 fromJson(const Json& j) {
             return {
-                j.value("cx", 0.0), j.value("cy", 0.0),
-                j.value("ax", 0.0), j.value("ay", 0.0),
-                j.value("bx", 0.0), j.value("by", 0.0),
+                Pos2::fromJson(j.value("c", Json::object())),
+                Pos2::fromJson(j.value("a", Json::object())),
+                Pos2::fromJson(j.value("b", Json::object())),
                 j.value("construction", false)
             };
         }
@@ -130,21 +151,20 @@ export namespace Sketch::App {
     // and a perimeter point B (V = the conjugate semi-axis B implies).
     struct Ellipse2 {
 
-        double cx = 0.0, cy = 0.0;     // centre C
-        double ux = 0.0, uy = 0.0;     // semi-axis vector U (P(0) = C + U)
-        double vx = 0.0, vy = 0.0;     // conjugate semi-axis vector V
+        Pos2 c;   // centre C
+        Pos2 u;   // semi-axis vector U (P(0) = C + U)
+        Pos2 v;   // conjugate semi-axis vector V
         bool construction = false;
 
         Json toJson() const {
-            return Json{ { "cx", cx }, { "cy", cy },
-                         { "ux", ux }, { "uy", uy }, { "vx", vx }, { "vy", vy },
+            return Json{ { "c", c.toJson() }, { "u", u.toJson() }, { "v", v.toJson() },
                          { "construction", construction } };
         }
 
         static Ellipse2 fromJson(const Json& j) {
-            return { j.value("cx", 0.0), j.value("cy", 0.0),
-                     j.value("ux", 0.0), j.value("uy", 0.0),
-                     j.value("vx", 0.0), j.value("vy", 0.0),
+            return { Pos2::fromJson(j.value("c", Json::object())),
+                     Pos2::fromJson(j.value("u", Json::object())),
+                     Pos2::fromJson(j.value("v", Json::object())),
                      j.value("construction", false) };
         }
     };
@@ -156,16 +176,15 @@ export namespace Sketch::App {
     // Swapping a0 and a1 selects the complementary arc.
     struct EllipseArc2 {
 
-        double cx = 0.0, cy = 0.0;
-        double ux = 0.0, uy = 0.0;
-        double vx = 0.0, vy = 0.0;
-        double a0 = 0.0, a1 = 0.0;   // start / end parameter (swept a0 -> a1 CCW)
+        Pos2 c;
+        Pos2 u;
+        Pos2 v;
+        float a0 = 0.0f, a1 = 0.0f;   // start / end parameter (swept a0 -> a1 CCW)
         bool construction = false;
 
         Json toJson() const {
             return Json{
-                { "cx", cx }, { "cy", cy },
-                { "ux", ux }, { "uy", uy }, { "vx", vx }, { "vy", vy },
+                { "c", c.toJson() }, { "u", u.toJson() }, { "v", v.toJson() },
                 { "a0", a0 }, { "a1", a1 },
                 { "construction", construction }
             };
@@ -173,10 +192,10 @@ export namespace Sketch::App {
 
         static EllipseArc2 fromJson(const Json& j) {
             return {
-                j.value("cx", 0.0), j.value("cy", 0.0),
-                j.value("ux", 0.0), j.value("uy", 0.0),
-                j.value("vx", 0.0), j.value("vy", 0.0),
-                j.value("a0", 0.0), j.value("a1", 0.0),
+                Pos2::fromJson(j.value("c", Json::object())),
+                Pos2::fromJson(j.value("u", Json::object())),
+                Pos2::fromJson(j.value("v", Json::object())),
+                j.value("a0", 0.0f), j.value("a1", 0.0f),
                 j.value("construction", false)
             };
         }
@@ -186,53 +205,45 @@ export namespace Sketch::App {
     //--------------------------------------------------
 
     // World point at parameter t: P(t) = C + cos(t)*U + sin(t)*V.
-    inline void ellipsePointAt(double cx, double cy, double ux, double uy,
-                               double vx, double vy, double t, double& x, double& y) {
-        double c = std::cos(t), s = std::sin(t);
-        x = cx + c * ux + s * vx;
-        y = cy + c * uy + s * vy;
+    inline Pos ellipsePointAt(const Pos& c, const Pos& u, const Pos& v, float t) {
+        return c + u * std::cos(t) + v * std::sin(t);
     }
 
     // Parameter t of a world point. With orthogonal conjugate axes (as the tool
     // always produces), cos t and sin t are just the projections onto U and V
     // normalised by their squared lengths.
-    inline double ellipseParamOf(double cx, double cy, double ux, double uy,
-                                 double vx, double vy, double wx, double wy) {
-        double dx = wx - cx, dy = wy - cy;
-        double lu = ux * ux + uy * uy;
-        double lv = vx * vx + vy * vy;
-        double c = (lu > 1e-18) ? (dx * ux + dy * uy) / lu : 0.0;
-        double s = (lv > 1e-18) ? (dx * vx + dy * vy) / lv : 0.0;
-        return std::atan2(s, c);
+    inline float ellipseParamOf(const Pos& c, const Pos& u, const Pos& v, const Pos& w) {
+        Pos d = w - c;
+        float lu = u.dot(u);
+        float lv = v.dot(v);
+        float cs = (lu > 1e-12f) ? d.dot(u) / lu : 0.0f;
+        float sn = (lv > 1e-12f) ? d.dot(v) / lv : 0.0f;
+        return std::atan2(sn, cs);
     }
 
     // Fit the unique ellipse from a centre, a major-axis point A (on the perimeter,
     // fixing U = A - C) and a second perimeter point B (fixing the conjugate
     // semi-axis V, perpendicular to U). B need not lie on the minor axis.
-    struct EllipseFit { double ux = 0.0, uy = 0.0, vx = 0.0, vy = 0.0; };
+    struct EllipseFit { Pos u, v; };
 
-    inline EllipseFit fitEllipse(double cx, double cy, double ax, double ay,
-                                 double bx, double by) {
+    inline EllipseFit fitEllipse(const Pos& c, const Pos& a, const Pos& b) {
         EllipseFit f;
-        f.ux = ax - cx;
-        f.uy = ay - cy;
+        f.u = a - c;
 
-        double a = std::hypot(f.ux, f.uy);
-        if (a < 1e-9) { return f; }
+        float al = f.u.pythag();
+        if (al < 1e-6f) { return f; }
 
-        // Unit major axis and its CCW perpendicular (the minor-axis direction).
-        double mux = f.ux / a, muy = f.uy / a;
-        double px = -muy, py = mux;
+        Pos m    = f.u / al;   // unit major axis
+        Pos perp = m.normal(); // CCW perpendicular (minor-axis direction)
 
-        double dx = bx - cx, dy = by - cy;
-        double p = dx * mux + dy * muy;   // B's coordinate along the major axis
-        double q = dx * px  + dy * py;    // B's coordinate along the minor axis
+        Pos d = b - c;
+        float p = d.dot(m);     // B's coordinate along the major axis
+        float q = d.dot(perp);  // B's coordinate along the minor axis
 
-        double k = 1.0 - (p / a) * (p / a);
-        double b = (k > 1e-9) ? std::fabs(q) / std::sqrt(k) : std::fabs(q);
+        float k = 1.0f - (p / al) * (p / al);
+        float bb = (k > 1e-6f) ? std::fabs(q) / std::sqrt(k) : std::fabs(q);
 
-        f.vx = px * b;
-        f.vy = py * b;
+        f.v = perp * bb;
         return f;
     }
 

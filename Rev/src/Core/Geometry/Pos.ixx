@@ -9,7 +9,12 @@ export module Rev.Core.Pos;
 
 export namespace Rev::Core {
 
-    // A position
+    // A position / 2D vector.
+    //
+    // Float, deliberately: Pos is the base of the GPU `Vertex`, whose memory
+    // layout (interleaved floats) is read directly by the graphics back-ends.
+    // Widening this to double would corrupt every vertex buffer's stride. Model
+    // layers that want double precision should not lean on Pos's storage.
     struct Pos {
 
         float x = 0;
@@ -21,7 +26,7 @@ export namespace Rev::Core {
         // Explicitly define copy/move constructors
         Pos(const Pos& other) = default;
         Pos& operator=(const Pos& other) = default;
-        
+
         Pos(Pos&& other) noexcept = default;
         Pos& operator=(Pos&& other) noexcept = default;
 
@@ -34,8 +39,8 @@ export namespace Rev::Core {
 
         static Pos fromAngle(float angle) {
             return Pos(
-                cos(angle),
-                sin(angle)
+                std::cos(angle),
+                std::sin(angle)
             );
         }
 
@@ -92,21 +97,31 @@ export namespace Rev::Core {
         inline Pos setNan() { x = std::nan(""); y = std::nan(""); return *this; }
         inline bool nan() const { return (std::isnan(x) || std::isnan(y)); }
         inline bool isClose(const Pos& other, float thresh = 1e-3f) const { return this->distanceTo(other) < thresh; }
-        inline float pythag() const { return sqrt(x*x + y*y); }
+        inline float pythag() const { return std::sqrt(x*x + y*y); }
         inline float distanceTo(const Pos& pos) const { return (pos - *this).pythag();  }
-        inline float angle() const { return atan2(y, x); }
+        inline float angle() const { return std::atan2(y, x); }
         inline float dot(const Pos& other) const { return x * other.x + y * other.y; }
         inline float cross(const Pos& other) const { return x * other.y - y * other.x; }
         inline Pos centerTo(const Pos& pos) const { return (*this + pos) / 2.f; }
-        inline Pos& normalize() { *this /= pythag(); return *this; }
-        inline Pos normalized() const { return (*this) / this->pythag(); }
+
+        // Normalisation, guarded against the zero vector (which has no direction):
+        // a zero-length Pos is left unchanged rather than producing NaN/Inf.
+        inline Pos& normalize() {
+            float len = pythag();
+            if (len > 0.0f) { *this /= len; }
+            return *this;
+        }
+        inline Pos normalized() const {
+            float len = pythag();
+            return (len > 0.0f) ? (*this / len) : *this;
+        }
 
         void print() {
             dbg("Pos: { %2f, %2f }", x, y);
         }
 
         inline float angleTo(const Pos& pos) const {
-            return atan2(
+            return std::atan2(
                 x * pos.y - y * pos.x,
                 x * pos.x + y * pos.y
             );
@@ -114,8 +129,8 @@ export namespace Rev::Core {
 
         inline void rotate(float angle) {
 
-            float cosAngle = cos(angle);
-            float sinAngle = sin(angle);
+            float cosAngle = std::cos(angle);
+            float sinAngle = std::sin(angle);
 
             float newX = x * cosAngle - y * sinAngle;
             float newY = x * sinAngle + y * cosAngle;
@@ -125,11 +140,10 @@ export namespace Rev::Core {
         }
 
         // Return a rotated copy of the position
-        
         inline Pos rotated(float angle) const {
-            
-            float cosAngle = cos(angle);
-            float sinAngle = sin(angle);
+
+            float cosAngle = std::cos(angle);
+            float sinAngle = std::sin(angle);
 
             float newX = x * cosAngle - y * sinAngle;
             float newY = x * sinAngle + y * cosAngle;
@@ -141,11 +155,12 @@ export namespace Rev::Core {
 
             float crossResult = this->cross(other);
             crossResult /= (this->pythag() * other.pythag());
-            
+
             return crossResult;
         }
 
-        inline Pos normal() {
+        // The left-hand (CCW) unit normal of this vector.
+        inline Pos normal() const {
             return Pos(-y, x).normalized();
         }
 
@@ -154,10 +169,10 @@ export namespace Rev::Core {
             y = std::round(y);
         }
 
-        // Rotate by 90 deg
-        inline Pos swapAxis() { return Pos(y, x); }
+        // Mirror across the line y = x (swap the axes).
+        inline Pos swapAxis() const { return Pos(y, x); }
 
-        inline void reflect(Pos& a, Pos& b) {
+        inline void reflect(const Pos& a, const Pos& b) {
 
             // Direction vector of the line
             float dx = b.x - a.x;
@@ -186,7 +201,7 @@ export namespace Rev::Core {
         }
 
         // Return reflected copy
-        inline Pos reflected(Pos& a, Pos& b) {
+        inline Pos reflected(const Pos& a, const Pos& b) const {
 
             Pos newPos = *this;
             newPos.reflect(a, b);

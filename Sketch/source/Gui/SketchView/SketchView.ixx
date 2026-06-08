@@ -11,6 +11,7 @@ export module Sketch.Gui.SketchView;
 
 import Rev.Core.Vertex;
 import Rev.Core.Color;
+import Rev.Core.Pos;
 
 import Rev.Element;
 import Rev.Element.Event;
@@ -35,6 +36,8 @@ export namespace Sketch::Gui {
 
     using Sketch::App::SketchGeometry;
     using Sketch::App::SketchTool;
+    using Rev::Core::Pos;
+    using Sketch::App::Pos2;
 
     // A 2D sketch canvas: the flat cousin of the world view.
     //
@@ -49,7 +52,7 @@ export namespace Sketch::Gui {
     // The view is a dumb input router: each tool owns its own interaction state.
     struct SketchView : public Box {
 
-        static constexpr double TAU = 6.283185307179586;
+        static constexpr float TAU = 6.283185307179586f;
 
         Sketch::App::AppState* app = nullptr;
 
@@ -89,7 +92,7 @@ export namespace Sketch::Gui {
         // value at drag start). The move set is the control points of the moved
         // primitives, plus every other point that was coincident with one of them
         // -- so coincident geometry travels along.
-        struct MoveSlot { double* x; double* y; double ox; double oy; };
+        struct MoveSlot { float* x; float* y; float ox; float oy; };
         std::vector<MoveSlot> moveSlots;
 
         bool selectPending = false;   // a left gesture whose selection commit is deferred to up
@@ -120,7 +123,7 @@ export namespace Sketch::Gui {
         float panOriginX = 0.0f, panOriginY = 0.0f;
 
         // Live cursor in world space (drives tool previews).
-        double cursorX = 0.0, cursorY = 0.0;
+        float cursorX = 0.0f, cursorY = 0.0f;
 
         // Geometry is built in *world* space and uploaded only when it actually
         // changes; pan/zoom just swaps the GPU transform (no CPU rebuild).
@@ -200,13 +203,13 @@ export namespace Sketch::Gui {
         // CPU transforms
         //--------------------------------------------------
 
-        Vertex worldToScreen(double wx, double wy) const {
-            float sx = rect.x + originX + static_cast<float>(wx) * scale;
-            float sy = rect.y + originY - static_cast<float>(wy) * scale;
+        Vertex worldToScreen(float wx, float wy) const {
+            float sx = rect.x + originX + wx * scale;
+            float sy = rect.y + originY - wy * scale;
             return Vertex(sx, sy);
         }
 
-        void screenToWorld(float sx, float sy, double& wx, double& wy) const {
+        void screenToWorld(float sx, float sy, float& wx, float& wy) const {
             wx =  (sx - rect.x - originX) / scale;
             wy = -(sy - rect.y - originY) / scale;
         }
@@ -228,11 +231,11 @@ export namespace Sketch::Gui {
 
                 if (tool) {
                     if (app && app->activeProject) {
-                        double wx, wy;
+                        float wx, wy;
                         screenToWorld(e.mouse.pos.x, e.mouse.pos.y, wx, wy);
                         applySnap(wx, wy);          // magnetism: snap the placed point
                         tool->construction = drawingConstruction;
-                        tool->click(*app->activeProject, wx, wy);
+                        tool->click(*app->activeProject, Pos(wx, wy));
                         geometryDirty = true;
                         refresh(e);
                         e.propagate = false;
@@ -260,7 +263,7 @@ export namespace Sketch::Gui {
                 if (Sketch::App::Tool* tool = currentTool()) {
                     // Drawing: snap the cursor onto nearby features, then preview.
                     applySnap(cursorX, cursorY);
-                    tool->hover(cursorX, cursorY);
+                    tool->hover(Pos(cursorX, cursorY));
                     geometryDirty = true;
                     if (hoverValid) { hoverValid = false; highlightDirty = true; }
                     refresh(e);
@@ -342,7 +345,7 @@ export namespace Sketch::Gui {
             if (e.mouse.wheel.y == 0) { return Box::mouseWheel(e); }
 
             // World point currently under the cursor (the invariant).
-            double wx, wy;
+            float wx, wy;
             screenToWorld(e.mouse.pos.x, e.mouse.pos.y, wx, wy);
 
             float factor = (e.mouse.wheel.y > 0) ? 1.1f : (1.0f / 1.1f);
@@ -478,7 +481,7 @@ export namespace Sketch::Gui {
         }
 
         // Push a 2-point world-space segment into a target primitive.
-        void appendSeg(FastLines* dst, double ax, double ay, double bx, double by, Color color) {
+        void appendSeg(FastLines* dst, float ax, float ay, float bx, float by, Color color) {
             dst->lines.push_back({
                 .points = {
                     Vertex(static_cast<float>(ax), static_cast<float>(ay)),
@@ -486,6 +489,10 @@ export namespace Sketch::Gui {
                 },
                 .color = color
             });
+        }
+
+        void appendSeg(FastLines* dst, Pos a, Pos b, Color color) {
+            appendSeg(dst, a.x, a.y, b.x, b.y, color);
         }
 
         // A point renders as a single, very short, thick line: the round caps turn
@@ -499,71 +506,67 @@ export namespace Sketch::Gui {
 
         // Sample a circular span of `span` radians starting at a0, in world
         // coordinates (the GPU transform maps it to pixels).
-        void appendArcSpan(FastLines* dst, double cx, double cy, double r, double a0, double span, Color color) {
+        void appendArcSpan(FastLines* dst, Pos c, float r, float a0, float span, Color color) {
 
-            if (r <= 0.0 || std::fabs(span) < 1e-9) { return; }
+            if (r <= 0.0f || std::fabs(span) < 1e-6f) { return; }
 
-            int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 6400.0))));
+            int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 6400.0f))));
 
             std::vector<Vertex> pts;
             pts.reserve(steps + 1);
 
             for (int i = 0; i <= steps; i++) {
-                double a = a0 + span * (static_cast<double>(i) / steps);
-                pts.push_back(Vertex(
-                    static_cast<float>(cx + r * std::cos(a)),
-                    static_cast<float>(cy + r * std::sin(a))
-                ));
+                float a = a0 + span * (static_cast<float>(i) / steps);
+                Pos p = c + Pos::fromAngle(a) * r;
+                pts.push_back(Vertex(p.x, p.y));
             }
 
             dst->lines.push_back({ .points = std::move(pts), .color = color });
         }
 
         // CCW span A -> B, in [0, TAU). The arc is always swept counterclockwise.
-        static double arcSpan(const Sketch::App::Arc2& a) {
-            auto norm = [](double x) { while (x < 0.0) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
-            double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
-            double aB = std::atan2(a.by - a.cy, a.bx - a.cx);
+        static float arcSpan(const Sketch::App::Arc2& a) {
+            auto norm = [](float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
+            float aA = (a.a - a.c).angle();
+            float aB = (a.b - a.c).angle();
             return norm(aB - aA);
         }
 
         void appendArc(FastLines* dst, const Sketch::App::Arc2& a, Color color) {
-            double r = std::hypot(a.ax - a.cx, a.ay - a.cy);
-            if (r <= 0.0) { return; }
-            double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
-            appendArcSpan(dst, a.cx, a.cy, r, aA, arcSpan(a), color);
+            float r = (a.a - a.c).pythag();
+            if (r <= 0.0f) { return; }
+            float aA = (a.a - a.c).angle();
+            appendArcSpan(dst, a.c, r, aA, arcSpan(a), color);
         }
 
         // Sample a parametric span (t0 .. t0+span) of an ellipse C + cos t U + sin t V.
-        void appendEllipseSpan(FastLines* dst, double cx, double cy, double ux, double uy,
-                               double vx, double vy, double t0, double span, Color color) {
-            double u2 = ux * ux + uy * uy, v2 = vx * vx + vy * vy;
-            if ((u2 < 1e-18 && v2 < 1e-18) || std::fabs(span) < 1e-9) { return; }
-            int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 6400.0))));
+        void appendEllipseSpan(FastLines* dst, Pos c, Pos u, Pos v,
+                               float t0, float span, Color color) {
+            if ((u.dot(u) < 1e-12f && v.dot(v) < 1e-12f) || std::fabs(span) < 1e-6f) { return; }
+            int steps = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 6400.0f))));
             std::vector<Vertex> pts;
             pts.reserve(steps + 1);
             for (int i = 0; i <= steps; i++) {
-                double t = t0 + span * (static_cast<double>(i) / steps);
-                double x, y;
-                Sketch::App::ellipsePointAt(cx, cy, ux, uy, vx, vy, t, x, y);
-                pts.push_back(Vertex(static_cast<float>(x), static_cast<float>(y)));
+                float t = t0 + span * (static_cast<float>(i) / steps);
+                Pos p = Sketch::App::ellipsePointAt(c, u, v, t);
+                pts.push_back(Vertex(p.x, p.y));
             }
             dst->lines.push_back({ .points = std::move(pts), .color = color });
         }
 
         void appendEllipse(FastLines* dst, const Sketch::App::Ellipse2& e, Color color) {
-            appendEllipseSpan(dst, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, 0.0, TAU, color);
+            appendEllipseSpan(dst, e.c, e.u, e.v, 0.0f, TAU, color);
         }
 
         // CCW sweep a0 -> a1, in [0, TAU). The arc is always swept by increasing
         // parameter (counterclockwise in the right-handed U,V frame).
-        static double ellipseArcSpan(const Sketch::App::EllipseArc2& e) {
-            auto norm = [](double x) { while (x < 0.0) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
+        static float ellipseArcSpan(const Sketch::App::EllipseArc2& e) {
+            auto norm = [](float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
             return norm(e.a1 - e.a0);
         }
 
         void appendEllipseArc(FastLines* dst, const Sketch::App::EllipseArc2& e, Color color) {
-            appendEllipseSpan(dst, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, ellipseArcSpan(e), color);
+            appendEllipseSpan(dst, e.c, e.u, e.v, e.a0, ellipseArcSpan(e), color);
         }
 
         void appendGeometry(FastLines* dst, const SketchGeometry& g, Color color) {
@@ -584,11 +587,11 @@ export namespace Sketch::Gui {
             }
 
             for (const Sketch::App::Segment2& s : g.segments) {
-                appendSeg(dst, s.ax, s.ay, s.bx, s.by, color);
+                appendSeg(dst, s.a, s.b, color);
             }
 
             for (const Sketch::App::Circle2& c : g.circles) {
-                appendArcSpan(dst, c.cx, c.cy, c.r, 0.0, TAU, color);
+                appendArcSpan(dst, c.c, c.r, 0.0, TAU, color);
             }
 
             for (const Sketch::App::Arc2& a : g.arcs) {
@@ -626,10 +629,10 @@ export namespace Sketch::Gui {
             }
 
             for (const Sketch::App::Segment2& s : g.segments) {
-                appendSeg(dst, s.ax, s.ay, s.bx, s.by, s.construction ? cons : real);
+                appendSeg(dst, s.a, s.b, s.construction ? cons : real);
             }
             for (const Sketch::App::Circle2& c : g.circles) {
-                appendArcSpan(dst, c.cx, c.cy, c.r, 0.0, TAU, c.construction ? cons : real);
+                appendArcSpan(dst, c.c, c.r, 0.0, TAU, c.construction ? cons : real);
             }
             for (const Sketch::App::Arc2& a : g.arcs) {
                 appendArc(dst, a, a.construction ? cons : real);
@@ -652,43 +655,41 @@ export namespace Sketch::Gui {
         // Hit-testing (SDF distance in world space)
         //--------------------------------------------------
 
-        static double distToSegment(double px, double py, double ax, double ay, double bx, double by) {
-            double dx = bx - ax, dy = by - ay;
-            double len2 = dx * dx + dy * dy;
-            double t = (len2 > 1e-12) ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0.0;
-            t = std::clamp(t, 0.0, 1.0);
+        static float distToSegment(float px, float py, float ax, float ay, float bx, float by) {
+            float dx = bx - ax, dy = by - ay;
+            float len2 = dx * dx + dy * dy;
+            float t = (len2 > 1e-9f) ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
             return std::hypot(px - (ax + t * dx), py - (ay + t * dy));
         }
 
-        static double distToArc(double px, double py, const Sketch::App::Arc2& a) {
-            double r = std::hypot(a.ax - a.cx, a.ay - a.cy);
-            if (r <= 0.0) { return std::hypot(px - a.ax, py - a.ay); }
-            auto norm = [](double x) { while (x < 0.0) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
-            double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
-            double span = arcSpan(a);                       // CCW, [0, TAU)
-            double aP = std::atan2(py - a.cy, px - a.cx);
+        static float distToArc(Pos p, const Sketch::App::Arc2& a) {
+            float r = (a.a - a.c).pythag();
+            if (r <= 0.0f) { return (p - a.a).pythag(); }
+            auto norm = [](float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
+            float aA = (a.a - a.c).angle();
+            float span = arcSpan(a);                       // CCW, [0, TAU)
+            float aP = (p - a.c).angle();
             // Is the cursor angle within the CCW swept range?
             bool within = norm(aP - aA) <= span;
-            if (within) { return std::fabs(std::hypot(px - a.cx, py - a.cy) - r); }
-            return std::min(std::hypot(px - a.ax, py - a.ay), std::hypot(px - a.bx, py - a.by));
+            if (within) { return std::fabs((p - a.c).pythag() - r); }
+            return std::min((p - a.a).pythag(), (p - a.b).pythag());
         }
 
         // Nearest point on an elliptical span (no closed form), via coarse
         // sampling. Returns the distance and writes the snap point.
-        static double nearestOnEllipse(double px, double py, double cx, double cy,
-                                       double ux, double uy, double vx, double vy,
-                                       double t0, double span, double& sx, double& sy) {
-            if (ux * ux + uy * uy < 1e-18 && vx * vx + vy * vy < 1e-18) {
-                sx = cx; sy = cy; return std::hypot(px - cx, py - cy);
+        static float nearestOnEllipse(Pos p, Pos c, Pos u, Pos v,
+                                      float t0, float span, Pos& s) {
+            if (u.dot(u) < 1e-12f && v.dot(v) < 1e-12f) {
+                s = c; return (p - c).pythag();
             }
             const int N = 96;
-            double best = 1e30;
+            float best = 1e30f;
             for (int i = 0; i <= N; i++) {
-                double t = t0 + span * (static_cast<double>(i) / N);
-                double ex, ey;
-                Sketch::App::ellipsePointAt(cx, cy, ux, uy, vx, vy, t, ex, ey);
-                double d = std::hypot(px - ex, py - ey);
-                if (d < best) { best = d; sx = ex; sy = ey; }
+                float t = t0 + span * (static_cast<float>(i) / N);
+                Pos e = Sketch::App::ellipsePointAt(c, u, v, t);
+                float d = (p - e).pythag();
+                if (d < best) { best = d; s = e; }
             }
             return best;
         }
@@ -703,14 +704,15 @@ export namespace Sketch::Gui {
         }
 
         // Find the highest-priority selectable curve within `thresh`, if any.
-        bool findHit(double wx, double wy, double thresh, SegmentRef& out) const {
+        bool findHit(float wx, float wy, float thresh, SegmentRef& out) const {
 
             if (!app || !app->activeProject) { return false; }
             const SketchGeometry& g = app->activeProject->geometry;
 
-            int bestScore = -1; double bestDist = 1e30; bool found = false;
+            Pos w(wx, wy);
+            int bestScore = -1; float bestDist = 1e30f; bool found = false;
 
-            auto consider = [&](int tier, bool isPoint, double d, SegmentRef ref) {
+            auto consider = [&](int tier, bool isPoint, float d, SegmentRef ref) {
                 if (d >= thresh) { return; }
                 int score = participantScore(tier, isPoint);
                 if (!found || score > bestScore || (score == bestScore && d < bestDist)) {
@@ -719,8 +721,8 @@ export namespace Sketch::Gui {
             };
 
             // A segment scores as a point if the cursor is within reach of an end.
-            auto segHit = [&](int tier, double ax, double ay, double bx, double by, SegmentRef ref) {
-                double d = distToSegment(wx, wy, ax, ay, bx, by);
+            auto segHit = [&](int tier, float ax, float ay, float bx, float by, SegmentRef ref) {
+                float d = distToSegment(wx, wy, ax, ay, bx, by);
                 bool isPoint = std::hypot(wx - ax, wy - ay) < thresh || std::hypot(wx - bx, wy - by) < thresh;
                 consider(tier, isPoint, d, ref);
             };
@@ -748,43 +750,40 @@ export namespace Sketch::Gui {
             }
             for (size_t i = 0; i < g.segments.size(); i++) {
                 const auto& s = g.segments[i];
-                segHit(s.construction ? 0 : 1, s.ax, s.ay, s.bx, s.by, { SegmentRef::Kind::Segment, i, 0 });
+                segHit(s.construction ? 0 : 1, s.a.x, s.a.y, s.b.x, s.b.y, { SegmentRef::Kind::Segment, i, 0 });
             }
             for (size_t i = 0; i < g.circles.size(); i++) {
                 const auto& c = g.circles[i];
-                double d = std::fabs(std::hypot(wx - c.cx, wy - c.cy) - c.r);
+                float d = std::fabs((w - c.c).pythag() - c.r);
                 consider(c.construction ? 0 : 1, false, d, { SegmentRef::Kind::Circle, i, 0 });
             }
             for (size_t i = 0; i < g.arcs.size(); i++) {
                 const auto& a = g.arcs[i];
-                double d = distToArc(wx, wy, a);
-                bool isPoint = std::hypot(wx - a.ax, wy - a.ay) < thresh || std::hypot(wx - a.bx, wy - a.by) < thresh;
+                float d = distToArc(w, a);
+                bool isPoint = (w - a.a).pythag() < thresh || (w - a.b).pythag() < thresh;
                 consider(a.construction ? 0 : 1, isPoint, d, { SegmentRef::Kind::Arc, i, 0 });
             }
             for (size_t i = 0; i < g.ellipses.size(); i++) {
                 const auto& e = g.ellipses[i];
-                double sx, sy;
-                double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, 0.0, TAU, sx, sy);
+                Pos s;
+                float d = nearestOnEllipse(w, e.c, e.u, e.v, 0.0f, TAU, s);
                 consider(e.construction ? 0 : 1, false, d, { SegmentRef::Kind::Ellipse, i, 0 });
             }
             for (size_t i = 0; i < g.ellipseArcs.size(); i++) {
                 const auto& e = g.ellipseArcs[i];
-                double span = ellipseArcSpan(e);
-                double sx, sy;
-                double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, span, sx, sy);
-                double te = e.a0 + span;
-                double s0x, s0y, sex, sey;
-                Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, s0x, s0y);
-                Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, te,    sex, sey);
-                bool isPoint = std::hypot(wx - s0x, wy - s0y) < thresh ||
-                               std::hypot(wx - sex, wy - sey) < thresh;
+                float span = ellipseArcSpan(e);
+                Pos s;
+                float d = nearestOnEllipse(w, e.c, e.u, e.v, e.a0, span, s);
+                Pos p0 = Sketch::App::ellipsePointAt(e.c, e.u, e.v, e.a0);
+                Pos pe = Sketch::App::ellipsePointAt(e.c, e.u, e.v, e.a0 + span);
+                bool isPoint = (w - p0).pythag() < thresh || (w - pe).pythag() < thresh;
                 consider(e.construction ? 0 : 1, isPoint, d, { SegmentRef::Kind::EllipseArc, i, 0 });
             }
             return found;
         }
 
         // Pick tolerance in world units (a few pixels, zoom-independent).
-        double hitTolerance() const { return 6.0 / scale; }
+        float hitTolerance() const { return 6.0f / scale; }
 
         bool isSelected(const SegmentRef& ref) const {
             for (const SegmentRef& s : selected) { if (s == ref) { return true; } }
@@ -794,31 +793,31 @@ export namespace Sketch::Gui {
         // Snapping ("magnetism")
         //--------------------------------------------------
 
-        static void closestOnSegment(double px, double py, double ax, double ay,
-                                     double bx, double by, double& fx, double& fy) {
-            double dx = bx - ax, dy = by - ay;
-            double len2 = dx * dx + dy * dy;
-            double t = (len2 > 1e-12) ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0.0;
-            t = std::clamp(t, 0.0, 1.0);
+        static void closestOnSegment(float px, float py, float ax, float ay,
+                                     float bx, float by, float& fx, float& fy) {
+            float dx = bx - ax, dy = by - ay;
+            float len2 = dx * dx + dy * dy;
+            float t = (len2 > 1e-9f) ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
             fx = ax + t * dx;
             fy = ay + t * dy;
         }
 
         // Radial projection of (px,py) onto an arc, valid only within its sweep
         // (endpoints are handled as plain snap points elsewhere).
-        static bool snapOnArc(double px, double py, const Sketch::App::Arc2& a, double& sx, double& sy) {
-            double r = std::hypot(a.ax - a.cx, a.ay - a.cy);
-            if (r <= 0.0) { return false; }
-            auto norm = [](double x) { while (x < 0.0) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
-            double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
-            double span = arcSpan(a);
-            double aP = std::atan2(py - a.cy, px - a.cx);
+        static bool snapOnArc(Pos p, const Sketch::App::Arc2& a, Pos& s) {
+            float r = (a.a - a.c).pythag();
+            if (r <= 0.0f) { return false; }
+            auto norm = [](float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
+            float aA = (a.a - a.c).angle();
+            float span = arcSpan(a);
+            float aP = (p - a.c).angle();
             bool within = norm(aP - aA) <= span;
             if (!within) { return false; }
-            double dd = std::hypot(px - a.cx, py - a.cy);
-            if (dd < 1e-9) { sx = a.ax; sy = a.ay; return true; }
-            sx = a.cx + (px - a.cx) / dd * r;
-            sy = a.cy + (py - a.cy) / dd * r;
+            Pos dir = p - a.c;
+            float dd = dir.pythag();
+            if (dd < 1e-6f) { s = a.a; }
+            else            { s = a.c + dir / dd * r; }
             return true;
         }
 
@@ -832,23 +831,23 @@ export namespace Sketch::Gui {
         //   arc    -> radial point on the arc (within its sweep)
         // The world axes (y=0, x=0) and the origin are tier-2 "invisible" features
         // and therefore win over real geometry.
-        void applySnap(double& wx, double& wy) const {
+        void applySnap(float& wx, float& wy) const {
 
-            double thresh = hitTolerance();
-            int bestScore = -1; double bestDist = 1e30; double bx = wx, by = wy; bool found = false;
+            float thresh = hitTolerance();
+            int bestScore = -1; float bestDist = 1e30f; float bx = wx, by = wy; bool found = false;
 
-            auto consider = [&](int tier, bool isPoint, double d, double sx, double sy) {
+            auto consider = [&](int tier, bool isPoint, float d, float sx, float sy) {
                 if (d >= thresh) { return; }
                 int score = participantScore(tier, isPoint);
                 if (!found || score > bestScore || (score == bestScore && d < bestDist)) {
                     bestScore = score; bestDist = d; bx = sx; by = sy; found = true;
                 }
             };
-            auto pt = [&](int tier, double px, double py) {
+            auto pt = [&](int tier, float px, float py) {
                 consider(tier, true, std::hypot(wx - px, wy - py), px, py);
             };
-            auto seg = [&](int tier, double ax, double ay, double bx2, double by2) {
-                double fx, fy; closestOnSegment(wx, wy, ax, ay, bx2, by2, fx, fy);
+            auto seg = [&](int tier, float ax, float ay, float bx2, float by2) {
+                float fx, fy; closestOnSegment(wx, wy, ax, ay, bx2, by2, fx, fy);
                 consider(tier, false, std::hypot(wx - fx, wy - fy), fx, fy);
             };
 
@@ -866,53 +865,50 @@ export namespace Sketch::Gui {
                 }
                 for (const auto& s : g.segments) {
                     int tier = s.construction ? 0 : 1;
-                    pt(tier, s.ax, s.ay); pt(tier, s.bx, s.by);
-                    seg(tier, s.ax, s.ay, s.bx, s.by);
+                    pt(tier, s.a.x, s.a.y); pt(tier, s.b.x, s.b.y);
+                    seg(tier, s.a.x, s.a.y, s.b.x, s.b.y);
                 }
                 for (const auto& c : g.circles) {
                     int tier = c.construction ? 0 : 1;
-                    pt(tier, c.cx, c.cy);   // centre
-                    double dd = std::hypot(wx - c.cx, wy - c.cy);
-                    double rx, ry;
-                    if (dd > 1e-9) { rx = c.cx + (wx - c.cx) / dd * c.r; ry = c.cy + (wy - c.cy) / dd * c.r; }
-                    else           { rx = c.cx + c.r; ry = c.cy; }
-                    consider(tier, false, std::fabs(dd - c.r), rx, ry);
+                    pt(tier, c.c.x, c.c.y);   // centre
+                    Pos dir = Pos(wx, wy) - c.c;
+                    float dd = dir.pythag();
+                    Pos ring = (dd > 1e-6f) ? (c.c + dir / dd * c.r) : (c.c + Pos(c.r, 0.0f));
+                    consider(tier, false, std::fabs(dd - c.r), ring.x, ring.y);
                 }
                 for (const auto& a : g.arcs) {
                     int tier = a.construction ? 0 : 1;
-                    pt(tier, a.cx, a.cy); pt(tier, a.ax, a.ay); pt(tier, a.bx, a.by);
-                    double sx, sy;
-                    if (snapOnArc(wx, wy, a, sx, sy)) {
-                        consider(tier, false, std::hypot(wx - sx, wy - sy), sx, sy);
+                    pt(tier, a.c.x, a.c.y); pt(tier, a.a.x, a.a.y); pt(tier, a.b.x, a.b.y);
+                    Pos s;
+                    if (snapOnArc(Pos(wx, wy), a, s)) {
+                        consider(tier, false, std::hypot(wx - s.x, wy - s.y), s.x, s.y);
                     }
                 }
                 for (const auto& e : g.ellipses) {
                     int tier = e.construction ? 0 : 1;
-                    pt(tier, e.cx, e.cy);
-                    double sx, sy;
-                    double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, 0.0, TAU, sx, sy);
-                    consider(tier, false, d, sx, sy);
+                    pt(tier, e.c.x, e.c.y);
+                    Pos s;
+                    float d = nearestOnEllipse(Pos(wx, wy), e.c, e.u, e.v, 0.0f, TAU, s);
+                    consider(tier, false, d, s.x, s.y);
                 }
                 for (const auto& e : g.ellipseArcs) {
                     int tier = e.construction ? 0 : 1;
-                    double span = ellipseArcSpan(e);
-                    double te = e.a0 + span;
-                    double s0x, s0y, sex, sey;
-                    Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, s0x, s0y);
-                    Sketch::App::ellipsePointAt(e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, te,    sex, sey);
-                    pt(tier, e.cx, e.cy);
-                    pt(tier, s0x, s0y);
-                    pt(tier, sex, sey);
-                    double sx, sy;
-                    double d = nearestOnEllipse(wx, wy, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, e.a0, span, sx, sy);
-                    consider(tier, false, d, sx, sy);
+                    float span = ellipseArcSpan(e);
+                    Pos p0 = Sketch::App::ellipsePointAt(e.c, e.u, e.v, e.a0);
+                    Pos pe = Sketch::App::ellipsePointAt(e.c, e.u, e.v, e.a0 + span);
+                    pt(tier, e.c.x, e.c.y);
+                    pt(tier, p0.x, p0.y);
+                    pt(tier, pe.x, pe.y);
+                    Pos s;
+                    float d = nearestOnEllipse(Pos(wx, wy), e.c, e.u, e.v, e.a0, span, s);
+                    consider(tier, false, d, s.x, s.y);
                 }
             }
 
             // Invisible axis features (tier 2): origin point + the two axis lines.
-            consider(2, true,  std::hypot(wx, wy), 0.0, 0.0);   // origin
-            consider(2, false, std::fabs(wy),      wx,  0.0);   // X axis (y = 0)
-            consider(2, false, std::fabs(wx),      0.0, wy);    // Y axis (x = 0)
+            consider(2, true,  std::hypot(wx, wy), 0.0f, 0.0f);   // origin
+            consider(2, false, std::fabs(wy),      wx,   0.0f);   // X axis (y = 0)
+            consider(2, false, std::fabs(wx),      0.0f, wy);     // Y axis (x = 0)
 
             if (found) { wx = bx; wy = by; }
         }
@@ -935,13 +931,13 @@ export namespace Sketch::Gui {
                 case SegmentRef::Kind::Segment: {
                     if (ref.index >= g.segments.size()) { return; }
                     const auto& s = g.segments[ref.index];
-                    appendSeg(highlight, s.ax, s.ay, s.bx, s.by, color);
+                    appendSeg(highlight, s.a, s.b, color);
                     break;
                 }
                 case SegmentRef::Kind::Circle: {
                     if (ref.index >= g.circles.size()) { return; }
                     const auto& c = g.circles[ref.index];
-                    appendArcSpan(highlight, c.cx, c.cy, c.r, 0.0, TAU, color);
+                    appendArcSpan(highlight, c.c, c.r, 0.0, TAU, color);
                     break;
                 }
                 case SegmentRef::Kind::Arc: {
@@ -1014,7 +1010,7 @@ export namespace Sketch::Gui {
         // the gesture wasn't a drag) -- see commitSelectClick / mouseUp.
         void armSelectOrMove(Event& e) {
 
-            double wx, wy;
+            float wx, wy;
             screenToWorld(e.mouse.pos.x, e.mouse.pos.y, wx, wy);
 
             SegmentRef ref;
@@ -1091,11 +1087,11 @@ export namespace Sketch::Gui {
             auto& g = app->activeProject->geometry;
             for (auto& p : g.points)    { f(p.x, p.y); }
             for (auto& pl : g.polylines){ for (auto& p : pl.points) { f(p.x, p.y); } }
-            for (auto& s : g.segments)  { f(s.ax, s.ay); f(s.bx, s.by); }
-            for (auto& c : g.circles)   { f(c.cx, c.cy); }
-            for (auto& a : g.arcs)      { f(a.cx, a.cy); f(a.ax, a.ay); f(a.bx, a.by); }
-            for (auto& e : g.ellipses)  { f(e.cx, e.cy); }
-            for (auto& e : g.ellipseArcs){ f(e.cx, e.cy); }
+            for (auto& s : g.segments)  { f(s.a.x, s.a.y); f(s.b.x, s.b.y); }
+            for (auto& c : g.circles)   { f(c.c.x, c.c.y); }
+            for (auto& a : g.arcs)      { f(a.c.x, a.c.y); f(a.a.x, a.a.y); f(a.b.x, a.b.y); }
+            for (auto& e : g.ellipses)  { f(e.c.x, e.c.y); }
+            for (auto& e : g.ellipseArcs){ f(e.c.x, e.c.y); }
         }
 
         // Build the move set for the given primitives: their own control points
@@ -1109,8 +1105,8 @@ export namespace Sketch::Gui {
             if (!app || !app->activeProject) { return; }
             auto& g = app->activeProject->geometry;
 
-            std::vector<std::pair<double*, double*>> drivers;
-            auto addSlot = [&](double& x, double& y) {
+            std::vector<std::pair<float*, float*>> drivers;
+            auto addSlot = [&](float& x, float& y) {
                 for (auto& d : drivers) { if (d.first == &x) { return; } }
                 drivers.push_back({ &x, &y });
             };
@@ -1140,38 +1136,38 @@ export namespace Sketch::Gui {
                     case SegmentRef::Kind::Segment:
                         if (r.index < g.segments.size()) {
                             auto& s = g.segments[r.index];
-                            addSlot(s.ax, s.ay); addSlot(s.bx, s.by);
+                            addSlot(s.a.x, s.a.y); addSlot(s.b.x, s.b.y);
                         }
                         break;
                     case SegmentRef::Kind::Circle:
                         if (r.index < g.circles.size()) {
-                            auto& c = g.circles[r.index]; addSlot(c.cx, c.cy);
+                            auto& c = g.circles[r.index]; addSlot(c.c.x, c.c.y);
                         }
                         break;
                     case SegmentRef::Kind::Arc:
                         if (r.index < g.arcs.size()) {
                             auto& a = g.arcs[r.index];
-                            addSlot(a.cx, a.cy); addSlot(a.ax, a.ay);
-                            addSlot(a.bx, a.by);
+                            addSlot(a.c.x, a.c.y); addSlot(a.a.x, a.a.y);
+                            addSlot(a.b.x, a.b.y);
                         }
                         break;
                     case SegmentRef::Kind::Ellipse:
                         if (r.index < g.ellipses.size()) {
-                            auto& el = g.ellipses[r.index]; addSlot(el.cx, el.cy);
+                            auto& el = g.ellipses[r.index]; addSlot(el.c.x, el.c.y);
                         }
                         break;
                     case SegmentRef::Kind::EllipseArc:
                         if (r.index < g.ellipseArcs.size()) {
-                            auto& el = g.ellipseArcs[r.index]; addSlot(el.cx, el.cy);
+                            auto& el = g.ellipseArcs[r.index]; addSlot(el.c.x, el.c.y);
                         }
                         break;
                 }
             }
 
             // Followers: any other control point sitting on a driver at drag start.
-            const double eps = 1e-6;
-            std::vector<std::pair<double*, double*>> followers;
-            forEachPointSlot([&](double& x, double& y) {
+            const float eps = 1e-4f;
+            std::vector<std::pair<float*, float*>> followers;
+            forEachPointSlot([&](float& x, float& y) {
                 for (auto& d : drivers)   { if (d.first == &x) { return; } }
                 for (auto& fl : followers){ if (fl.first == &x) { return; } }
                 for (auto& d : drivers) {
@@ -1192,8 +1188,8 @@ export namespace Sketch::Gui {
 
             if (!app || !app->activeProject) { return; }
 
-            double dwx =  static_cast<double>(e.mouse.diff.x) / scale;
-            double dwy = -static_cast<double>(e.mouse.diff.y) / scale;
+            float dwx =  e.mouse.diff.x / scale;
+            float dwy = -e.mouse.diff.y / scale;
 
             for (auto& s : moveSlots) { *s.x = s.ox + dwx; *s.y = s.oy + dwy; }
 
@@ -1319,41 +1315,41 @@ export namespace Sketch::Gui {
             if (!app || !app->activeProject) { return; }
             const auto& g = app->activeProject->geometry;
 
-            double minX = 1e30, minY = 1e30, maxX = -1e30, maxY = -1e30;
+            float minX = 1e30f, minY = 1e30f, maxX = -1e30f, maxY = -1e30f;
             bool any = false;
-            auto acc = [&](double x, double y) {
+            auto acc = [&](float x, float y) {
                 minX = std::min(minX, x); minY = std::min(minY, y);
                 maxX = std::max(maxX, x); maxY = std::max(maxY, y);
                 any = true;
             };
 
             for (const auto& pl : g.polylines) { for (const auto& p : pl.points) { acc(p.x, p.y); } }
-            for (const auto& s : g.segments) { acc(s.ax, s.ay); acc(s.bx, s.by); }
-            for (const auto& c : g.circles) { acc(c.cx - c.r, c.cy - c.r); acc(c.cx + c.r, c.cy + c.r); }
-            for (const auto& a : g.arcs) { double r = std::hypot(a.ax - a.cx, a.ay - a.cy); acc(a.cx - r, a.cy - r); acc(a.cx + r, a.cy + r); }
+            for (const auto& s : g.segments) { acc(s.a.x, s.a.y); acc(s.b.x, s.b.y); }
+            for (const auto& c : g.circles) { acc(c.c.x - c.r, c.c.y - c.r); acc(c.c.x + c.r, c.c.y + c.r); }
+            for (const auto& a : g.arcs) { float r = (a.a - a.c).pythag(); acc(a.c.x - r, a.c.y - r); acc(a.c.x + r, a.c.y + r); }
             for (const auto& e : g.ellipses) {
-                double hx = std::hypot(e.ux, e.vx), hy = std::hypot(e.uy, e.vy);
-                acc(e.cx - hx, e.cy - hy); acc(e.cx + hx, e.cy + hy);
+                float hx = std::hypot(e.u.x, e.v.x), hy = std::hypot(e.u.y, e.v.y);
+                acc(e.c.x - hx, e.c.y - hy); acc(e.c.x + hx, e.c.y + hy);
             }
             for (const auto& e : g.ellipseArcs) {
-                double hx = std::hypot(e.ux, e.vx), hy = std::hypot(e.uy, e.vy);
-                acc(e.cx - hx, e.cy - hy); acc(e.cx + hx, e.cy + hy);
+                float hx = std::hypot(e.u.x, e.v.x), hy = std::hypot(e.u.y, e.v.y);
+                acc(e.c.x - hx, e.c.y - hy); acc(e.c.x + hx, e.c.y + hy);
             }
             for (const auto& p : g.points) { acc(p.x, p.y); }
 
             if (!any) { return; }
 
-            double w = maxX - minX, h = maxY - minY;
-            double cx = (minX + maxX) * 0.5, cy = (minY + maxY) * 0.5;
+            float w = maxX - minX, h = maxY - minY;
+            float cx = (minX + maxX) * 0.5f, cy = (minY + maxY) * 0.5f;
 
-            const double margin = 0.9;
-            double sx = (w > 1e-9) ? (rect.w * margin / w) : scale;
-            double sy = (h > 1e-9) ? (rect.h * margin / h) : scale;
-            scale = std::clamp(static_cast<float>(std::min(sx, sy)), 2.0f, 4000.0f);
+            const float margin = 0.9f;
+            float sx = (w > 1e-6f) ? (rect.w * margin / w) : scale;
+            float sy = (h > 1e-6f) ? (rect.h * margin / h) : scale;
+            scale = std::clamp(std::min(sx, sy), 2.0f, 4000.0f);
 
             // Put the geometry centre at the viewport centre.
-            originX = rect.w * 0.5f - static_cast<float>(cx) * scale;
-            originY = rect.h * 0.5f + static_cast<float>(cy) * scale;
+            originX = rect.w * 0.5f - cx * scale;
+            originY = rect.h * 0.5f + cy * scale;
         }
 
         void buildGeometry() {
@@ -1377,7 +1373,7 @@ export namespace Sketch::Gui {
             if (Sketch::App::Tool* tool = currentTool()) {
 
                 Sketch::App::SketchPreview preview;
-                tool->preview(cursorX, cursorY, preview);
+                tool->preview(Pos(cursorX, cursorY), preview);
 
                 // The candidate reads grey while drawing construction geometry.
                 Color candidate = drawingConstruction ? constructionColor : candidateColor;
