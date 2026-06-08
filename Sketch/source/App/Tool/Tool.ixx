@@ -210,11 +210,11 @@ export namespace Sketch::App {
                 return;
             }
 
-            // Commit using the exact-intersection B and the chirality-derived D.
-            double bx, by, dx, dy;
-            resolve(wx, wy, bx, by, dx, dy);
+            // Commit the arc, ordering the endpoints so it is always swept CCW.
+            double sx, sy, ex, ey;
+            resolve(wx, wy, sx, sy, ex, ey);
 
-            Arc2 a{ cx, cy, ax, ay, bx, by, dx, dy };
+            Arc2 a{ cx, cy, sx, sy, ex, ey };
             a.construction = construction;
             project.addArc(a);
             reset();
@@ -251,36 +251,26 @@ export namespace Sketch::App {
 
         bool active() const override { return hasCenter; }
 
-        // Resolve the end point B and the chirality point D for cursor (wx, wy).
+        // Resolve the CCW-ordered endpoints (sx,sy)->(ex,ey) for cursor (wx, wy).
         //
-        // B is defined *strictly* as the intersection of the C->cursor ray with
-        // the circle (so it tracks the mouse exactly). D is the midpoint of the
-        // arc A->B taken in the swept direction (sign of `sweep`): when the
-        // cursor is within a half-turn it sits between A and B (minor arc); once
-        // the user sweeps past the antipode the directed midpoint lands on the
-        // far side (major arc) -- the chirality is carried entirely by D.
-        void resolve(double wx, double wy, double& bx, double& by,
-                     double& dx, double& dy) const {
+        // The mouse point B is the intersection of the C->cursor ray with the
+        // circle (so it tracks the cursor exactly). The arc is stored as the one
+        // swept counterclockwise, so we order the endpoints by the swept direction:
+        // sweeping CCW from A keeps (A -> B); sweeping CW means the same geometric
+        // arc is the CCW one from B to A, so we emit (B -> A). The major/minor
+        // distinction then follows automatically from the endpoint order.
+        void resolve(double wx, double wy, double& sx, double& sy,
+                     double& ex, double& ey) const {
 
             double mdx = wx - cx, mdy = wy - cy;
             double ml = std::hypot(mdx, mdy);
 
+            double bx, by;
             if (ml > 1e-9) { bx = cx + radius * mdx / ml; by = cy + radius * mdy / ml; }
             else           { bx = ax; by = ay; }
 
-            double aA = std::atan2(ay - cy, ax - cx);
-            double aB = std::atan2(by - cy, bx - cx);
-
-            double ccwSpan = aB - aA;                      // CCW distance A -> B
-            while (ccwSpan < 0.0)  { ccwSpan += TAU; }
-            while (ccwSpan >= TAU) { ccwSpan -= TAU; }
-
-            // Directed span in the swept direction, then its midpoint.
-            double directed = (sweep >= 0.0) ? ccwSpan : (ccwSpan - TAU);
-            double midAngle = aA + directed * 0.5;
-
-            dx = cx + radius * std::cos(midAngle);
-            dy = cy + radius * std::sin(midAngle);
+            if (sweep >= 0.0) { sx = ax; sy = ay; ex = bx; ey = by; }
+            else              { sx = bx; sy = by; ex = ax; ey = ay; }
         }
 
         void preview(double wx, double wy, SketchPreview& out) const override {
@@ -300,15 +290,20 @@ export namespace Sketch::App {
 
             // Defining B: ghost circle + spokes underneath; the candidate arc and
             // its end point B on top.
-            double bx, by, dx, dy;
-            resolve(wx, wy, bx, by, dx, dy);
+            double sx, sy, ex, ey;
+            resolve(wx, wy, sx, sy, ex, ey);
+
+            // The live cursor point on the circle (for the spoke + marker).
+            double ml = std::hypot(wx - cx, wy - cy);
+            double bx = (ml > 1e-9) ? cx + radius * (wx - cx) / ml : ax;
+            double by = (ml > 1e-9) ? cy + radius * (wy - cy) / ml : ay;
 
             out.helper.points.push_back({ ax, ay });
-            out.helper.segments.push_back({ cx, cy, ax, ay });   // start spoke
-            out.helper.segments.push_back({ cx, cy, bx, by });   // end spoke
+            out.helper.segments.push_back({ cx, cy, ax, ay });   // start spoke (A)
+            out.helper.segments.push_back({ cx, cy, bx, by });   // end spoke (B)
             out.helper.circles.push_back({ cx, cy, radius });    // ghost circle
 
-            out.candidate.arcs.push_back({ cx, cy, ax, ay, bx, by, dx, dy });
+            out.candidate.arcs.push_back({ cx, cy, sx, sy, ex, ey });
             out.candidate.points.push_back({ bx, by });          // show point B
         }
     };
@@ -442,8 +437,13 @@ export namespace Sketch::App {
                 return;
             }
 
+            // A sits at parameter 0; B at parameter `sweep`. Store the endpoints so
+            // the arc is swept by increasing parameter (CCW): a positive sweep is
+            // 0 -> sweep, a negative sweep is the CCW arc sweep -> 0.
             EllipseFit f = fitEllipse(cx, cy, ax, ay, wx, wy);
-            EllipseArc2 e{ cx, cy, f.ux, f.uy, f.vx, f.vy, 0.0, sweep, sweep * 0.5 };
+            double s0 = (sweep >= 0.0) ? 0.0 : sweep;
+            double s1 = (sweep >= 0.0) ? sweep : 0.0;
+            EllipseArc2 e{ cx, cy, f.ux, f.uy, f.vx, f.vy, s0, s1 };
             e.construction = construction;
             project.addEllipseArc(e);
             reset();
@@ -481,8 +481,10 @@ export namespace Sketch::App {
 
             // Ghost the full ellipse B currently implies, plus the candidate arc.
             EllipseFit f = fitEllipse(cx, cy, ax, ay, wx, wy);
+            double s0 = (sweep >= 0.0) ? 0.0 : sweep;
+            double s1 = (sweep >= 0.0) ? sweep : 0.0;
             out.helper.ellipses.push_back({ cx, cy, f.ux, f.uy, f.vx, f.vy });
-            out.candidate.ellipseArcs.push_back({ cx, cy, f.ux, f.uy, f.vx, f.vy, 0.0, sweep, sweep * 0.5 });
+            out.candidate.ellipseArcs.push_back({ cx, cy, f.ux, f.uy, f.vx, f.vy, s0, s1 });
 
             double ex, ey;
             ellipsePointAt(cx, cy, f.ux, f.uy, f.vx, f.vy, sweep, ex, ey);

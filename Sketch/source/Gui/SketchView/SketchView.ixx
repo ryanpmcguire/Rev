@@ -519,15 +519,12 @@ export namespace Sketch::Gui {
             dst->lines.push_back({ .points = std::move(pts), .color = color });
         }
 
-        // Signed span A -> B passing through D (chirality implicit in D).
+        // CCW span A -> B, in [0, TAU). The arc is always swept counterclockwise.
         static double arcSpan(const Sketch::App::Arc2& a) {
             auto norm = [](double x) { while (x < 0.0) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
             double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
             double aB = std::atan2(a.by - a.cy, a.bx - a.cx);
-            double aD = std::atan2(a.dy - a.cy, a.dx - a.cx);
-            double spanCCW = norm(aB - aA);
-            double dD      = norm(aD - aA);
-            return (dD <= spanCCW) ? spanCCW : (spanCCW - TAU);
+            return norm(aB - aA);
         }
 
         void appendArc(FastLines* dst, const Sketch::App::Arc2& a, Color color) {
@@ -558,12 +555,11 @@ export namespace Sketch::Gui {
             appendEllipseSpan(dst, e.cx, e.cy, e.ux, e.uy, e.vx, e.vy, 0.0, TAU, color);
         }
 
-        // Signed sweep a0 -> a1 passing through ad (chirality implicit in ad).
+        // CCW sweep a0 -> a1, in [0, TAU). The arc is always swept by increasing
+        // parameter (counterclockwise in the right-handed U,V frame).
         static double ellipseArcSpan(const Sketch::App::EllipseArc2& e) {
             auto norm = [](double x) { while (x < 0.0) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
-            double spanCCW = norm(e.a1 - e.a0);
-            double dD      = norm(e.ad - e.a0);
-            return (dD <= spanCCW) ? spanCCW : (spanCCW - TAU);
+            return norm(e.a1 - e.a0);
         }
 
         void appendEllipseArc(FastLines* dst, const Sketch::App::EllipseArc2& e, Color color) {
@@ -669,12 +665,10 @@ export namespace Sketch::Gui {
             if (r <= 0.0) { return std::hypot(px - a.ax, py - a.ay); }
             auto norm = [](double x) { while (x < 0.0) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
             double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
-            double span = arcSpan(a);                       // signed
+            double span = arcSpan(a);                       // CCW, [0, TAU)
             double aP = std::atan2(py - a.cy, px - a.cx);
-            // Is the cursor angle within the swept range?
-            bool within = (span >= 0.0)
-                ? (norm(aP - aA) <= span)
-                : (norm(aA - aP) <= -span);
+            // Is the cursor angle within the CCW swept range?
+            bool within = norm(aP - aA) <= span;
             if (within) { return std::fabs(std::hypot(px - a.cx, py - a.cy) - r); }
             return std::min(std::hypot(px - a.ax, py - a.ay), std::hypot(px - a.bx, py - a.by));
         }
@@ -819,7 +813,7 @@ export namespace Sketch::Gui {
             double aA = std::atan2(a.ay - a.cy, a.ax - a.cx);
             double span = arcSpan(a);
             double aP = std::atan2(py - a.cy, px - a.cx);
-            bool within = (span >= 0.0) ? (norm(aP - aA) <= span) : (norm(aA - aP) <= -span);
+            bool within = norm(aP - aA) <= span;
             if (!within) { return false; }
             double dd = std::hypot(px - a.cx, py - a.cy);
             if (dd < 1e-9) { sx = a.ax; sy = a.ay; return true; }
@@ -1099,7 +1093,7 @@ export namespace Sketch::Gui {
             for (auto& pl : g.polylines){ for (auto& p : pl.points) { f(p.x, p.y); } }
             for (auto& s : g.segments)  { f(s.ax, s.ay); f(s.bx, s.by); }
             for (auto& c : g.circles)   { f(c.cx, c.cy); }
-            for (auto& a : g.arcs)      { f(a.cx, a.cy); f(a.ax, a.ay); f(a.bx, a.by); f(a.dx, a.dy); }
+            for (auto& a : g.arcs)      { f(a.cx, a.cy); f(a.ax, a.ay); f(a.bx, a.by); }
             for (auto& e : g.ellipses)  { f(e.cx, e.cy); }
             for (auto& e : g.ellipseArcs){ f(e.cx, e.cy); }
         }
@@ -1158,7 +1152,7 @@ export namespace Sketch::Gui {
                         if (r.index < g.arcs.size()) {
                             auto& a = g.arcs[r.index];
                             addSlot(a.cx, a.cy); addSlot(a.ax, a.ay);
-                            addSlot(a.bx, a.by); addSlot(a.dx, a.dy);
+                            addSlot(a.bx, a.by);
                         }
                         break;
                     case SegmentRef::Kind::Ellipse:

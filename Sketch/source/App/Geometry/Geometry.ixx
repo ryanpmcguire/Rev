@@ -86,17 +86,17 @@ export namespace Sketch::App {
         }
     };
 
-    // Arc defined by a center, a start point A and end point B (both on the
-    // circle, fixing the radius), plus a point D somewhere on the arc between
-    // them. D is what makes the arc unambiguous: rather than storing a sweep
-    // direction, chirality is *implicit* in which side of A->B the midpoint D
-    // sits, so the arc is simply the one through A, D, B.
+    // Arc defined by a center and two endpoints A and B (both on the circle, which
+    // fixes the radius). There is no stored chirality: the arc is *always* the one
+    // swept counterclockwise from A to B. The two possible arcs through A and B are
+    // distinguished purely by the order of the endpoints (swapping A and B selects
+    // the complementary arc). This keeps the form intersection-ready and lets path
+    // integration recover loop sign from traversal direction alone.
     struct Arc2 {
 
         double cx = 0.0, cy = 0.0;   // center
-        double ax = 0.0, ay = 0.0;   // start point
-        double bx = 0.0, by = 0.0;   // end point
-        double dx = 0.0, dy = 0.0;   // a point on the arc (mid), encodes chirality
+        double ax = 0.0, ay = 0.0;   // start point (CCW start)
+        double bx = 0.0, by = 0.0;   // end point   (CCW end)
         bool construction = false;
 
         Json toJson() const {
@@ -104,7 +104,6 @@ export namespace Sketch::App {
                 { "cx", cx }, { "cy", cy },
                 { "ax", ax }, { "ay", ay },
                 { "bx", bx }, { "by", by },
-                { "dx", dx }, { "dy", dy },
                 { "construction", construction }
             };
         }
@@ -114,7 +113,6 @@ export namespace Sketch::App {
                 j.value("cx", 0.0), j.value("cy", 0.0),
                 j.value("ax", 0.0), j.value("ay", 0.0),
                 j.value("bx", 0.0), j.value("by", 0.0),
-                j.value("dx", 0.0), j.value("dy", 0.0),
                 j.value("construction", false)
             };
         }
@@ -152,22 +150,23 @@ export namespace Sketch::App {
     };
 
     // An elliptical arc: an ellipse (centre + conjugate semi-axes U, V) plus start
-    // / end / mid parameters of the parametrisation. As with the circular arc,
-    // chirality is implicit in the mid parameter `ad` (the swept midpoint), so the
-    // arc is the one through a0, ad, a1.
+    // and end parameters. Like the circular arc there is no stored chirality: the
+    // arc is always swept by *increasing* parameter from a0 to a1, which is
+    // counterclockwise because the tool always builds a right-handed (U, V) frame.
+    // Swapping a0 and a1 selects the complementary arc.
     struct EllipseArc2 {
 
         double cx = 0.0, cy = 0.0;
         double ux = 0.0, uy = 0.0;
         double vx = 0.0, vy = 0.0;
-        double a0 = 0.0, a1 = 0.0, ad = 0.0;   // start / end / mid parameter
+        double a0 = 0.0, a1 = 0.0;   // start / end parameter (swept a0 -> a1 CCW)
         bool construction = false;
 
         Json toJson() const {
             return Json{
                 { "cx", cx }, { "cy", cy },
                 { "ux", ux }, { "uy", uy }, { "vx", vx }, { "vy", vy },
-                { "a0", a0 }, { "a1", a1 }, { "ad", ad },
+                { "a0", a0 }, { "a1", a1 },
                 { "construction", construction }
             };
         }
@@ -177,7 +176,7 @@ export namespace Sketch::App {
                 j.value("cx", 0.0), j.value("cy", 0.0),
                 j.value("ux", 0.0), j.value("uy", 0.0),
                 j.value("vx", 0.0), j.value("vy", 0.0),
-                j.value("a0", 0.0), j.value("a1", 0.0), j.value("ad", 0.0),
+                j.value("a0", 0.0), j.value("a1", 0.0),
                 j.value("construction", false)
             };
         }
