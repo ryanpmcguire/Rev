@@ -38,6 +38,7 @@ export namespace LithoControl {
 
     using namespace Rev;
     using namespace Rev::Element;
+    using Text = Rev::Element::Text;  // disambiguate from Rev::Primitives::Text
 
     // ─────────────────────────────────────────────────────────────────────────
     // Theme constants
@@ -47,9 +48,9 @@ export namespace LithoControl {
 
         // Base styles shared across buttons, inputs, sections
         Style SidebarRoot = {
+            .overflow = Overflow::Hide,
             .layout = { Axis::Vertical, Align::Start, Align::Start },
             .size   = { 320_px, 100_pct },
-            .overflow = Overflow::Hide,
             .background = { .color = rgba(20, 20, 20, 1) }
         };
 
@@ -82,11 +83,11 @@ export namespace LithoControl {
         Style Btn = {
             .layout   = { Axis::Horizontal, Align::Center, Align::Center },
             .size     = { Grow() },
+            .margin   = { 3_px, 3_px, 3_px, 3_px },
             .padding  = { 5_px, 5_px, 12_px, 12_px },
             .background = { .color = rgba(30, 30, 30, 1), .transition = 100_ms },
             .border   = { .color = rgba(42, 42, 42, 1), .radius = 3_px, .width = 1_px },
-            .cursor   = Cursor::Hand,
-            .margin   = { 3_px, 3_px, 3_px, 3_px }
+            .cursor   = Cursor::Hand
         };
 
         Style BtnHover = {
@@ -98,11 +99,11 @@ export namespace LithoControl {
         Style BtnAccent = {
             .layout   = { Axis::Horizontal, Align::Center, Align::Center },
             .size     = { Grow() },
+            .margin   = { 3_px, 3_px, 3_px, 3_px },
             .padding  = { 5_px, 5_px, 12_px, 12_px },
             .background = { .color = rgba(0, 87, 255, 1) },
             .border   = { .radius = 3_px },
-            .cursor   = Cursor::Hand,
-            .margin   = { 3_px, 3_px, 3_px, 3_px }
+            .cursor   = Cursor::Hand
         };
 
         Style BtnAccentHover = {
@@ -113,31 +114,31 @@ export namespace LithoControl {
         Style BtnDanger = {
             .layout   = { Axis::Horizontal, Align::Center, Align::Center },
             .size     = { Grow() },
+            .margin   = { 3_px, 3_px, 3_px, 3_px },
             .padding  = { 5_px, 5_px, 12_px, 12_px },
             .background = { .color = rgba(255, 59, 48, 1) },
             .border   = { .radius = 3_px },
-            .cursor   = Cursor::Hand,
-            .margin   = { 3_px, 3_px, 3_px, 3_px }
+            .cursor   = Cursor::Hand
         };
 
         Style BtnSuccess = {
             .layout   = { Axis::Horizontal, Align::Center, Align::Center },
             .size     = { Grow() },
+            .margin   = { 3_px, 3_px, 3_px, 3_px },
             .padding  = { 5_px, 5_px, 12_px, 12_px },
             .background = { .color = rgba(48, 209, 88, 1) },
             .border   = { .radius = 3_px },
-            .cursor   = Cursor::Hand,
-            .margin   = { 3_px, 3_px, 3_px, 3_px }
+            .cursor   = Cursor::Hand
         };
 
         Style BtnWarning = {
             .layout   = { Axis::Horizontal, Align::Center, Align::Center },
             .size     = { Grow() },
+            .margin   = { 3_px, 3_px, 3_px, 3_px },
             .padding  = { 5_px, 5_px, 12_px, 12_px },
             .background = { .color = rgba(255, 159, 10, 1) },
             .border   = { .radius = 3_px },
-            .cursor   = Cursor::Hand,
-            .margin   = { 3_px, 3_px, 3_px, 3_px }
+            .cursor   = Cursor::Hand
         };
 
         Style BtnTxt     = { .text = { .color = rgba(232, 232, 232, 1), .size = 11_px } };
@@ -152,9 +153,9 @@ export namespace LithoControl {
         Style PreviewArea = {
             .layout = { Axis::Horizontal, Align::Center, Align::Center },
             .size   = { 100_pct, Grow() },
+            .margin = { 8_px, 8_px, 8_px, 8_px },
             .background = { .color = rgba(10, 10, 10, 1) },
-            .border = { .color = rgba(42, 42, 42, 1), .radius = 4_px, .width = 1_px },
-            .margin = { 8_px, 8_px, 8_px, 8_px }
+            .border = { .color = rgba(42, 42, 42, 1), .radius = 4_px, .width = 1_px }
         };
 
         Style StatusPanel = {
@@ -178,12 +179,12 @@ export namespace LithoControl {
         };
 
         Style LogBox = {
-            .size     = { 100_pct, 100_px },
             .overflow = Overflow::Hide,
-            .background = { .color = rgba(28, 28, 28, 1) },
-            .border   = { .color = rgba(42, 42, 42, 1), .radius = 3_px, .width = 1_px },
+            .size     = { 100_pct, 100_px },
+            .margin   = { .bottom = 4_px },
             .padding  = { 4_px, 4_px, 6_px, 6_px },
-            .margin   = { .bottom = 4_px }
+            .background = { .color = rgba(28, 28, 28, 1) },
+            .border   = { .color = rgba(42, 42, 42, 1), .radius = 3_px, .width = 1_px }
         };
 
         Style LogText = {

@@ -27,6 +27,7 @@ export namespace HelloWorld {
 
     using namespace Rev;
     using namespace Rev::Element;
+    using Text = Rev::Element::Text;
 
     struct Interface : public Box {
 

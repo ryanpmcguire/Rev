@@ -38,10 +38,6 @@ export namespace Rev {
 
             bool decorated = true;
             bool resizable = true;
-
-            Details() {
-
-            }
         };
 
         // Persistent event
