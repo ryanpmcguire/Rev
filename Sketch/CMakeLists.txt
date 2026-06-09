@@ -13,19 +13,19 @@ set(EXT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external)
 # Collect sources
 file(GLOB_RECURSE CPP_SOURCES CONFIGURE_DEPENDS
     ${SRC_DIR}/*.cpp
-    ${EXT_DIR}/*.cpp
+    #${EXT_DIR}/*.cpp
     ${RCS_DIR}/.modules/*.cpp
 )
 
 # Collect sources
 file(GLOB_RECURSE OBJCPP_SOURCES CONFIGURE_DEPENDS
     ${SRC_DIR}/*.mm
-    ${EXT_DIR}/*.mm
+    #${EXT_DIR}/*.mm
 )
 
 file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
     ${SRC_DIR}/*.ixx
-    ${EXT_DIR}/*.ixx
+    #${EXT_DIR}/*.ixx
     ${RCS_DIR}/.modules/*.ixx
 )
 

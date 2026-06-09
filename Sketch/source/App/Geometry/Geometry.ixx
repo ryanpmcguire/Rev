@@ -76,6 +76,21 @@ export namespace Sketch::App {
         return c + u * std::cos(t) + v * std::sin(t);
     }
 
+    // The *true* offset (parallel-curve) point at parameter t: P(t) displaced by `d`
+    // along its real outward unit normal. The normal is perpendicular to the tangent
+    // dP/dt = -sin t U + cos t V (correct even for conjugate, non-orthogonal axes),
+    // oriented outward (away from centre). `d` is signed: +grows, -insets. This is
+    // analytically equidistant -- the exact offset curve, which is NOT an ellipse.
+    inline Pos ellipseOffsetPoint(const Pos& c, const Pos& u, const Pos& v, float t, float d) {
+        Pos p = ellipsePointAt(c, u, v, t);
+        Pos tan = u * (-std::sin(t)) + v * std::cos(t);
+        Pos n(-tan.y, tan.x);
+        float nl = n.pythag();
+        if (nl > 1e-9f) { n = n / nl; }
+        if (n.dot(p - c) < 0.0f) { n = n * -1.0f; }   // outward (away from centre)
+        return p + n * d;
+    }
+
     // Parameter t of a world point. With orthogonal conjugate axes, cos t / sin t
     // are the projections onto U and V normalised by their squared lengths.
     inline float ellipseParamOf(const Pos& c, const Pos& u, const Pos& v, const Pos& w) {
@@ -104,6 +119,17 @@ export namespace Sketch::App {
         return f;
     }
 
+    // Circumcentre of three points (the centre of the unique circle through them).
+    // Falls back to the centroid when they are (near) collinear.
+    inline Pos circumcentre(Pos p0, Pos p1, Pos p2) {
+        float d = 2.0f * (p0.x * (p1.y - p2.y) + p1.x * (p2.y - p0.y) + p2.x * (p0.y - p1.y));
+        if (std::fabs(d) < 1e-9f) { return (p0 + p1 + p2) / 3.0f; }
+        float a2 = p0.dot(p0), b2 = p1.dot(p1), c2 = p2.dot(p2);
+        float ux = (a2 * (p1.y - p2.y) + b2 * (p2.y - p0.y) + c2 * (p0.y - p1.y)) / d;
+        float uy = (a2 * (p2.x - p1.x) + b2 * (p0.x - p2.x) + c2 * (p1.x - p0.x)) / d;
+        return Pos(ux, uy);
+    }
+
     // Wrap an angle delta into [0, TAU).
     inline float wrapTau(float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; }
 
@@ -111,7 +137,7 @@ export namespace Sketch::App {
     //--------------------------------------------------
 
     inline int spanSteps(float span) {
-        return std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 6400.0f))));
+        return std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 128.0f))));
     }
 
     inline void sampleArc(std::vector<Pos>& out, Pos c, float r, float a0, float span, int steps) {
@@ -296,6 +322,37 @@ export namespace Sketch::App {
         // defines. `id` is this entity's id, so it can name its own points; default:
         // a shape with no internal coupling (point, segment) does nothing.
         virtual void relaxInherent(MotionField& field, Id id, float rate) const {}
+
+        // Offsetting. `offset` moves this curve sideways by `amount`, *in place*:
+        // positive grows / outsets, negative insets (toward the curve's interior --
+        // a smaller circle, a parallel line). `offsetBy` is the value-returning twin:
+        // it leaves this one untouched and hands back a fresh offset copy. The pair
+        // mirrors Pos::normalize / Pos::normalized. A directionless element (a point)
+        // does not move. No chaining, no constraints -- each stoicheion offsets alone.
+        virtual void offset(float amount) {}
+        virtual std::unique_ptr<Stoicheion> offsetBy(float amount) const {
+            std::unique_ptr<Stoicheion> copy = clone();
+            copy->offset(amount);
+            return copy;
+        }
+
+        // Offset into a (possibly multi-piece) result. A line / circle / arc offsets
+        // exactly to one shape, so the default just emits offsetBy(). Curves whose
+        // true offset is not the same kind of curve (ellipses) override this to emit
+        // the analytically-equidistant offset as a polyline.
+        virtual void offsetInto(float amount, std::vector<std::unique_ptr<Stoicheion>>& out) const {
+            out.push_back(offsetBy(amount));
+        }
+
+        // Chirality marker housekeeping. A circle / arc carries its orientation as an
+        // extra point (b / d). That point is NOT a solver variable and is NOT one of
+        // the entity's "defining" (solvable) points -- it is just consistently stored
+        // and re-seated to its canonical spot after any change, so it always reads at
+        // the proper location and rides along when the entity moves.
+        //   chiralitySlot : the anchor/control-point slot of that marker, or -1.
+        //   normalize     : re-seat the marker canonically (preserving its side).
+        virtual int chiralitySlot() const { return -1; }
+        virtual void normalize() {}
     };
 
     // Exact mutual intersection of two entities. Uses only their true analytic
@@ -364,59 +421,56 @@ export namespace Sketch::App {
         void asLineSegments(std::vector<std::pair<Pos, Pos>>& out) const override { out.push_back({ a, b }); }
         bool footOnCurve(Pos p, Pos& out) const override { out = closestOnSegment(p, a, b); return true; }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&a); out.push_back(&b); }
+
+        // Slide the line sideways by `amount` along its left-hand normal (the +90deg
+        // rotation of a->b); a negative amount slides the other way.
+        void offset(float amount) override {
+            Pos d = b - a; float len = d.pythag();
+            if (len < 1e-9f) { return; }
+            Pos n(-d.y / len, d.x / len);
+            a -= n * amount;
+            b -= n * amount;
+        }
     };
 
-    // Circle
-    //--------------------------------------------------
+    // Circle -- centre c, radius point a (|a - c| is the radius), and chirality
+    // marker b: a point on the circle a quarter-turn (pi/4) from a. The *side* b sits
+    // on is the orientation -- b a quarter-turn CCW of a is a CCW circle, CW is a CW
+    // circle. Exactly like an arc (c, a, b), orientation lives in the points: no
+    // signed radius, no bool. So a CW circle offsets opposite to a CCW one, and an
+    // inset that drives the radius through zero turns the circle inside-out -- the
+    // radius re-emerges positive on the far side and the chirality flips.
     struct Circle2 : public Stoicheion {
 
-        Pos2 c;
-        float r = 0.0f;
-
-        Circle2() = default;
-        Circle2(const Pos& c, float r) : c(c), r(r) {}
-
-        const char* kind() const override { return "circle"; }
-        std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Circle2>(*this); }
-        Json data() const override { return Json{ { "c", c.toJson() }, { "r", r } }; }
-        void load(const Json& j) override {
-            c = Pos2::fromJson(j.value("c", Json::object()));
-            r = j.value("r", 0.0f);
-        }
-
-        void tessellate(std::vector<Pos>& out) const override { sampleArc(out, c, r, 0.0f, TAU, spanSteps(TAU)); }
-        float distanceTo(Pos p) const override { return std::fabs((p - c).pythag() - r); }
-        void anchors(std::vector<Pos>& out) const override { out.push_back(c); }
-        void snapPoints(std::vector<Pos>& out) const override {
-            out.push_back(c);                                   // centre + four quadrants
-            out.push_back(c + Pos(r, 0.0f)); out.push_back(c + Pos(-r, 0.0f));
-            out.push_back(c + Pos(0.0f, r)); out.push_back(c + Pos(0.0f, -r));
-        }
-        bool asCircle(Pos& cc, float& rr, float& a0, float& sweep) const override {
-            cc = c; rr = r; a0 = 0.0f; sweep = TAU; return true;
-        }
-        bool footOnCurve(Pos p, Pos& out) const override {
-            Pos d = p - c; float dd = d.pythag();
-            out = (dd > 1e-6f) ? (c + d / dd * r) : (c + Pos(r, 0.0f));
-            return true;
-        }
-        void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&c); }
-    };
-
-    // Arc (always swept counterclockwise from A to B; order encodes which arc)
-    //--------------------------------------------------
-    struct Arc2 : public Stoicheion {
+        static constexpr float Right = TAU * 0.25f;   // pi/2 (a quarter turn)
 
         Pos2 c, a, b;
 
-        Arc2() = default;
-        Arc2(const Pos& c, const Pos& a, const Pos& b) : c(c), a(a), b(b) {}
+        Circle2() = default;
+        // Centre + radius: a CCW circle (a on +x, b a quarter-turn CCW of it).
+        Circle2(const Pos& c, float r)
+            : c(c), a(c + Pos(r, 0.0f)), b(c + Pos::fromAngle(Right) * r) {}
+        Circle2(const Pos& c, const Pos& a, const Pos& b) : c(c), a(a), b(b) {}
+
+        // The unique circle through three points; its chirality follows their winding
+        // (p0 -> p1 -> p2 counterclockwise gives a CCW circle).
+        static Circle2 ThroughThreePoints(Pos p0, Pos p1, Pos p2) {
+            Pos o = circumcentre(p0, p1, p2);
+            Pos ra = p0 - o;
+            bool ccw = (p1 - p0).cross(p2 - p0) >= 0.0f;
+            Pos marker = ccw ? (o + Pos(-ra.y, ra.x)) : (o + Pos(ra.y, -ra.x));   // b at +/-90 deg
+            return Circle2(o, p0, marker);
+        }
+        // The circle having `a`-`b` as a diameter (CCW).
+        static Circle2 Diameter(Pos a, Pos b) {
+            return Circle2((a + b) * 0.5f, (a - b).pythag() * 0.5f);
+        }
 
         float radius() const { return (a - c).pythag(); }
-        float span() const { return wrapTau((b - c).angle() - (a - c).angle()); }   // CCW [0, TAU)
+        int chirality() const { return ((a - c).cross(b - c) >= 0.0f) ? 1 : -1; }   // +1 CCW, -1 CW
 
-        const char* kind() const override { return "arc"; }
-        std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Arc2>(*this); }
+        const char* kind() const override { return "circle"; }
+        std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Circle2>(*this); }
         Json data() const override { return Json{ { "c", c.toJson() }, { "a", a.toJson() }, { "b", b.toJson() } }; }
         void load(const Json& j) override {
             c = Pos2::fromJson(j.value("c", Json::object()));
@@ -425,43 +479,200 @@ export namespace Sketch::App {
         }
 
         void tessellate(std::vector<Pos>& out) const override {
-            float r = radius(); if (r <= 0.0f) { return; }
-            float sp = span();
-            sampleArc(out, c, r, (a - c).angle(), sp, spanSteps(sp));
+            sampleArc(out, c, radius(), (a - c).angle(), TAU, spanSteps(TAU));
         }
-        float distanceTo(Pos p) const override {
-            float r = radius();
-            if (r <= 0.0f) { return (p - a).pythag(); }
-            float aP = wrapTau((p - c).angle() - (a - c).angle());
-            if (aP <= span()) { return std::fabs((p - c).pythag() - r); }
-            return std::min((p - a).pythag(), (p - b).pythag());
-        }
-        void anchors(std::vector<Pos>& out) const override {
-            out.push_back(c); out.push_back(a); out.push_back(b);
-        }
+        float distanceTo(Pos p) const override { return std::fabs((p - c).pythag() - radius()); }
+        void anchors(std::vector<Pos>& out) const override { out.push_back(c); out.push_back(a); out.push_back(b); }
         void snapPoints(std::vector<Pos>& out) const override {
-            out.push_back(c); out.push_back(a); out.push_back(b);
             float r = radius();
-            if (r > 0.0f) { out.push_back(c + Pos::fromAngle((a - c).angle() + span() * 0.5f) * r); }  // arc midpoint
+            out.push_back(c); out.push_back(a); out.push_back(b);       // centre + handles
+            out.push_back(c + Pos(r, 0.0f)); out.push_back(c + Pos(-r, 0.0f));   // + quadrants
+            out.push_back(c + Pos(0.0f, r)); out.push_back(c + Pos(0.0f, -r));
         }
         bool asCircle(Pos& cc, float& rr, float& a0, float& sweep) const override {
-            float r = radius();
-            if (r <= 0.0f) { return false; }
-            cc = c; rr = r; a0 = (a - c).angle(); sweep = span(); return true;
+            cc = c; rr = radius(); a0 = (a - c).angle(); sweep = TAU; return true;
         }
         bool footOnCurve(Pos p, Pos& out) const override {
-            float r = radius(); if (r <= 0.0f) { return false; }
-            float aP = wrapTau((p - c).angle() - (a - c).angle());
-            if (aP > span()) { return false; }
+            float r = radius();
             Pos d = p - c; float dd = d.pythag();
-            out = (dd < 1e-6f) ? Pos(a) : (c + d / dd * r);
+            out = (dd > 1e-6f) ? (c + d / dd * r) : (c + Pos(r, 0.0f));
             return true;
         }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&c); out.push_back(&a); out.push_back(&b); }
 
+        // b is the chirality marker, not a solved point, and is kept canonical: a
+        // quarter-turn (pi/2) from a, on the side it currently sits. Re-seated after
+        // any move/solve so it always reads "at the proper location".
+        int chiralitySlot() const override { return 2; }
+        void normalize() override {
+            Pos ra = a - c;
+            b = (chirality() > 0) ? (c + Pos(-ra.y, ra.x))    // +90 deg (CCW)
+                                  : (c + Pos(ra.y, -ra.x));   // -90 deg (CW)
+        }
+
+        // Concentric offset, chirality-aware. A CCW circle shrinks for a negative
+        // amount; a CW circle grows -- opposite, just as a CW chain offsets opposite
+        // to a CCW one. Driving the radius through zero turns the circle inside-out:
+        // it re-emerges on the far side with the chirality flipped (b swaps sides).
+        void offset(float amount) override {
+            float r = radius();
+            if (r < 1e-9f) { return; }
+            int s = chirality();
+            float nr = r + amount * static_cast<float>(s);
+            float ang = (a - c).angle();
+            if (nr < 0.0f) { nr = -nr; ang += TAU * 0.5f; s = -s; }     // through the singularity
+            a = c + Pos::fromAngle(ang) * nr;
+            b = c + Pos::fromAngle(ang + static_cast<float>(s) * Right) * nr;
+        }
+    };
+
+    // Arc -- centre c, endpoints a and b, and a *through-point* d that fixes which
+    // way round we travel: the arc runs "from A to B through D". Whether D sits on the
+    // CCW or CW side of the chord (about the centre) is the chirality -- so the same
+    // pair of endpoints can be the CCW arc or the CW arc, and it offsets accordingly,
+    // just like a circle's marker point. Only D's *angle* about the centre matters;
+    // its distance is free.
+    struct Arc2 : public Stoicheion {
+
+        Pos2 c, a, b, d;
+
+        Arc2() = default;
+        // Two-endpoint form: a CCW arc, D placed at the CCW midpoint.
+        Arc2(const Pos& c, const Pos& a, const Pos& b) : c(c), a(a), b(b) {
+            float ang = (a - c).angle() + wrapTau((b - c).angle() - (a - c).angle()) * 0.5f;
+            d = c + Pos::fromAngle(ang) * (a - c).pythag();
+        }
+        Arc2(const Pos& c, const Pos& a, const Pos& b, const Pos& d) : c(c), a(a), b(b), d(d) {}
+
+        // Construct the arc through `a` and `b` that is tangent to `tanA` at a and
+        // `tanB` at b. The centre is where the perpendiculars to the two tangents
+        // meet (well-defined unless the tangents are parallel) -- and for a fillet at
+        // an offset corner that meeting point is exactly the original (pre-inset)
+        // corner, with a and b equidistant from it. The travel direction (D / the
+        // sweep) is chosen so the arc leaves a heading along tanA.
+        static Arc2 Tangent(Pos a, Pos b, Pos tanA, Pos tanB) {
+            Pos na(-tanA.y, tanA.x), nb(-tanB.y, tanB.x);   // perpendiculars to the tangents
+            float rxs = na.cross(nb);
+            Pos o = (std::fabs(rxs) > 1e-9f) ? (a + na * ((b - a).cross(nb) / rxs))
+                                             : ((a + b) * 0.5f);   // parallel: degenerate fallback
+            float radius = (a - o).pythag();
+            Pos radial = a - o;
+            Pos ccwTan(-radial.y, radial.x);                       // CCW tangent at a
+            int s = (tanA.dot(ccwTan) >= 0.0f) ? 1 : -1;           // does tanA head CCW?
+            float angA = radial.angle();
+            float span = (s > 0) ? wrapTau((b - o).angle() - angA) : wrapTau(angA - (b - o).angle());
+            float midAng = angA + static_cast<float>(s) * span * 0.5f;
+            return Arc2(o, a, b, o + Pos::fromAngle(midAng) * radius);
+        }
+
+        // The arc that passes through three points, from p0 to p2 by way of p1 -- p1
+        // is the through-point, so it fixes both which arc and its chirality.
+        static Arc2 ThreePoint(Pos p0, Pos p1, Pos p2) {
+            return Arc2(circumcentre(p0, p1, p2), p0, p2, p1);
+        }
+
+        float radius() const { return (a - c).pythag(); }
+
+        // +1 if we travel CCW from A to B (D is on the CCW side), -1 if CW.
+        int chirality() const {
+            float angA = (a - c).angle();
+            float ccwB = wrapTau((b - c).angle() - angA);
+            float ccwD = wrapTau((d - c).angle() - angA);
+            return (ccwD <= ccwB) ? 1 : -1;
+        }
+
+        // The covered arc as a CCW start angle + positive sweep (the half through D).
+        // Drawing / hit-testing / intersection care about the point set, not the
+        // travel direction, so they use this.
+        void range(float& a0, float& sweep) const {
+            float angA = (a - c).angle();
+            float ccwB = wrapTau((b - c).angle() - angA);
+            float ccwD = wrapTau((d - c).angle() - angA);
+            if (ccwD <= ccwB) { a0 = angA; sweep = ccwB; }                    // CCW: A -> B through D
+            else              { a0 = (b - c).angle(); sweep = TAU - ccwB; }   // CW: the complementary half
+        }
+
+        const char* kind() const override { return "arc"; }
+        std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Arc2>(*this); }
+        Json data() const override {
+            return Json{ { "c", c.toJson() }, { "a", a.toJson() }, { "b", b.toJson() }, { "d", d.toJson() } };
+        }
+        void load(const Json& j) override {
+            c = Pos2::fromJson(j.value("c", Json::object()));
+            a = Pos2::fromJson(j.value("a", Json::object()));
+            b = Pos2::fromJson(j.value("b", Json::object()));
+            d = Pos2::fromJson(j.value("d", Json::object()));
+        }
+
+        void tessellate(std::vector<Pos>& out) const override {
+            float r = radius(); if (r <= 0.0f) { return; }
+            float a0, sweep; range(a0, sweep);
+            sampleArc(out, c, r, a0, sweep, spanSteps(sweep));
+        }
+        float distanceTo(Pos p) const override {
+            float r = radius();
+            if (r <= 0.0f) { return (p - a).pythag(); }
+            float a0, sweep; range(a0, sweep);
+            float aP = wrapTau((p - c).angle() - a0);
+            if (aP <= sweep) { return std::fabs((p - c).pythag() - r); }
+            return std::min((p - a).pythag(), (p - b).pythag());
+        }
+        // Anchors mirror controlPoints (the solver and drag rely on the order):
+        // centre, the two endpoints, and the through-point d.
+        void anchors(std::vector<Pos>& out) const override {
+            out.push_back(c); out.push_back(a); out.push_back(b); out.push_back(d);
+        }
+        void snapPoints(std::vector<Pos>& out) const override {
+            out.push_back(c); out.push_back(a); out.push_back(b);
+            float r = radius();
+            if (r > 0.0f) { float a0, sweep; range(a0, sweep); out.push_back(c + Pos::fromAngle(a0 + sweep * 0.5f) * r); }
+        }
+        bool asCircle(Pos& cc, float& rr, float& a0, float& sweep) const override {
+            float r = radius();
+            if (r <= 0.0f) { return false; }
+            cc = c; rr = r; range(a0, sweep); return true;
+        }
+        bool footOnCurve(Pos p, Pos& out) const override {
+            float r = radius(); if (r <= 0.0f) { return false; }
+            float a0, sweep; range(a0, sweep);
+            float aP = wrapTau((p - c).angle() - a0);
+            if (aP > sweep) { return false; }
+            Pos dir = p - c; float dd = dir.pythag();
+            out = (dd < 1e-6f) ? Pos(a) : (c + dir / dd * r);
+            return true;
+        }
+        void controlPoints(std::vector<Pos2*>& out) override {
+            out.push_back(&c); out.push_back(&a); out.push_back(&b); out.push_back(&d);
+        }
+
         // Endpoints a and b must stay equidistant from centre c (both on the circle).
         // Defined out of line, once MotionField is complete.
         void relaxInherent(MotionField& field, Id id, float rate) const override;
+
+        // Concentric offset, chirality-aware. The chirality is the travel direction
+        // A -> B through D: CCW (+1) behaves like a CCW boundary, so a negative amount
+        // shrinks it; CW (-1) reverses the sense, so the same amount grows it. Driving
+        // the radius through zero flips the points to the antipode ("flips around").
+        void offset(float amount) override {
+            float rad = radius();
+            if (rad < 1e-9f) { return; }
+            float nr = rad + amount * static_cast<float>(chirality());
+            a = c + (a - c) / rad * nr;
+            b = c + (b - c) / rad * nr;
+            float ld = (d - c).pythag();
+            if (ld > 1e-9f) { d = c + (d - c) / ld * nr; }   // keep D's angle, on the new circle
+        }
+
+        // d is the chirality marker, not a solved point, and is kept canonical:
+        // exactly the midpoint of the half it currently indicates, on the circle.
+        // Re-seated after any move/solve so it stays "at the proper location".
+        int chiralitySlot() const override { return 3; }
+        void normalize() override {
+            float r = radius();
+            if (r < 1e-9f) { return; }
+            float a0, sweep; range(a0, sweep);
+            d = c + Pos::fromAngle(a0 + sweep * 0.5f) * r;
+        }
     };
 
     // Ellipse (centre + conjugate semi-axes U, V; only the centre is an absolute,
@@ -496,6 +707,31 @@ export namespace Sketch::App {
         bool footOnCurve(Pos p, Pos& out) const override { footNearest(p, 0.0f, TAU, out); return true; }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&c); }
 
+        // Rough in-place offset (kept for previews/quick edits): grow each conjugate
+        // semi-axis, scaled by handedness sign(u x v). This only matches the true
+        // offset at the four vertices -- offsetInto() is the analytically correct one.
+        void offset(float amount) override {
+            float d = amount * (u.cross(v) >= 0.0f ? 1.0f : -1.0f);
+            float lu = u.pythag(), lv = v.pythag();
+            if (lu > 1e-9f) { u += u / lu * d; }
+            if (lv > 1e-9f) { v += v / lv * d; }
+        }
+
+        // The analytically-equidistant offset: every point pushed along its real
+        // normal by `amount` (handedness-scaled: CCW insets, CW grows), emitted as a
+        // closed polyline -- the exact parallel curve, which is not an ellipse.
+        void offsetInto(float amount, std::vector<std::unique_ptr<Stoicheion>>& out) const override {
+            float d = amount * (u.cross(v) >= 0.0f ? 1.0f : -1.0f);
+            int steps = spanSteps(TAU);
+            Pos prev = ellipseOffsetPoint(c, u, v, 0.0f, d);
+            for (int i = 1; i <= steps; i++) {
+                float t = TAU * (static_cast<float>(i) / static_cast<float>(steps));
+                Pos cur = ellipseOffsetPoint(c, u, v, t, d);
+                out.push_back(std::make_unique<Segment2>(prev, cur));
+                prev = cur;
+            }
+        }
+
       protected:
         // Coarse nearest-point search over a parameter span (no closed form).
         void footNearest(Pos p, float t0, float span, Pos& out) const {
@@ -518,6 +754,19 @@ export namespace Sketch::App {
         EllipseArc2() = default;
         EllipseArc2(const Pos& c, const Pos& u, const Pos& v, float a0, float a1)
             : c(c), u(u), v(v), a0(a0), a1(a1) {}
+
+        // Construct the elliptical quarter-arc through a and b, tangent to tanA at a
+        // and tanB at b. The centre O is placed so that (a-O) is parallel to tanB and
+        // (b-O) to tanA -- i.e. a and b are the ends of *conjugate* semi-diameters, so
+        // U = a-O and V = b-O are conjugate axes and the arc from parameter 0 (a) to
+        // pi/2 (b) is tangent to both edges. Unlike a circular arc this is unique only
+        // up to the conjugate-diameter choice; this is the natural canonical one.
+        static EllipseArc2 Tangent(Pos a, Pos b, Pos tanA, Pos tanB) {
+            float rxs = tanB.cross(tanA);
+            Pos o = (std::fabs(rxs) > 1e-9f) ? (a + tanB * ((b - a).cross(tanA) / rxs))
+                                             : ((a + b) * 0.5f);   // parallel tangents: fallback
+            return EllipseArc2(o, a - o, b - o, 0.0f, TAU * 0.25f);
+        }
 
         float span() const { return wrapTau(a1 - a0); }
         Pos startPoint() const { return ellipsePointAt(c, u, v, a0); }
@@ -546,6 +795,30 @@ export namespace Sketch::App {
         }
         bool footOnCurve(Pos p, Pos& out) const override { footNearest(p, out); return true; }
         void controlPoints(std::vector<Pos2*>& out) override { out.push_back(&c); }
+
+        // Rough in-place offset (kept for previews): grow/shrink the semi-axes,
+        // handedness-scaled. offsetInto() is the analytically correct one.
+        void offset(float amount) override {
+            float d = amount * (u.cross(v) >= 0.0f ? 1.0f : -1.0f);
+            float lu = u.pythag(), lv = v.pythag();
+            if (lu > 1e-9f) { u += u / lu * d; }
+            if (lv > 1e-9f) { v += v / lv * d; }
+        }
+
+        // The analytically-equidistant offset over the arc's parameter span, emitted
+        // as a polyline -- the exact parallel curve (handedness-scaled: CCW insets).
+        void offsetInto(float amount, std::vector<std::unique_ptr<Stoicheion>>& out) const override {
+            float d = amount * (u.cross(v) >= 0.0f ? 1.0f : -1.0f);
+            float sp = span();
+            int steps = spanSteps(sp);
+            Pos prev = ellipseOffsetPoint(c, u, v, a0, d);
+            for (int i = 1; i <= steps; i++) {
+                float t = a0 + sp * (static_cast<float>(i) / static_cast<float>(steps));
+                Pos cur = ellipseOffsetPoint(c, u, v, t, d);
+                out.push_back(std::make_unique<Segment2>(prev, cur));
+                prev = cur;
+            }
+        }
 
       protected:
         void footNearest(Pos p, Pos& out) const {
@@ -1219,6 +1492,14 @@ export namespace Sketch::App {
                 if (ms.empty()) { r->apply(lookup); }   // grounding (Lock): absolute authority
             }
             relaxDrag({}, 200, 1.0f);                    // settle all relations together
+            normalize();                                 // re-seat chirality markers canonically
+        }
+
+        // Re-seat every entity's chirality marker (circle b / arc d) to its canonical
+        // spot. The markers ride along with moves but are never solver variables, so
+        // this is run after any settle/drag to keep them at the proper location.
+        void normalize() {
+            for (const auto& e : entities) { if (e) { e->normalize(); } }
         }
 
         // The largest violation across all relations, in world units (0 = every
@@ -1401,7 +1682,9 @@ export namespace Sketch::App {
             std::vector<Pos> anc;
             e.anchors(anc);
             if (anc.empty()) { return false; }
+            int marker = e.chiralitySlot();   // the chirality marker is not a solved point
             for (size_t s = 0; s < anc.size(); s++) {
+                if (static_cast<int>(s) == marker) { continue; }
                 if (!pointSolved({ e.id, static_cast<int>(s) })) { return false; }
             }
             return true;

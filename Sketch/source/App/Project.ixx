@@ -14,6 +14,7 @@ export module Sketch.App.Project;
 
 export import Sketch.App.Layer;
 export import Sketch.App.Geometry;
+export import Sketch.App.Chain;
 
 export namespace Sketch::App {
 
@@ -63,6 +64,11 @@ export namespace Sketch::App {
         // The sketch geometry. Source of truth in memory; serialized into the
         // geometry layer's JSON on save and re-read on load.
         SketchGeometry geometry;
+
+        // Generated geometry layers drawn *alongside* the sketch -- for now, the
+        // blind offset produced by "i". This is the in-memory seed of the original
+        // "one sketch, many layers" idea; layer selection / persistence come later.
+        std::vector<SketchGeometry> offsetLayers;
 
         // Create
         //--------------------------------------------------
@@ -132,6 +138,25 @@ export namespace Sketch::App {
 
         void clearGeometry() {
             geometry.clear();
+            dirty = true;
+        }
+
+        // Blindly offset every real entity by `amount` (negative = inset) into a
+        // fresh derived layer. Each stoicheion is offset on its own -- no chaining,
+        // no constraint solving. Regenerates the single derived layer each call, so
+        // it tracks the sketch as it changes.
+        void insetIntoNewLayer(float amount) {
+            // Build chains from the sketch, then offset each chain as a whole so that
+            // corners are healed (mitres where pieces converge, round arc joins where
+            // they diverge) -- the real toolpath offset, not a per-piece nudge.
+            SketchGeometry out;
+            for (Chain& chain : Chain::build(geometry.entities)) {
+                Chain offsetChain = chain.offset(amount);
+                for (auto& e : offsetChain.edges) { out.add(std::move(e)); }
+            }
+            out.normalize();                                 // chirality markers at proper spots
+            offsetLayers.clear();
+            offsetLayers.push_back(std::move(out));
             dirty = true;
         }
 

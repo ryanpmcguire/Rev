@@ -141,6 +141,7 @@
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp",
         "source/App/App.ixx",
         "source/App/Geometry/Geometry.ixx",
+        "source/App/Chain/Chain.ixx",
         "source/App/Layer.ixx",
         "source/App/Project.ixx",
         "source/App/Tool/Tool.ixx",

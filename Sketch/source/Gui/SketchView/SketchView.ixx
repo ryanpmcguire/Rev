@@ -55,6 +55,7 @@ export namespace Sketch::Gui {
         RelateEqual,
         RelateParallel,
         ToggleConstruction,
+        Inset,
     };
 
     // A 2D sketch canvas: the flat cousin of the world view.
@@ -96,6 +97,11 @@ export namespace Sketch::Gui {
         // Whether new geometry is being drawn as construction (reference) geometry.
         bool drawingConstruction = false;
 
+        // Toolpath sandbox: when on, the offset/inset profile is recomputed from the
+        // live geometry every rebuild, so it tracks the sketch as it is dragged.
+        bool  insetActive = false;
+        float insetAmount = -1.0f;   // 1mm inward
+
         // Drag-to-move state.
         //
         // Selection and movement share the same gesture: a left press over the
@@ -130,6 +136,7 @@ export namespace Sketch::Gui {
             { "re", SketchCommand::RelateEqual },
             { "rp", SketchCommand::RelateParallel },
             { "cc", SketchCommand::ToggleConstruction },
+            { "i",  SketchCommand::Inset },                // blind 1mm inset into a new layer
         };
 
         // Tool state machines (owned; selection mirrors app->activeTool).
@@ -195,6 +202,7 @@ export namespace Sketch::Gui {
                     case SketchCommand::RelateEqual:        changed = relateEqual();              break;
                     case SketchCommand::RelateParallel:     changed = relateParallelSegments();   break;
                     case SketchCommand::ToggleConstruction: changed = toggleConstructionCommand(); break;
+                    case SketchCommand::Inset:              changed = insetCommand();            break;
                 }
                 if (changed) {
                     geometryDirty = true;
@@ -392,7 +400,8 @@ export namespace Sketch::Gui {
                 if (moveDragged && app && app->activeProject) {
                     std::vector<Sketch::App::DragPoint> held;
                     for (auto& s : moveSlots) { held.push_back({ s.ref, Pos(*s.x, *s.y) }); }
-                    app->activeProject->geometry.relaxDrag(held, 64, 1.0f);
+                    app->activeProject->geometry.relaxDrag(held, 12, 1.0f);
+                    app->activeProject->geometry.normalize();
                 }
 
                 selectPending = false;
@@ -583,19 +592,11 @@ export namespace Sketch::Gui {
             dst->lines.push_back({ .points = std::move(pts), .color = color });
         }
 
-        // CCW span A -> B, in [0, TAU). The arc is always swept counterclockwise.
-        static float arcSpan(const Sketch::App::Arc2& a) {
-            auto norm = [](float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
-            float aA = (a.a - a.c).angle();
-            float aB = (a.b - a.c).angle();
-            return norm(aB - aA);
-        }
-
         void appendArc(FastLines* dst, const Sketch::App::Arc2& a, Color color) {
             float r = (a.a - a.c).pythag();
             if (r <= 0.0f) { return; }
-            float aA = (a.a - a.c).angle();
-            appendArcSpan(dst, a.c, r, aA, arcSpan(a), color);
+            float a0, sweep; a.range(a0, sweep);   // the half through D
+            appendArcSpan(dst, a.c, r, a0, sweep, color);
         }
 
         // Sample a parametric span (t0 .. t0+span) of an ellipse C + cos t U + sin t V.
@@ -672,7 +673,9 @@ export namespace Sketch::Gui {
 
                 std::vector<Pos> anc;
                 e->anchors(anc);
+                int marker = e->chiralitySlot();   // don't dot the chirality marker
                 for (size_t s = 0; s < anc.size(); s++) {
+                    if (static_cast<int>(s) == marker) { continue; }
                     bool ptSolved = g.pointSolved({ e->id, static_cast<int>(s) });
                     appendPoint(dst, Sketch::App::Point2(anc[s]), ptSolved ? solvedColor : c, EndpointScale);
                 }
@@ -694,11 +697,9 @@ export namespace Sketch::Gui {
             float r = (a.a - a.c).pythag();
             if (r <= 0.0f) { return (p - a.a).pythag(); }
             auto norm = [](float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
-            float aA = (a.a - a.c).angle();
-            float span = arcSpan(a);                       // CCW, [0, TAU)
+            float a0, sweep; a.range(a0, sweep);           // the half through D
             float aP = (p - a.c).angle();
-            // Is the cursor angle within the CCW swept range?
-            bool within = norm(aP - aA) <= span;
+            bool within = norm(aP - a0) <= sweep;
             if (within) { return std::fabs((p - a.c).pythag() - r); }
             return std::min((p - a.a).pythag(), (p - a.b).pythag());
         }
@@ -762,9 +763,11 @@ export namespace Sketch::Gui {
             for (size_t i = 0; i < g.entities.size(); i++) {
                 const auto& e = *g.entities[i];
                 int tier = selectTier(e);
+                int marker = e.chiralitySlot();   // the chirality marker isn't selectable
                 std::vector<Pos> anc;
                 e.anchors(anc);
                 for (size_t s = 0; s < anc.size(); s++) {
+                    if (static_cast<int>(s) == marker) { continue; }
                     consider(tier, true, (w - anc[s]).pythag(), { i, static_cast<int>(s) });
                 }
             }
@@ -803,10 +806,9 @@ export namespace Sketch::Gui {
             float r = (a.a - a.c).pythag();
             if (r <= 0.0f) { return false; }
             auto norm = [](float x) { while (x < 0.0f) { x += TAU; } while (x >= TAU) { x -= TAU; } return x; };
-            float aA = (a.a - a.c).angle();
-            float span = arcSpan(a);
+            float a0, sweep; a.range(a0, sweep);           // the half through D
             float aP = (p - a.c).angle();
-            bool within = norm(aP - aA) <= span;
+            bool within = norm(aP - a0) <= sweep;
             if (!within) { return false; }
             Pos dir = p - a.c;
             float dd = dir.pythag();
@@ -1137,6 +1139,7 @@ export namespace Sketch::Gui {
             // what we display is always resolved -- never a half-converged structure
             // that only snaps back into place on the next drag.
             g.relaxDrag(held, 64, 1.0f);
+            g.normalize();   // re-seat chirality markers to ride along with the move
 
             app->activeProject->dirty = true;
             geometryDirty  = true;
@@ -1376,6 +1379,16 @@ export namespace Sketch::Gui {
             return true;
         }
 
+        // "i" -- toggle the live inset. While on, the offset profile is regenerated
+        // from the current geometry on every rebuild (see buildGeometry), so it
+        // tracks the sketch in real time as it is dragged. Off clears it.
+        bool insetCommand() {
+            if (!app || !app->activeProject) { return false; }
+            insetActive = !insetActive;
+            if (!insetActive) { app->activeProject->offsetLayers.clear(); }
+            return true;
+        }
+
         // Toggle the construction flag on each selected entity (once per entity).
         bool toggleSelectedConstruction() {
 
@@ -1452,6 +1465,15 @@ export namespace Sketch::Gui {
             if (app && app->activeProject) {
                 appendCommitted(geometry, app->activeProject->geometry,
                                 realColor, constructionColor, solvedColor);
+
+                // Live offset/inset (the "i" toggle): recomputed from the current
+                // geometry each rebuild, so it follows the sketch as it is dragged.
+                if (insetActive) { app->activeProject->insetIntoNewLayer(insetAmount); }
+
+                Color offsetColor{ 0.20f, 0.85f, 0.85f, 0.95f };
+                for (const SketchGeometry& layer : app->activeProject->offsetLayers) {
+                    appendGeometry(geometry, layer, offsetColor);
+                }
             }
 
             if (Sketch::App::Tool* tool = currentTool()) {

@@ -146,9 +146,9 @@ export namespace Sketch::App {
     // Arc: click center, click A (start, fixes radius), click B (end, commits).
     //
     // We integrate the *signed* angular motion of the cursor about the center; the
-    // running sum's sign is the sweep direction. The stored arc is always swept CCW
-    // from start to end, so we order the endpoints by the swept direction rather
-    // than storing chirality.
+    // running sum's sign is the sweep direction. That direction is stored as the
+    // arc's through-point D (at the swept midpoint), so the arc keeps its drawn
+    // chirality -- clockwise or counterclockwise -- rather than being normalised.
     struct ArcTool : public Tool {
 
         bool hasCenter = false;
@@ -171,9 +171,7 @@ export namespace Sketch::App {
                 return;
             }
 
-            Pos s, e;
-            resolve(w, s, e);
-            commit(project, std::make_unique<Arc2>(c, s, e));
+            commit(project, buildArc(w));
             reset();
         }
 
@@ -199,12 +197,13 @@ export namespace Sketch::App {
             return (ml > 1e-6f) ? (c + dir / ml * radius) : a;
         }
 
-        // CCW-ordered endpoints start -> end. Sweeping CCW keeps (A -> B); sweeping
-        // CW emits (B -> A), so the stored arc is always the CCW one.
-        void resolve(Pos w, Pos& s, Pos& e) const {
-            Pos b = pointB(w);
-            if (sweep >= 0.0f) { s = a; e = b; }
-            else               { s = b; e = a; }
+        // Build the arc as drawn: start A and the cursor as endpoints, with the
+        // through-point D at the swept midpoint -- so the integrated sweep direction
+        // becomes the arc's stored chirality (no endpoint swapping).
+        std::unique_ptr<Arc2> buildArc(Pos w) const {
+            Pos end = pointB(w);
+            Pos d = c + Pos::fromAngle((a - c).angle() + sweep * 0.5f) * radius;
+            return std::make_unique<Arc2>(c, a, end, d);
         }
 
         void preview(Pos w, SketchPreview& out) const override {
@@ -219,15 +218,14 @@ export namespace Sketch::App {
                 return;
             }
 
-            Pos s, e; resolve(w, s, e);
-            Pos b = pointB(w);
+            Pos end = pointB(w);
 
             out.helper.add(std::make_unique<Point2>(a));
-            out.helper.add(std::make_unique<Segment2>(c, a));   // start spoke
-            out.helper.add(std::make_unique<Segment2>(c, b));   // end spoke
+            out.helper.add(std::make_unique<Segment2>(c, a));     // start spoke
+            out.helper.add(std::make_unique<Segment2>(c, end));   // end spoke
             out.helper.add(std::make_unique<Circle2>(c, radius));
-            out.candidate.add(std::make_unique<Arc2>(c, s, e));
-            out.candidate.add(std::make_unique<Point2>(b));
+            out.candidate.add(buildArc(w));
+            out.candidate.add(std::make_unique<Point2>(end));
         }
     };
 
@@ -267,16 +265,26 @@ export namespace Sketch::App {
     };
 
     // Ellipse: click centre, major-axis point A (U = A - C), perimeter point B (V).
+    // A full ellipse has no sweep, so its chirality is which side of the major axis B
+    // sits on: V points toward B, so placing B on the CCW side gives a CCW ellipse
+    // (u x v > 0), the CW side a CW one -- which then offsets like an arc.
     struct EllipseTool : public Tool {
 
         bool hasCenter = false;
         bool hasMajor  = false;
         Pos c, a;
 
+        // Orient the fitted minor axis toward the perimeter point (sets chirality).
+        static EllipseFit fitOriented(Pos c, Pos a, Pos w) {
+            EllipseFit f = fitEllipse(c, a, w);
+            if ((w - c).dot((a - c).normal()) < 0.0f) { f.v = f.v * -1.0f; }
+            return f;
+        }
+
         void click(Project& project, Pos w) override {
             if (!hasCenter) { c = w; hasCenter = true; return; }
             if (!hasMajor)  { a = w; hasMajor = true; return; }
-            EllipseFit f = fitEllipse(c, a, w);
+            EllipseFit f = fitOriented(c, a, w);
             commit(project, std::make_unique<Ellipse2>(c, f.u, f.v));
             reset();
         }
@@ -298,15 +306,16 @@ export namespace Sketch::App {
             }
 
             out.helper.add(std::make_unique<Point2>(a));
-            EllipseFit f = fitEllipse(c, a, w);
+            EllipseFit f = fitOriented(c, a, w);
             out.candidate.add(std::make_unique<Ellipse2>(c, f.u, f.v));
             out.candidate.add(std::make_unique<Point2>(w));
         }
     };
 
     // Elliptical arc: click centre, major-axis point A (= arc start), point B (=
-    // arc end, fixes the minor axis). The swept-parameter integrator orders the
-    // endpoints so the stored arc is always swept CCW.
+    // arc end, fixes the minor axis). The swept-parameter integrator's *sign* is the
+    // chirality: sweeping CW flips the minor axis V (so u x v < 0), so the arc keeps
+    // its drawn orientation and offsets like an arc -- CCW shrinks, CW grows.
     struct EllipseArcTool : public Tool {
 
         bool hasCenter = false;
@@ -327,9 +336,8 @@ export namespace Sketch::App {
             if (!hasMajor) { a = w; prevT = 0.0f; sweep = 0.0f; hasMajor = true; return; }
 
             EllipseFit f = fitEllipse(c, a, w);
-            float s0 = (sweep >= 0.0f) ? 0.0f : sweep;
-            float s1 = (sweep >= 0.0f) ? sweep : 0.0f;
-            commit(project, std::make_unique<EllipseArc2>(c, f.u, f.v, s0, s1));
+            Pos v = (sweep >= 0.0f) ? f.v : (f.v * -1.0f);   // CW intent flips handedness
+            commit(project, std::make_unique<EllipseArc2>(c, f.u, v, 0.0f, std::fabs(sweep)));
             reset();
         }
 
@@ -363,11 +371,11 @@ export namespace Sketch::App {
 
             out.helper.add(std::make_unique<Point2>(a));
             EllipseFit f = fitEllipse(c, a, w);
-            float s0 = (sweep >= 0.0f) ? 0.0f : sweep;
-            float s1 = (sweep >= 0.0f) ? sweep : 0.0f;
-            out.helper.add(std::make_unique<Ellipse2>(c, f.u, f.v));
-            out.candidate.add(std::make_unique<EllipseArc2>(c, f.u, f.v, s0, s1));
-            out.candidate.add(std::make_unique<Point2>(ellipsePointAt(c, f.u, f.v, sweep)));
+            Pos v = (sweep >= 0.0f) ? f.v : (f.v * -1.0f);   // CW intent flips handedness
+            float s1 = std::fabs(sweep);
+            out.helper.add(std::make_unique<Ellipse2>(c, f.u, v));
+            out.candidate.add(std::make_unique<EllipseArc2>(c, f.u, v, 0.0f, s1));
+            out.candidate.add(std::make_unique<Point2>(ellipsePointAt(c, f.u, v, s1)));
         }
     };
 }
