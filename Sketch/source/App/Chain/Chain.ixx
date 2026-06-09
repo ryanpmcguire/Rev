@@ -166,21 +166,31 @@ export namespace Sketch::App {
             return (area > 1e-4f) ? 1 : (area < -1e-4f ? -1 : 0);
         }
 
-        // Offset the whole chain by `amount` (negative = inset toward the interior),
-        // healing every corner. The result is a fresh chain, generally with more
-        // pieces (a round join inserted at each external corner).
-        Chain offset(float amount) const {
+        // The *raw* offset: every piece offset, every corner joined (mitre / arc) and
+        // reverse-tangencies healed -- but NOT pruned, so it may self-intersect. This
+        // is the chain the debug view splits and colours; offset() prunes it.
+        Chain offsetRaw(float amount) const {
             Chain result;
             if (edges.empty()) { return result; }
             result.closed = closed;
 
-            // A lone closed circle just offsets concentrically -- no corners.
-            if (edges.size() == 1 && std::string(edges.front()->kind()) == "circle") {
-                result.edges.push_back(edges.front()->offsetBy(amount));
-                return result;
+            // A lone closed primitive has no corners. A circle offsets concentrically;
+            // an ellipse offsets to its true (equidistant) parallel curve as a polyline.
+            if (edges.size() == 1) {
+                std::string k = edges.front()->kind();
+                if (k == "circle") {
+                    result.edges.push_back(edges.front()->offsetBy(amount));
+                    return result;
+                }
+                if (k == "ellipse") {
+                    edges.front()->offsetInto(amount, result.edges);
+                    result.closed = true;
+                    return result;
+                }
             }
 
-            int w = windingSign(); if (w == 0) { w = 1; }
+            const int srcW = windingSign();                            // source orientation
+            const int w = (srcW == 0) ? 1 : srcW;
             const float leftAmount = -amount * static_cast<float>(w);   // inset -> toward interior side
 
             std::vector<std::unique_ptr<Stoicheion>> off;
@@ -190,53 +200,44 @@ export namespace Sketch::App {
             const size_t n = off.size();
             const size_t corners = closed ? n : (n > 0 ? n - 1 : 0);
 
-            // Classify each corner; gather mitre points and round-join arcs.
-            std::vector<int> kind(corners, 0);                 // 0 = trim/mitre, 1 = arc, 2 = bridge
-            std::vector<Pos> point(corners);
+            // The uniform construction: at EVERY corner insert the arc, centred on the
+            // original corner, that *continues* edge A's direction, loops around, and
+            // comes back along edge B's direction. No mitre/clip decision, no trimming.
+            // A convex corner is forced to take the long way round (a loop that exits
+            // the shape and returns); a reflex corner takes the short way (a round
+            // join). The full, untrimmed offset edges therefore cross each other at the
+            // mitre points, and the later winding prune discards every negative loop --
+            // mitres, round joins, burrs and notches all out of one mechanism.
             std::vector<std::unique_ptr<Stoicheion>> joinArc(corners);
-
             for (size_t k = 0; k < corners; k++) {
-                Stoicheion& A = *off[k];
-                Stoicheion& B = *off[(k + 1) % n];
-                Pos corner = eEnd(*edges[k]);                  // original (un-offset) corner
-                Pos endA = eEnd(A), startB = eStart(B);
-                Pos tanA = eEndDir(A), tanB = eStartDir(B);
-                float turn = tanA.cross(tanB);
-
-                if ((endA - startB).pythag() < 1e-4f) {
-                    kind[k] = 3;                                       // already coincident: do nothing
-                }
-                else if (std::fabs(turn) < 1e-4f) {
-                    kind[k] = 2; point[k] = (endA + startB) * 0.5f;    // collinear with a gap: bridge
-                }
-                else if (leftAmount * turn > 0.0f) {
-                    Pos x;                                             // converging: clip to crossing
-                    if (intersectSupports(A, B, corner, x)) { kind[k] = 0; point[k] = x; }
-                    else { kind[k] = 2; point[k] = (endA + startB) * 0.5f; }
-                }
-                else {
-                    kind[k] = 1;                                       // diverging: tangent arc join
-                    joinArc[k] = std::make_unique<Arc2>(Arc2::Tangent(endA, startB, tanA, tanB));
-                }
+                Pos endA = eEnd(*off[k]);
+                Pos startB = eStart(*off[(k + 1) % n]);
+                if ((endA - startB).pythag() < 1e-4f) { continue; }   // tangent-continuous: already joined
+                joinArc[k] = std::make_unique<Arc2>(
+                    Arc2::Tangent(endA, startB, eEndDir(*off[k]), eStartDir(*off[(k + 1) % n])));
             }
 
-            // Apply the mitre / bridge trims (arc corners keep their offset endpoints).
-            for (size_t k = 0; k < corners; k++) {
-                if (kind[k] == 0 || kind[k] == 2) {
-                    trimEnd(*off[k], point[k]);
-                    trimStart(*off[(k + 1) % n], point[k]);
-                }
-            }
-
-            // Assemble: each edge, followed by its corner's round join when present.
             for (size_t i = 0; i < n; i++) {
                 result.edges.push_back(std::move(off[i]));
-                bool hasCorner = closed || (i + 1 < n);
-                if (hasCorner && i < corners && kind[i] == 1) { result.edges.push_back(std::move(joinArc[i])); }
+                if (i < corners && joinArc[i]) { result.edges.push_back(std::move(joinArc[i])); }
             }
-
-            result.healReverseTangencies();   // rule 1: drop lines that flipped on themselves
             return result;
+        }
+
+        // The pruned offset (rule 2): fracture the raw offset into simple loops and
+        // keep only those whose winding matches the source -- the negative-area loops
+        // that internal corners / pinched features produce are discarded.
+        Chain offset(float amount) const {
+            Chain raw = offsetRaw(amount);
+            int srcW = windingSign();
+            if (!closed || srcW == 0) { return raw; }
+            Chain kept; kept.closed = true;
+            for (Chain& loop : raw.splitSimpleLoops()) {
+                if (loop.windingSign() == srcW) {
+                    for (auto& e : loop.edges) { kept.edges.push_back(std::move(e)); }
+                }
+            }
+            return kept;
         }
 
         // Healing -- rule 1: reverse tangencies.
@@ -290,6 +291,126 @@ export namespace Sketch::App {
             while (guard++ < 1000 && healOneReverseTangency()) {}
         }
 
+        // Fracture -- split self-intersections into simple loops, prune by winding.
+        //--------------------------------------------------
+
+        // True (with the parameter) when a point lies strictly inside a segment span.
+        static bool onSeg(Pos a, Pos b, Pos p, float& t) {
+            Pos d = b - a; float l2 = d.dot(d);
+            if (l2 < 1e-12f) { return false; }
+            t = (p - a).dot(d) / l2;
+            return t > 1e-3f && t < 1.0f - 1e-3f;
+        }
+        // True when a point on an arc's circle lies strictly inside its swept range.
+        static bool onArc(const Arc2& arc, Pos p) {
+            float a0, sweep; arc.range(a0, sweep);
+            float rel = wrapTau((p - arc.c).angle() - a0);
+            return rel > 1e-3f && rel < sweep - 1e-3f;
+        }
+
+        // Genuine crossing points of two edges, strictly inside both spans.
+        static void edgeCross(const Stoicheion& A, const Stoicheion& B, std::vector<Pos>& out) {
+            bool aa = isArc(A), ba = isArc(B);
+            if (!aa && !ba) {
+                Pos p; if (!lineLineInf(eStart(A), eEnd(A), eStart(B), eEnd(B), p)) { return; }
+                float t, u;
+                if (onSeg(eStart(A), eEnd(A), p, t) && onSeg(eStart(B), eEnd(B), p, u)) { out.push_back(p); }
+            }
+            else if (!aa && ba) {
+                std::vector<Pos> cand; lineCircleInf(eStart(A), eEnd(A), asArc(B)->c, asArc(B)->radius(), cand);
+                for (Pos p : cand) { float t; if (onSeg(eStart(A), eEnd(A), p, t) && onArc(*asArc(B), p)) { out.push_back(p); } }
+            }
+            else if (aa && !ba) {
+                std::vector<Pos> cand; lineCircleInf(eStart(B), eEnd(B), asArc(A)->c, asArc(A)->radius(), cand);
+                for (Pos p : cand) { float t; if (onSeg(eStart(B), eEnd(B), p, t) && onArc(*asArc(A), p)) { out.push_back(p); } }
+            }
+            else {
+                std::vector<Pos> cand; circleCircle(asArc(A)->c, asArc(A)->radius(), asArc(B)->c, asArc(B)->radius(), cand);
+                for (Pos p : cand) { if (onArc(*asArc(A), p) && onArc(*asArc(B), p)) { out.push_back(p); } }
+            }
+        }
+
+        // Split an edge at a point on it, preserving kind (a line into two lines, an
+        // arc into two concentric arcs sharing the original chirality).
+        static void splitEdge(const Stoicheion& e, Pos p,
+                              std::unique_ptr<Stoicheion>& left, std::unique_ptr<Stoicheion>& right) {
+            if (isArc(e)) {
+                const Arc2* arc = asArc(e);
+                float r = arc->radius();
+                Pos s = arc->c + (p - arc->c).normalized() * r;          // exact point on the circle
+                int sgn = arc->chirality();
+                float angA = (arc->a - arc->c).angle();
+                float angS = (s - arc->c).angle();
+                float angB = (arc->b - arc->c).angle();
+                float midL = (sgn > 0) ? (angA + wrapTau(angS - angA) * 0.5f) : (angA - wrapTau(angA - angS) * 0.5f);
+                float midR = (sgn > 0) ? (angS + wrapTau(angB - angS) * 0.5f) : (angS - wrapTau(angS - angB) * 0.5f);
+                left  = std::make_unique<Arc2>(arc->c, Pos(arc->a), s, arc->c + Pos::fromAngle(midL) * r);
+                right = std::make_unique<Arc2>(arc->c, s, Pos(arc->b), arc->c + Pos::fromAngle(midR) * r);
+            }
+            else {
+                const Segment2* seg = asSeg(e);
+                left  = std::make_unique<Segment2>(Pos(seg->a), p);
+                right = std::make_unique<Segment2>(p, Pos(seg->b));
+            }
+        }
+
+        struct Cross { Pos p; size_t i = 0, j = 0; };
+        bool firstSelfCrossing(Cross& out) const {
+            size_t n = edges.size();
+            for (size_t i = 0; i < n; i++) {
+                for (size_t j = i + 2; j < n; j++) {
+                    if (closed && i == 0 && j == n - 1) { continue; }    // adjacent across the wrap
+                    std::vector<Pos> pts; edgeCross(*edges[i], *edges[j], pts);
+                    if (!pts.empty()) { out = { pts[0], i, j }; return true; }
+                }
+            }
+            return false;
+        }
+
+        // *Every* genuine self-crossing point (including between adjacent edges -- two
+        // touching arcs can still cross a second time, which the pinch-split skips).
+        // Diagnostic: yellow dots that don't line up with a split reveal the bug.
+        std::vector<Pos> allSelfIntersections() const {
+            std::vector<Pos> out;
+            size_t n = edges.size();
+            for (size_t i = 0; i < n; i++) {
+                for (size_t j = i + 1; j < n; j++) {
+                    std::vector<Pos> pts; edgeCross(*edges[i], *edges[j], pts);
+                    for (const Pos& p : pts) { out.push_back(p); }
+                }
+            }
+            return out;
+        }
+
+        // Split this (self-intersecting) chain into the minimal set of simple loops:
+        // at the first crossing, pinch into the inner span and the remainder, each
+        // closed at the crossing point, and recurse. A simple chain returns unchanged.
+        std::vector<Chain> splitSimpleLoops(int budget = 512) const {
+            Cross x;
+            if (budget <= 0 || !firstSelfCrossing(x)) {
+                std::vector<Chain> r; r.push_back(clone()); return r;
+            }
+            std::unique_ptr<Stoicheion> iLeft, iRight, jLeft, jRight;
+            splitEdge(*edges[x.i], x.p, iLeft, iRight);
+            splitEdge(*edges[x.j], x.p, jLeft, jRight);
+
+            Chain a; a.closed = true;                                    // inner: iRight, (i+1..j-1), jLeft
+            a.edges.push_back(std::move(iRight));
+            for (size_t k = x.i + 1; k < x.j; k++) { a.edges.push_back(edges[k]->clone()); }
+            a.edges.push_back(std::move(jLeft));
+
+            Chain b; b.closed = true;                                    // outer: jRight, (j+1..end, 0..i-1), iLeft
+            b.edges.push_back(std::move(jRight));
+            for (size_t k = x.j + 1; k < edges.size(); k++) { b.edges.push_back(edges[k]->clone()); }
+            for (size_t k = 0; k < x.i; k++) { b.edges.push_back(edges[k]->clone()); }
+            b.edges.push_back(std::move(iLeft));
+
+            std::vector<Chain> out;
+            for (Chain& s : a.splitSimpleLoops(budget - 1)) { out.push_back(std::move(s)); }
+            for (Chain& s : b.splitSimpleLoops(budget - 1)) { out.push_back(std::move(s)); }
+            return out;
+        }
+
         // Building
         //--------------------------------------------------
 
@@ -321,8 +442,9 @@ export namespace Sketch::App {
         }
 
         // Build all chains from a set of entities. Segments/arcs chain up; a full
-        // circle is its own closed loop; ellipses are tessellated to segments first;
-        // datums / construction / points are ignored.
+        // circle or ellipse is its own closed loop (offset analytically, not via a
+        // polygon); an open elliptical arc is tessellated so it can chain to its
+        // neighbours; datums / construction / points are ignored.
         static std::vector<Chain> build(const std::vector<std::unique_ptr<Stoicheion>>& src, float eps = 1e-3f) {
             std::vector<Chain> out;
             std::vector<std::unique_ptr<Stoicheion>> pool;
@@ -330,9 +452,11 @@ export namespace Sketch::App {
             for (const auto& e : src) {
                 if (!e || e->locked || e->construction || e->isPoint()) { continue; }
                 std::string k = e->kind();
-                if (k == "circle") { Chain c; c.closed = true; c.edges.push_back(e->clone()); out.push_back(std::move(c)); }
+                if (k == "circle" || k == "ellipse") {                     // prime closed curve: its own loop
+                    Chain c; c.closed = true; c.edges.push_back(e->clone()); out.push_back(std::move(c));
+                }
                 else if (k == "segment" || k == "arc") { pool.push_back(e->clone()); }
-                else {                                                    // ellipse &c -> polyline
+                else {                                                    // elliptical arc (open) -> polyline
                     std::vector<Pos> pts; e->tessellate(pts);
                     for (size_t i = 0; i + 1 < pts.size(); i++) { pool.push_back(std::make_unique<Segment2>(pts[i], pts[i + 1])); }
                 }

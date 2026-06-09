@@ -1385,7 +1385,11 @@ export namespace Sketch::Gui {
         bool insetCommand() {
             if (!app || !app->activeProject) { return false; }
             insetActive = !insetActive;
-            if (!insetActive) { app->activeProject->offsetLayers.clear(); }
+            if (!insetActive) {
+                app->activeProject->offsetLayers.clear();
+                app->activeProject->offsetInvalid.clear();
+                app->activeProject->offsetIntersections.clear();
+            }
             return true;
         }
 
@@ -1470,9 +1474,18 @@ export namespace Sketch::Gui {
                 // geometry each rebuild, so it follows the sketch as it is dragged.
                 if (insetActive) { app->activeProject->insetIntoNewLayer(insetAmount); }
 
-                Color offsetColor{ 0.20f, 0.85f, 0.85f, 0.95f };
+                // Debug fracture view: valid loops cyan, opposite-winding loops red,
+                // every self-intersection a yellow dot. Nothing discarded yet.
+                Color offsetColor { 0.20f, 0.85f, 0.85f, 0.95f };   // valid (same winding)
+                Color invalidColor{ 0.95f, 0.25f, 0.25f, 0.95f };   // opposite winding
+                Color crossColor  { 1.00f, 0.90f, 0.20f, 1.00f };   // intersection points
+
                 for (const SketchGeometry& layer : app->activeProject->offsetLayers) {
                     appendGeometry(geometry, layer, offsetColor);
+                }
+                appendGeometry(geometry, app->activeProject->offsetInvalid, invalidColor);
+                for (const Pos& p : app->activeProject->offsetIntersections) {
+                    appendPoint(geometry, Sketch::App::Point2(p), crossColor, 5.0f);
                 }
             }
 

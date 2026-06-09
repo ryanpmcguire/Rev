@@ -65,10 +65,15 @@ export namespace Sketch::App {
         // geometry layer's JSON on save and re-read on load.
         SketchGeometry geometry;
 
-        // Generated geometry layers drawn *alongside* the sketch -- for now, the
-        // blind offset produced by "i". This is the in-memory seed of the original
-        // "one sketch, many layers" idea; layer selection / persistence come later.
+        // Generated geometry layers drawn *alongside* the sketch -- the offset/inset
+        // produced by "i". In-memory seed of the "one sketch, many layers" idea.
         std::vector<SketchGeometry> offsetLayers;
+
+        // Debug view of the offset fracture (drawn so we can verify it before pruning):
+        // the same-winding (valid) loops live in offsetLayers, the opposite-winding
+        // (would-be-discarded) loops here, and every self-intersection point here.
+        SketchGeometry offsetInvalid;
+        std::vector<Pos> offsetIntersections;
 
         // Create
         //--------------------------------------------------
@@ -141,22 +146,35 @@ export namespace Sketch::App {
             dirty = true;
         }
 
-        // Blindly offset every real entity by `amount` (negative = inset) into a
-        // fresh derived layer. Each stoicheion is offset on its own -- no chaining,
-        // no constraint solving. Regenerates the single derived layer each call, so
-        // it tracks the sketch as it changes.
+        // Offset every chain by `amount` and -- for now, a DEBUG view -- show the whole
+        // fracture rather than pruning: split the raw offset into simple loops and sort
+        // them by winding. Same-winding (valid) loops go to offsetLayers (cyan);
+        // opposite-winding loops go to offsetInvalid (red); every self-intersection
+        // point goes to offsetIntersections (yellow). Nothing is discarded yet, so we
+        // can see whether the split is correct before wiring up the prune.
         void insetIntoNewLayer(float amount) {
-            // Build chains from the sketch, then offset each chain as a whole so that
-            // corners are healed (mitres where pieces converge, round arc joins where
-            // they diverge) -- the real toolpath offset, not a per-piece nudge.
-            SketchGeometry out;
+            SketchGeometry valid, invalid;
+            std::vector<Pos> intersections;
+
             for (Chain& chain : Chain::build(geometry.entities)) {
-                Chain offsetChain = chain.offset(amount);
-                for (auto& e : offsetChain.edges) { out.add(std::move(e)); }
+                int srcW = chain.windingSign();
+                Chain raw = chain.offsetRaw(amount);
+
+                for (const Pos& p : raw.allSelfIntersections()) { intersections.push_back(p); }
+
+                for (Chain& loop : raw.splitSimpleLoops()) {
+                    bool keep = (srcW != 0 && loop.windingSign() == srcW);
+                    SketchGeometry& dst = keep ? valid : invalid;
+                    for (auto& e : loop.edges) { dst.add(std::move(e)); }
+                }
             }
-            out.normalize();                                 // chirality markers at proper spots
+
+            valid.normalize();
+            invalid.normalize();
             offsetLayers.clear();
-            offsetLayers.push_back(std::move(out));
+            offsetLayers.push_back(std::move(valid));
+            offsetInvalid = std::move(invalid);
+            offsetIntersections = std::move(intersections);
             dirty = true;
         }
 
