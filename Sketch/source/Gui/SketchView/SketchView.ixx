@@ -8,6 +8,8 @@ module;
 #include <iterator>
 #include <utility>
 
+#include <dbg.hpp>
+
 export module Sketch.Gui.SketchView;
 
 import Rev.Core.Vertex;
@@ -46,7 +48,12 @@ export namespace Sketch::Gui {
     // New relations drop in as new bindings ("rd" distance, "rt" tangent, ...).
     enum class SketchCommand {
         RelateCoincident,
-        Lock,
+        RelateHorizontal,
+        RelateVertical,
+        RelateLock,
+        RelateDistance,
+        RelateEqual,
+        RelateParallel,
         ToggleConstruction,
     };
 
@@ -111,11 +118,18 @@ export namespace Sketch::Gui {
         bool pendingHit    = false;
         bool pendingCtrl   = false;
 
-        // Keyboard relation commands ("rc" = relate coincident, "cl" = lock, ...).
+        // Keyboard relation commands -- every relation is "r"-prefixed; the second
+        // key picks the kind (rc coincident, rh/rv parallel-to-axis, rl lock, rd
+        // distance). "cc" toggles construction, which is a property, not a relation.
         GestureTracker<SketchCommand> gestures = {
             { "rc", SketchCommand::RelateCoincident },
-            { "cl", SketchCommand::Lock },
-            { "cc", SketchCommand::ToggleConstruction },   // shares the "c" prefix with "cl"
+            { "rh", SketchCommand::RelateHorizontal },
+            { "rv", SketchCommand::RelateVertical },
+            { "rl", SketchCommand::RelateLock },
+            { "rd", SketchCommand::RelateDistance },
+            { "re", SketchCommand::RelateEqual },
+            { "rp", SketchCommand::RelateParallel },
+            { "cc", SketchCommand::ToggleConstruction },
         };
 
         // Tool state machines (owned; selection mirrors app->activeTool).
@@ -159,10 +173,12 @@ export namespace Sketch::Gui {
             axes->strokeWidth = 2.0f;
             axes->smoothing = 0.0f;
 
-            // Geometry: 2px white, mild antialiasing (medium sharpness).
+            // Geometry: thin white, tight antialiasing. With the AA band centred on
+            // the true edge (see FastLines.frag), strokeWidth now reads at its real
+            // width, so a low smoothing keeps the feather crisp instead of blooming.
             geometry = new FastLines(canvas);
-            geometry->strokeWidth = 2.0f;
-            geometry->smoothing = 0.6f;
+            geometry->strokeWidth = 1.0f;
+            geometry->smoothing = 0.35f;
 
             // Highlight: thicker orange overdraw for hover / selection.
             highlight = new FastLines(canvas);
@@ -171,8 +187,13 @@ export namespace Sketch::Gui {
             gestures.onGesture = [this](SketchCommand command, Event& e) {
                 bool changed = false;
                 switch (command) {
-                    case SketchCommand::RelateCoincident:   changed = relateCoincident();        break;
-                    case SketchCommand::Lock:               changed = lockSelected();            break;
+                    case SketchCommand::RelateCoincident:   changed = relateCoincident();         break;
+                    case SketchCommand::RelateHorizontal:   changed = relateParallel(false);      break;
+                    case SketchCommand::RelateVertical:     changed = relateParallel(true);       break;
+                    case SketchCommand::RelateLock:         changed = lockSelected();             break;
+                    case SketchCommand::RelateDistance:     changed = relateDistance();           break;
+                    case SketchCommand::RelateEqual:        changed = relateEqual();              break;
+                    case SketchCommand::RelateParallel:     changed = relateParallelSegments();   break;
                     case SketchCommand::ToggleConstruction: changed = toggleConstructionCommand(); break;
                 }
                 if (changed) {
@@ -262,8 +283,17 @@ export namespace Sketch::Gui {
                         float wx, wy;
                         screenToWorld(e.mouse.pos.x, e.mouse.pos.y, wx, wy);
                         applySnap(wx, wy);          // magnetism: snap the placed point
+                        Pos placed(wx, wy);
+
+                        size_t before = app->activeProject->geometry.entities.size();
                         tool->construction = drawingConstruction;
-                        tool->click(*app->activeProject, Pos(wx, wy));
+                        tool->click(*app->activeProject, placed);
+
+                        // Record intent: any new control point sitting on a pre-existing
+                        // one becomes a Coincident relation (connecting to endpoints,
+                        // continuing a polyline, snapping onto real geometry).
+                        autoRelateCoincidences(before);
+
                         geometryDirty = true;
                         refresh(e);
                         e.propagate = false;
@@ -355,6 +385,15 @@ export namespace Sketch::Gui {
             if (selectPending && !currentTool()) {
 
                 if (!moveDragged) { commitSelectClick(); }
+
+                // On release, settle the drag crisply: hold the released points where
+                // they ended up and run a tighter relaxation so the soft mid-drag
+                // motion converges onto the relations as cleanly as it can.
+                if (moveDragged && app && app->activeProject) {
+                    std::vector<Sketch::App::DragPoint> held;
+                    for (auto& s : moveSlots) { held.push_back({ s.ref, Pos(*s.x, *s.y) }); }
+                    app->activeProject->geometry.relaxDrag(held, 64, 1.0f);
+                }
 
                 selectPending = false;
                 moveArmed = false;
@@ -518,9 +557,9 @@ export namespace Sketch::Gui {
         // A point renders as a single, very short, thick line: the round caps turn
         // it into a crisp dot. A per-line strokeWidth override keeps it a constant
         // pixel size regardless of zoom (the length is zero, so only the caps show).
-        void appendPoint(FastLines* dst, const Sketch::App::Point2& p, Color color) {
+        void appendPoint(FastLines* dst, const Sketch::App::Point2& p, Color color, float scale = 2.5f) {
             Vertex v(static_cast<float>(p.p.x), static_cast<float>(p.p.y));
-            float sizePx = (app ? app->lineThickness : 2.0f) * 2.5f;
+            float sizePx = (app ? app->lineThickness : 2.0f) * scale;
             dst->lines.push_back({ .points = { v, v }, .color = color, .strokeWidth = sizePx });
         }
 
@@ -612,13 +651,31 @@ export namespace Sketch::Gui {
             for (const auto& e : g.entities) { if (e) { appendEntity(dst, *e, color); } }
         }
 
-        // Render committed geometry, colouring each entity by whether it is
-        // construction (grey) or real (white). Locked datums (origin / axes) are
-        // not drawn here -- the crisp red/green gnomon stands in for them, and they
-        // light up only on hover / selection.
-        void appendCommitted(FastLines* dst, const SketchGeometry& g, Color real, Color cons) {
+        // Render committed geometry, colouring each entity: construction = grey,
+        // fully-constrained ("solved") = royal blue, otherwise = white. Every
+        // endpoint is dotted (clearly larger than the stroke) so the defining points
+        // read at a glance; a solved point dots royal blue, so you can see exactly
+        // which ends are pinned even on an under-constrained line. Locked datums
+        // (origin / axes) aren't drawn -- the crisp gnomon stands in.
+        void appendCommitted(FastLines* dst, const SketchGeometry& g,
+                             Color real, Color cons, Color solvedColor) {
+
+            constexpr float EndpointScale = 4.5f;   // dot size relative to stroke width
+
             for (const auto& e : g.entities) {
-                if (e && !e->locked) { appendEntity(dst, *e, e->construction ? cons : real); }
+                if (!e || e->locked) { continue; }
+
+                Color c = e->construction ? cons : (g.solved(*e) ? solvedColor : real);
+                appendEntity(dst, *e, c);
+
+                if (e->isPoint()) { continue; }   // a point entity already renders as its dot
+
+                std::vector<Pos> anc;
+                e->anchors(anc);
+                for (size_t s = 0; s < anc.size(); s++) {
+                    bool ptSolved = g.pointSolved({ e->id, static_cast<int>(s) });
+                    appendPoint(dst, Sketch::App::Point2(anc[s]), ptSolved ? solvedColor : c, EndpointScale);
+                }
             }
         }
 
@@ -664,11 +721,18 @@ export namespace Sketch::Gui {
             return best;
         }
 
-        // Selection priority. tier: 2 = axis, 1 = real, 0 = construction. Points
-        // (and line endpoints) outrank lines within a tier. Higher wins; we pick
-        // the highest-scoring participant, breaking ties by distance -- not simply
-        // the nearest. The tier comes from the stored `construction` flag, so a
-        // primitive's score is set at birth and changes when it is toggled.
+        // Selection priority tier (distinct from the *snapping* tier in tierOf,
+        // where axes lead). For picking, real and construction geometry both outrank
+        // the datum axes -- you almost never mean to grab a giant axis when real
+        // geometry is under the cursor -- so axes sit lowest: real 2, construction 1,
+        // axis/datum 0. Points (and line endpoints) outrank curves within a tier.
+        static int selectTier(const Sketch::App::Stoicheion& e) {
+            if (e.locked) { return 0; }
+            return e.construction ? 1 : 2;
+        }
+
+        // Higher wins; we pick the highest-scoring participant, breaking ties by
+        // distance -- not simply the nearest.
         static int participantScore(int tier, bool isPoint) {
             return tier * 2 + (isPoint ? 1 : 0);
         }
@@ -697,7 +761,7 @@ export namespace Sketch::Gui {
             // controlPoints(), so the ref addresses exactly that point.
             for (size_t i = 0; i < g.entities.size(); i++) {
                 const auto& e = *g.entities[i];
-                int tier = tierOf(e);
+                int tier = selectTier(e);
                 std::vector<Pos> anc;
                 e.anchors(anc);
                 for (size_t s = 0; s < anc.size(); s++) {
@@ -706,7 +770,7 @@ export namespace Sketch::Gui {
             }
             for (size_t i = 0; i < g.entities.size(); i++) {
                 const auto& e = *g.entities[i];
-                int tier = tierOf(e);
+                int tier = selectTier(e);
                 consider(tier, false, e.distanceTo(w), { i, -1 });
             }
             return found;
@@ -795,6 +859,49 @@ export namespace Sketch::Gui {
                     }
                 }
             }
+        }
+
+        // Find an existing control point lying (essentially) at `p`, searching only
+        // entities below index `limit` (so freshly-added geometry is excluded).
+        bool controlPointAt(Pos p, size_t limit, Sketch::App::PointRef& out) const {
+            const SketchGeometry& g = app->activeProject->geometry;
+            for (size_t i = 0; i < limit && i < g.entities.size(); i++) {
+                if (!g.entities[i]) { continue; }
+                std::vector<Pos> anc;
+                g.entities[i]->anchors(anc);
+                for (size_t s = 0; s < anc.size(); s++) {
+                    if ((anc[s] - p).pythag() < 1e-3f) {
+                        out = { g.entities[i]->id, static_cast<int>(s) };
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // After a tool click added entities (those from index `before` on), tie each
+        // of their control points that lands on a pre-existing control point to it
+        // via a Coincident relation -- making "I connected here" explicit in the
+        // graph (endpoints, polyline continuation, snapping onto real geometry).
+        void autoRelateCoincidences(size_t before) {
+            if (!app || !app->activeProject) { return; }
+            auto& g = app->activeProject->geometry;
+            bool added = false;
+            for (size_t i = before; i < g.entities.size(); i++) {
+                if (!g.entities[i]) { continue; }
+                std::vector<Pos> anc;
+                g.entities[i]->anchors(anc);
+                for (size_t s = 0; s < anc.size(); s++) {
+                    Sketch::App::PointRef target;
+                    if (controlPointAt(anc[s], before, target)) {        // existing point here
+                        Sketch::App::PointRef np{ g.entities[i]->id, static_cast<int>(s) };
+                        app->activeProject->addRelation(
+                            std::make_unique<Sketch::App::Coincident>(target, np));  // new follows existing
+                        added = true;
+                    }
+                }
+            }
+            if (added) { g.resolveRelations(); }
         }
 
         // Magnetism for point placement: collect the candidates near the cursor and
@@ -950,41 +1057,70 @@ export namespace Sketch::Gui {
         // Movement
         //--------------------------------------------------
 
-        // Build the move set: just the selected points (a point ref → that one
-        // control point; a whole-entity ref → all of its control points), each
-        // tagged with its stable PointRef so its motion capacity can be queried at
-        // drag time. Locked datums are never grabbed.
+        // Build the move set. Each selected point (a point ref → that one control
+        // point; a whole-entity ref → all of its control points) is expanded to its
+        // whole *coincident cluster*, so a free cluster drags as one. Capacity then
+        // decides: a cluster anchored to a solved point is Locked and won't move; a
+        // free cluster moves together. Locked datums are never grabbed.
         void beginMove(const std::vector<EntityRef>& refs) {
 
             moveSlots.clear();
             if (!app || !app->activeProject) { return; }
             auto& g = app->activeProject->geometry;
 
-            auto addSlot = [&](Pos2* p, Sketch::App::PointRef ref) {
-                for (auto& s : moveSlots) { if (s.x == &p->x) { return; } }   // dedup by pointer
-                moveSlots.push_back({ &p->x, &p->y, p->x, p->y, ref });
+            // 1. The seed points from the selection.
+            std::vector<Sketch::App::PointRef> seeds;
+            auto seed = [&](Sketch::App::PointRef pr) {
+                for (auto& s : seeds) { if (s == pr) { return; } }
+                seeds.push_back(pr);
             };
-
             for (const EntityRef& r : refs) {
                 if (r.index >= g.entities.size()) { continue; }
                 Sketch::App::Stoicheion& e = *g.entities[r.index];
                 if (e.locked) { continue; }
-                Sketch::App::Id eid = e.id;
                 std::vector<Pos2*> cps;
                 e.controlPoints(cps);
                 if (r.point < 0) {
-                    for (size_t s = 0; s < cps.size(); s++) { addSlot(cps[s], { eid, static_cast<int>(s) }); }
+                    for (size_t s = 0; s < cps.size(); s++) { seed({ e.id, static_cast<int>(s) }); }
                 }
                 else if (r.point < static_cast<int>(cps.size())) {
-                    addSlot(cps[r.point], { eid, r.point });
+                    seed({ e.id, r.point });
                 }
+            }
+
+            // 2. Expand each seed to its coincident cluster.
+            std::vector<Sketch::App::PointRef> all;
+            auto addRef = [&](Sketch::App::PointRef pr) {
+                for (auto& a : all) { if (a == pr) { return; } }
+                all.push_back(pr);
+            };
+            for (const auto& s : seeds) {
+                std::vector<Sketch::App::PointRef> cluster;
+                g.coincidentClosure(s, cluster);
+                for (const auto& c : cluster) { addRef(c); }
+            }
+
+            // 3. Resolve each ref to its mutable point and add a slot (datums skipped).
+            for (const auto& pr : all) {
+                Sketch::App::Stoicheion* e = g.byId(pr.entity);
+                if (!e || e->locked) { continue; }
+                std::vector<Pos2*> cps;
+                e->controlPoints(cps);
+                if (pr.slot < 0 || pr.slot >= static_cast<int>(cps.size())) { continue; }
+                Pos2* p = cps[pr.slot];
+                bool dup = false;
+                for (auto& sl : moveSlots) { if (sl.x == &p->x) { dup = true; break; } }
+                if (!dup) { moveSlots.push_back({ &p->x, &p->y, p->x, p->y, pr }); }
             }
         }
 
-        // Apply the proposed drag (pixels since the press, mapped to world). Each
-        // point only accepts the part of the proposal its capacity allows -- so a
-        // locked point stays put and a segment with one locked end deforms. Then
-        // related points follow via resolveRelations().
+        // Apply the proposed drag (pixels since the press, mapped to world). Each held
+        // point keeps the part of the proposal its *own* capacity allows -- so a point
+        // bound to a line slides along it and a grounded point stays put. Those held
+        // points then become the anchors of the relaxation solver, which distributes
+        // the motion through the relation graph: distance-constrained neighbours get
+        // dragged along, and a free-floating cluster (anchored to nothing) moves
+        // bodily, root and all.
         void applyMove(const Event& e) {
 
             if (!app || !app->activeProject) { return; }
@@ -992,12 +1128,15 @@ export namespace Sketch::Gui {
 
             Pos proposal(e.mouse.diff.x / scale, -e.mouse.diff.y / scale);
 
+            std::vector<Sketch::App::DragPoint> held;
             for (auto& s : moveSlots) {
                 Pos allowed = g.capacityOf(s.ref).mask(proposal);
-                *s.x = s.ox + allowed.x;
-                *s.y = s.oy + allowed.y;
+                held.push_back({ s.ref, Pos(s.ox, s.oy) + allowed });
             }
-            g.resolveRelations();
+            // Fully settle the graph each frame (held points pinned at the cursor), so
+            // what we display is always resolved -- never a half-converged structure
+            // that only snaps back into place on the next drag.
+            g.relaxDrag(held, 64, 1.0f);
 
             app->activeProject->dirty = true;
             geometryDirty  = true;
@@ -1028,8 +1167,19 @@ export namespace Sketch::Gui {
             return true;
         }
 
-        // "rc" -- relate the two selected defining points as coincident (the first
-        // is the authority; the second follows). A test of the relation structure.
+        // Propose a relation to the active geometry: it settles the whole graph and
+        // keeps the relation only if it can coexist with the senior relations already
+        // in force (otherwise the junior newcomer is withdrawn). Reports a rejection.
+        bool propose(std::unique_ptr<Sketch::App::Relation> r) {
+            if (!app || !app->activeProject) { return false; }
+            bool ok = app->activeProject->geometry.proposeRelation(std::move(r));
+            app->activeProject->dirty = true;
+            if (!ok) { dbg("[relation] rejected: conflicts with a more senior relation"); }
+            return ok;
+        }
+
+        // "rc" -- relate the two selected defining points as coincident. Symmetric:
+        // neither drives, the solver pulls them together (a grounded point wins).
         bool relateCoincident() {
 
             if (!app || !app->activeProject) { return false; }
@@ -1041,19 +1191,11 @@ export namespace Sketch::Gui {
             }
             if (pts.size() != 2) { return false; }
 
-            // Authority: a locked datum is always the master (it must not move), so
-            // the other point follows it. Otherwise the first-selected is master.
-            if (g.entities[pts[1].index]->locked && !g.entities[pts[0].index]->locked) {
-                std::swap(pts[0], pts[1]);
-            }
-
             auto ref = [&](const EntityRef& r) {
                 return Sketch::App::PointRef{ g.entities[r.index]->id, r.point };
             };
 
-            app->activeProject->addRelation(
-                std::make_unique<Sketch::App::Coincident>(ref(pts[0]), ref(pts[1])));
-            g.resolveRelations();
+            propose(std::make_unique<Sketch::App::Coincident>(ref(pts[0]), ref(pts[1])));
 
             selected.clear();
             hoverValid = false;
@@ -1083,6 +1225,139 @@ export namespace Sketch::Gui {
 
             if (locked > 0) { g.resolveRelations(); selected.clear(); hoverValid = false; }
             return locked > 0;
+        }
+
+        // Resolve the current selection to a pair of control points: either two
+        // explicitly selected points, or the first two anchors of a selected entity
+        // (e.g. a segment's endpoints). The more-solved point is placed first so it
+        // becomes the master that the other follows. Returns false if no pair exists.
+        bool twoRelationPoints(std::vector<Sketch::App::PointRef>& pts) {
+
+            if (!app || !app->activeProject) { return false; }
+            auto& g = app->activeProject->geometry;
+
+            pts.clear();
+            std::vector<EntityRef> sel;
+            for (const EntityRef& r : selected) {
+                if (r.point >= 0 && r.index < g.entities.size()) { sel.push_back(r); }
+            }
+            if (sel.size() == 2) {
+                pts = { { g.entities[sel[0].index]->id, sel[0].point },
+                        { g.entities[sel[1].index]->id, sel[1].point } };
+            }
+            else {
+                for (const EntityRef& r : selected) {
+                    if (r.index >= g.entities.size()) { continue; }
+                    Sketch::App::Stoicheion& e = *g.entities[r.index];
+                    std::vector<Pos> anc;
+                    e.anchors(anc);
+                    if (anc.size() >= 2) { pts = { { e.id, 0 }, { e.id, 1 } }; break; }
+                }
+            }
+            if (pts.size() != 2) { return false; }
+
+            // Authority: the more-solved point is the master that the other follows.
+            if (g.pointSolved(pts[1]) && !g.pointSolved(pts[0])) { std::swap(pts[0], pts[1]); }
+            return true;
+        }
+
+        // "rd" -- relate distance: a dimension is just a Distance relation pinning the
+        // separation between two points (or a segment's endpoints) to its current
+        // length. The more-solved point becomes the authority.
+        bool relateDistance() {
+
+            std::vector<Sketch::App::PointRef> pts;
+            if (!twoRelationPoints(pts)) { return false; }
+            auto& g = app->activeProject->geometry;
+
+            float d = (g.posOf(pts[1]) - g.posOf(pts[0])).pythag();
+            propose(std::make_unique<Sketch::App::Distance>(pts[0], pts[1], d));
+
+            selected.clear();
+            hoverValid = false;
+            return true;
+        }
+
+        // "rh" / "rv" -- relate horizontal / vertical: make the segment parallel to a
+        // world axis via a Parallel relation that references the axis' locked
+        // endpoints as its direction. `vertical` picks the Y axis, else the X axis.
+        bool relateParallel(bool vertical) {
+
+            std::vector<Sketch::App::PointRef> pts;
+            if (!twoRelationPoints(pts)) { return false; }
+            auto& g = app->activeProject->geometry;
+
+            Sketch::App::Id ax = g.axisId(vertical);
+            if (ax == 0) { return false; }
+            Sketch::App::PointRef refA{ ax, 0 }, refB{ ax, 1 };
+
+            propose(std::make_unique<Sketch::App::Parallel>(pts[0], pts[1], refA, refB));
+
+            selected.clear();
+            hoverValid = false;
+            return true;
+        }
+
+        // Resolve the selection to two distinct segments (entities with >= 2 control
+        // points). The more-solved one is returned as the reference (authority); the
+        // other as the follower. Returns false if there aren't two.
+        bool twoRelationSegments(Sketch::App::Id& refId, Sketch::App::Id& folId) {
+
+            if (!app || !app->activeProject) { return false; }
+            auto& g = app->activeProject->geometry;
+
+            std::vector<Sketch::App::Id> segs;
+            for (const EntityRef& r : selected) {
+                if (r.index >= g.entities.size()) { continue; }
+                std::vector<Pos> anc;
+                g.entities[r.index]->anchors(anc);
+                if (anc.size() < 2) { continue; }
+                Sketch::App::Id id = g.entities[r.index]->id;
+                bool dup = false;
+                for (Sketch::App::Id s : segs) { if (s == id) { dup = true; break; } }
+                if (!dup) { segs.push_back(id); }
+                if (segs.size() == 2) { break; }
+            }
+            if (segs.size() != 2) { return false; }
+
+            refId = segs[0]; folId = segs[1];
+            Sketch::App::Stoicheion* ref = g.byId(refId);
+            Sketch::App::Stoicheion* fol = g.byId(folId);
+            if (ref && fol && g.solved(*fol) && !g.solved(*ref)) { std::swap(refId, folId); }
+            return true;
+        }
+
+        // "re" -- relate equal: hold two selected segments at the same length. The
+        // more-solved segment is the reference; the other follows it.
+        bool relateEqual() {
+
+            Sketch::App::Id refId, folId;
+            if (!twoRelationSegments(refId, folId)) { return false; }
+
+            propose(std::make_unique<Sketch::App::Equal>(
+                Sketch::App::PointRef{ folId, 0 }, Sketch::App::PointRef{ folId, 1 },
+                Sketch::App::PointRef{ refId, 0 }, Sketch::App::PointRef{ refId, 1 }));
+
+            selected.clear();
+            hoverValid = false;
+            return true;
+        }
+
+        // "rp" -- relate parallel: make one selected segment parallel to another, the
+        // reference segment's endpoints standing in for the direction (exactly as an
+        // axis does for horizontal/vertical). The more-solved segment is the reference.
+        bool relateParallelSegments() {
+
+            Sketch::App::Id refId, folId;
+            if (!twoRelationSegments(refId, folId)) { return false; }
+
+            propose(std::make_unique<Sketch::App::Parallel>(
+                Sketch::App::PointRef{ folId, 0 }, Sketch::App::PointRef{ folId, 1 },
+                Sketch::App::PointRef{ refId, 0 }, Sketch::App::PointRef{ refId, 1 }));
+
+            selected.clear();
+            hoverValid = false;
+            return true;
         }
 
         // "cc" -- toggle construction: flip the selected entities, or (with nothing
@@ -1166,14 +1441,17 @@ export namespace Sketch::Gui {
             if (app) { geometry->strokeWidth = app->lineThickness; }
 
             // The draw roles.
-            Color realColor        { 0.95f, 0.95f, 0.97f, 1.0f };   // true geometry (white)
+            Color realColor        { 0.95f, 0.95f, 0.97f, 1.0f };   // under-constrained (white)
+            Color solvedColor      { 0.25f, 0.41f, 0.88f, 1.0f };   // solved (royal blue)
             Color constructionColor{ 0.60f, 0.60f, 0.66f, 0.85f };  // construction (grey)
             Color candidateColor   { 0.85f, 0.85f, 0.88f, 0.5f };   // intent
             Color helperColor      { 1.0f,  1.0f,  1.0f,  0.1f };   // ghost
 
-            // Committed geometry: real = white, construction = grey, per primitive.
+            // Committed geometry: white = under-constrained, green = solved,
+            // grey = construction.
             if (app && app->activeProject) {
-                appendCommitted(geometry, app->activeProject->geometry, realColor, constructionColor);
+                appendCommitted(geometry, app->activeProject->geometry,
+                                realColor, constructionColor, solvedColor);
             }
 
             if (Sketch::App::Tool* tool = currentTool()) {

@@ -38,8 +38,11 @@ void main() {
         ? min(sdSegment(v_pos, v_p0, v_p1), sdSegment(v_pos, v_prev, v_p0))
         : sdSegment(v_pos, v_p0, v_p1);
 
+    // Center the antialiasing band on the true stroke edge (v_half) rather than
+    // adding the whole feather outside it. Otherwise a thin stroke blooms by ~v_aa
+    // on each side and a 1px line reads as 2-3px. Now strokeWidth is the real width.
     float d = dist - v_half;
-    float alpha = 1.0 - smoothstep(0.0, v_aa, d);
+    float alpha = 1.0 - smoothstep(-0.5 * v_aa, 0.5 * v_aa, d);
 
     if (alpha <= 0.0) { discard; }
 

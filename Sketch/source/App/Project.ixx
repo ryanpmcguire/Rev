@@ -151,13 +151,21 @@ export namespace Sketch::App {
             };
 
             size_t originIndex = datum(std::make_unique<Point2>(Pos(0.0f, 0.0f)));
-            datum(std::make_unique<Segment2>(Pos(-AX, 0.0f), Pos(AX, 0.0f)));   // X axis
-            datum(std::make_unique<Segment2>(Pos(0.0f, -AX), Pos(0.0f, AX)));   // Y axis
+            size_t xIndex = datum(std::make_unique<Segment2>(Pos(-AX, 0.0f), Pos(AX, 0.0f)));   // X axis
+            size_t yIndex = datum(std::make_unique<Segment2>(Pos(0.0f, -AX), Pos(0.0f, AX)));   // Y axis
 
-            // The origin is not locked by fiat -- it is locked to mathematical (0,0)
-            // by an explicit Lock relation, the root of all authority.
+            // Nothing is locked by fiat -- the origin and both axis endpoints are each
+            // pinned to their mathematical position by an explicit Lock relation. The
+            // axes thus *represent* the world directions in the relation graph: any
+            // Parallel relation reads their (locked) endpoints to get its direction.
             Id originId = geometry.entities[originIndex]->id;
+            Id xId      = geometry.entities[xIndex]->id;
+            Id yId      = geometry.entities[yIndex]->id;
             geometry.addRelation(std::make_unique<Lock>(PointRef{ originId, 0 }, Pos(0.0f, 0.0f)));
+            geometry.addRelation(std::make_unique<Lock>(PointRef{ xId, 0 }, Pos(-AX, 0.0f)));
+            geometry.addRelation(std::make_unique<Lock>(PointRef{ xId, 1 }, Pos(AX, 0.0f)));
+            geometry.addRelation(std::make_unique<Lock>(PointRef{ yId, 0 }, Pos(0.0f, -AX)));
+            geometry.addRelation(std::make_unique<Lock>(PointRef{ yId, 1 }, Pos(0.0f, AX)));
         }
 
         // Write the in-memory geometry into the geometry layer's JSON payload.

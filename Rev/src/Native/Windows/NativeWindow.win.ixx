@@ -1075,20 +1075,23 @@ export namespace Rev {
                 }
 
                 // Frameless: suppress the OS title bar / frame by reclaiming the
-                // non-client area into the client. We leave a 1px border all
-                // around (so a thin frame remains visible); when maximized we inset
-                // by the real frame metrics so content doesn't spill over the
-                // taskbar / adjacent monitors.
+                // ENTIRE non-client area into the client (full-bleed). We must NOT
+                // leave an inset ring here: any non-client strip we don't cover
+                // is left unpainted by GL and shows through to whatever is behind
+                // the window (and hit-tests as frame, not content). The visible
+                // 1px frame is drawn by the engine instead (see Window). When
+                // maximized we inset by the real frame metrics so the window
+                // doesn't spill over the taskbar / adjacent monitors.
                 case (WM_NCCALCSIZE): {
 
                     if (wp == TRUE && self && self->nativeFrameless) {
 
-                        NCCALCSIZE_PARAMS* params =
-                            reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
-
-                        RECT& rc = params->rgrc[0];
-
                         if (IsZoomed(h)) {
+
+                            NCCALCSIZE_PARAMS* params =
+                                reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+
+                            RECT& rc = params->rgrc[0];
 
                             int fx = GetSystemMetrics(SM_CXFRAME)
                                    + GetSystemMetrics(SM_CXPADDEDBORDER);
@@ -1101,14 +1104,8 @@ export namespace Rev {
                             rc.bottom -= fy;
                         }
 
-                        else {
-                            // 1px frame all around, no title bar.
-                            rc.left   += 1;
-                            rc.top    += 1;
-                            rc.right  -= 1;
-                            rc.bottom -= 1;
-                        }
-
+                        // Normal: leave rgrc[0] as the full window rect — client
+                        // covers everything, no title bar, no unpainted gap.
                         return 0;
                     }
 
@@ -1208,7 +1205,19 @@ export namespace Rev {
                         case (SIZE_MINIMIZED): { self->notifyEvent({ WinEvent::Type::Minimize }); break; }
                         case (SIZE_MAXIMIZED): { self->notifyEvent({ WinEvent::Type::Maximize }); break; }
                     }
-  
+
+                    // Frameless full-bleed clients "rubber band" while resizing:
+                    // the OS modal resize loop blocks our main loop, so WM_PAINT is
+                    // starved and DWM stretches the previous frame to the new size
+                    // until a repaint finally lands. The Resize notify above already
+                    // invalidated; flush it synchronously here so the content is
+                    // redrawn at the new size on this very message, tracking the
+                    // frame edge smoothly. Gated on hglrc so it never fires before
+                    // the GL context / canvas exist (e.g. the creation-time WM_SIZE).
+                    if (self->nativeFrameless && self->hglrc) {
+                        UpdateWindow(h);
+                    }
+
                     return 0;
                 }
 

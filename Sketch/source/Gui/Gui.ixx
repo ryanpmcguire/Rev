@@ -98,21 +98,21 @@ export namespace Sketch::Gui {
             }
 
             // Toggle light/dark theme.
-            if (e.keyboard.key == "d") {
+            /*if (e.keyboard.key == "d") {
 
                 Theme::toggleMode();
                 refresh(e);
 
                 e.propagate = false;
                 return;
-            }
+            }*/
 
             // Forward remaining keys (Enter / Escape) to the sketch view so the
             // active tool's state machine can react.
-            if (sketchView) {
+            /*if (sketchView) {
                 sketchView->keyDown(e);
                 if (!e.propagate) { return; }
-            }
+            }*/
 
             Box::keyDown(e);
         }
