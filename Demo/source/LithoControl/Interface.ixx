@@ -5,6 +5,8 @@ module;
 #include <commdlg.h>
 #include <shlobj.h>
 #include <gdiplus.h>
+#include <setupapi.h>
+#pragma comment(lib, "setupapi.lib")
 
 #include <string>
 #include <vector>
@@ -13,6 +15,7 @@ module;
 #include <mutex>
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -33,6 +36,8 @@ import Rev.Element.Dropdown;
 import Rev.Element.Checkbox;
 import Rev.Serial;
 import Rev.SocketClient;
+import Rev.Primitive.Image;
+import Rev.Graphics.Texture;
 
 export namespace LithoControl {
 
@@ -223,13 +228,141 @@ export namespace LithoControl {
     // ─────────────────────────────────────────────────────────────────────────
 
     struct MsgQueue {
-        std::mutex             mtx;
+        std::mutex              mtx;
         std::deque<std::string> q;
-        void push(std::string s) { std::lock_guard g(mtx); q.push_back(std::move(s)); }
+
+        void push(std::string s) {
+            { std::lock_guard g(mtx); q.push_back(std::move(s)); }
+            // Trigger a repaint so computeStyle drains this message without waiting
+            // for the next user-input event. Safe to call from background threads.
+            HWND hw = GetForegroundWindow();
+            if (hw) InvalidateRect(hw, nullptr, FALSE);
+        }
+
         bool pop(std::string& out) {
             std::lock_guard g(mtx);
             if (q.empty()) return false;
             out = std::move(q.front()); q.pop_front(); return true;
+        }
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ImagePreview element — renders a PNG with an optional tile-grid overlay
+    // ─────────────────────────────────────────────────────────────────────────
+
+    struct ImagePreview : public Box {
+
+        Rev::Primitives::Image*    imgPrimitive = nullptr;
+        Rev::Graphics::Texture*    imgTexture   = nullptr;
+
+        int srcW = 0, srcH = 0;     // original image pixel dimensions
+        int tileX = 0, tileY = 0;   // tile grid counts (0 = no grid)
+
+        // Hint text shown when no image is loaded
+        Text* hint = nullptr;
+
+        ImagePreview(Element* parent, StyleList styles = {})
+            : Box(parent, styles)
+        {
+            imgPrimitive = new Rev::Primitives::Image(shared->canvas);
+            hint = new Text(this, "[ NO ARTWORK LOADED ]");
+            hint->style->text.color = rgba(232, 232, 232, 0.2f);
+            hint->style->text.size  = 14_px;
+        }
+
+        ~ImagePreview() override {
+            delete imgPrimitive;
+            delete imgTexture;
+        }
+
+        // Load a PNG/BMP/JPEG via GDI+ and upload to GPU texture.
+        // Tile grid is inferred from slicer output (call setGrid after slicing).
+        void loadFile(const std::string& path) {
+
+            std::wstring wp(path.begin(), path.end());
+            Gdiplus::Bitmap bmp(wp.c_str());
+            if (bmp.GetLastStatus() != Gdiplus::Ok) return;
+
+            srcW = (int)bmp.GetWidth();
+            srcH = (int)bmp.GetHeight();
+
+            // Draw into a 32bppARGB bitmap so pixel format is consistent
+            Gdiplus::Bitmap rgbaBmp(srcW, srcH, PixelFormat32bppARGB);
+            {
+                Gdiplus::Graphics g(&rgbaBmp);
+                g.DrawImage(&bmp, 0, 0, srcW, srcH);
+            }
+
+            Gdiplus::BitmapData bd;
+            Gdiplus::Rect grect(0, 0, srcW, srcH);
+            rgbaBmp.LockBits(&grect, Gdiplus::ImageLockModeRead,
+                             PixelFormat32bppARGB, &bd);
+
+            // GDI+ 32bppARGB stores B,G,R,A → reorder to R,G,B,A for OpenGL
+            std::vector<uint8_t> rgba(srcW * srcH * 4);
+            auto* src = reinterpret_cast<uint8_t*>(bd.Scan0);
+            for (int row = 0; row < srcH; row++) {
+                for (int col = 0; col < srcW; col++) {
+                    int si = row * bd.Stride + col * 4;
+                    int di = (row * srcW + col) * 4;
+                    rgba[di+0] = src[si+2];  // R
+                    rgba[di+1] = src[si+1];  // G
+                    rgba[di+2] = src[si+0];  // B
+                    rgba[di+3] = src[si+3];  // A
+                }
+            }
+            rgbaBmp.UnlockBits(&bd);
+
+            // Upload to GPU (replace existing texture if any)
+            delete imgTexture;
+            imgTexture = new Rev::Graphics::Texture(shared->canvas->context, {
+                .data     = rgba.data(),
+                .width    = (size_t)srcW,
+                .height   = (size_t)srcH,
+                .channels = 4,
+                .filter   = Rev::Graphics::Texture::Filter::Bilinear
+            });
+            imgPrimitive->texture = imgTexture;
+
+            // Hide hint text once an image is loaded
+            if (hint) hint->style->visibility = Visibility::Hidden;
+        }
+
+        void setGrid(int cols, int rows) {
+            tileX = cols;
+            tileY = rows;
+        }
+
+        void computePrimitives(Event& e) override {
+
+            if (imgPrimitive && imgTexture && srcW > 0 && srcH > 0) {
+                // Letterbox: scale to fit the element's rect while preserving aspect ratio
+                float scaleX = rect.w / (float)srcW;
+                float scaleY = rect.h / (float)srcH;
+                float scale  = (std::min)(scaleX, scaleY);
+                float dw = srcW * scale;
+                float dh = srcH * scale;
+                float dx = rect.x + (rect.w - dw) * 0.5f;
+                float dy = rect.y + (rect.h - dh) * 0.5f;
+
+                auto& d      = *imgPrimitive->data;
+                d.x          = dx; d.y = dy; d.w = dw; d.h = dh;
+                d.opacity    = 1.0f;
+                d.tileCountX = (float)tileX;
+                d.tileCountY = (float)tileY;
+            }
+
+            Box::computePrimitives(e);
+        }
+
+        void draw(Event& e) override {
+
+            // Draw image behind children (hint text / no-image state)
+            if (imgPrimitive && imgTexture) {
+                imgPrimitive->draw();
+            }
+
+            Box::draw(e);
         }
     };
 
@@ -252,6 +385,7 @@ export namespace LithoControl {
         Rev::SocketClient* piClient  = nullptr;
 
         std::string inputFilePath;
+        std::string dlpRoot;     // set when a file is loaded; used to resolve slicer/jobs paths
         std::string selectedJob;
         std::vector<std::string> jobs;
         bool jobListDirty = false;
@@ -260,6 +394,11 @@ export namespace LithoControl {
         std::atomic<int>  frameTotal { 0 };
         std::atomic<bool> abortFlag  { false };
         std::thread       jobThread;
+
+        // Posted by the slicer thread; consumed on the main thread in computeStyle
+        std::atomic<int>  pendingTileX { 0 };
+        std::atomic<int>  pendingTileY { 0 };
+        std::atomic<bool> pendingPreviewReload { false };
 
         MsgQueue logQ;
         MsgQueue gcodeQ;
@@ -286,14 +425,22 @@ export namespace LithoControl {
             std::string platform = "stm32";
         } settings;
 
+        // ── Sidebar scroll ────────────────────────────────────────────────────
+
+        float sidebarScrollY   = 0.0f;
+        Box*  sidebarBox       = nullptr;
+        Box*  sidebarContent   = nullptr;
+        Box*  sidebarScrollThumb = nullptr;
+
         // ── UI element pointers ──────────────────────────────────────────────
 
         // Connection
-        Dropdown*  platformDrop   = nullptr;
-        Box*       stmPortRow     = nullptr;
-        TextInput* portInput      = nullptr;
-        Box*       piHostRow      = nullptr;
-        TextInput* hostInput      = nullptr;
+        Dropdown*  platformDrop     = nullptr;
+        Box*       platformRowSlot  = nullptr;
+        Box*       stmPortRow       = nullptr;
+        Dropdown*  portDrop         = nullptr;
+        Box*       piHostRow        = nullptr;
+        TextInput* hostInput        = nullptr;
         Text*      connStatus     = nullptr;
         Text*      connectBtnTxt  = nullptr;
 
@@ -320,8 +467,31 @@ export namespace LithoControl {
         // Status
         Text*  frameLabel    = nullptr;
         Box*   progressFill  = nullptr;
+        Box*   runnerLogBox  = nullptr;
         Text*  runnerLogTxt  = nullptr;
+        float  runnerLogScrollY = 0.0f;
+        Box*   gcodeLogBox   = nullptr;
         Text*  gcodeLogTxt   = nullptr;
+        float  gcodeLogScrollY = 0.0f;
+
+        // Preview
+        ImagePreview* previewImg = nullptr;
+
+        // Sidebar collapse + drag resize
+        bool   sidebarCollapsed      = false;
+        Text*  sidebarCollapseBtn    = nullptr;
+        bool   sidebarDragging       = false;
+        bool   sidebarDragMoved      = false;
+        float  sidebarDragStartX     = 0.0f;
+        float  sidebarDragStartW     = 320.0f;
+        Box*   sidebarScrollTrackBox = nullptr;
+
+        // Status panel drag resize
+        bool   statusDragging    = false;
+        float  statusDragStartY  = 0.0f;
+        float  statusDragStartH  = 200.0f;
+        float  statusPanelH      = 200.0f;
+        Box*   statusPanelBox    = nullptr;
 
         // ── Constructor ──────────────────────────────────────────────────────
 
@@ -336,8 +506,48 @@ export namespace LithoControl {
 
             loadSettings();
             buildSidebar();
+            buildCollapseHandle();
             buildRightPanel();
             refreshJobList();
+
+            // Global drag handlers — fire on any mouse move/up over the Interface,
+            // so drags stay active even when the cursor leaves the originating handle.
+            this->onMouseMove([this](Rev::Element::Event& e) {
+                if (sidebarDragging) {
+                    float dx = e.mouse.pos.x - sidebarDragStartX;
+                    if (std::abs(dx) > 4.0f) sidebarDragMoved = true;
+                    float newW = std::clamp(sidebarDragStartW + dx, 0.0f, 700.0f);
+                    if (newW < 30.0f) newW = 0.0f;
+                    if (sidebarBox)
+                        sidebarBox->style->size.width = Px(newW);
+                    if (sidebarScrollTrackBox)
+                        sidebarScrollTrackBox->style->position.left = Px(newW - 6.0f);
+                }
+                if (statusDragging) {
+                    float dy    = e.mouse.pos.y - statusDragStartY;
+                    float newH  = std::clamp(statusDragStartH - dy, 80.0f, 600.0f);
+                    statusPanelH = newH;
+                    if (statusPanelBox)
+                        statusPanelBox->style->size.height = Px(statusPanelH);
+                }
+            });
+
+            this->onMouseUp([this](Rev::Element::Event&) {
+                if (sidebarDragging && !sidebarDragMoved) {
+                    // Click (no drag) — toggle collapse
+                    sidebarCollapsed = !sidebarCollapsed;
+                    if (sidebarCollapseBtn)
+                        sidebarCollapseBtn->content = sidebarCollapsed ? ">" : "<";
+                    float targetW = sidebarCollapsed ? 0.0f
+                                  : (sidebarDragStartW > 30.0f ? sidebarDragStartW : 320.0f);
+                    if (sidebarBox)
+                        sidebarBox->style->size.width = Px(targetW);
+                    if (sidebarScrollTrackBox)
+                        sidebarScrollTrackBox->style->position.left = Px(targetW - 6.0f);
+                }
+                sidebarDragging = false;
+                statusDragging  = false;
+            });
         }
 
         ~Interface() {
@@ -353,10 +563,20 @@ export namespace LithoControl {
 
         void buildSidebar() {
 
-            Box* sb = new Box(this, { &Theme::SidebarRoot });
+            sidebarBox = new Box(this, { &Theme::SidebarRoot });
+            Box* sb = sidebarBox;
+
+            // Absolutely-positioned content column: full width, grows to fit all sections.
+            // Shifted up by sidebarScrollY each frame.
+            sidebarContent = new Box(sb);
+            sidebarContent->style->layout.direction  = Axis::Vertical;
+            sidebarContent->style->layout.horizontal = Align::Start;
+            sidebarContent->style->layout.vertical   = Align::Start;
+            sidebarContent->style->layout.position   = Position::Absolute;
+            sidebarContent->style->size.width        = 100_pct;
 
             // Title
-            Text* title = new Text(sb, "LITHOCONTROL  v2.0");
+            Text* title = new Text(sidebarContent, "LITHOCONTROL  v2.0");
             title->style->size.width     = 100_pct;
             title->style->padding        = { 10_px, 8_px, 10_px, 10_px };
             title->style->text.color     = rgba(232, 232, 232, 1);
@@ -365,20 +585,52 @@ export namespace LithoControl {
             title->style->border.bottom.width = 1_px;
 
             Box* connBody = nullptr;
-            makeSection(sb, "CONNECTION", connBody, false);
+            makeSection(sidebarContent, "CONNECTION", connBody, false);
             buildConnectionPanel(connBody);
 
             Box* slicerBody = nullptr;
-            makeSection(sb, "SLICER", slicerBody, false);
+            makeSection(sidebarContent, "SLICER", slicerBody, false);
             buildSlicerPanel(slicerBody);
 
             Box* jobBody = nullptr;
-            makeSection(sb, "JOB QUEUE", jobBody, false);
+            makeSection(sidebarContent, "JOB QUEUE", jobBody, false);
             buildJobPanel(jobBody);
 
             Box* jogBody = nullptr;
-            makeSection(sb, "JOG", jogBody, false);
+            makeSection(sidebarContent, "JOG", jogBody, false);
             buildJogPanel(jogBody);
+
+            // Scrollbar track: thin strip on the right edge of the sidebar.
+            // Absolutely positioned so it stays fixed while content scrolls.
+            sidebarScrollTrackBox = new Box(sb);
+            sidebarScrollTrackBox->style->layout.position      = Position::Absolute;
+            sidebarScrollTrackBox->style->position.top         = Px(0);
+            sidebarScrollTrackBox->style->position.left        = Px(314); // 320 - 6
+            sidebarScrollTrackBox->style->size.width           = 6_px;
+            sidebarScrollTrackBox->style->size.height          = 100_pct;
+            sidebarScrollTrackBox->style->background.color     = rgba(30, 30, 30, 1);
+            sidebarScrollTrackBox->style->border.radius        = 3_px;
+
+            // Scrollbar thumb: sized and positioned in computeStyle each frame.
+            sidebarScrollThumb = new Box(sidebarScrollTrackBox);
+            sidebarScrollThumb->style->layout.position  = Position::Absolute;
+            sidebarScrollThumb->style->position.left    = Px(1);
+            sidebarScrollThumb->style->position.top     = Px(0);
+            sidebarScrollThumb->style->size.width       = 4_px;
+            sidebarScrollThumb->style->size.height      = Px(40);
+            sidebarScrollThumb->style->background.color = rgba(80, 80, 80, 1);
+            sidebarScrollThumb->style->border.radius    = 2_px;
+
+            // Wheel handler: update scroll and immediately dirty sidebarContent
+            // so the frame repaints without waiting for a hover event.
+            sb->onMouseWheel([this](Rev::Element::Event& e) {
+                sidebarScrollY -= (e.mouse.wheel.y / 120.0f) * 40.0f;
+                if (sidebarScrollY < 0.0f) sidebarScrollY = 0.0f;
+                // Setting style directly fires Dist::operator= → dirty flag → refresh()
+                // → propagates to root → immediate repaint this frame.
+                sidebarContent->style->position.top = Px(-sidebarScrollY);
+                e.propagate = false;
+            });
         }
 
         // Collapsible section header + body
@@ -397,12 +649,49 @@ export namespace LithoControl {
             lbl->style->text.size  = 10_px;
 
             body = new Box(parent, { &Theme::SectionBody });
-            body->style->visibility = collapsed ? Visibility::Hidden : Visibility::Visible;
 
-            hdr->onMouseDown([arrow, body](Rev::Element::Event& e) {
-                bool vis = (body->style->visibility == Visibility::Visible);
-                body->style->visibility = vis ? Visibility::Hidden : Visibility::Visible;
-                arrow->content = vis ? ">" : "v";
+            // Saved children used as collapse-state indicator (empty = expanded)
+            auto saved = std::make_shared<std::vector<Element*>>();
+
+            hdr->onMouseDown([arrow, body, saved](Rev::Element::Event& e) {
+                if (saved->empty()) {
+                    // Collapse: detach children and zero padding
+                    *saved = body->children;
+                    for (auto* c : *saved) body->removeChild(c);
+                    body->style->padding = 0_px;
+                    arrow->content = ">";
+                } else {
+                    // Expand: restore padding then reattach children
+                    body->style->padding = { 8_px, 8_px, 8_px, 8_px };
+                    for (auto* c : *saved) body->addChild(c);
+                    saved->clear();
+                    arrow->content = "v";
+                }
+            });
+        }
+
+        // ── Sidebar collapse handle ───────────────────────────────────────────
+        // A 16px-wide strip between sidebar and right panel — always visible,
+        // lets the user hide/show the sidebar without losing access to the toggle.
+
+        void buildCollapseHandle() {
+            Box* handle = new Box(this);
+            handle->style->size             = { 16_px, 100_pct };
+            handle->style->layout           = { Axis::Vertical, Align::Center, Align::Start };
+            handle->style->background.color = rgba(20, 20, 20, 1);
+            handle->style->border.right     = { rgba(42, 42, 42, 1), 1_px };
+            handle->style->cursor           = Cursor::ArrowsHorizontal;
+
+            sidebarCollapseBtn = new Text(handle, "<");
+            sidebarCollapseBtn->style->text.color = rgba(232, 232, 232, 0.4f);
+            sidebarCollapseBtn->style->text.size  = 9_px;
+            sidebarCollapseBtn->style->margin.top = 8_px;
+
+            handle->onMouseDown([this](Rev::Element::Event& e) {
+                sidebarDragging   = true;
+                sidebarDragMoved  = false;
+                sidebarDragStartX = e.mouse.pos.x;
+                sidebarDragStartW = sidebarBox ? sidebarBox->rect.w : 320.0f;
             });
         }
 
@@ -421,39 +710,62 @@ export namespace LithoControl {
                 .placeholder = "STM32 (Serial)",
                 .value = (settings.platform == "pi") ? "pi" : "stm32"
             });
-
             platformDrop->label->style->visibility = Visibility::Hidden;
 
-            platformDrop->onMouseDown([this](Rev::Element::Event& e) {
-                // Handled in computeStyle via params.value
+            // Slot: holds exactly one platform-specific row at a time.
+            // Using a slot instead of Visibility::Hidden means the hidden row is
+            // removed from the tree and takes no layout space.
+            platformRowSlot = new Box(body);
+            platformRowSlot->style->layout.direction  = Axis::Vertical;
+            platformRowSlot->style->layout.horizontal = Align::Start;
+            platformRowSlot->style->size.width        = 100_pct;
+            platformRowSlot->style->margin.top        = 6_px;
+
+            // STM32 port row — vertical so dropdown + scan button stack cleanly
+            stmPortRow = new Box(platformRowSlot);
+            stmPortRow->style->layout = { Axis::Vertical, Align::Start, Align::Start };
+            stmPortRow->style->size.width = 100_pct;
+
+            Text* portLbl = new Text(stmPortRow, "COM PORT");
+            portLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+            portLbl->style->text.size     = 9_px;
+            portLbl->style->margin.bottom = 4_px;
+
+            // Seed the options list with the saved port (if any) so something
+            // shows before the user hits SCAN.
+            std::vector<Dropdown::Option> initOpts;
+            if (!settings.port.empty())
+                initOpts.push_back({ settings.port, settings.port });
+
+            portDrop = new Dropdown(stmPortRow, {
+                .options     = initOpts,
+                .placeholder = "Scan for ports...",
+                .value       = settings.port
             });
+            portDrop->label->style->visibility = Visibility::Hidden;
 
-            // STM32 port row
-            stmPortRow = new Box(body, { &Theme::RowH });
-            stmPortRow->style->margin.top = 6_px;
+            Box* scanRow = new Box(stmPortRow, { &Theme::RowH });
+            scanRow->style->margin.top = 4_px;
+            makeBtn(scanRow, "SCAN", [this]() { scanPorts(); });
 
-            portInput = new TextInput(stmPortRow, {
-                .label = "COM PORT",
-                .placeholder = settings.port.empty() ? "COM3" : settings.port,
-                .maxLength = 20
-            });
-
-            Box* scanBtn = makeBtn(stmPortRow, "SCAN", [this]() { scanPorts(); }, false, false, false);
-            scanBtn->style->size.width = 60_px;
-            scanBtn->style->size.max.width = 60_px;
-            (void)scanBtn;
-
-            // Pi host row
-            piHostRow = new Box(body, { &Theme::RowH });
-            piHostRow->style->margin.top = 6_px;
+            // Pi host row (built as child of slot so shared/canvas is valid,
+            // then removed immediately by updatePlatformRows for the STM32 default)
+            piHostRow = new Box(platformRowSlot);
+            piHostRow->style->layout    = { Axis::Vertical, Align::Start, Align::Start };
+            piHostRow->style->size.width = 100_pct;
+            piHostRow->style->margin.bottom = 6_px;
 
             hostInput = new TextInput(piHostRow, {
                 .label = "HOST / IP",
-                .placeholder = settings.piHost,
+                .placeholder = "",
                 .maxLength = 64
             });
+            hostInput->text->content     = settings.piHost;
+            hostInput->style->size.width = 100_pct;
+            hostInput->label->style->text.color = rgba(232, 232, 232, 0.6f);
+            hostInput->label->style->text.size  = 9_px;
 
-            // Status + connect button
+            // Status row
             Box* connRow = new Box(body, { &Theme::RowH });
             connRow->style->margin.top = 8_px;
 
@@ -462,22 +774,13 @@ export namespace LithoControl {
             connStatus->style->text.size  = 11_px;
             connStatus->style->size       = { Grow() };
 
+            // Connect button — no fixed px width, flex with the row
             Box* connBtn = makeBtn(connRow, "CONNECT", nullptr, true);
-            connBtn->style->size.width = 100_px;
-            connBtn->style->size.max.width = 100_px;
             connectBtnTxt = (Text*)connBtn->children[0];
+            connBtn->onMouseDown([this](Rev::Element::Event& e) { toggleConnect(); });
 
-            connBtn->onMouseDown([this](Rev::Element::Event& e) {
-                toggleConnect();
-            });
-
-            // Show/hide rows for current platform
+            // Activate the correct row for the initial platform
             updatePlatformRows();
-
-            // Platform dropdown change
-            platformDrop->dropdown->onMouseDown([this](Rev::Element::Event& e) {
-                // Handled after selection settles — poll in computeStyle
-            });
         }
 
         // ── Slicer panel ──────────────────────────────────────────────────────
@@ -497,6 +800,17 @@ export namespace LithoControl {
             browseBtn->style->size.width = 70_px;
             browseBtn->style->size.max.width = 70_px;
             (void)browseBtn;
+
+            Box* prevBtn = makeBtn(fileRow, "PREVIEW", [this]() {
+                if (inputFilePath.empty()) { logQ.push("No file loaded"); return; }
+                if (previewImg) {
+                    previewImg->setGrid(0, 0);
+                    previewImg->loadFile(inputFilePath);
+                }
+            }, false);
+            prevBtn->style->size.width = 70_px;
+            prevBtn->style->size.max.width = 70_px;
+            (void)prevBtn;
 
             jobNameInput   = makeInput(body, "JOB NAME",   "",                         200);
             exposeMsInput  = makeInput(body, "EXPOSE MS",  std::to_string(settings.exposeMs), 8);
@@ -532,6 +846,8 @@ export namespace LithoControl {
                 .placeholder = settings.jobsDir,
                 .maxLength = 256
             });
+            jobsDirInput->label->style->text.color = rgba(232, 232, 232, 0.6f);
+            jobsDirInput->label->style->text.size  = 9_px;
 
             Box* browseDir = makeBtn(dirRow, "...", [this]() { browseJobsDir(); }, false);
             browseDir->style->size.width = 30_px;
@@ -592,15 +908,27 @@ export namespace LithoControl {
 
             Box* rp = new Box(this, { &Theme::RightPanel });
 
-            // Preview placeholder
-            Box* prev = new Box(rp, { &Theme::PreviewArea });
-            Text* prevHint = new Text(prev, "[ NO ARTWORK LOADED ]");
-            prevHint->style->text.color = rgba(232, 232, 232, 0.2f);
-            prevHint->style->text.size  = 14_px;
-            (void)prevHint;
+            // Preview area — ImagePreview fills remaining height above the status panel
+            previewImg = new ImagePreview(rp, { &Theme::PreviewArea });
 
-            // Status panel
-            Box* sp = new Box(rp, { &Theme::StatusPanel });
+            // Drag handle between preview and status panel
+            Box* statusDragHandle = new Box(rp);
+            statusDragHandle->style->size             = { 100_pct, 6_px };
+            statusDragHandle->style->background.color = rgba(28, 28, 28, 1);
+            statusDragHandle->style->border.top       = { rgba(42, 42, 42, 1), 1_px };
+            statusDragHandle->style->cursor           = Cursor::ArrowsVertical;
+            statusDragHandle->onMouseDown([this](Rev::Element::Event& e) {
+                statusDragging    = true;
+                statusDragStartY  = e.mouse.pos.y;
+                statusDragStartH  = statusPanelH;
+                e.propagate = false;
+            });
+
+            // Status panel — explicit height so it can be resized by drag
+            statusPanelBox = new Box(rp, { &Theme::StatusPanel });
+            statusPanelBox->style->size.height = Px(statusPanelH);
+
+            Box* sp = statusPanelBox;
 
             // Frame label + progress
             Box* progRow = new Box(sp, { &Theme::RowH });
@@ -615,37 +943,100 @@ export namespace LithoControl {
             Box* progTrack = new Box(progRow, { &Theme::ProgressTrack });
             progressFill = new Box(progTrack, { &Theme::ProgressFill });
 
-            // Log row (runner + gcode side by side)
+            // Log row (runner + gcode side by side) — grows to fill status panel
             Box* logRow = new Box(sp);
-            logRow->style->layout = { Axis::Horizontal, Align::Start, Align::Start };
-            logRow->style->size.width = 100_pct;
+            logRow->style->layout        = { Axis::Horizontal, Align::Start, Align::Start };
+            logRow->style->size.width    = 100_pct;
+            logRow->style->size.height   = Grow();
 
-            // Runner log
+            // ── Runner log ────────────────────────────────────────────────────
+
             Box* runnerCol = new Box(logRow);
-            runnerCol->style->layout = { Axis::Vertical, Align::Start, Align::Start };
-            runnerCol->style->size   = { Grow() };
+            runnerCol->style->layout       = { Axis::Vertical, Align::Start, Align::Start };
+            runnerCol->style->size.width   = Grow();
+            runnerCol->style->size.height  = Grow();
             runnerCol->style->margin.right = 8_px;
 
-            Text* runnerLbl = new Text(runnerCol, "RUNNER LOG");
-            runnerLbl->style->text.color  = rgba(232, 232, 232, 0.4f);
-            runnerLbl->style->text.size   = 9_px;
-            runnerLbl->style->margin.bottom = 4_px;
+            // Header row with COPY button
+            Box* runnerHdr = new Box(runnerCol);
+            runnerHdr->style->layout        = { Axis::Horizontal, Align::Center, Align::Center };
+            runnerHdr->style->size.width    = 100_pct;
+            runnerHdr->style->margin.bottom = 4_px;
 
-            Box* runnerBox = new Box(runnerCol, { &Theme::LogBox });
-            runnerLogTxt = new Text(runnerBox, "", { &Theme::LogText });
+            Text* runnerLbl = new Text(runnerHdr, "RUNNER LOG");
+            runnerLbl->style->text.color = rgba(232, 232, 232, 0.4f);
+            runnerLbl->style->text.size  = 9_px;
+            runnerLbl->style->size       = { Grow() };
 
-            // G-code log
+            Box* runnerCopyBtn = new Box(runnerHdr, { &Theme::Btn, &Theme::BtnHover });
+            runnerCopyBtn->style->size        = { 32_px, 18_px };
+            runnerCopyBtn->style->size.max    = { 32_px, 18_px };
+            runnerCopyBtn->style->margin      = { 0_px };
+            runnerCopyBtn->style->padding     = { 2_px, 2_px, 4_px, 4_px };
+            Text* runnerCopyTxt = new Text(runnerCopyBtn, "CPY");
+            runnerCopyTxt->style->text.size  = 9_px;
+            runnerCopyTxt->style->text.color = rgba(232, 232, 232, 0.8f);
+            runnerCopyBtn->onMouseDown([this](Rev::Element::Event&) { copyToClipboard(logLines); });
+
+            runnerLogBox = new Box(runnerCol, { &Theme::LogBox });
+            runnerLogBox->style->size.height = Grow();  // override fixed 100_px from LogBox theme
+            runnerLogTxt = new Text(runnerLogBox, "", { &Theme::LogText });
+            runnerLogTxt->style->layout.position = Position::Absolute;
+            runnerLogTxt->style->size.width      = 100_pct;
+            runnerLogTxt->selectable = true;
+            runnerLogBox->onMouseWheel([this](Rev::Element::Event& e) {
+                float boxH  = runnerLogBox->rect.h;
+                float textH = runnerLogTxt->rect.h;
+                float maxS  = (std::max)(0.0f, textH - boxH);
+                runnerLogScrollY -= (e.mouse.wheel.y / 120.0f) * 20.0f;
+                runnerLogScrollY  = std::clamp(runnerLogScrollY, 0.0f, maxS);
+                runnerLogTxt->style->position.top = Px(-runnerLogScrollY);
+                e.propagate = false;
+            });
+
+            // ── G-code log ────────────────────────────────────────────────────
+
             Box* gcodeCol = new Box(logRow);
-            gcodeCol->style->layout = { Axis::Vertical, Align::Start, Align::Start };
-            gcodeCol->style->size   = { Grow() };
+            gcodeCol->style->layout      = { Axis::Vertical, Align::Start, Align::Start };
+            gcodeCol->style->size.width  = Grow();
+            gcodeCol->style->size.height = Grow();
 
-            Text* gcodeLbl = new Text(gcodeCol, "GCODE STREAM");
-            gcodeLbl->style->text.color  = rgba(232, 232, 232, 0.4f);
-            gcodeLbl->style->text.size   = 9_px;
-            gcodeLbl->style->margin.bottom = 4_px;
+            // Header row with COPY button
+            Box* gcodeHdr = new Box(gcodeCol);
+            gcodeHdr->style->layout        = { Axis::Horizontal, Align::Center, Align::Center };
+            gcodeHdr->style->size.width    = 100_pct;
+            gcodeHdr->style->margin.bottom = 4_px;
 
-            Box* gcodeBox = new Box(gcodeCol, { &Theme::LogBox });
-            gcodeLogTxt = new Text(gcodeBox, "", { &Theme::GcodeText });
+            Text* gcodeLbl = new Text(gcodeHdr, "GCODE STREAM");
+            gcodeLbl->style->text.color = rgba(232, 232, 232, 0.4f);
+            gcodeLbl->style->text.size  = 9_px;
+            gcodeLbl->style->size       = { Grow() };
+
+            Box* gcodeCopyBtn = new Box(gcodeHdr, { &Theme::Btn, &Theme::BtnHover });
+            gcodeCopyBtn->style->size        = { 32_px, 18_px };
+            gcodeCopyBtn->style->size.max    = { 32_px, 18_px };
+            gcodeCopyBtn->style->margin      = { 0_px };
+            gcodeCopyBtn->style->padding     = { 2_px, 2_px, 4_px, 4_px };
+            Text* gcodeCopyTxt = new Text(gcodeCopyBtn, "CPY");
+            gcodeCopyTxt->style->text.size  = 9_px;
+            gcodeCopyTxt->style->text.color = rgba(232, 232, 232, 0.8f);
+            gcodeCopyBtn->onMouseDown([this](Rev::Element::Event&) { copyToClipboard(gcodeLines); });
+
+            gcodeLogBox = new Box(gcodeCol, { &Theme::LogBox });
+            gcodeLogBox->style->size.height = Grow();  // override fixed 100_px from LogBox theme
+            gcodeLogTxt = new Text(gcodeLogBox, "", { &Theme::GcodeText });
+            gcodeLogTxt->style->layout.position = Position::Absolute;
+            gcodeLogTxt->style->size.width      = 100_pct;
+            gcodeLogTxt->selectable = true;
+            gcodeLogBox->onMouseWheel([this](Rev::Element::Event& e) {
+                float boxH  = gcodeLogBox->rect.h;
+                float textH = gcodeLogTxt->rect.h;
+                float maxS  = (std::max)(0.0f, textH - boxH);
+                gcodeLogScrollY -= (e.mouse.wheel.y / 120.0f) * 20.0f;
+                gcodeLogScrollY  = std::clamp(gcodeLogScrollY, 0.0f, maxS);
+                gcodeLogTxt->style->position.top = Px(-gcodeLogScrollY);
+                e.propagate = false;
+            });
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -654,26 +1045,54 @@ export namespace LithoControl {
 
         void computeStyle(Rev::Element::Event& e) override {
 
+            // Reload preview image with tile grid after a successful slice
+            if (pendingPreviewReload.exchange(false)) {
+                if (previewImg && !inputFilePath.empty()) {
+                    previewImg->setGrid(pendingTileX.load(), pendingTileY.load());
+                    previewImg->loadFile(inputFilePath);
+                }
+            }
+
             // Drain log queue → update displayed text
             std::string msg;
+            bool runnerUpdated = false;
             while (logQ.pop(msg)) {
                 logLines.push_back(msg);
                 if (logLines.size() > MAX_LOG) logLines.pop_front();
+                runnerUpdated = true;
             }
             if (runnerLogTxt) {
                 std::string joined;
                 for (auto& l : logLines) { joined += l; joined += '\n'; }
                 runnerLogTxt->content = joined;
             }
+            // Auto-scroll runner log to bottom when new messages arrive
+            if (runnerUpdated && runnerLogBox && runnerLogTxt) {
+                float boxH  = runnerLogBox->rect.h;
+                float textH = runnerLogTxt->rect.h;
+                float maxS  = (std::max)(0.0f, textH - boxH);
+                runnerLogScrollY = maxS;
+                runnerLogTxt->style->position.top = Px(-runnerLogScrollY);
+            }
 
+            bool gcodeUpdated = false;
             while (gcodeQ.pop(msg)) {
                 gcodeLines.push_back(msg);
                 if (gcodeLines.size() > MAX_LOG) gcodeLines.pop_front();
+                gcodeUpdated = true;
             }
             if (gcodeLogTxt) {
                 std::string joined;
                 for (auto& l : gcodeLines) { joined += l; joined += '\n'; }
                 gcodeLogTxt->content = joined;
+            }
+            // Auto-scroll gcode log to bottom when new messages arrive
+            if (gcodeUpdated && gcodeLogBox && gcodeLogTxt) {
+                float boxH  = gcodeLogBox->rect.h;
+                float textH = gcodeLogTxt->rect.h;
+                float maxS  = (std::max)(0.0f, textH - boxH);
+                gcodeLogScrollY = maxS;
+                gcodeLogTxt->style->position.top = Px(-gcodeLogScrollY);
             }
 
             // Progress bar
@@ -681,6 +1100,26 @@ export namespace LithoControl {
             if (tot > 0 && progressFill) {
                 float pct = std::clamp(100.0f * n / tot, 0.0f, 100.0f);
                 progressFill->style->size.width = Pct(pct);
+            }
+
+            // Sidebar scroll: keep content clamped and update the scrollbar thumb.
+            // (position.top is set immediately in the wheel handler for instant repaint;
+            //  this block handles initial sizing and window-resize clamping.)
+            if (sidebarBox && sidebarContent && sidebarScrollThumb) {
+                float trackH   = sidebarBox->rect.h;
+                float contentH = sidebarContent->rect.h > 0.0f ? sidebarContent->rect.h : trackH;
+                float maxScroll = (std::max)(0.0f, contentH - trackH);
+                if (sidebarScrollY > maxScroll) {
+                    sidebarScrollY = maxScroll;
+                    sidebarContent->style->position.top = Px(-sidebarScrollY);
+                }
+                float ratio   = (contentH > trackH) ? (trackH / contentH) : 1.0f;
+                float thumbH  = (std::max)(20.0f, ratio * trackH);
+                float thumbTop = (maxScroll > 0.0f)
+                    ? (sidebarScrollY / maxScroll) * (trackH - thumbH)
+                    : 0.0f;
+                sidebarScrollThumb->style->size.height  = Px(thumbH);
+                sidebarScrollThumb->style->position.top = Px(thumbTop);
             }
 
             // Sync platform dropdown → hide/show rows
@@ -710,9 +1149,17 @@ export namespace LithoControl {
         // ─────────────────────────────────────────────────────────────────────
 
         void updatePlatformRows() {
-            if (!stmPortRow || !piHostRow) return;
-            stmPortRow->style->visibility = (platform == Platform::STM32) ? Visibility::Visible : Visibility::Hidden;
-            piHostRow->style->visibility  = (platform == Platform::Pi)    ? Visibility::Visible : Visibility::Hidden;
+            if (!platformRowSlot || !stmPortRow || !piHostRow) return;
+            auto& kids = platformRowSlot->children;
+            bool stmIn = std::find(kids.begin(), kids.end(), (Element*)stmPortRow) != kids.end();
+            bool piIn  = std::find(kids.begin(), kids.end(), (Element*)piHostRow)  != kids.end();
+            if (platform == Platform::STM32) {
+                if (piIn)   platformRowSlot->removeChild(piHostRow);
+                if (!stmIn) platformRowSlot->addChild(stmPortRow);
+            } else {
+                if (stmIn)  platformRowSlot->removeChild(stmPortRow);
+                if (!piIn)  platformRowSlot->addChild(piHostRow);
+            }
         }
 
         void toggleConnect() {
@@ -725,7 +1172,7 @@ export namespace LithoControl {
 
         void doConnect() {
             if (platform == Platform::STM32) {
-                std::string port = portInput ? portInput->text->strContent : settings.port;
+                std::string port = portDrop ? portDrop->params.value : settings.port;
                 if (port.empty()) port = "COM3";
                 logQ.push("Connecting to " + port + "...");
                 std::thread([this, port]() { connectStm32(port); }).detach();
@@ -848,8 +1295,11 @@ export namespace LithoControl {
         void refreshJobList() {
             if (platform == Platform::STM32 || !connFlag) {
                 // Scan local jobs directory
-                std::string dir = jobsDirInput ? jobsDirInput->text->strContent : settings.jobsDir;
+                std::string dir = jobsDirInput ? jobsDirInput->text->strContent : "";
                 if (dir.empty()) dir = settings.jobsDir;
+                // Resolve a relative default against the known DLP repo root
+                if (!dlpRoot.empty() && !std::filesystem::path(dir).is_absolute())
+                    dir = (std::filesystem::path(dlpRoot) / dir).string();
                 jobs.clear();
                 try {
                     for (auto& entry : std::filesystem::directory_iterator(dir)) {
@@ -1113,26 +1563,68 @@ export namespace LithoControl {
         }
 
         void scanPorts() {
-            // Enumerate COM ports via Win32 registry
-            HKEY hKey;
-            if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-                "HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
+            static const GUID PORTS_GUID = {
+                0x4d36e978, 0xe325, 0x11ce,
+                { 0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18 }
+            };
+
+            HDEVINFO devInfo = SetupDiGetClassDevsA(&PORTS_GUID, nullptr, nullptr, DIGCF_PRESENT);
+            if (devInfo == INVALID_HANDLE_VALUE) {
+                logQ.push("[SCAN] SetupDi failed");
+                return;
+            }
+
+            SP_DEVINFO_DATA devData{};
+            devData.cbSize = sizeof(devData);
+            std::vector<Dropdown::Option> found;
+
+            for (DWORD i = 0; SetupDiEnumDeviceInfo(devInfo, i, &devData); ++i) {
+
+                char friendlyName[256] = {};
+                SetupDiGetDeviceRegistryPropertyA(devInfo, &devData, SPDRP_FRIENDLYNAME,
+                    nullptr, (PBYTE)friendlyName, sizeof(friendlyName), nullptr);
+
+                char portName[32] = {};
+                HKEY hKey = SetupDiOpenDevRegKey(devInfo, &devData,
+                    DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+                if (hKey != INVALID_HANDLE_VALUE) {
+                    DWORD portLen = sizeof(portName);
+                    RegQueryValueExA(hKey, "PortName", nullptr, nullptr,
+                        (LPBYTE)portName, &portLen);
+                    RegCloseKey(hKey);
+                }
+
+                if (portName[0] == '\0' || strncmp(portName, "COM", 3) != 0) continue;
+
+                std::string friendly(friendlyName);
+                // Strip the redundant " (COMx)" suffix that Windows appends
+                std::string suffix = " (" + std::string(portName) + ")";
+                auto spos = friendly.rfind(suffix);
+                if (spos != std::string::npos) friendly.erase(spos);
+
+                std::string label;
+                if (!friendly.empty())
+                    label = std::string(portName) + " \xe2\x80\x94 " + friendly;
+                else
+                    label = std::string(portName);
+
+                found.push_back({ label, std::string(portName) });
+                logQ.push("[SCAN] " + label);
+            }
+
+            SetupDiDestroyDeviceInfoList(devInfo);
+
+            if (found.empty()) {
                 logQ.push("[SCAN] No COM ports found");
                 return;
             }
-            std::string ports;
-            DWORD idx = 0;
-            char  name[256], val[256];
-            DWORD nameLen, valLen, type;
-            while (true) {
-                nameLen = valLen = 256;
-                if (RegEnumValueA(hKey, idx++, name, &nameLen,
-                                  nullptr, &type, (BYTE*)val, &valLen) != ERROR_SUCCESS) break;
-                if (!ports.empty()) ports += ", ";
-                ports += val;
+
+            // Populate dropdown and select the first found port
+            if (portDrop) {
+                portDrop->params.options = found;
+                portDrop->params.value   = found[0].value;
+                portDrop->styles.dirty   = true;
             }
-            RegCloseKey(hKey);
-            logQ.push("[SCAN] Ports: " + (ports.empty() ? "(none)" : ports));
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -1149,8 +1641,11 @@ export namespace LithoControl {
             ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
             if (GetOpenFileNameA(&ofn)) {
                 inputFilePath = path;
+                dlpRoot = findDLPRoot(path);
+
+                std::string fname = std::filesystem::path(path).filename().string();
                 if (fileLabel) {
-                    fileLabel->content = std::filesystem::path(path).filename().string();
+                    fileLabel->content = fname;
                     fileLabel->style->text.color = rgba(232, 232, 232, 1);
                 }
                 // Auto-fill job name from filename stem
@@ -1159,7 +1654,12 @@ export namespace LithoControl {
                     std::replace(stem.begin(), stem.end(), ' ', '_');
                     jobNameInput->text->content = stem;
                 }
-                logQ.push("Loaded: " + std::filesystem::path(path).filename().string());
+                // Load image into preview area (no tile grid until sliced)
+                if (previewImg) {
+                    previewImg->setGrid(0, 0);
+                    previewImg->loadFile(path);
+                }
+                logQ.push("Loaded: " + fname);
             }
         }
 
@@ -1212,15 +1712,33 @@ export namespace LithoControl {
             const std::string& outDir,
             bool invert)
         {
-            std::string cmd = "python pc/slicer.py \"" + inFile + "\""
+            namespace fs = std::filesystem;
+
+            // Find the DLP-photolithography repo root by walking up from the input file.
+            std::string repoRoot = findDLPRoot(inFile);
+
+            // Build absolute path to slicer.py
+            std::string slicerScript = repoRoot.empty()
+                ? "pc/slicer.py"
+                : (repoRoot + "/pc/slicer.py");
+
+            // Resolve outDir to an absolute path
+            std::string absOutDir = outDir.empty() ? "jobs" : outDir;
+            if (!fs::path(absOutDir).is_absolute() && !repoRoot.empty())
+                absOutDir = (fs::path(repoRoot) / absOutDir).string();
+            // Strip trailing backslashes — a trailing \ before the closing " would
+            // be interpreted as an escaped quote by Windows command-line parsing,
+            // causing argparse to absorb subsequent arguments into the path value.
+            while (!absOutDir.empty() &&
+                   (absOutDir.back() == '\\' || absOutDir.back() == '/'))
+                absOutDir.pop_back();
+
+            std::string cmd = "python \"" + slicerScript + "\" \"" + inFile + "\""
                 " --expose-ms " + exposeMs +
                 " --feed-rate " + feedRate +
                 " --threshold " + threshold +
-                " --proj-w "    + projW +
-                " --proj-h "    + projH +
-                " --overlap "   + overlap +
-                " --output-dir \"" + outDir + "\"";
-            if (!jobName.empty())   cmd += " --job-name " + jobName;
+                " --output-dir \"" + absOutDir + "\"";
+            if (!jobName.empty())   cmd += " --job-name \"" + jobName + "\"";
             if (invert)             cmd += " --invert";
 
             SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
@@ -1234,10 +1752,13 @@ export namespace LithoControl {
             si.hStdError    = hW;
             si.dwFlags      = STARTF_USESTDHANDLES;
 
+            // Set subprocess CWD to repoRoot so relative paths inside the slicer work
+            const char* cwd = repoRoot.empty() ? nullptr : repoRoot.c_str();
+
             PROCESS_INFORMATION pi{};
             BOOL ok = CreateProcessA(nullptr, (LPSTR)cmd.c_str(),
                                      nullptr, nullptr, TRUE,
-                                     CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+                                     CREATE_NO_WINDOW, nullptr, cwd, &si, &pi);
             CloseHandle(hW);
 
             if (!ok) {
@@ -1249,15 +1770,26 @@ export namespace LithoControl {
 
             char buf[256];
             DWORD rd;
+            int parsedCols = 0, parsedRows = 0;
             while (ReadFile(hR, buf, sizeof(buf) - 1, &rd, nullptr) && rd > 0) {
                 buf[rd] = '\0';
-                // Strip newlines and push each line
                 std::string chunk(buf, rd);
                 std::istringstream ss(chunk);
                 std::string line;
                 while (std::getline(ss, line)) {
                     if (!line.empty() && line.back() == '\r') line.pop_back();
-                    if (!line.empty()) logQ.push(line);
+                    if (!line.empty()) {
+                        logQ.push("[SLICER] " + line);
+                        // Parse "Tiles:  2 cols x 2 rows = N frames"
+                        auto tpos = line.find("Tiles:");
+                        if (tpos != std::string::npos) {
+                            int c = 0, r = 0;
+                            if (std::sscanf(line.c_str() + tpos + 6, " %d cols x %d rows", &c, &r) == 2) {
+                                parsedCols = c;
+                                parsedRows = r;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1271,6 +1803,10 @@ export namespace LithoControl {
             if (exitCode == 0) {
                 logQ.push("[OK] Slice complete");
                 jobListDirty = true;
+                // Signal main thread to reload preview with tile grid
+                pendingTileX       = parsedCols;
+                pendingTileY       = parsedRows;
+                pendingPreviewReload = true;
             } else {
                 logQ.push("[ERR] Slicer exited with code " + std::to_string(exitCode));
             }
@@ -1328,7 +1864,7 @@ export namespace LithoControl {
             wi("projHX1000",   (int)(settings.projH     * 1000));
             wi("overlapX100",  (int)(settings.overlap   * 100));
             wi("invert",       settings.invert ? 1 : 0);
-            ws("port",         portInput  ? portInput->text->strContent  : settings.port);
+            ws("port",         portDrop ? portDrop->params.value : settings.port);
             ws("piHost",       hostInput  ? hostInput->text->strContent  : settings.piHost);
             ws("jobsDir",      jobsDirInput ? jobsDirInput->text->strContent : settings.jobsDir);
             ws("platform",     platform == Platform::Pi ? "pi" : "stm32");
@@ -1338,10 +1874,12 @@ export namespace LithoControl {
         // Helpers
         // ─────────────────────────────────────────────────────────────────────
 
-        // Create a labelled TextInput
+        // Create a labelled TextInput with dark-theme label colour
         TextInput* makeInput(Box* parent, const std::string& lbl, const std::string& val, size_t maxLen) {
-            auto* inp = new TextInput(parent, { .label = lbl, .placeholder = val, .maxLength = maxLen });
+            auto* inp = new TextInput(parent, { .label = lbl, .placeholder = "", .maxLength = maxLen });
             if (!val.empty()) inp->text->content = val;
+            inp->label->style->text.color = rgba(232, 232, 232, 0.6f);
+            inp->label->style->text.size  = 9_px;
             return inp;
         }
 
@@ -1465,6 +2003,21 @@ export namespace LithoControl {
             return lines;
         }
 
+        // Walk up the input file's directory tree looking for pc/slicer.py.
+        // Returns the repo root if found, empty string otherwise.
+        static std::string findDLPRoot(const std::string& inputFile) {
+            namespace fs = std::filesystem;
+            fs::path p(inputFile);
+            if (p.has_parent_path()) p = p.parent_path();
+            while (true) {
+                if (fs::exists(p / "pc" / "slicer.py")) return p.string();
+                auto parent = p.parent_path();
+                if (parent == p) break;
+                p = parent;
+            }
+            return "";
+        }
+
         static std::string fmtFloat(float v) {
             char buf[32];
             std::snprintf(buf, sizeof(buf), "%.4g", (double)v);
@@ -1473,6 +2026,21 @@ export namespace LithoControl {
 
         static float parseFloat(const std::string& s, float def) {
             try { return std::stof(s); } catch (...) { return def; }
+        }
+
+        void copyToClipboard(const std::deque<std::string>& lines) {
+            std::string text;
+            for (auto& l : lines) { text += l; text += '\n'; }
+            if (!OpenClipboard(nullptr)) return;
+            EmptyClipboard();
+            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
+            if (hMem) {
+                auto* dst = static_cast<char*>(GlobalLock(hMem));
+                std::memcpy(dst, text.c_str(), text.size() + 1);
+                GlobalUnlock(hMem);
+                SetClipboardData(CF_TEXT, hMem);
+            }
+            CloseClipboard();
         }
     };
 

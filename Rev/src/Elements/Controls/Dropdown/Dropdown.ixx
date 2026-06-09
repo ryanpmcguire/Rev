@@ -115,6 +115,8 @@ export namespace Rev::Element {
         bool open = false;
 
         struct Option { std::string name; std::string value; bool disabled; };
+
+        std::vector<Option> lastOptions; // used to detect changes and refresh stale lambdas
         
         struct Params {
 
@@ -220,38 +222,49 @@ export namespace Rev::Element {
 
         void computeChildren(Event& e) override {
 
-            //if (savedValue == params.value) { return; }
-
             dropdownText->content = getOptionWithVal(params.value).name;
 
-            size_t oldSize = options.size();
             size_t newSize = params.options.size();
 
-            // Delete old
-            for (size_t i = newSize; i < oldSize; i++) {
-                delete options[i];
+            // Detect whether options changed (size or any name/value/disabled differs).
+            // When they change, delete ALL existing Text elements and recreate them so
+            // that the onMouseDown lambdas capture the current option values — not the
+            // values that were current when the elements were first created.
+            bool optionsChanged = (lastOptions.size() != newSize);
+            if (!optionsChanged) {
+                for (size_t i = 0; i < newSize; i++) {
+                    if (lastOptions[i].name     != params.options[i].name  ||
+                        lastOptions[i].value    != params.options[i].value ||
+                        lastOptions[i].disabled != params.options[i].disabled) {
+                        optionsChanged = true;
+                        break;
+                    }
+                }
             }
 
-            options.resize(newSize);
+            if (optionsChanged) {
+                // Delete ALL old option elements
+                for (Text* t : options) { delete t; }
+                options.clear();
+                options.resize(newSize);
 
-            // Add new
-            for (size_t i = oldSize; i < newSize; i++) {
+                for (size_t i = 0; i < newSize; i++) {
+                    Option option = params.options[i]; // copy so lambda captures current value
+                    options[i] = new Text(optionsContainer, option.name,
+                        { &Styles::Option, &Styles::OptionHover, &Styles::OptionDisabled });
+                    options[i]->onMouseDown([this, option](Event& e) {
+                        if (option.disabled) { return; }
+                        this->select(option);
+                    });
+                }
 
-                Option& option = params.options[i];
-                options[i] = new Text(optionsContainer, option.name, { &Styles::Option, &Styles::OptionHover, &Styles::OptionDisabled });
-
-                options[i]->onMouseDown([this, option](Event& e) {
-                    if (option.disabled) { return; }
-                    this->select(option);
-                });
+                lastOptions = params.options;
             }
-            
-            // Compute content
+
+            // Update display content and disabled state every cycle
             for (size_t i = 0; i < newSize; i++) {
-
                 Option& option = params.options[i];
                 options[i]->content = option.name;
-
                 if (options[i]->resolved.disabled != option.disabled) {
                     options[i]->resolved.disabled = option.disabled;
                     options[i]->dirty.style = true;

@@ -119,7 +119,7 @@ export namespace Rev::Element {
             return type != Unset;
         }
 
-        bool operator==(const Dist& other) {
+        bool operator==(const Dist& other) const {
             return (
                 type == other.type &&
                 val == other.val
