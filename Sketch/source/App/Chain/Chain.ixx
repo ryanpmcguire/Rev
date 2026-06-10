@@ -5,6 +5,7 @@ module;
 #include <string>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 
 export module Sketch.App.Chain;
 
@@ -156,14 +157,14 @@ export namespace Sketch::App {
             return true;
         }
 
-        // Winding (sampled signed area): +1 CCW, -1 CW, 0 degenerate.
+        // Winding: +1 CCW, -1 CW, 0 degenerate. Computed analytically -- the exact
+        // signed area is half the sum of each edge's closed-form ∮(x dy - y dx) term
+        // (Green's theorem), so an arc / circle / ellipse contributes its true area
+        // with no tessellation or sampling anywhere.
         int windingSign() const {
-            std::vector<Pos> pts;
-            for (const auto& e : edges) { std::vector<Pos> p; e->tessellate(p); for (const Pos& q : p) { pts.push_back(q); } }
-            if (pts.size() < 3) { return 0; }
-            float area = 0.0f;
-            for (size_t i = 0; i < pts.size(); i++) { const Pos& a = pts[i]; const Pos& b = pts[(i + 1) % pts.size()]; area += a.x * b.y - b.x * a.y; }
-            return (area > 1e-4f) ? 1 : (area < -1e-4f ? -1 : 0);
+            float twiceArea = 0.0f;
+            for (const auto& e : edges) { twiceArea += e->signedAreaTerm(); }
+            return (twiceArea > 1e-4f) ? 1 : (twiceArea < -1e-4f ? -1 : 0);
         }
 
         // The *raw* offset: every piece offset, every corner joined (mitre / arc) and
@@ -208,13 +209,27 @@ export namespace Sketch::App {
             // join). The full, untrimmed offset edges therefore cross each other at the
             // mitre points, and the later winding prune discards every negative loop --
             // mitres, round joins, burrs and notches all out of one mechanism.
+            // A genuine corner join is centred on the original (pre-offset) corner with
+            // radius equal to the offset distance. As a corner flattens toward straight
+            // its two edge tangents go parallel, and Arc2::Tangent's centre -- the
+            // intersection of the perpendiculars to those tangents -- becomes a 0/0 that
+            // flies off to infinity: a spurious giant loop whose winding flickers. When
+            // the join radius blows past the expected offset radius we are in that
+            // degenerate band, so we bridge the (then near-coincident) endpoints with a
+            // straight segment, the stable common limit of the short and long join.
             std::vector<std::unique_ptr<Stoicheion>> joinArc(corners);
+            const float cornerRadius = std::fabs(leftAmount);
             for (size_t k = 0; k < corners; k++) {
                 Pos endA = eEnd(*off[k]);
                 Pos startB = eStart(*off[(k + 1) % n]);
                 if ((endA - startB).pythag() < 1e-4f) { continue; }   // tangent-continuous: already joined
-                joinArc[k] = std::make_unique<Arc2>(
-                    Arc2::Tangent(endA, startB, eEndDir(*off[k]), eStartDir(*off[(k + 1) % n])));
+                Arc2 arc = Arc2::Tangent(endA, startB, eEndDir(*off[k]), eStartDir(*off[(k + 1) % n]));
+                if (arc.radius() > cornerRadius * 4.0f + 1e-3f) {     // degenerate near-straight corner
+                    joinArc[k] = std::make_unique<Segment2>(endA, startB);
+                }
+                else {
+                    joinArc[k] = std::make_unique<Arc2>(arc);
+                }
             }
 
             for (size_t i = 0; i < n; i++) {
@@ -229,11 +244,11 @@ export namespace Sketch::App {
         // that internal corners / pinched features produce are discarded.
         Chain offset(float amount) const {
             Chain raw = offsetRaw(amount);
-            int srcW = windingSign();
+            int srcW = windingSign();                          // source chirality
             if (!closed || srcW == 0) { return raw; }
             Chain kept; kept.closed = true;
-            for (Chain& loop : raw.splitSimpleLoops()) {
-                if (loop.windingSign() == srcW) {
+            for (Chain& loop : raw.fractureLoops()) {
+                if (loop.windingSign() == srcW) {              // keep loops matching the source
                     for (auto& e : loop.edges) { kept.edges.push_back(std::move(e)); }
                 }
             }
@@ -409,6 +424,86 @@ export namespace Sketch::App {
             for (Chain& s : a.splitSimpleLoops(budget - 1)) { out.push_back(std::move(s)); }
             for (Chain& s : b.splitSimpleLoops(budget - 1)) { out.push_back(std::move(s)); }
             return out;
+        }
+
+        // Parameter (0..1) of a point along an edge (for ordering crossings on it).
+        static float paramOnEdge(const Stoicheion& e, Pos p) {
+            if (isArc(e)) {
+                const Arc2* a = asArc(e);
+                float a0, sweep; a->range(a0, sweep);
+                if (sweep < 1e-9f) { return 0.0f; }
+                return wrapTau((p - a->c).angle() - a0) / sweep;
+            }
+            Pos s = eStart(e), en = eEnd(e);
+            Pos d = en - s; float l2 = d.dot(d);
+            return (l2 > 1e-12f) ? (p - s).dot(d) / l2 : 0.0f;
+        }
+
+        // Split an edge at every point on it (sorted along the edge) into sub-edges.
+        static void splitEdgeAtPoints(const Stoicheion& e, const std::vector<Pos>& points,
+                                      std::vector<std::unique_ptr<Stoicheion>>& out) {
+            if (points.empty()) { out.push_back(e.clone()); return; }
+            std::vector<std::pair<float, Pos>> sp;
+            for (const Pos& p : points) { sp.push_back({ paramOnEdge(e, p), p }); }
+            std::sort(sp.begin(), sp.end(),
+                      [](const std::pair<float, Pos>& a, const std::pair<float, Pos>& b) { return a.first < b.first; });
+            std::unique_ptr<Stoicheion> rem = e.clone();
+            float lastT = 0.0f;
+            for (const auto& pr : sp) {
+                if (pr.first <= lastT + 1e-3f || pr.first >= 1.0f - 1e-3f) { continue; }   // endpoint / duplicate
+                std::unique_ptr<Stoicheion> left, right;
+                splitEdge(*rem, pr.second, left, right);
+                out.push_back(std::move(left));
+                rem = std::move(right);
+                lastT = pr.first;
+            }
+            out.push_back(std::move(rem));
+        }
+
+        // The arrangement fracture (the right way): find ALL self-intersections, split
+        // EVERY edge at all of its crossings, then trace the simple loops out of the
+        // resulting sub-edges. A loop closes whenever the walk returns to a vertex it
+        // already passed through -- so all the cuts are identified first, then made,
+        // then the loops are traced, exactly as intended.
+        std::vector<Chain> fractureLoops(float eps = 1e-3f) const {
+            size_t n = edges.size();
+
+            // 1. all crossing points, gathered per edge.
+            std::vector<std::vector<Pos>> pts(n);
+            for (size_t i = 0; i < n; i++) {
+                for (size_t j = i + 1; j < n; j++) {
+                    std::vector<Pos> c; edgeCross(*edges[i], *edges[j], c);
+                    for (const Pos& p : c) { pts[i].push_back(p); pts[j].push_back(p); }
+                }
+            }
+
+            // 2. split every edge at its crossings -> the fine sequence, in chain order.
+            std::vector<std::unique_ptr<Stoicheion>> fine;
+            for (size_t i = 0; i < n; i++) { splitEdgeAtPoints(*edges[i], pts[i], fine); }
+
+            // 3. trace simple loops: pop a loop off whenever we return to an earlier vertex.
+            std::vector<Chain> loops;
+            std::vector<std::unique_ptr<Stoicheion>> cur;
+            for (auto& e : fine) {
+                cur.push_back(std::move(e));
+                Pos v = eEnd(*cur.back());
+                int idx = -1;
+                for (size_t k = 0; k + 1 < cur.size(); k++) {
+                    if ((eStart(*cur[k]) - v).pythag() < eps) { idx = static_cast<int>(k); break; }
+                }
+                if (idx >= 0) {
+                    Chain loop; loop.closed = true;
+                    for (size_t k = static_cast<size_t>(idx); k < cur.size(); k++) { loop.edges.push_back(std::move(cur[k])); }
+                    cur.erase(cur.begin() + idx, cur.end());
+                    loops.push_back(std::move(loop));
+                }
+            }
+            if (!cur.empty()) {
+                Chain loop; loop.closed = true;
+                for (auto& e : cur) { loop.edges.push_back(std::move(e)); }
+                loops.push_back(std::move(loop));
+            }
+            return loops;
         }
 
         // Building

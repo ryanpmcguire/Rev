@@ -157,12 +157,13 @@ export namespace Sketch::App {
             std::vector<Pos> intersections;
 
             for (Chain& chain : Chain::build(geometry.entities)) {
-                int srcW = chain.windingSign();
+                const int srcW = chain.windingSign();          // this chain's own chirality
                 Chain raw = chain.offsetRaw(amount);
 
                 for (const Pos& p : raw.allSelfIntersections()) { intersections.push_back(p); }
 
-                for (Chain& loop : raw.splitSimpleLoops()) {
+                // Keep / discard strictly by chirality *relative to the source chain*.
+                for (Chain& loop : raw.fractureLoops()) {
                     bool keep = (srcW != 0 && loop.windingSign() == srcW);
                     SketchGeometry& dst = keep ? valid : invalid;
                     for (auto& e : loop.edges) { dst.add(std::move(e)); }

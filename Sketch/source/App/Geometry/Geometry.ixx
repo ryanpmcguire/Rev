@@ -276,6 +276,14 @@ export namespace Sketch::App {
         virtual void tessellate(std::vector<Pos>& out) const = 0;
         virtual bool isPoint() const { return false; }
 
+        // This edge's exact contribution to the closed loop's signed-area integral,
+        // ∮ (x dy - y dx), evaluated analytically along the travel direction -- NOT by
+        // sampling. Summed around a closed chain it is twice the signed area, and its
+        // sign is the winding (+ CCW, - CW). Each primitive integrates in closed form
+        // (a straight chord term, an arc's r^2*dtheta, an ellipse's (uxv)*dt); a point
+        // encloses nothing. This is pure geometry, exact to floating point.
+        virtual float signedAreaTerm() const { return 0.0f; }
+
         // Hit-testing: distance from p to the drawn curve.
         virtual float distanceTo(Pos p) const = 0;
 
@@ -413,6 +421,8 @@ export namespace Sketch::App {
         }
 
         void tessellate(std::vector<Pos>& out) const override { out.push_back(a); out.push_back(b); }
+        // Exact: integral of (x dy - y dx) along the straight chord a -> b.
+        float signedAreaTerm() const override { return a.x * b.y - a.y * b.x; }
         float distanceTo(Pos p) const override { return (p - closestOnSegment(p, a, b)).pythag(); }
         void anchors(std::vector<Pos>& out) const override { out.push_back(a); out.push_back(b); }
         void snapPoints(std::vector<Pos>& out) const override {
@@ -480,6 +490,12 @@ export namespace Sketch::App {
 
         void tessellate(std::vector<Pos>& out) const override {
             sampleArc(out, c, radius(), (a - c).angle(), TAU, spanSteps(TAU));
+        }
+        // Exact: a full turn contributes (chirality) * r^2 * TAU (the centre terms
+        // vanish since start == end). Twice the area is +-pi*r^2 * 2, i.e. r^2*TAU.
+        float signedAreaTerm() const override {
+            float r = radius();
+            return static_cast<float>(chirality()) * r * r * TAU;
         }
         float distanceTo(Pos p) const override { return std::fabs((p - c).pythag() - radius()); }
         void anchors(std::vector<Pos>& out) const override { out.push_back(c); out.push_back(a); out.push_back(b); }
@@ -609,6 +625,16 @@ export namespace Sketch::App {
             float a0, sweep; range(a0, sweep);
             sampleArc(out, c, r, a0, sweep, spanSteps(sweep));
         }
+        // Exact: integral of (x dy - y dx) over the arc A -> B through D. Closed form
+        // is c.x*(b.y-a.y) - c.y*(b.x-a.x) + r^2 * dtheta, where dtheta is the SIGNED
+        // travel sweep (+ when chirality is CCW, - when CW).
+        float signedAreaTerm() const override {
+            float r = radius();
+            float angA = (a - c).angle();
+            float dtheta = (chirality() > 0) ? wrapTau((b - c).angle() - angA)
+                                             : -wrapTau(angA - (b - c).angle());
+            return c.x * (b.y - a.y) - c.y * (b.x - a.x) + r * r * dtheta;
+        }
         float distanceTo(Pos p) const override {
             float r = radius();
             if (r <= 0.0f) { return (p - a).pythag(); }
@@ -695,6 +721,9 @@ export namespace Sketch::App {
         }
 
         void tessellate(std::vector<Pos>& out) const override { sampleEllipse(out, c, u, v, 0.0f, TAU, spanSteps(TAU)); }
+        // Exact: a full ellipse contributes (u x v) * TAU (twice its area, signed by
+        // handedness); the centre terms vanish since start == end.
+        float signedAreaTerm() const override { return u.cross(v) * TAU; }
         float distanceTo(Pos p) const override {
             Pos foot; footNearest(p, 0.0f, TAU, foot); return (p - foot).pythag();
         }
@@ -786,6 +815,13 @@ export namespace Sketch::App {
 
         void tessellate(std::vector<Pos>& out) const override {
             float sp = span(); sampleEllipse(out, c, u, v, a0, sp, spanSteps(sp));
+        }
+        // Exact: integral of (x dy - y dx) over the elliptical arc, swept by parameter
+        // a0 -> a0+span(). Closed form is c.x*(p1.y-p0.y) - c.y*(p1.x-p0.x) plus the
+        // central (u x v)*dt term; the handedness of u,v carries the chirality sign.
+        float signedAreaTerm() const override {
+            Pos p0 = startPoint(), p1 = endPoint();
+            return c.x * (p1.y - p0.y) - c.y * (p1.x - p0.x) + u.cross(v) * span();
         }
         float distanceTo(Pos p) const override {
             Pos foot; footNearest(p, foot); return (p - foot).pythag();
