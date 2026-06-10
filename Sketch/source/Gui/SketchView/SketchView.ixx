@@ -1389,6 +1389,7 @@ export namespace Sketch::Gui {
             if (!insetActive) {
                 app->activeProject->offsetLayers.clear();
                 app->activeProject->offsetChains.clear();
+                app->activeProject->crossingFragments.clear();
             }
             return true;
         }

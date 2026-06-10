@@ -514,40 +514,10 @@ export namespace Sketch::App {
         // On a closed chain the walk's start vertex is arbitrary, so the first and
         // last fragments can be two halves of the same stretch -- same number,
         // coincident across the wrap -- and are merged, in travel order.
-        struct NumberedChain { Chain chain; int number = 0; };
-
-        std::vector<NumberedChain> fragmentByCrossingNumber(float eps = 1e-3f) const {
-            CrossingRun run = crossingNumbers(eps);
-            std::vector<NumberedChain> out;
-
-            for (size_t k = 0; k < run.edges.size(); k++) {
-                bool fresh = out.empty()
-                    || out.back().number != run.number[k]
-                    || (eEnd(*out.back().chain.edges.back()) - eStart(*run.edges[k])).pythag() > eps;
-                if (fresh) { out.push_back(NumberedChain{ Chain{}, run.number[k] }); }
-                out.back().chain.edges.push_back(std::move(run.edges[k]));
-            }
-
-            // Wrap merge: the tail fragment flows into the head fragment.
-            if (closed && out.size() > 1) {
-                NumberedChain& head = out.front();
-                NumberedChain& tail = out.back();
-                if (head.number == tail.number &&
-                    (eEnd(*tail.chain.edges.back()) - eStart(*head.chain.edges.front())).pythag() <= eps) {
-                    for (auto& e : head.chain.edges) { tail.chain.edges.push_back(std::move(e)); }
-                    head.chain.edges = std::move(tail.chain.edges);
-                    out.pop_back();
-                }
-            }
-
-            // A fragment whose end returns to its start is itself a closed loop.
-            for (NumberedChain& nc : out) {
-                if (nc.chain.edges.empty()) { continue; }
-                nc.chain.closed =
-                    (eEnd(*nc.chain.edges.back()) - eStart(*nc.chain.edges.front())).pythag() <= eps;
-            }
-            return out;
-        }
+        // (NumberedChain holds a Chain by value, so it is defined after the close
+        // of Chain itself; the method body follows it, out of line.)
+        struct NumberedChain;
+        std::vector<NumberedChain> fragmentByCrossingNumber(float eps = 1e-3f) const;
 
         // Building
         //--------------------------------------------------
@@ -608,4 +578,42 @@ export namespace Sketch::App {
             return out;
         }
     };
+
+    // A crossing-method fragment: a well-formed sub-chain plus the accumulated
+    // crossing number its pieces share. (Out of line because it holds a Chain by
+    // value, which is incomplete inside Chain's own definition.)
+    struct Chain::NumberedChain { Chain chain; int number = 0; };
+
+    inline std::vector<Chain::NumberedChain> Chain::fragmentByCrossingNumber(float eps) const {
+        CrossingRun run = crossingNumbers(eps);
+        std::vector<NumberedChain> out;
+
+        for (size_t k = 0; k < run.edges.size(); k++) {
+            bool fresh = out.empty()
+                || out.back().number != run.number[k]
+                || (eEnd(*out.back().chain.edges.back()) - eStart(*run.edges[k])).pythag() > eps;
+            if (fresh) { out.push_back(NumberedChain{ Chain{}, run.number[k] }); }
+            out.back().chain.edges.push_back(std::move(run.edges[k]));
+        }
+
+        // Wrap merge: the tail fragment flows into the head fragment.
+        if (closed && out.size() > 1) {
+            NumberedChain& head = out.front();
+            NumberedChain& tail = out.back();
+            if (head.number == tail.number &&
+                (eEnd(*tail.chain.edges.back()) - eStart(*head.chain.edges.front())).pythag() <= eps) {
+                for (auto& e : head.chain.edges) { tail.chain.edges.push_back(std::move(e)); }
+                head.chain.edges = std::move(tail.chain.edges);
+                out.pop_back();
+            }
+        }
+
+        // A fragment whose end returns to its start is itself a closed loop.
+        for (NumberedChain& nc : out) {
+            if (nc.chain.edges.empty()) { continue; }
+            nc.chain.closed =
+                (eEnd(*nc.chain.edges.back()) - eStart(*nc.chain.edges.front())).pythag() <= eps;
+        }
+        return out;
+    }
 }
