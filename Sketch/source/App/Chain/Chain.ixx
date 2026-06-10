@@ -167,69 +167,66 @@ export namespace Sketch::App {
             return (twiceArea > 1e-4f) ? 1 : (twiceArea < -1e-4f ? -1 : 0);
         }
 
-        // The *raw* offset: every piece offset, every corner joined (mitre / arc) and
-        // reverse-tangencies healed -- but NOT pruned, so it may self-intersect. This
-        // is the chain the debug view splits and colours; offset() prunes it.
+        // The *raw* offset, done BLINDLY: every edge slides to the LEFT of its own
+        // travel direction by `amount` -- no winding test, no preferred side. The
+        // chain's chirality alone decides what that means: a CCW loop's interior is
+        // on the left, so a positive amount insets it; a CW loop's interior is on the
+        // right, so the very same operation offsets it outward. Inset vs outset is
+        // emergent, never inferred. NOT pruned, so it may self-intersect; this is the
+        // chain the debug view splits and colours, and offset() prunes.
+        //
+        // Lines only for now (segments in, segments + join arcs out); arcs, circles
+        // and ellipses rejoin once the line case is settled.
         Chain offsetRaw(float amount) const {
             Chain result;
             if (edges.empty()) { return result; }
             result.closed = closed;
 
-            // A lone closed primitive has no corners. A circle offsets concentrically;
-            // an ellipse offsets to its true (equidistant) parallel curve as a polyline.
-            if (edges.size() == 1) {
-                std::string k = edges.front()->kind();
-                if (k == "circle") {
-                    result.edges.push_back(edges.front()->offsetBy(amount));
-                    return result;
-                }
-                if (k == "ellipse") {
-                    edges.front()->offsetInto(amount, result.edges);
-                    result.closed = true;
+            // Lines-only guard: a chain holding anything we don't offset yet (a lone
+            // circle / ellipse from build()) passes through unchanged.
+            for (const auto& e : edges) {
+                std::string k = e->kind();
+                if (k != "segment" && k != "arc") {
+                    for (const auto& src : edges) { result.edges.push_back(src->clone()); }
                     return result;
                 }
             }
 
-            const int srcW = windingSign();                            // source orientation
-            const int w = (srcW == 0) ? 1 : srcW;
-            const float leftAmount = -amount * static_cast<float>(w);   // inset -> toward interior side
-
             std::vector<std::unique_ptr<Stoicheion>> off;
             off.reserve(edges.size());
-            for (const auto& e : edges) { off.push_back(offsetLeft(*e, leftAmount)); }
+            for (const auto& e : edges) { off.push_back(offsetLeft(*e, amount)); }
 
             const size_t n = off.size();
             const size_t corners = closed ? n : (n > 0 ? n - 1 : 0);
 
-            // The uniform construction: at EVERY corner insert the arc, centred on the
-            // original corner, that *continues* edge A's direction, loops around, and
-            // comes back along edge B's direction. No mitre/clip decision, no trimming.
-            // A convex corner is forced to take the long way round (a loop that exits
-            // the shape and returns); a reflex corner takes the short way (a round
-            // join). The full, untrimmed offset edges therefore cross each other at the
-            // mitre points, and the later winding prune discards every negative loop --
-            // mitres, round joins, burrs and notches all out of one mechanism.
-            // A genuine corner join is centred on the original (pre-offset) corner with
-            // radius equal to the offset distance. As a corner flattens toward straight
-            // its two edge tangents go parallel, and Arc2::Tangent's centre -- the
-            // intersection of the perpendiculars to those tangents -- becomes a 0/0 that
-            // flies off to infinity: a spurious giant loop whose winding flickers. When
-            // the join radius blows past the expected offset radius we are in that
-            // degenerate band, so we bridge the (then near-coincident) endpoints with a
-            // straight segment, the stable common limit of the short and long join.
+            // The uniform construction: at EVERY corner insert the arc that *continues*
+            // edge A's direction, loops around, and comes back along edge B's direction.
+            // No mitre/clip decision, no trimming, no fallback. The join is known by
+            // construction -- centred on the original (pre-offset) corner, radius
+            // |amount| -- so it is built directly from that centre rather than inferred
+            // from tangents (which degenerates as a corner flattens toward straight).
+            // A converging corner is forced to take the long way round (a loop that
+            // exits the shape and returns); a diverging corner takes the short way (a
+            // round join). The untrimmed offset edges then cross each other at the
+            // mitre points, and the later chirality prune discards the wrong-handed
+            // loops -- mitres, round joins, burrs and notches all out of one mechanism.
             std::vector<std::unique_ptr<Stoicheion>> joinArc(corners);
-            const float cornerRadius = std::fabs(leftAmount);
             for (size_t k = 0; k < corners; k++) {
+                Pos corner = eEnd(*edges[k]);                         // the original corner
                 Pos endA = eEnd(*off[k]);
                 Pos startB = eStart(*off[(k + 1) % n]);
                 if ((endA - startB).pythag() < 1e-4f) { continue; }   // tangent-continuous: already joined
-                Arc2 arc = Arc2::Tangent(endA, startB, eEndDir(*off[k]), eStartDir(*off[(k + 1) % n]));
-                if (arc.radius() > cornerRadius * 4.0f + 1e-3f) {     // degenerate near-straight corner
-                    joinArc[k] = std::make_unique<Segment2>(endA, startB);
-                }
-                else {
-                    joinArc[k] = std::make_unique<Arc2>(arc);
-                }
+                Pos radial = endA - corner;
+                float r = radial.pythag();
+                if (r < 1e-9f) { continue; }
+                // Travel sense around the corner: does leaving along A's direction head
+                // CCW about the centre? Place the through-point d at the swept midpoint.
+                int s = (eEndDir(*off[k]).dot(perpCCW(radial)) >= 0.0f) ? 1 : -1;
+                float angA = radial.angle(), angB = (startB - corner).angle();
+                float span = (s > 0) ? wrapTau(angB - angA) : wrapTau(angA - angB);
+                float midAng = angA + static_cast<float>(s) * span * 0.5f;
+                joinArc[k] = std::make_unique<Arc2>(corner, endA, startB,
+                                                    corner + Pos::fromAngle(midAng) * r);
             }
 
             for (size_t i = 0; i < n; i++) {

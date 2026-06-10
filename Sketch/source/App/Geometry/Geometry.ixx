@@ -254,6 +254,14 @@ export namespace Sketch::App {
         bool construction = false;   // reference geometry, not real output
         bool locked = false;         // datum (origin / axes): can't move or delete
 
+        // Group label: which named group within its layer this stoicheion belongs
+        // to (empty = ungrouped). Stamped at creation by whatever operation produced
+        // the entity -- never derived downstream. A layer is one flat geometry whose
+        // stoicheia partition into groups by this tag, so e.g. each loop of an offset
+        // step can be labelled by its producer and the view maps label -> style
+        // blindly, the same way construction -> grey.
+        std::string group;
+
         virtual ~Stoicheion() = default;
 
         // Identity / serialisation
@@ -268,6 +276,7 @@ export namespace Sketch::App {
             j["kind"] = kind();
             j["construction"] = construction;
             j["locked"] = locked;
+            if (!group.empty()) { j["group"] = group; }
             return j;
         }
 
@@ -887,6 +896,7 @@ export namespace Sketch::App {
         if (e->id == 0) { e->id = newId(); }
         e->construction = j.value("construction", false);
         e->locked = j.value("locked", false);
+        e->group = j.value("group", std::string());
         return e;
     }
 
@@ -1418,6 +1428,19 @@ export namespace Sketch::App {
 
         void clear() { entities.clear(); relations.clear(); }
         bool empty() const { return entities.empty() && relations.empty(); }
+
+        // The distinct group labels present, in first-appearance order (ungrouped
+        // entities, label "", are skipped). A layer's named groups are purely a
+        // projection of its stoicheia's own tags -- nothing is stored beside the
+        // entities, so groups can never fall out of sync with the geometry.
+        std::vector<std::string> groupLabels() const {
+            std::vector<std::string> out;
+            for (const auto& e : entities) {
+                if (!e || e->group.empty()) { continue; }
+                if (std::find(out.begin(), out.end(), e->group) == out.end()) { out.push_back(e->group); }
+            }
+            return out;
+        }
 
         // Resolve an entity by its stable id (linear for now; a cached id->pointer
         // map comes later).

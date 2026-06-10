@@ -146,36 +146,27 @@ export namespace Sketch::App {
             dirty = true;
         }
 
-        // Offset every chain by `amount` and -- for now, a DEBUG view -- show the whole
-        // fracture rather than pruning: split the raw offset into simple loops and sort
-        // them by winding. Same-winding (valid) loops go to offsetLayers (cyan);
-        // opposite-winding loops go to offsetInvalid (red); every self-intersection
-        // point goes to offsetIntersections (yellow). Nothing is discarded yet, so we
-        // can see whether the split is correct before wiring up the prune.
+        // Offset every chain by `amount`, blindly: each edge slides left of its own
+        // travel direction, every corner is bridged by the known join arc, and the raw
+        // result is shown AS IS -- no fracture, no winding categorization, no pruning.
+        // Whether a chain insets or outsets emerges purely from its own chirality.
         void insetIntoNewLayer(float amount) {
-            SketchGeometry valid, invalid;
-            std::vector<Pos> intersections;
+            SketchGeometry result;
 
+            // One layer per inset step (a single step for now); within it, each
+            // source chain's offset is its own labelled group, stamped at birth.
+            int chainIndex = 0;
             for (Chain& chain : Chain::build(geometry.entities)) {
-                const int srcW = chain.windingSign();          // this chain's own chirality
                 Chain raw = chain.offsetRaw(amount);
-
-                for (const Pos& p : raw.allSelfIntersections()) { intersections.push_back(p); }
-
-                // Keep / discard strictly by chirality *relative to the source chain*.
-                for (Chain& loop : raw.fractureLoops()) {
-                    bool keep = (srcW != 0 && loop.windingSign() == srcW);
-                    SketchGeometry& dst = keep ? valid : invalid;
-                    for (auto& e : loop.edges) { dst.add(std::move(e)); }
-                }
+                std::string label = "offset/" + std::to_string(chainIndex++);
+                for (auto& e : raw.edges) { e->group = label; result.add(std::move(e)); }
             }
 
-            valid.normalize();
-            invalid.normalize();
+            result.normalize();
             offsetLayers.clear();
-            offsetLayers.push_back(std::move(valid));
-            offsetInvalid = std::move(invalid);
-            offsetIntersections = std::move(intersections);
+            offsetLayers.push_back(std::move(result));
+            offsetInvalid = SketchGeometry();
+            offsetIntersections.clear();
             dirty = true;
         }
 
