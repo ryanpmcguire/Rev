@@ -96,6 +96,18 @@ export namespace Rev {
             return handle != INVALID_HANDLE_VALUE;
         }
 
+        // Abort any in-flight blocking read so a thread stuck in readLine()/readBytes()
+        // returns immediately. Safe to call from another thread (e.g. an E-STOP handler
+        // while a job thread is blocked waiting for a gantry response). Only the receive
+        // side is aborted, so a concurrent emergency write is left intact.
+        void cancel() {
+
+            if (handle == INVALID_HANDLE_VALUE) return;
+
+            PurgeComm(handle, PURGE_RXABORT | PURGE_RXCLEAR);
+            CancelIoEx(handle, nullptr);
+        }
+
         void sendBytes(const void* data, size_t size) {
 
             if (!connected()) {

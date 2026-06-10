@@ -54,6 +54,16 @@ target_sources(HelloWorld
 
 target_link_libraries(HelloWorld PRIVATE Rev gdiplus comdlg32 shell32)
 
+# Build as a GUI app (no console window) for all non-Debug configs.
+# Keep the standard main() entry point via mainCRTStartup. Debug stays a
+# console app so dbg.hpp output remains visible.
+if (WIN32 AND MSVC)
+    target_link_options(HelloWorld PRIVATE
+        $<$<NOT:$<CONFIG:Debug>>:/SUBSYSTEM:WINDOWS>
+        $<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>
+    )
+endif()
+
 target_compile_definitions(HelloWorld PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
 )

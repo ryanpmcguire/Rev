@@ -637,40 +637,42 @@ export namespace Rev::Element {
 
             text->compute();
 
-            // Skip cursor/region calculations if not editable
-            if (!editable) { return Box::computePrimitives(e); }
-
-            // Place cursor at cursor pos
-            //--------------------------------------------------
+            // Skip cursor/region calculations if neither editable nor selectable
+            if (!editable && !selectable) { return Box::computePrimitives(e); }
 
             line->lines.clear();
 
-            for (Primitives::Text::Line& line : text->lines) {
+            // Place cursor at cursor pos (caret only applies to editable text)
+            //--------------------------------------------------
 
-                if (line.end + 1 < cursor) { continue; }
-                if (line.start > cursor) { continue; }
-            
-                int idx = line.start;
-                float cursor_x = line.rect.x;
+            if (editable) {
+                for (Primitives::Text::Line& line : text->lines) {
 
-                // Get x position at line56
-                for (char c : line.content) {
+                    if (line.end + 1 < cursor) { continue; }
+                    if (line.start > cursor) { continue; }
 
-                    if (idx == cursor) {
-                        break;
+                    int idx = line.start;
+                    float cursor_x = line.rect.x;
+
+                    // Get x position at line56
+                    for (char c : line.content) {
+
+                        if (idx == cursor) {
+                            break;
+                        }
+
+                        cursor_x += font->glyphs[c].advance;
+                        idx += 1;
                     }
 
-                    cursor_x += font->glyphs[c].advance;
-                    idx += 1;
-                }
-                
-                // Place line at cursor position
-                this->line->lines.push_back({
-                    .points = { { cursor_x, line.rect.y }, { cursor_x, line.rect.y + line.rect.h } }, 
-                    .color = { 0, 0, 0, 1 }, .strokeWidth = 1.0f, .smoothing = 0.0f
-                });
+                    // Place line at cursor position
+                    this->line->lines.push_back({
+                        .points = { { cursor_x, line.rect.y }, { cursor_x, line.rect.y + line.rect.h } },
+                        .color = { 0, 0, 0, 1 }, .strokeWidth = 1.0f, .smoothing = 0.0f
+                    });
 
-                break;
+                    break;
+                }
             }
 
             // Highlight selected region(s)
@@ -725,8 +727,9 @@ export namespace Rev::Element {
             // Always draw text
             text->draw();
 
-            // Draw line only if editable
-            if (targetFlags.focus && editable) { line->draw(); }
+            // Draw caret/selection lines. Editable text shows the caret only when
+            // focused; selectable text always shows its highlight region.
+            if ((targetFlags.focus && editable) || selectable) { line->draw(); }
         }
     };
 };
