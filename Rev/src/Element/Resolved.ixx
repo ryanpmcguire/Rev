@@ -7,11 +7,12 @@ module;
 
 export module Rev.Element.Resolved;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace Rev::Element {
 
     using namespace sentinel;
+    using namespace Rev::Appearance;
 
     struct ResolvedDim {
 

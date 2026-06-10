@@ -12,7 +12,7 @@ export module Rev.Element.Event;
 import Rev.Graphics.Canvas;
 import Rev.GlobalTime;
 import Rev.Core.Pos;
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace Rev::Element {
 
@@ -74,7 +74,7 @@ export namespace Rev::Element {
 
         struct Mouse {
 
-            Cursor cursor = Cursor::Unset;
+            Appearance::Cursor cursor = Appearance::Cursor::Unset;
 
             Pos pos, down, up;
 
@@ -129,7 +129,7 @@ export namespace Rev::Element {
             propagate = true;
             causedRefresh = false;
 
-            mouse.cursor = Cursor::Unset;
+            mouse.cursor = Appearance::Cursor::Unset;
         }
     };
 };

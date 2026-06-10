@@ -5,12 +5,13 @@ module;
 
 export module Sketch.Gui.Theme;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.ControlTheme;
 
 export namespace Sketch::Gui::Theme {
 
     using namespace Rev::Element;
+    using namespace Rev::Appearance;
 
     enum class Mode {
         Light,

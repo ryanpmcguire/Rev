@@ -12,12 +12,14 @@ import Rev.Core.Resource;
 
 import Rev.Element;
 import Rev.Element.Event;
-import Rev.Element.Style;
+import Rev.Appearance;
 
 import Rev.Graphics.Canvas;
 import Rev.Primitive.Svg;
 
 export namespace Rev::Element {
+
+    using namespace Rev::Appearance;
 
     struct Svg : public Element {
 

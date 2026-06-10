@@ -199,27 +199,38 @@ export namespace Sketch::App {
         // self-crossing, walk the sub-edges in their original order accumulating the
         // signed crossing number (the other strand crossing from our positive side
         // to our negative side counts -1, negative to positive +1), fragment the run
-        // into sub-chains of contiguous same-number pieces, then PRUNE: the keep
-        // level is decided by the whole chain's accumulated turning -- a
-        // counterclockwise chain keeps its 0 (green) fragments, a clockwise chain
-        // keeps its -1 (blue) fragments -- and everything else is discarded. The
-        // kept fragments live whole in crossingFragments; the display copy is
+        // into sub-chains of contiguous same-number pieces, then PRUNE: the blue
+        // (-1) fragments are the valid ones, for both handedness. The surviving
+        // loops then MITOSE: loops from different profiles (an inward-shrinking
+        // outer, an outward-growing island) split each other where they cross, and
+        // only the pieces whose left-hand (material) side is claimed exactly once
+        // survive, re-stitched into well-formed offspring of the same handedness.
+        // The final loops live whole in crossingFragments; the display copy is
         // stamped "crossing/<number>/<fragment>". offsetChains is untouched.
         void crossingMethod(SketchGeometry& result) {
             crossingFragments.clear();
+
+            // 1. per-chain prune: keep the blue (-1) fragments.
+            std::vector<Chain> valid;
             for (const Chain& raw : offsetChains) {
-                const int keep = (raw.turningSign() < 0) ? -1 : 0;   // CCW keeps green, CW keeps blue
                 for (Chain::NumberedChain& nc : raw.fragmentByCrossingNumber()) {
-                    if (nc.number != keep) { continue; }
-                    std::string label = "crossing/" + std::to_string(nc.number)
-                                      + "/" + std::to_string(crossingFragments.size());
-                    for (const auto& e : nc.chain.edges) {
-                        std::unique_ptr<Stoicheion> copy = e->clone();
-                        copy->group = label;
-                        result.add(std::move(copy));
-                    }
-                    crossingFragments.push_back(std::move(nc));
+                    if (nc.number != -1) { continue; }
+                    valid.push_back(std::move(nc.chain));
                 }
+            }
+
+            // 2. mitosis: resolve overlap between the surviving loops.
+            std::vector<Chain> loops = Chain::mitose(valid);
+
+            // 3. emit.
+            for (Chain& loop : loops) {
+                std::string label = "crossing/-1/" + std::to_string(crossingFragments.size());
+                for (const auto& e : loop.edges) {
+                    std::unique_ptr<Stoicheion> copy = e->clone();
+                    copy->group = label;
+                    result.add(std::move(copy));
+                }
+                crossingFragments.push_back(Chain::NumberedChain{ std::move(loop), -1 });
             }
         }
 

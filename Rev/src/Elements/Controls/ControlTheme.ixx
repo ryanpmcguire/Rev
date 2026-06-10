@@ -2,9 +2,11 @@ module;
 
 export module Rev.Element.ControlTheme;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace Rev::Element::ControlTheme {
+
+    using namespace Rev::Appearance;
 
     // Shared tokens for TextInput, Dropdown, Checkbox, Slider, Button
     //--------------------------------------------------

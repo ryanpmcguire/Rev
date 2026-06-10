@@ -8,7 +8,7 @@ module;
 
 export module Rev.NativeWindow;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace Rev {
 
@@ -72,7 +72,7 @@ export namespace Rev {
             rev_mac_window_set_size(handle, w, h);
         };
 
-        void setCursor(Element::Cursor newCursor) {
+        void setCursor(Appearance::Cursor newCursor) {
 
         }
 
@@ -107,7 +107,7 @@ export namespace Rev {
 
         Size size;
         float scale = 1.0f;
-        Element::Cursor cursor;
+        Appearance::Cursor cursor;
 
         bool dirty = false;
         bool invalidatePending = false;

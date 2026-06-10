@@ -11,7 +11,7 @@ import Rev.Core.Color;
 
 import Rev.Element;
 import Rev.Element.Event;
-import Rev.Element.Style;
+import Rev.Appearance;
 
 import Rev.Graphics.Canvas;
 import Rev.Primitive.Rectangle;
@@ -19,6 +19,7 @@ import Rev.Primitive.Rectangle;
 export namespace Rev::Element {
 
     using namespace Rev::Primitives;
+    using namespace Rev::Appearance;
 
     struct Box : public Element {
 

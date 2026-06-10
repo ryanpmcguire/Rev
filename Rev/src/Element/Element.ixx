@@ -19,7 +19,7 @@ import Rev.Core.Rect;
 import Rev.Core.DirtyFlag;
 import Rev.Core.Dispatcher;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Event;
 import Rev.Element.Resolved;
 

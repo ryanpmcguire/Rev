@@ -636,6 +636,11 @@ export namespace Sketch::App {
         struct NumberedChain;
         std::vector<NumberedChain> fragmentByCrossingNumber(float eps = 1e-3f) const;
 
+        // Mitosis -- resolve mutual overlap among well-formed loops that all carry
+        // their material on the LEFT of travel (a CCW outer shrinking inward, a CW
+        // island growing outward). Defined out of line, after NumberedChain.
+        static std::vector<Chain> mitose(std::vector<Chain>& loops, float eps = 1e-3f);
+
         // Building
         //--------------------------------------------------
 
@@ -730,6 +735,63 @@ export namespace Sketch::App {
             if (nc.chain.edges.empty()) { continue; }
             nc.chain.closed =
                 (eEnd(*nc.chain.edges.back()) - eStart(*nc.chain.edges.front())).pythag() <= eps;
+        }
+        return out;
+    }
+
+    // Mitosis. Every loop is split at its crossings with every OTHER loop; a piece
+    // survives iff the total winding of ALL loops around a probe just LEFT of it is
+    // exactly 1 -- the material there is claimed once and only once. With the
+    // material-on-the-left convention this one rule does it all: an outer piece
+    // swallowed by the island reads 0 (the island un-claims it), an island piece
+    // escaping the outer reads 0 (nothing claims it), doubly-covered overlap reads
+    // 2 -- only the true frontier reads 1. The survivors stitch back into loops at
+    // the crossing points (they meet there exactly, so this is reassembly, not
+    // inference). A lone loop is returned untouched: there is nothing to overlap.
+    inline std::vector<Chain> Chain::mitose(std::vector<Chain>& loops, float eps) {
+        if (loops.size() <= 1) { return std::move(loops); }
+
+        std::vector<std::unique_ptr<Stoicheion>> kept;
+        for (size_t a = 0; a < loops.size(); a++) {
+            for (const auto& edge : loops[a].edges) {
+
+                // Cut this edge wherever any other loop crosses it.
+                std::vector<Pos> cuts;
+                for (size_t b = 0; b < loops.size(); b++) {
+                    if (b == a) { continue; }
+                    for (const auto& eb : loops[b].edges) { edgeCross(*edge, *eb, cuts); }
+                }
+                std::vector<std::unique_ptr<Stoicheion>> pieces;
+                splitEdgeAtPoints(*edge, cuts, pieces);
+
+                // Keep each piece iff the material just left of it is singly claimed.
+                for (auto& piece : pieces) {
+                    Pos mid = edgeMidpoint(*piece);
+                    Pos t = travelDirAt(*piece, mid);
+
+                    float clearance = 1e30f;
+                    for (const Chain& lp : loops) {
+                        for (const auto& le : lp.edges) {
+                            if (le.get() == edge.get()) { continue; }
+                            clearance = std::min(clearance, le->distanceTo(mid));
+                        }
+                    }
+                    float reach = std::max(1e-4f, std::min(1e-2f * edgeLength(*piece), 0.4f * clearance));
+                    Pos probe = mid + perpCCW(t) * reach;   // just to the LEFT (material side)
+
+                    int w = 0;
+                    for (const Chain& lp : loops) { w += lp.windingAround(probe); }
+                    if (w == 1) { kept.push_back(std::move(piece)); }
+                }
+            }
+        }
+
+        // Stitch the surviving pieces back into well-formed loops.
+        std::vector<Chain> out;
+        while (!kept.empty()) {
+            Chain c = buildOne(kept, eps);
+            if (c.edges.empty()) { break; }
+            out.push_back(std::move(c));
         }
         return out;
     }

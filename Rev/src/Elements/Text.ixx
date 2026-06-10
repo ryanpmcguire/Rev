@@ -12,7 +12,7 @@ module;
 
 export module Rev.Element.Text;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Event;
 import Rev.Element.Box;
 

@@ -14,7 +14,7 @@ module;
 export module Cam.Gui.WorldView;
 
 import Rev.Element;
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Event;
 import Rev.Element.Event.GestureTracker;
 

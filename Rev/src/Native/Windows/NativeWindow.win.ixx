@@ -28,7 +28,7 @@ module;
 
 export module Rev.NativeWindow;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace Rev {
 
@@ -476,7 +476,7 @@ export namespace Rev {
         Size size;
         float scale = 1.0f;
 
-        Element::Cursor cursor;
+        Appearance::Cursor cursor;
 
         bool dirty = false;
         bool invalidatePending = false;
@@ -823,7 +823,7 @@ export namespace Rev {
             );
         }
 
-        void setCursor(Element::Cursor newCursor) {
+        void setCursor(Appearance::Cursor newCursor) {
 
             // Return if no handle or no cursor change
             if (!handle || cursor == newCursor)
@@ -832,7 +832,7 @@ export namespace Rev {
             cursor = newCursor; // cache
 
             // Hidden cursor: clear the class cursor and hide it.
-            if (newCursor == Element::Cursor::None) {
+            if (newCursor == Appearance::Cursor::None) {
                 SetClassLongPtrW(handle, GCLP_HCURSOR, reinterpret_cast<LONG_PTR>(nullptr));
                 SetCursor(nullptr);
                 return;
@@ -843,45 +843,45 @@ export namespace Rev {
             // Directly match enum to Win32 cursor
             switch (newCursor) {
         
-                case Element::Cursor::Unset:
-                case Element::Cursor::Default:
-                case Element::Cursor::Arrow:
+                case Appearance::Cursor::Unset:
+                case Appearance::Cursor::Default:
+                case Appearance::Cursor::Arrow:
                     cursorId = IDC_ARROW;
                     break;
         
-                case Element::Cursor::Caret:
+                case Appearance::Cursor::Caret:
                     cursorId = IDC_IBEAM;
                     break;
         
-                case Element::Cursor::Crosshair:
+                case Appearance::Cursor::Crosshair:
                     cursorId = IDC_CROSS;
                     break;
         
-                case Element::Cursor::Hand:
+                case Appearance::Cursor::Hand:
                     cursorId = IDC_HAND;
                     break;
         
-                case Element::Cursor::NotAllowed:
+                case Appearance::Cursor::NotAllowed:
                     cursorId = IDC_NO;
                     break;
         
-                case Element::Cursor::ArrowsHorizontal:
+                case Appearance::Cursor::ArrowsHorizontal:
                     cursorId = IDC_SIZEWE;
                     break;
         
-                case Element::Cursor::ArrowsVertical:
+                case Appearance::Cursor::ArrowsVertical:
                     cursorId = IDC_SIZENS;
                     break;
         
-                case Element::Cursor::ArrowsDiagonalUp:
+                case Appearance::Cursor::ArrowsDiagonalUp:
                     cursorId = IDC_SIZENESW;
                     break;
         
-                case Element::Cursor::ArrowsDiagonalDown:
+                case Appearance::Cursor::ArrowsDiagonalDown:
                     cursorId = IDC_SIZENWSE;
                     break;
         
-                case Element::Cursor::ArrowsOmni:
+                case Appearance::Cursor::ArrowsOmni:
                     cursorId = IDC_SIZEALL;
                     break;
         

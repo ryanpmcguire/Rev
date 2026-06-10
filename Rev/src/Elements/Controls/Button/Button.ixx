@@ -7,7 +7,7 @@ export module Rev.Element.Button;
 
 import Rev.Element;
 import Rev.Element.Event;
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.ControlTheme;

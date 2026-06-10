@@ -7,7 +7,7 @@ module;
 export module Cam.Gui;
 
 import Rev.Element;
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Event;
 
 import Rev.Element.Box;

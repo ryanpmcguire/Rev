@@ -46,7 +46,7 @@ module;
 
 export module Rev.NativeWindow;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace Rev {
 
@@ -222,7 +222,7 @@ export namespace Rev {
 
         Size size;
         float scale = 1.0f;
-        Element::Cursor cursor = Element::Cursor::Unset;
+        Appearance::Cursor cursor = Appearance::Cursor::Unset;
         bool dirty = false;
         bool invalidatePending = false;
 
@@ -392,24 +392,24 @@ export namespace Rev {
             XFlush(xDisplay);
         }
 
-        void setCursor(Element::Cursor newCursor) {
+        void setCursor(Appearance::Cursor newCursor) {
             if (!xDisplay || !handle || cursor == newCursor) return;
             cursor = newCursor;
 
             unsigned int cursorShape = XC_left_ptr;
             switch (newCursor) {
-                case Element::Cursor::Unset:
-                case Element::Cursor::Default:
-                case Element::Cursor::Arrow: cursorShape = XC_left_ptr; break;
-                case Element::Cursor::Caret: cursorShape = XC_xterm; break;
-                case Element::Cursor::Crosshair: cursorShape = XC_crosshair; break;
-                case Element::Cursor::Hand: cursorShape = XC_hand2; break;
-                case Element::Cursor::NotAllowed: cursorShape = XC_pirate; break;
-                case Element::Cursor::ArrowsHorizontal: cursorShape = XC_sb_h_double_arrow; break;
-                case Element::Cursor::ArrowsVertical: cursorShape = XC_sb_v_double_arrow; break;
-                case Element::Cursor::ArrowsDiagonalUp: cursorShape = XC_top_right_corner; break;
-                case Element::Cursor::ArrowsDiagonalDown: cursorShape = XC_bottom_right_corner; break;
-                case Element::Cursor::ArrowsOmni: cursorShape = XC_fleur; break;
+                case Appearance::Cursor::Unset:
+                case Appearance::Cursor::Default:
+                case Appearance::Cursor::Arrow: cursorShape = XC_left_ptr; break;
+                case Appearance::Cursor::Caret: cursorShape = XC_xterm; break;
+                case Appearance::Cursor::Crosshair: cursorShape = XC_crosshair; break;
+                case Appearance::Cursor::Hand: cursorShape = XC_hand2; break;
+                case Appearance::Cursor::NotAllowed: cursorShape = XC_pirate; break;
+                case Appearance::Cursor::ArrowsHorizontal: cursorShape = XC_sb_h_double_arrow; break;
+                case Appearance::Cursor::ArrowsVertical: cursorShape = XC_sb_v_double_arrow; break;
+                case Appearance::Cursor::ArrowsDiagonalUp: cursorShape = XC_top_right_corner; break;
+                case Appearance::Cursor::ArrowsDiagonalDown: cursorShape = XC_bottom_right_corner; break;
+                case Appearance::Cursor::ArrowsOmni: cursorShape = XC_fleur; break;
                 default: cursorShape = XC_left_ptr; break;
             }
 

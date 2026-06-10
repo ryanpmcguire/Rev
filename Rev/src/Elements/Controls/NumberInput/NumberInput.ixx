@@ -13,12 +13,14 @@ export module Rev.Element.NumberInput;
 
 import Rev.Element;
 import Rev.Element.Event;
-import Rev.Element.Style;
+import Rev.Appearance;
 
 import Rev.Element.TextInput;
 import Rev.Element.Text;
 
 export namespace Rev::Element {
+
+    using namespace Rev::Appearance;
 
     struct NumberInput : public TextInput {
 

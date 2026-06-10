@@ -34,7 +34,7 @@ module;
 
 export module Rev.NativeWindow;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace Rev {
 
@@ -195,7 +195,7 @@ export namespace Rev {
         float scale = 1.0f;
         int posX = 0;
         int posY = 0;
-        Element::Cursor cursor;
+        Appearance::Cursor cursor;
         bool dirty = false;
         bool frameQueued = false;
         bool closed = false;
@@ -378,7 +378,7 @@ export namespace Rev {
             XResizeWindow(xDisplay, xWindow, static_cast<unsigned int>(w), static_cast<unsigned int>(h));
         }
 
-        void setCursor(Element::Cursor newCursor) {
+        void setCursor(Appearance::Cursor newCursor) {
             cursor = newCursor;
             if (!xDisplay || !xWindow) return;
 
@@ -820,20 +820,20 @@ export namespace Rev {
             );
         }
 
-        static unsigned int cursorShape(Element::Cursor cursor) {
+        static unsigned int cursorShape(Appearance::Cursor cursor) {
             switch (cursor) {
-                case Element::Cursor::Default:
-                case Element::Cursor::Arrow: return XC_left_ptr;
-                case Element::Cursor::Caret: return XC_xterm;
-                case Element::Cursor::Crosshair: return XC_crosshair;
-                case Element::Cursor::Hand: return XC_hand2;
-                case Element::Cursor::NotAllowed: return XC_X_cursor;
-                case Element::Cursor::ArrowsHorizontal: return XC_sb_h_double_arrow;
-                case Element::Cursor::ArrowsVertical: return XC_sb_v_double_arrow;
-                case Element::Cursor::ArrowsDiagonalUp: return XC_top_right_corner;
-                case Element::Cursor::ArrowsDiagonalDown: return XC_bottom_right_corner;
-                case Element::Cursor::ArrowsOmni: return XC_fleur;
-                case Element::Cursor::Unset:
+                case Appearance::Cursor::Default:
+                case Appearance::Cursor::Arrow: return XC_left_ptr;
+                case Appearance::Cursor::Caret: return XC_xterm;
+                case Appearance::Cursor::Crosshair: return XC_crosshair;
+                case Appearance::Cursor::Hand: return XC_hand2;
+                case Appearance::Cursor::NotAllowed: return XC_X_cursor;
+                case Appearance::Cursor::ArrowsHorizontal: return XC_sb_h_double_arrow;
+                case Appearance::Cursor::ArrowsVertical: return XC_sb_v_double_arrow;
+                case Appearance::Cursor::ArrowsDiagonalUp: return XC_top_right_corner;
+                case Appearance::Cursor::ArrowsDiagonalDown: return XC_bottom_right_corner;
+                case Appearance::Cursor::ArrowsOmni: return XC_fleur;
+                case Appearance::Cursor::Unset:
                 default: return 0;
             }
         }

@@ -5,7 +5,7 @@ module;
 
 export module Cam.Gui.Theme;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.ControlTheme;
 
 export namespace Cam::Gui::Theme {

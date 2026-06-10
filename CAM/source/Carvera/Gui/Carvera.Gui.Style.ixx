@@ -8,7 +8,7 @@ export module Carvera.Gui.Style;
 import Rev.Core.Resource;
 
 import Rev.Element;
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Box;
 import Rev.Element.Text;
 

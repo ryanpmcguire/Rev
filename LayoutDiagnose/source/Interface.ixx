@@ -8,7 +8,7 @@ module;
 export module Interface;
 
 import Rev.Element;
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Event;
 
 import Rev.Element.Box;

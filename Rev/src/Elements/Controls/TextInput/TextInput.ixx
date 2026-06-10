@@ -11,7 +11,7 @@ import Rev.Core.Resource;
 import Rev.Core.Observable;
 import Rev.Element;
 import Rev.Element.Event;
-import Rev.Element.Style;
+import Rev.Appearance;
 import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Svg;

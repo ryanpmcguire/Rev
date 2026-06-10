@@ -7,13 +7,13 @@ module;
 #include <utility>
 #include <vector>
 
-export module Rev.Element.Style;
+export module Rev.Appearance;
 
 import Rev.Core.DirtyFlag;
 import Rev.Core.Resource;
 import Rev.Core.Color;
 
-export namespace Rev::Element {
+export namespace Rev::Appearance {
 
     // Transitions
     //--------------------------------------------------

@@ -2,7 +2,7 @@ module;
 
 export module Styles;
 
-import Rev.Element.Style;
+import Rev.Appearance;
 
 export namespace HelloWorld {
 

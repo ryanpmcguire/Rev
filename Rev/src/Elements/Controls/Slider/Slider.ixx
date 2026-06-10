@@ -10,7 +10,7 @@ import Rev.Core.Pos;
 
 import Rev.Element;
 import Rev.Element.Event;
-import Rev.Element.Style;
+import Rev.Appearance;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
