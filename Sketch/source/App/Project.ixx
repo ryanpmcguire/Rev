@@ -67,13 +67,18 @@ export namespace Sketch::App {
 
         // Generated geometry layers drawn *alongside* the sketch -- the offset/inset
         // produced by "i". In-memory seed of the "one sketch, many layers" idea.
+        // Each layer's stoicheia partition into named groups by their own `group`
+        // tag (the offset loops, the "intersections" dots, ...).
         std::vector<SketchGeometry> offsetLayers;
 
-        // Debug view of the offset fracture (drawn so we can verify it before pruning):
-        // the same-winding (valid) loops live in offsetLayers, the opposite-winding
-        // (would-be-discarded) loops here, and every self-intersection point here.
-        SketchGeometry offsetInvalid;
-        std::vector<Pos> offsetIntersections;
+        // The pure blind offset, kept as well-formed chains (not the flattened
+        // display copy): the artifact the valid/invalid chain extraction consumes.
+        std::vector<Chain> offsetChains;
+
+        // The crossing method's fragments: the blind offset split at every crossing
+        // and regrouped into sub-chains of contiguous same-crossing-number pieces.
+        // The artifact the final categorization (signed area per fragment) consumes.
+        std::vector<Chain::NumberedChain> crossingFragments;
 
         // Create
         //--------------------------------------------------
@@ -147,27 +152,94 @@ export namespace Sketch::App {
         }
 
         // Offset every chain by `amount`, blindly: each edge slides left of its own
-        // travel direction, every corner is bridged by the known join arc, and the raw
-        // result is shown AS IS -- no fracture, no winding categorization, no pruning.
-        // Whether a chain insets or outsets emerges purely from its own chirality.
+        // travel direction and every corner is bridged by the known join arc. The
+        // pure blind offset is PRESERVED in offsetChains (never displayed); what the
+        // layer shows is the extraction: the offset split at every self-crossing into
+        // loops, each coloured strictly by its own ABSOLUTE chirality -- every CW
+        // loop blue, every CCW loop red, never relative to anything -- plus the
+        // "intersections" dot group on top.
         void insetIntoNewLayer(float amount) {
-            SketchGeometry result;
-
-            // One layer per inset step (a single step for now); within it, each
-            // source chain's offset is its own labelled group, stamped at birth.
-            int chainIndex = 0;
+            offsetChains.clear();
             for (Chain& chain : Chain::build(geometry.entities)) {
-                Chain raw = chain.offsetRaw(amount);
-                std::string label = "offset/" + std::to_string(chainIndex++);
-                for (auto& e : raw.edges) { e->group = label; result.add(std::move(e)); }
+                offsetChains.push_back(chain.offsetRaw(amount));
             }
+
+            SketchGeometry result;
+            crossingMethod(result);           // the other strategy: signedAreaMethod
+            addIntersectionMarks(result);     // appended last, so the dots draw on top
 
             result.normalize();
             offsetLayers.clear();
             offsetLayers.push_back(std::move(result));
-            offsetInvalid = SketchGeometry();
-            offsetIntersections.clear();
             dirty = true;
+        }
+
+        // The absolute-chirality group label of a loop, read straight off its own
+        // signed area: CW and CCW are facts of the geometry, not comparisons.
+        static const char* chiralityGroup(const Chain& loop) {
+            int w = loop.windingSign();
+            return (w < 0) ? "chirality/cw" : (w > 0) ? "chirality/ccw" : "chirality/none";
+        }
+
+        // Method ONE -- the signed-area method: fracture each blind-offset chain at
+        // every self-crossing into simple loops (direction-preserving splits only),
+        // then stamp each loop with its own absolute chirality, read from its exact
+        // signed area. offsetChains is untouched.
+        void signedAreaMethod(SketchGeometry& result) {
+            for (const Chain& raw : offsetChains) {
+                for (Chain& loop : raw.extractLoopsByFracture()) {
+                    const char* label = chiralityGroup(loop);
+                    for (auto& e : loop.edges) { e->group = label; result.add(std::move(e)); }
+                }
+            }
+        }
+
+        // Method TWO -- the crossing method: split each blind-offset chain at every
+        // self-crossing, walk the sub-edges in their original order accumulating the
+        // signed crossing number (the other strand crossing from our positive side
+        // to our negative side counts -1, negative to positive +1), then fragment
+        // the run into sub-chains of contiguous same-number pieces. The fragments
+        // are kept whole in crossingFragments (for the final categorization step);
+        // the display copy is stamped "crossing/<number>/<fragment>" -- the path is
+        // settled wherever the number reads zero. offsetChains is untouched.
+        void crossingMethod(SketchGeometry& result) {
+            crossingFragments.clear();
+            for (const Chain& raw : offsetChains) {
+                for (Chain::NumberedChain& nc : raw.fragmentByCrossingNumber()) {
+                    std::string label = "crossing/" + std::to_string(nc.number)
+                                      + "/" + std::to_string(crossingFragments.size());
+                    for (const auto& e : nc.chain.edges) {
+                        std::unique_ptr<Stoicheion> copy = e->clone();
+                        copy->group = label;
+                        result.add(std::move(copy));
+                    }
+                    crossingFragments.push_back(std::move(nc));
+                }
+            }
+        }
+
+        // Every intersection of the pure blind offset -- each chain crossed with
+        // itself, and each pair of chains with each other -- as Point2 stoicheia in
+        // the "intersections" group.
+        void addIntersectionMarks(SketchGeometry& result) {
+            std::vector<Pos> crossings;
+            for (const Chain& c : offsetChains) {
+                for (const Pos& p : c.allSelfIntersections()) { crossings.push_back(p); }
+            }
+            for (size_t i = 0; i < offsetChains.size(); i++) {
+                for (size_t j = i + 1; j < offsetChains.size(); j++) {
+                    for (const auto& ea : offsetChains[i].edges) {
+                        for (const auto& eb : offsetChains[j].edges) {
+                            Chain::edgeCross(*ea, *eb, crossings);
+                        }
+                    }
+                }
+            }
+            for (const Pos& p : crossings) {
+                std::unique_ptr<Point2> dot = std::make_unique<Point2>(p);
+                dot->group = "intersections";
+                result.add(std::move(dot));
+            }
         }
 
         // Ensure the datum geometry exists: the locked origin point and the two

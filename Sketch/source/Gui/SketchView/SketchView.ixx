@@ -4,6 +4,7 @@ module;
 #include <vector>
 #include <memory>
 #include <cmath>
+#include <cstdlib>
 #include <algorithm>
 #include <iterator>
 #include <utility>
@@ -1387,8 +1388,7 @@ export namespace Sketch::Gui {
             insetActive = !insetActive;
             if (!insetActive) {
                 app->activeProject->offsetLayers.clear();
-                app->activeProject->offsetInvalid.clear();
-                app->activeProject->offsetIntersections.clear();
+                app->activeProject->offsetChains.clear();
             }
             return true;
         }
@@ -1474,18 +1474,43 @@ export namespace Sketch::Gui {
                 // geometry each rebuild, so it follows the sketch as it is dragged.
                 if (insetActive) { app->activeProject->insetIntoNewLayer(insetAmount); }
 
-                // Debug fracture view: valid loops cyan, opposite-winding loops red,
-                // every self-intersection a yellow dot. Nothing discarded yet.
-                Color offsetColor { 0.20f, 0.85f, 0.85f, 0.95f };   // valid (same winding)
-                Color invalidColor{ 0.95f, 0.25f, 0.25f, 0.95f };   // opposite winding
-                Color crossColor  { 1.00f, 0.90f, 0.20f, 1.00f };   // intersection points
+                // Offset layers, styled blindly by each stoicheion's own group label
+                // (the view maps label -> style, it decides nothing).
+                //   chirality/* (signed-area method): ABSOLUTE chirality -- every CW
+                //     loop blue, every CCW loop red, regardless of source.
+                //   crossing/N (crossing method): the accumulated crossing number --
+                //     0 (settled) green, positive reds, negative blues, dimming as
+                //     the count deepens.
+                // The "intersections" group renders as yellow dots, drawn second so
+                // it sits on top.
+                Color cwColor    { 0.30f, 0.50f, 1.00f, 0.95f };   // "chirality/cw"
+                Color ccwColor   { 0.95f, 0.25f, 0.25f, 0.95f };   // "chirality/ccw"
+                Color otherColor { 0.20f, 0.85f, 0.85f, 0.95f };   // anything unlabelled
+                Color crossColor { 1.00f, 0.90f, 0.20f, 1.00f };   // "intersections"
+
+                auto groupColor = [&](const std::string& g) -> Color {
+                    if (g == "chirality/cw")  { return cwColor; }
+                    if (g == "chirality/ccw") { return ccwColor; }
+                    if (g.rfind("crossing/", 0) == 0) {
+                        int v = static_cast<int>(std::strtol(g.c_str() + 9, nullptr, 10));
+                        if (v == 0) { return Color{ 0.25f, 0.90f, 0.40f, 0.95f }; }   // settled
+                        float dim = std::max(0.45f, 1.0f - 0.25f * (std::abs(v) - 1));
+                        return (v > 0) ? Color{ 0.95f * dim, 0.30f * dim, 0.25f * dim, 0.95f }
+                                       : Color{ 0.30f * dim, 0.50f * dim, 1.00f * dim, 0.95f };
+                    }
+                    return otherColor;
+                };
 
                 for (const SketchGeometry& layer : app->activeProject->offsetLayers) {
-                    appendGeometry(geometry, layer, offsetColor);
-                }
-                appendGeometry(geometry, app->activeProject->offsetInvalid, invalidColor);
-                for (const Pos& p : app->activeProject->offsetIntersections) {
-                    appendPoint(geometry, Sketch::App::Point2(p), crossColor, 5.0f);
+                    for (const auto& e : layer.entities) {
+                        if (!e || e->group == "intersections") { continue; }
+                        appendEntity(geometry, *e, groupColor(e->group));
+                    }
+                    for (const auto& e : layer.entities) {
+                        if (e && e->group == "intersections" && e->isPoint()) {
+                            appendPoint(geometry, *static_cast<const Sketch::App::Point2*>(e.get()), crossColor, 5.0f);
+                        }
+                    }
                 }
             }
 
