@@ -431,6 +431,81 @@ export namespace Sketch::App {
             return loops;
         }
 
+        // Arc length of an edge and the point at its travel midpoint.
+        static float edgeLength(const Stoicheion& e) {
+            Pos c; float r, a0, sweep; int chir;
+            if (circularOf(e, c, r, a0, sweep, chir)) { return r * sweep; }
+            return (eEnd(e) - eStart(e)).pythag();
+        }
+        static Pos edgeMidpoint(const Stoicheion& e) {
+            Pos c; float r, a0, sweep; int chir;
+            if (circularOf(e, c, r, a0, sweep, chir)) { return c + Pos::fromAngle(a0 + sweep * 0.5f) * r; }
+            return (eStart(e) + eEnd(e)) * 0.5f;
+        }
+
+        // The winding number of this chain around a probe point, by exact signed ray
+        // casting toward +x: every place the path crosses the ray heading upward
+        // counts +1, heading downward -1. Pure reading of the path -- no start
+        // vertex, no extremes, no area.
+        int windingAround(Pos probe) const {
+            int w = 0;
+            for (const auto& e : edges) {
+                Pos c; float r, a0, sweep; int chir;
+                if (circularOf(*e, c, r, a0, sweep, chir)) {
+                    float dy = probe.y - c.y;
+                    float h2 = r * r - dy * dy;
+                    if (h2 <= 1e-12f) { continue; }
+                    float h = std::sqrt(h2);
+                    for (float qx : { c.x + h, c.x - h }) {
+                        Pos q(qx, probe.y);
+                        if (q.x <= probe.x) { continue; }
+                        if (!onSpan(c, a0, sweep, q)) { continue; }
+                        Pos t = travelDirAt(*e, q);
+                        if (t.y > 1e-9f) { w++; } else if (t.y < -1e-9f) { w--; }
+                    }
+                }
+                else {
+                    Pos a = eStart(*e), b = eEnd(*e);
+                    float dy = b.y - a.y;
+                    if (std::fabs(dy) < 1e-12f) { continue; }
+                    float u = (probe.y - a.y) / dy;
+                    if (u < 0.0f || u >= 1.0f) { continue; }   // half-open: a shared vertex counts once
+                    float x = a.x + (b.x - a.x) * u;
+                    if (x <= probe.x) { continue; }
+                    w += (dy > 0.0f) ? 1 : -1;
+                }
+            }
+            return w;
+        }
+
+        // The path's total accumulated turning, in radians: each edge's own swept
+        // turning (an arc turns by chirality * sweep; a segment doesn't turn) plus
+        // the signed exterior angle at every junction. For a closed path this is
+        // 2*pi times the rotation index -- the path's handedness as TURNING. Robust
+        // where signed area is not: burr lobes can outweigh a thin valid loop's
+        // area and flip its sign, but they can never flip the total turning, since
+        // offsetting preserves the tangent structure of its source.
+        float totalTurning() const {
+            const size_t n = edges.size();
+            if (n == 0) { return 0.0f; }
+            float total = 0.0f;
+            for (const auto& e : edges) {
+                Pos c; float r, a0, sweep; int chir;
+                if (circularOf(*e, c, r, a0, sweep, chir)) { total += static_cast<float>(chir) * sweep; }
+            }
+            const size_t corners = closed ? n : (n - 1);
+            for (size_t k = 0; k < corners; k++) {
+                Pos a = eEndDir(*edges[k]);
+                Pos b = eStartDir(*edges[(k + 1) % n]);
+                total += std::atan2(a.cross(b), a.dot(b));   // signed exterior angle
+            }
+            return total;
+        }
+        int turningSign() const {
+            float t = totalTurning();
+            return (t > 1e-3f) ? 1 : (t < -1e-3f) ? -1 : 0;
+        }
+
         // Unit travel tangent of an edge at a point on it (the direction the path
         // moves through `p` when traversing this edge).
         static Pos travelDirAt(const Stoicheion& e, Pos p) {
@@ -501,6 +576,48 @@ export namespace Sketch::App {
                     // positive: +1. Heading to our right: positive -> negative: -1.
                     count += (tOur.cross(tOther) > 0.0f) ? 1 : -1;
                 }
+            }
+
+            // 4. anchor by KNOWN-SIDEDNESS. The walk only accumulates DIFFERENCES:
+            //    along the path the count changes exactly as the winding number of
+            //    the face to our RIGHT changes (count == -w_right + constant). So
+            //    the absolute level of every sub-edge is fixed by measuring w_right
+            //    once, directly: probe a point just right of one sub-edge's midpoint
+            //    and ray-cast the whole path around it. Exact, start-invariant, no
+            //    extremes, no area.
+            if (!run.edges.empty()) {
+                size_t anchor = 0; float bestLen = -1.0f;
+                for (size_t k = 0; k < run.edges.size(); k++) {
+                    float len = edgeLength(*run.edges[k]);
+                    if (len > bestLen) { bestLen = len; anchor = k; }
+                }
+                Pos mid = edgeMidpoint(*run.edges[anchor]);
+                Pos t = travelDirAt(*run.edges[anchor], mid);
+
+                // Probe just to the RIGHT of the anchor edge -- closer than any
+                // other strand of the path, so it cannot land on the far side of a
+                // thin feature.
+                float clearance = 1e30f;
+                for (size_t k = 0; k < run.edges.size(); k++) {
+                    if (k == anchor) { continue; }
+                    clearance = std::min(clearance, run.edges[k]->distanceTo(mid));
+                }
+                float reach = std::min(1e-2f * bestLen, 0.4f * clearance);
+                Pos probe = mid - perpCCW(t) * std::max(reach, 1e-4f);
+                int wRight = windingAround(probe);
+
+                // count == -w_right + C  =>  shift so every number IS -w_right.
+                int shift = run.number[anchor] + wRight;
+                for (int& v : run.number) { v -= shift; }
+
+                // 5. fold in the ACCUMULATED TURNING (the rotation index -- stable
+                //    under thin features, unlike signed area) to unify handedness:
+                //    a CCW path's valid stretches have the void (w == 0) on their
+                //    right, so -w_right == 0; a CW path's valid stretches have the
+                //    material (w == -1) on their right, so -w_right == +1. After the
+                //    fold, valid reads 0 for both, and burrs read off-zero.
+                if (turningSign() < 0) { for (int& v : run.number) { v = v - 1; } }
+                else                   { for (int& v : run.number) { v = -v; } }
             }
             return run;
         }

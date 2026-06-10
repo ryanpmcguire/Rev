@@ -77,7 +77,8 @@ export namespace Sketch::App {
 
         // The crossing method's fragments: the blind offset split at every crossing
         // and regrouped into sub-chains of contiguous same-crossing-number pieces.
-        // The artifact the final categorization (signed area per fragment) consumes.
+        // The number IS the category (anchored absolute depth: 0 = borders the
+        // unbounded outside); the final step simply keeps the zero fragments.
         std::vector<Chain::NumberedChain> crossingFragments;
 
         // Create
@@ -197,15 +198,19 @@ export namespace Sketch::App {
         // Method TWO -- the crossing method: split each blind-offset chain at every
         // self-crossing, walk the sub-edges in their original order accumulating the
         // signed crossing number (the other strand crossing from our positive side
-        // to our negative side counts -1, negative to positive +1), then fragment
-        // the run into sub-chains of contiguous same-number pieces. The fragments
-        // are kept whole in crossingFragments (for the final categorization step);
-        // the display copy is stamped "crossing/<number>/<fragment>" -- the path is
-        // settled wherever the number reads zero. offsetChains is untouched.
+        // to our negative side counts -1, negative to positive +1), fragment the run
+        // into sub-chains of contiguous same-number pieces, then PRUNE: the keep
+        // level is decided by the whole chain's accumulated turning -- a
+        // counterclockwise chain keeps its 0 (green) fragments, a clockwise chain
+        // keeps its -1 (blue) fragments -- and everything else is discarded. The
+        // kept fragments live whole in crossingFragments; the display copy is
+        // stamped "crossing/<number>/<fragment>". offsetChains is untouched.
         void crossingMethod(SketchGeometry& result) {
             crossingFragments.clear();
             for (const Chain& raw : offsetChains) {
+                const int keep = (raw.turningSign() < 0) ? -1 : 0;   // CCW keeps green, CW keeps blue
                 for (Chain::NumberedChain& nc : raw.fragmentByCrossingNumber()) {
+                    if (nc.number != keep) { continue; }
                     std::string label = "crossing/" + std::to_string(nc.number)
                                       + "/" + std::to_string(crossingFragments.size());
                     for (const auto& e : nc.chain.edges) {
