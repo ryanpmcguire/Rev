@@ -80,9 +80,54 @@ export namespace Sketch::App {
         // (ellipses are tessellated to segments at build time).
         static bool isArc(const Stoicheion& e)    { return std::string(e.kind()) == "arc"; }
         static bool isCircle(const Stoicheion& e) { return std::string(e.kind()) == "circle"; }
+        static bool isOffEll(const Stoicheion& e) { return std::string(e.kind()) == "offsetEllipse"; }
         static const Segment2* asSeg(const Stoicheion& e)  { return static_cast<const Segment2*>(&e); }
         static const Arc2*     asArc(const Stoicheion& e)  { return static_cast<const Arc2*>(&e); }
         static const Circle2*  asCirc(const Stoicheion& e) { return static_cast<const Circle2*>(&e); }
+        static const OffsetEllipse2* asOff(const Stoicheion& e) { return static_cast<const OffsetEllipse2*>(&e); }
+
+        // Certified root finding over the normalised span s in [0,1]: a uniform
+        // scan brackets every sign change, bisection drives each bracket to
+        // machine precision. This is the "recursive approximation" the elliptic
+        // cases run on -- deterministic, every transversal root found, exact to
+        // double epsilon -- replacing the closed-form radicals that provably do
+        // not exist for parallel curves of ellipses.
+        static void scanRoots(const std::function<double(double)>& g, int N, std::vector<double>& out) {
+            double prevS = 0.0, prevG = g(0.0);
+            for (int i = 1; i <= N; i++) {
+                double s = static_cast<double>(i) / N;
+                double gi = g(s);
+                if ((prevG < 0.0) != (gi < 0.0)) {
+                    double lo = prevS, hi = s, glo = prevG;
+                    for (int it = 0; it < 60; it++) {
+                        double mid = 0.5 * (lo + hi), gm = g(mid);
+                        if ((glo < 0.0) != (gm < 0.0)) { hi = mid; } else { lo = mid; glo = gm; }
+                    }
+                    out.push_back(0.5 * (lo + hi));
+                }
+                prevS = s; prevG = gi;
+            }
+        }
+
+        // Travel coordinate s in [0,1] of a point on (or near) an offset ellipse:
+        // coarse scan for the nearest sample, then ternary refinement.
+        static float oeParamOf(const OffsetEllipse2& oe, Pos p) {
+            const int N = 128;
+            double best = 1e30; double bs = 0.0;
+            for (int i = 0; i <= N; i++) {
+                double s = static_cast<double>(i) / N;
+                double dist = (dPos(oe.pointAt(static_cast<float>(s))) - dPos(p)).len();
+                if (dist < best) { best = dist; bs = s; }
+            }
+            double lo = std::max(0.0, bs - 1.0 / N), hi = std::min(1.0, bs + 1.0 / N);
+            for (int it = 0; it < 50; it++) {
+                double m1 = lo + (hi - lo) / 3.0, m2 = hi - (hi - lo) / 3.0;
+                double d1 = (dPos(oe.pointAt(static_cast<float>(m1))) - dPos(p)).len();
+                double d2 = (dPos(oe.pointAt(static_cast<float>(m2))) - dPos(p)).len();
+                if (d1 < d2) { hi = m2; } else { lo = m1; }
+            }
+            return static_cast<float>(0.5 * (lo + hi));
+        }
         static Segment2* asSeg(Stoicheion& e) { return static_cast<Segment2*>(&e); }
         static Arc2*     asArc(Stoicheion& e) { return static_cast<Arc2*>(&e); }
 
@@ -111,11 +156,13 @@ export namespace Sketch::App {
         static Pos eStart(const Stoicheion& e) {
             if (isArc(e)) { return Pos(asArc(e)->a); }
             if (isCircle(e)) { return Pos(asCirc(e)->a); }   // a closed loop: start == end == a
+            if (isOffEll(e)) { return asOff(e)->pointAt(0.0f); }
             return Pos(asSeg(e)->a);
         }
         static Pos eEnd(const Stoicheion& e) {
             if (isArc(e)) { return Pos(asArc(e)->b); }
             if (isCircle(e)) { return Pos(asCirc(e)->a); }
+            if (isOffEll(e)) { return asOff(e)->pointAt(1.0f); }
             return Pos(asSeg(e)->b);
         }
 
@@ -127,6 +174,7 @@ export namespace Sketch::App {
                 if (chir < 0) { t = t * -1.0f; }
                 return t.normalized();
             }
+            if (isOffEll(e)) { return asOff(e)->tangentAt(0.0f); }
             const Segment2* s = asSeg(e);
             return (s->b - s->a).normalized();
         }
@@ -137,6 +185,7 @@ export namespace Sketch::App {
                 if (chir < 0) { t = t * -1.0f; }
                 return t.normalized();
             }
+            if (isOffEll(e)) { return asOff(e)->tangentAt(1.0f); }
             const Segment2* s = asSeg(e);
             return (s->b - s->a).normalized();
         }
@@ -144,6 +193,10 @@ export namespace Sketch::App {
         // Reverse an edge's travel direction (so chain building can connect either end).
         static std::unique_ptr<Stoicheion> reversedEdge(const Stoicheion& e) {
             if (isArc(e)) { const Arc2* a = asArc(e); return std::make_unique<Arc2>(a->c, a->b, a->a, a->d); }
+            if (isOffEll(e)) {
+                const OffsetEllipse2* o = asOff(e);   // travel is the parameter order: just swap
+                return std::make_unique<OffsetEllipse2>(o->c, o->u, o->v, o->d, o->a1, o->a0);
+            }
             const Segment2* s = asSeg(e);
             return std::make_unique<Segment2>(s->b, s->a);
         }
@@ -174,6 +227,15 @@ export namespace Sketch::App {
                 float lb = (k->b - k->c).pythag();
                 Pos nb = (lb > 1e-9f) ? (k->c + (k->b - k->c) / lb * nr) : Pos(k->b);
                 return std::make_unique<Circle2>(k->c, na, nb);
+            }
+            if (isOffEll(e)) {
+                // The family is closed under offsetting: only `d` moves. Spatial
+                // travel chirality = parameter direction combined with the base's
+                // handedness; left of CCW travel is inward (less outward d).
+                const OffsetEllipse2* o = asOff(e);
+                int s = ((o->u.cross(o->v) >= 0.0f) == (o->a1 >= o->a0)) ? 1 : -1;
+                return std::make_unique<OffsetEllipse2>(o->c, o->u, o->v,
+                                                        o->d - d * static_cast<float>(s), o->a0, o->a1);
             }
             const Segment2* s = asSeg(e);
             Pos dir = s->b - s->a; float L = dir.pythag();
@@ -245,11 +307,16 @@ export namespace Sketch::App {
                 return result;
             }
 
-            // Guard: a chain holding anything we don't offset yet (an ellipse from
-            // build()) passes through unchanged.
+            // A lone full-span offset ellipse likewise: closed, no corners.
+            if (edges.size() == 1 && isOffEll(*edges.front()) && asOff(*edges.front())->fullLoop()) {
+                result.edges.push_back(offsetLeft(*edges.front(), amount));
+                return result;
+            }
+
+            // Guard: a chain holding anything we don't offset passes through.
             for (const auto& e : edges) {
                 std::string k = e->kind();
-                if (k != "segment" && k != "arc") {
+                if (k != "segment" && k != "arc" && k != "offsetEllipse") {
                     for (const auto& src : edges) { result.edges.push_back(src->clone()); }
                     return result;
                 }
@@ -332,9 +399,84 @@ export namespace Sketch::App {
             return rel * r > 1e-3 && (static_cast<double>(sweep) - rel) * r > 1e-3;
         }
 
-        // Genuine crossing points of two edges (segments, arcs or full circles),
-        // strictly inside both spans.
+        // Strict-interior test for an offset-ellipse hit (a full loop has no
+        // endpoints to exclude).
+        static bool oeInterior(const OffsetEllipse2& oe, Pos q) {
+            if (oe.fullLoop()) { return true; }
+            return (q - oe.pointAt(0.0f)).pythag() > 1e-3f && (q - oe.pointAt(1.0f)).pythag() > 1e-3f;
+        }
+
+        // Crossings involving an offset ellipse, by certified scan-and-bisect on
+        // its span. Against a line the root function is the signed side; against
+        // a circle, the radial excess; against another offset ellipse, the second
+        // curve is chordised finely and each chord handled as a line (chord
+        // sagitta is far below the method's working tolerance).
+        static void offEllCross(const Stoicheion& A, const Stoicheion& B, std::vector<Pos>& out) {
+            if (!isOffEll(A)) { offEllCross(B, A, out); return; }
+            const OffsetEllipse2& oe = *asOff(A);
+            auto P = [&](double s) { return dPos(oe.pointAt(static_cast<float>(s))); };
+
+            auto push = [&](Pos q) {
+                for (const Pos& o : out) { if ((o - q).pythag() < 1e-4f) { return; } }   // dedupe
+                out.push_back(q);
+            };
+            auto acceptChord = [&](dPos a, dPos dvec, double len2, const std::vector<double>& roots,
+                                   const std::function<bool(Pos)>& otherInterior) {
+                for (double s : roots) {
+                    dPos q = P(s);
+                    double u = (q - a).dot(dvec) / len2;
+                    if (u < 0.0 || u > 1.0) { continue; }
+                    Pos qp = q.f();
+                    if (!oeInterior(oe, qp) || !otherInterior(qp)) { continue; }
+                    push(qp);
+                }
+            };
+
+            if (isOffEll(B)) {
+                const OffsetEllipse2& ob = *asOff(B);
+                const int NB = 96;
+                dPos prev(ob.pointAt(0.0f));
+                for (int i = 1; i <= NB; i++) {
+                    dPos cur(ob.pointAt(static_cast<float>(i) / NB));
+                    dPos dvec = cur - prev; double len2 = dvec.dot(dvec);
+                    if (len2 > 1e-18) {
+                        dPos a = prev;
+                        std::vector<double> roots;
+                        scanRoots([&](double s) { return dvec.cross(P(s) - a); }, 128, roots);
+                        acceptChord(a, dvec, len2, roots, [&](Pos q) { return oeInterior(ob, q); });
+                    }
+                    prev = cur;
+                }
+                return;
+            }
+
+            Pos cb; float rb, a0b, swb; int chb;
+            if (circularOf(B, cb, rb, a0b, swb, chb)) {
+                std::vector<double> roots;
+                scanRoots([&](double s) { return (P(s) - dPos(cb)).len() - static_cast<double>(rb); }, 256, roots);
+                for (double s : roots) {
+                    Pos q = P(s).f();
+                    if (oeInterior(oe, q) && onSpan(cb, a0b, swb, q)) { push(q); }
+                }
+                return;
+            }
+
+            // segment
+            dPos a(eStart(B)), b(eEnd(B));
+            dPos dvec = b - a; double len2 = dvec.dot(dvec);
+            if (len2 < 1e-18) { return; }
+            std::vector<double> roots;
+            scanRoots([&](double s) { return dvec.cross(P(s) - a); }, 256, roots);
+            acceptChord(a, dvec, len2, roots, [&](Pos q) {
+                float t;
+                return onSeg(eStart(B), eEnd(B), q, t);
+            });
+        }
+
+        // Genuine crossing points of two edges (segments, arcs, full circles or
+        // offset ellipses), strictly inside both spans.
         static void edgeCross(const Stoicheion& A, const Stoicheion& B, std::vector<Pos>& out) {
+            if (isOffEll(A) || isOffEll(B)) { offEllCross(A, B, out); return; }
             Pos ca, cb; float ra, rb, a0a, a0b, swa, swb; int cha, chb;
             bool aa = circularOf(A, ca, ra, a0a, swa, cha);
             bool bb = circularOf(B, cb, rb, a0b, swb, chb);
@@ -404,6 +546,7 @@ export namespace Sketch::App {
                 double rel = dWrap((dPos(p) - C).angle() - (dPos(k->a) - C).angle()) / dTAU;
                 return static_cast<float>((k->chirality() > 0) ? rel : ((rel > 1e-12) ? 1.0 - rel : 0.0));
             }
+            if (isOffEll(e)) { return oeParamOf(*asOff(e), p); }   // already a travel coordinate
             dPos s(eStart(e)), d = dPos(eEnd(e)) - dPos(eStart(e));
             double l2 = d.dot(d);
             return (l2 > 1e-18) ? static_cast<float>((dPos(p) - s).dot(d) / l2) : 0.0f;
@@ -428,6 +571,14 @@ export namespace Sketch::App {
                 double midR = (sgn > 0) ? (angS + dWrap(angB - angS) * 0.5) : (angS - dWrap(angS - angB) * 0.5);
                 first  = std::make_unique<Arc2>(arc->c, Pos(arc->a), s.f(), (C + dPos::fromAngle(midL) * r).f());
                 second = std::make_unique<Arc2>(arc->c, s.f(), Pos(arc->b), (C + dPos::fromAngle(midR) * r).f());
+            }
+            else if (isOffEll(e)) {
+                // Pure interval arithmetic: cut the parameter span at the point's
+                // travel coordinate. Direction and geometry are untouched.
+                const OffsetEllipse2* o = asOff(e);
+                float tm = o->paramAt(oeParamOf(*o, p));
+                first  = std::make_unique<OffsetEllipse2>(o->c, o->u, o->v, o->d, o->a0, tm);
+                second = std::make_unique<OffsetEllipse2>(o->c, o->u, o->v, o->d, tm, o->a1);
             }
             else {
                 const Segment2* seg = asSeg(e);
@@ -469,6 +620,26 @@ export namespace Sketch::App {
                 return;
             }
             if (isCircle(e)) { out.push_back(e.clone()); return; }       // 0..1 cuts: unsplittable
+            if (isOffEll(e) && asOff(e)->fullLoop()) {
+                // A full-span parallel loop also splits CYCLICALLY (no endpoints):
+                // n cuts make a ring of n parameter intervals, wrapping around.
+                if (points.size() < 2) { out.push_back(e.clone()); return; }
+                const OffsetEllipse2* o = asOff(e);
+                std::vector<float> ss;
+                for (const Pos& p : points) { ss.push_back(oeParamOf(*o, p)); }
+                std::sort(ss.begin(), ss.end());
+                float total = edgeLength(e);
+                for (size_t i = 0; i < ss.size(); i++) {
+                    float sa = ss[i];
+                    float sb = ss[(i + 1) % ss.size()];
+                    float ds = (i + 1 == ss.size()) ? (sb + 1.0f - sa) : (sb - sa);
+                    if (ds * total < 1e-3f) { continue; }                // coincident cuts
+                    float ta = o->paramAt(sa);
+                    float tb = o->paramAt(sa + ds);                      // may pass the wrap
+                    out.push_back(std::make_unique<OffsetEllipse2>(o->c, o->u, o->v, o->d, ta, tb));
+                }
+                return;
+            }
             if (points.empty()) { out.push_back(e.clone()); return; }
             std::vector<std::pair<float, Pos>> sp;
             for (const Pos& p : points) { sp.push_back({ paramOnEdge(e, p), p }); }
@@ -502,11 +673,22 @@ export namespace Sketch::App {
         static float edgeLength(const Stoicheion& e) {
             Pos c; float r, a0, sweep; int chir;
             if (circularOf(e, c, r, a0, sweep, chir)) { return r * sweep; }
+            if (isOffEll(e)) {
+                const OffsetEllipse2* o = asOff(e);
+                const int N = 32; float len = 0.0f;
+                Pos prev = o->pointAt(0.0f);
+                for (int i = 1; i <= N; i++) {
+                    Pos p = o->pointAt(static_cast<float>(i) / N);
+                    len += (p - prev).pythag(); prev = p;
+                }
+                return len;
+            }
             return (eEnd(e) - eStart(e)).pythag();
         }
         static Pos edgeMidpoint(const Stoicheion& e) {
             Pos c; float r, a0, sweep; int chir;
             if (circularOf(e, c, r, a0, sweep, chir)) { return c + Pos::fromAngle(a0 + sweep * 0.5f) * r; }
+            if (isOffEll(e)) { return asOff(e)->pointAt(0.5f); }
             return (eStart(e) + eEnd(e)) * 0.5f;
         }
 
@@ -529,6 +711,19 @@ export namespace Sketch::App {
                         Pos q(static_cast<float>(qx), probe.y);
                         if (!onSpan(c, a0, sweep, q)) { continue; }
                         Pos t = travelDirAt(*e, q);
+                        if (t.y > 1e-9f) { w++; } else if (t.y < -1e-9f) { w--; }
+                    }
+                }
+                else if (isOffEll(*e)) {
+                    const OffsetEllipse2* o = asOff(*e);
+                    std::vector<double> roots;
+                    scanRoots([&](double s) {
+                        return static_cast<double>(o->pointAt(static_cast<float>(s)).y) - P.y;
+                    }, 256, roots);
+                    for (double s : roots) {
+                        Pos q = o->pointAt(static_cast<float>(s));
+                        if (q.x <= probe.x) { continue; }
+                        Pos t = o->tangentAt(static_cast<float>(s));
                         if (t.y > 1e-9f) { w++; } else if (t.y < -1e-9f) { w--; }
                     }
                 }
@@ -560,6 +755,18 @@ export namespace Sketch::App {
             for (const auto& e : edges) {
                 Pos c; float r, a0, sweep; int chir;
                 if (circularOf(*e, c, r, a0, sweep, chir)) { total += static_cast<double>(chir) * sweep; }
+                else if (isOffEll(*e)) {
+                    // The edge's own bending, accumulated from sampled tangents
+                    // (each wrapped delta is well under pi at this sampling).
+                    const OffsetEllipse2* o = asOff(*e);
+                    const int N = 64;
+                    dPos prev(o->tangentAt(0.0f));
+                    for (int i = 1; i <= N; i++) {
+                        dPos t(o->tangentAt(static_cast<float>(i) / N));
+                        total += std::atan2(prev.cross(t), prev.dot(t));
+                        prev = t;
+                    }
+                }
             }
             const size_t corners = closed ? n : (n - 1);
             for (size_t k = 0; k < corners; k++) {
@@ -583,6 +790,7 @@ export namespace Sketch::App {
                 if (chir < 0) { t = t * -1.0f; }
                 return t.normalized();
             }
+            if (isOffEll(e)) { const OffsetEllipse2* o = asOff(e); return o->tangentAt(oeParamOf(*o, p)); }
             return eStartDir(e);
         }
 
@@ -724,29 +932,19 @@ export namespace Sketch::App {
             std::vector<Chain> out;
             std::vector<std::unique_ptr<Stoicheion>> pool;
 
-            // An ellipse (or elliptical arc) enters the chain as an ARC-SPLINE: per
-            // parameter span, the circular arc through three exact points of the
-            // true ellipse (Arc2::ThreePoint), inheriting the travel direction from
-            // the parameterisation. The true offset of an ellipse is not an ellipse
-            // (and has no closed-form intersections), but arcs live in the algebra
-            // the whole method is exact over -- so the approximation happens once,
-            // here at the door, and everything downstream stays exact. Near-straight
-            // spans (degenerate circumcentre) fall back to a segment.
-            auto ellipseToArcs = [&pool](Pos c, Pos u, Pos v, float t0, float span) {
-                int spans = std::max(8, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 32.0f))));
+            // An ellipse (or elliptical arc) enters the chain EXACTLY, as parallel
+            // edges at distance zero (OffsetEllipse2 with d = 0): the family the
+            // true offset lives in, closed under offsetting forever -- recursion
+            // never approximates. The span is cut at QUADRANT boundaries (the
+            // curvature extrema): offset cusps form there, so every future
+            // swallowtail self-loop straddles a cut and is seen by the pairwise
+            // crossing test.
+            auto ellipseToEdges = [&pool](Pos c, Pos u, Pos v, float t0, float span) {
+                int spans = std::max(2, static_cast<int>(std::ceil(std::fabs(span) / (TAU * 0.25f))));
                 for (int i = 0; i < spans; i++) {
                     float ta = t0 + span * (static_cast<float>(i) / spans);
                     float tb = t0 + span * (static_cast<float>(i + 1) / spans);
-                    Pos p0 = ellipsePointAt(c, u, v, ta);
-                    Pos pm = ellipsePointAt(c, u, v, (ta + tb) * 0.5f);
-                    Pos p1 = ellipsePointAt(c, u, v, tb);
-                    Arc2 arc = Arc2::ThreePoint(p0, pm, p1);
-                    if (arc.radius() > (p1 - p0).pythag() * 1e4f) {
-                        pool.push_back(std::make_unique<Segment2>(p0, p1));   // near-straight span
-                    }
-                    else {
-                        pool.push_back(std::make_unique<Arc2>(arc));
-                    }
+                    pool.push_back(std::make_unique<OffsetEllipse2>(c, u, v, 0.0f, ta, tb));
                 }
             };
 
@@ -759,11 +957,11 @@ export namespace Sketch::App {
                 else if (k == "segment" || k == "arc") { pool.push_back(e->clone()); }
                 else if (k == "ellipse") {
                     const Ellipse2* el = static_cast<const Ellipse2*>(e.get());
-                    ellipseToArcs(el->c, el->u, el->v, 0.0f, TAU);
+                    ellipseToEdges(el->c, el->u, el->v, 0.0f, TAU);
                 }
                 else if (k == "ellipseArc") {
                     const EllipseArc2* ea = static_cast<const EllipseArc2*>(e.get());
-                    ellipseToArcs(ea->c, ea->u, ea->v, ea->a0, ea->span());
+                    ellipseToEdges(ea->c, ea->u, ea->v, ea->a0, ea->span());
                 }
             }
 
