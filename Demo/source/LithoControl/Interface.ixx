@@ -1,6 +1,6 @@
-module;
+﻿module;
 
-// Win32 + GDI+ for file dialogs and PNG→bitmap conversion
+// Win32 + GDI+ for file dialogs and PNG->bitmap conversion
 #include <windows.h>
 #include <commdlg.h>
 #include <shlobj.h>
@@ -45,9 +45,9 @@ export namespace LithoControl {
     using namespace Rev::Element;
     using Text = Rev::Element::Text;  // disambiguate from Rev::Primitives::Text
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // Theme constants
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     namespace Theme {
 
@@ -223,9 +223,9 @@ export namespace LithoControl {
 
     } // namespace Theme
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // Thread-safe string queue
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     struct MsgQueue {
         std::mutex              mtx;
@@ -246,9 +246,9 @@ export namespace LithoControl {
         }
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ImagePreview element — renders a PNG with an optional tile-grid overlay
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // ImagePreview element -- renders a PNG with an optional tile-grid overlay
+    // -------------------------------------------------------------------------
 
     struct ImagePreview : public Box {
 
@@ -259,7 +259,7 @@ export namespace LithoControl {
         int tileX = 0, tileY = 0;   // tile grid counts (0 = no grid)
 
         // Deferred-bake state: decoding happens on the CPU at any time, but the GL
-        // texture is (re)created in computePrimitives where the context is current —
+        // texture is (re)created in computePrimitives where the context is current --
         // mirroring Core::Svg::bake(). Creating textures in event handlers (where the
         // GL context may not be current) is why images previously failed to appear.
         std::vector<uint8_t> pendingPixels;
@@ -309,7 +309,7 @@ export namespace LithoControl {
 
             // Wheel = zoom about the view; clamped like the Python canvas [0.1, 20].
             // Zoom/pan change plain floats (not styles), so nothing dirties the tree
-            // on its own — call refresh(e) to force a repaint this frame.
+            // on its own -- call refresh(e) to force a repaint this frame.
             this->onMouseWheel([this](Rev::Element::Event& e) {
                 if (srcW <= 0) return;
                 float factor = (e.mouse.wheel.y > 0) ? 1.15f : (1.0f / 1.15f);
@@ -531,7 +531,7 @@ export namespace LithoControl {
         void draw(Event& e) override {
 
             // Draw the box background (and set up overflow stencil) FIRST, then the
-            // image on top — otherwise the opaque PreviewArea background paints over it.
+            // image on top -- otherwise the opaque PreviewArea background paints over it.
             Box::draw(e);
 
             if (imgPrimitive && imgTexture) {
@@ -540,13 +540,13 @@ export namespace LithoControl {
         }
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // Interface
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     struct Interface : public Box {
 
-        // ── State ────────────────────────────────────────────────────────────
+        // -- State ------------------------------------------------------------
 
         enum class Platform { STM32, Pi };
         enum class JobState  { Idle, Running, Paused };
@@ -585,7 +585,7 @@ export namespace LithoControl {
         std::atomic<int>  pendingTileY { 0 };
         std::atomic<bool> pendingPreviewReload { false };
         std::atomic<bool> pendingJobRescan    { false };
-        std::atomic<bool> pendingSliceDone    { false };  // slicer worker → reset SLICE btn
+        std::atomic<bool> pendingSliceDone    { false };  // slicer worker -> reset SLICE btn
         std::atomic<int>  pendingConnState    { -1 };  // -1 none, 0 disconnected, 1 connected
         // Display status set by worker threads, rendered into frameLabel on the main
         // thread: 0=idle, 1=running, 2=done, 3=estop. Avoids off-thread label writes.
@@ -602,7 +602,7 @@ export namespace LithoControl {
 
         ULONG_PTR gdipToken = 0;
 
-        // ── Persisted settings ───────────────────────────────────────────────
+        // -- Persisted settings -----------------------------------------------
 
         struct Settings {
             int    exposeMs  = 3000;
@@ -620,7 +620,7 @@ export namespace LithoControl {
             std::string dlpRoot  = "";   // persisted repo root for resolving ./jobs
         } settings;
 
-        // ── Sidebar scroll ────────────────────────────────────────────────────
+        // -- Sidebar scroll ----------------------------------------------------
 
         float sidebarScrollY   = 0.0f;
         Box*  sidebarBox       = nullptr;
@@ -630,7 +630,7 @@ export namespace LithoControl {
         float sbThumbDragStartY     = 0.0f;
         float sbThumbDragStartScroll = 0.0f;
 
-        // ── UI element pointers ──────────────────────────────────────────────
+        // -- UI element pointers ----------------------------------------------
 
         // Connection
         Dropdown*  platformDrop     = nullptr;
@@ -658,11 +658,20 @@ export namespace LithoControl {
 
         // Job queue
         TextInput* jobsDirInput   = nullptr;
+        TextInput* jobSearchInput = nullptr;
+        std::string jobFilter;
         Box*       jobListBox     = nullptr;
+        Box*       jobListInner   = nullptr;
         std::vector<Box*> jobItemBoxes;
 
         // Jog
         TextInput* jogDistInput   = nullptr;
+        Text*      posXLabel      = nullptr;
+        Text*      posYLabel      = nullptr;
+        Text*      posZLabel      = nullptr;
+        std::atomic<bool> posUpdatePending { false };
+        std::string pendingPosX, pendingPosY, pendingPosZ;
+        std::mutex  posMtx;
 
         // Status
         Text*  frameLabel    = nullptr;
@@ -698,7 +707,7 @@ export namespace LithoControl {
         float  statusPanelH      = 200.0f;
         Box*   statusPanelBox    = nullptr;
 
-        // ── Constructor ──────────────────────────────────────────────────────
+        // -- Constructor ------------------------------------------------------
 
         Interface(Element* parent) : Box(parent) {
 
@@ -717,7 +726,7 @@ export namespace LithoControl {
             refreshJobList();
             scanPorts(false);   // populate the COM list at startup; don't select/connect
 
-            // Global drag handlers — fire on any mouse move/up over the Interface,
+            // Global drag handlers -- fire on any mouse move/up over the Interface,
             // so drags stay active even when the cursor leaves the originating handle.
             this->onMouseMove([this](Rev::Element::Event& e) {
                 if (sidebarDragging) {
@@ -739,6 +748,7 @@ export namespace LithoControl {
                     if (statusPanelBox)
                         statusPanelBox->style->size.height = Px(statusPanelH);
                 }
+                if (sbThumbDragging && !e.mouse.lb) sbThumbDragging = false;
                 if (sbThumbDragging && sidebarBox && sidebarContent) {
                     // Map thumb travel (track minus thumb) to content scroll range.
                     float trackH   = sidebarBox->rect.h;
@@ -755,7 +765,7 @@ export namespace LithoControl {
             this->onMouseUp([this](Rev::Element::Event&) {
                 sbThumbDragging = false;
                 if (sidebarDragging && !sidebarDragMoved) {
-                    // Click (no drag) — toggle collapse
+                    // Click (no drag) -- toggle collapse
                     sidebarCollapsed = !sidebarCollapsed;
                     if (sidebarCollapseBtn)
                         sidebarCollapseBtn->content = sidebarCollapsed ? ">" : "<";
@@ -780,7 +790,7 @@ export namespace LithoControl {
             if (gdipToken) Gdiplus::GdiplusShutdown(gdipToken);
         }
 
-        // ── Build sidebar ─────────────────────────────────────────────────────
+        // -- Build sidebar -----------------------------------------------------
 
         void buildSidebar() {
 
@@ -901,8 +911,8 @@ export namespace LithoControl {
             });
         }
 
-        // ── Sidebar collapse handle ───────────────────────────────────────────
-        // A 16px-wide strip between sidebar and right panel — always visible,
+        // -- Sidebar collapse handle -------------------------------------------
+        // A 16px-wide strip between sidebar and right panel -- always visible,
         // lets the user hide/show the sidebar without losing access to the toggle.
 
         void buildCollapseHandle() {
@@ -926,7 +936,7 @@ export namespace LithoControl {
             });
         }
 
-        // ── Connection panel ─────────────────────────────────────────────────
+        // -- Connection panel -------------------------------------------------
 
         void buildConnectionPanel(Box* body) {
 
@@ -952,7 +962,7 @@ export namespace LithoControl {
             platformRowSlot->style->size.width        = 100_pct;
             platformRowSlot->style->margin.top        = 6_px;
 
-            // STM32 port row — vertical so dropdown + scan button stack cleanly
+            // STM32 port row -- vertical so dropdown + scan button stack cleanly
             stmPortRow = new Box(platformRowSlot);
             stmPortRow->style->layout = { Axis::Vertical, Align::Start, Align::Start };
             stmPortRow->style->size.width = 100_pct;
@@ -1002,7 +1012,7 @@ export namespace LithoControl {
             connStatus->style->text.size  = 11_px;
             connStatus->style->size       = { Grow() };
 
-            // Connect button — no fixed px width, flex with the row
+            // Connect button -- no fixed px width, flex with the row
             Box* connBtn = makeBtn(connRow, "CONNECT", nullptr, true);
             connectBtnTxt = (Text*)connBtn->children[0];
             connBtn->onMouseDown([this](Rev::Element::Event& e) { toggleConnect(); });
@@ -1011,7 +1021,7 @@ export namespace LithoControl {
             updatePlatformRows();
         }
 
-        // ── Slicer panel ──────────────────────────────────────────────────────
+        // -- Slicer panel ------------------------------------------------------
 
         void buildSlicerPanel(Box* body) {
 
@@ -1055,7 +1065,7 @@ export namespace LithoControl {
             invertChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
             invertChk->label->style->text.size  = 11_px;
 
-            // Off by default — slicing never touches the Pi unless this is ticked.
+            // Off by default -- slicing never touches the Pi unless this is ticked.
             // Only relevant on the Pi platform; the checkbox lives in a dedicated
             // slot (kept in the tree) and is added/removed from it per platform.
             sendChkSlot = new Box(body);
@@ -1094,7 +1104,7 @@ export namespace LithoControl {
             }
         }
 
-        // ── Job panel ─────────────────────────────────────────────────────────
+        // -- Job panel ---------------------------------------------------------
 
         void buildJobPanel(Box* body) {
 
@@ -1124,16 +1134,24 @@ export namespace LithoControl {
             browseDir->style->size.max.width = 30_px;
             (void)browseDir;
 
-            // Job list container. It flows naturally in the sidebar (no fixed height,
-            // no inner clip) so it grows with its items and scrolls with the whole
-            // sidebar. A nested overflow-clip here caused the list to vanish entirely
-            // when its bottom ran past the window edge.
+            // Search / filter input above the job list
+            jobSearchInput = new TextInput(body, {
+                .label = "SEARCH",
+                .placeholder = "filter...",
+                .maxLength = 64
+            });
+            jobSearchInput->label->style->text.color = rgba(232, 232, 232, 0.6f);
+            jobSearchInput->label->style->text.size  = 9_px;
+            tightenInput(jobSearchInput);
+
+            // Job list container: fixed max-height (5 items) + clip, with an inner
+            // absolute-positioned content box that shifts for scroll.
             jobListBox = new Box(body);
-            jobListBox->style->layout   = { Axis::Vertical, Align::Start, Align::Start };
-            jobListBox->style->size.width        = 100_pct;
-            // NOTE: do not set size.min.height — the framework uses size.h.min for the
-            // content-derived minimum, so an explicit min would pin the box height and
-            // the items would overflow into the button row below.
+            jobListBox->style->layout         = { Axis::Vertical, Align::Start, Align::Start };
+            jobListBox->style->size.width      = 100_pct;
+            jobListBox->style->size.height     = Px(120);
+            jobListBox->style->size.min.height = Px(120);
+            jobListBox->style->overflow        = Overflow::Hide;
             jobListBox->style->background.color = rgba(28, 28, 28, 1);
             jobListBox->style->border.color     = rgba(42, 42, 42, 1);
             jobListBox->style->border.width     = 1_px;
@@ -1141,8 +1159,24 @@ export namespace LithoControl {
             jobListBox->style->margin.bottom    = 6_px;
             jobListBox->style->padding          = { 2_px, 2_px, 2_px, 2_px };
 
-            // Items are added directly to jobListBox (no absolute inner column).
-            jobListContent = jobListBox;
+            // Absolute-positioned inner column that scrolls vertically
+            jobListInner = new Box(jobListBox);
+            jobListInner->style->layout        = { Axis::Vertical, Align::Start, Align::Start };
+            jobListInner->style->layout.position = Position::Absolute;
+            jobListInner->style->size.width    = 100_pct;
+
+            jobListContent = jobListInner;
+
+            jobListBox->onMouseWheel([this](Rev::Element::Event& e) {
+                if (!jobListBox->rect.contains(e.mouse.pos)) return;
+                jobListScrollY -= (e.mouse.wheel.y / 120.0f) * 40.0f;
+                if (jobListScrollY < 0.0f) jobListScrollY = 0.0f;
+                float maxScroll = jobListInner->rect.h - jobListBox->rect.h;
+                if (maxScroll < 0.0f) maxScroll = 0.0f;
+                if (jobListScrollY > maxScroll) jobListScrollY = maxScroll;
+                jobListInner->style->position.top = Px(-jobListScrollY);
+                e.propagate = false;
+            });
 
             Box* btnRow = new Box(body, { &Theme::RowH });
 
@@ -1153,7 +1187,7 @@ export namespace LithoControl {
             makeBtn(btnRow, "ABORT",   [this]() { abortJob(); }, false, true);
         }
 
-        // ── Jog panel ─────────────────────────────────────────────────────────
+        // -- Jog panel ---------------------------------------------------------
 
         void buildJogPanel(Box* body) {
 
@@ -1180,15 +1214,41 @@ export namespace LithoControl {
             makeBtn(ctrlRow, "E-STOP",   [this]() { sendEstop(); },   false, true);
             makeBtn(ctrlRow, "RESET",    [this]() { sendReset(); },   false, false, false, true);
             makeBtn(ctrlRow, "SET HOME", [this]() { sendSetHome(); }, false);
+
+            // Position readout + query button
+            Box* posRow = new Box(body, { &Theme::RowH });
+            posRow->style->margin.top = 4_px;
+
+            auto makePosLbl = [this](Box* parent, const std::string& axis) -> Text* {
+                Text* axisLbl = new Text(parent, axis + ":");
+                axisLbl->style->text.color = rgba(140, 140, 140, 1);
+                axisLbl->style->text.size  = 10_px;
+                axisLbl->style->margin     = { 0_px, 4_px, 0_px, 6_px };
+                Text* val = new Text(parent, "---");
+                val->style->text.color = rgba(200, 200, 200, 1);
+                val->style->text.size  = 10_px;
+                val->style->size       = { 50_px };
+                val->style->margin.right = 4_px;
+                val->selectable = true;
+                return val;
+            };
+            posXLabel = makePosLbl(posRow, "X");
+            posYLabel = makePosLbl(posRow, "Y");
+            posZLabel = makePosLbl(posRow, "Z");
+
+            Box* qBtn = makeBtn(posRow, "?", [this]() { queryPosition(); }, false);
+            qBtn->style->size.width     = 24_px;
+            qBtn->style->size.max.width = 24_px;
+            qBtn->style->margin         = { 2_px, 2_px, 0_px, 0_px };
         }
 
-        // ── Right panel ───────────────────────────────────────────────────────
+        // -- Right panel -------------------------------------------------------
 
         void buildRightPanel() {
 
             Box* rp = new Box(this, { &Theme::RightPanel });
 
-            // Preview control bar — frame cycling + merge for sliced jobs
+            // Preview control bar -- frame cycling + merge for sliced jobs
             Box* prevBar = new Box(rp);
             prevBar->style->layout        = { Axis::Horizontal, Align::Start, Align::Center };
             prevBar->style->size.width    = 100_pct;
@@ -1222,7 +1282,7 @@ export namespace LithoControl {
             previewLabel->style->text.size  = 10_px;
             previewLabel->style->margin.left = 10_px;
 
-            // Preview area — ImagePreview fills remaining height above the status panel
+            // Preview area -- ImagePreview fills remaining height above the status panel
             previewImg = new ImagePreview(rp, { &Theme::PreviewArea });
 
             // Drag handle between preview and status panel
@@ -1238,7 +1298,7 @@ export namespace LithoControl {
                 e.propagate = false;
             });
 
-            // Status panel — explicit height so it can be resized by drag
+            // Status panel -- explicit height so it can be resized by drag
             statusPanelBox = new Box(rp, { &Theme::StatusPanel });
             statusPanelBox->style->size.height = Px(statusPanelH);
 
@@ -1257,13 +1317,13 @@ export namespace LithoControl {
             Box* progTrack = new Box(progRow, { &Theme::ProgressTrack });
             progressFill = new Box(progTrack, { &Theme::ProgressFill });
 
-            // Log row (runner + gcode side by side) — grows to fill status panel
+            // Log row (runner + gcode side by side) -- grows to fill status panel
             Box* logRow = new Box(sp);
             logRow->style->layout        = { Axis::Horizontal, Align::Start, Align::Start };
             logRow->style->size.width    = 100_pct;
             logRow->style->size.height   = Grow();
 
-            // ── Runner log ────────────────────────────────────────────────────
+            // -- Runner log ----------------------------------------------------
 
             Box* runnerCol = new Box(logRow);
             runnerCol->style->layout       = { Axis::Vertical, Align::Start, Align::Start };
@@ -1313,7 +1373,7 @@ export namespace LithoControl {
                 e.propagate = false;
             });
 
-            // ── G-code log ────────────────────────────────────────────────────
+            // -- G-code log ----------------------------------------------------
 
             Box* gcodeCol = new Box(logRow);
             gcodeCol->style->layout      = { Axis::Vertical, Align::Start, Align::Start };
@@ -1359,9 +1419,9 @@ export namespace LithoControl {
             });
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Rev compute overrides
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         void computeStyle(Rev::Element::Event& e) override {
 
@@ -1426,6 +1486,14 @@ export namespace LithoControl {
                 refreshJobList();
             }
 
+            // Apply position query results from background thread
+            if (posUpdatePending.exchange(false)) {
+                std::lock_guard<std::mutex> lk(posMtx);
+                if (posXLabel) posXLabel->content = pendingPosX;
+                if (posYLabel) posYLabel->content = pendingPosY;
+                if (posZLabel) posZLabel->content = pendingPosZ;
+            }
+
             // Reload preview image with tile grid after a successful slice
             if (pendingPreviewReload.exchange(false)) {
                 if (previewImg && !inputFilePath.empty()) {
@@ -1434,7 +1502,7 @@ export namespace LithoControl {
                 }
             }
 
-            // Drain log queue → update displayed text
+            // Drain log queue -> update displayed text
             std::string msg;
             bool runnerUpdated = false;
             while (logQ.pop(msg)) {
@@ -1442,7 +1510,7 @@ export namespace LithoControl {
                 if (logLines.size() > MAX_LOG) logLines.pop_front();
                 runnerUpdated = true;
             }
-            // Only rebuild the text when new lines arrived — reassigning content
+            // Only rebuild the text when new lines arrived -- reassigning content
             // every frame marks it dirty and would clobber an active text selection.
             if (runnerUpdated && runnerLogTxt) {
                 std::string joined;
@@ -1488,7 +1556,7 @@ export namespace LithoControl {
             // Sidebar scroll: keep content clamped and update the scrollbar thumb.
             // (position.top is set immediately in the wheel handler for instant repaint;
             //  this block handles initial sizing and window-resize clamping.)
-            // Measure content height from the child spread — an absolutely-positioned
+            // Measure content height from the child spread -- an absolutely-positioned
             // element's own rect.h is clamped to its parent, which would zero maxScroll.
             if (sidebarBox && sidebarContent && sidebarScrollThumb) {
                 float trackH   = sidebarBox->rect.h;
@@ -1509,10 +1577,10 @@ export namespace LithoControl {
                     ? Visibility::Visible : Visibility::Hidden;
             }
 
-            // (Job list now flows in the sidebar and scrolls with it — no separate
+            // (Job list now flows in the sidebar and scrolls with it -- no separate
             //  inner scroll handling needed.)
 
-            // Sync platform dropdown → mark for row swap. Do NOT mutate the tree here;
+            // Sync platform dropdown -> mark for row swap. Do NOT mutate the tree here;
             // structural changes during the computeStyle pass corrupt the in-progress
             // draw iteration and crash. Defer the actual swap to computeChildren.
             if (platformDrop) {
@@ -1533,17 +1601,29 @@ export namespace LithoControl {
                 platformDirty = false;
             }
 
+            // Search input change triggers a list rebuild
+            if (jobSearchInput && jobSearchInput->text) {
+                std::string cur = std::string(jobSearchInput->text->content);
+                if (cur != jobFilter) {
+                    jobFilter     = cur;
+                    jobListDirty  = true;
+                }
+            }
+
             if (jobListDirty) {
                 rebuildJobList();
+                // Reset scroll when list changes so the top is always visible
+                jobListScrollY = 0.0f;
+                if (jobListInner) jobListInner->style->position.top = Px(0);
                 jobListDirty = false;
             }
 
             Box::computeChildren(e);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Connection
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         void updatePlatformRows() {
             if (!platformRowSlot || !stmPortRow || !piHostRow) return;
@@ -1604,7 +1684,7 @@ export namespace LithoControl {
                 return;
             }
             stmSerial = ser;
-            onConnected();   // sets pendingJobRescan → refreshJobList runs on main thread
+            onConnected();   // sets pendingJobRescan -> refreshJobList runs on main thread
         }
 
         void connectPi(const std::string& host, int port) {
@@ -1629,7 +1709,7 @@ export namespace LithoControl {
         }
 
         // NOTE: these run on background threads (serial connect / Pi socket). They must
-        // NOT touch the element tree directly — doing so races the render thread and
+        // NOT touch the element tree directly -- doing so races the render thread and
         // intermittently corrupts layout (broken scroll, hidden sections). They only
         // set atomics + log; computeStyle applies the actual UI change on the main thread.
         void onConnected() {
@@ -1658,7 +1738,7 @@ export namespace LithoControl {
                 }
                 jobListDirty = true;
             } else if (msg.rfind("FRAME ", 0) == 0) {
-                // "FRAME n/total" — set atomics only; frameLabel is rendered on the
+                // "FRAME n/total" -- set atomics only; frameLabel is rendered on the
                 // main thread in computeStyle (this runs on the Pi socket thread).
                 auto slash = msg.find('/');
                 if (slash != std::string::npos) {
@@ -1679,9 +1759,9 @@ export namespace LithoControl {
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Job list
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         void refreshJobList() {
             if (platform == Platform::STM32 || !connFlag) {
@@ -1801,7 +1881,17 @@ export namespace LithoControl {
             for (auto* b : jobItemBoxes) delete b;
             jobItemBoxes.clear();
 
+            // Case-insensitive filter
+            std::string filterLo = jobFilter;
+            for (char& c : filterLo) c = (char)::tolower((unsigned char)c);
+
             for (auto& j : jobs) {
+                if (!filterLo.empty()) {
+                    std::string jLo = j;
+                    for (char& c : jLo) c = (char)::tolower((unsigned char)c);
+                    if (jLo.find(filterLo) == std::string::npos) continue;
+                }
+
                 Box* item = new Box(parent, { &Theme::JobItem, &Theme::JobItemHover });
                 item->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
 
@@ -1823,17 +1913,17 @@ export namespace LithoControl {
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Job execution
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         void startJob() {
-            if (estopped) { logQ.push("E-STOP active — press RESET first"); return; }
+            if (estopped) { logQ.push("E-STOP active -- press RESET first"); return; }
             // A previous job thread may still be unwinding (e.g. blocked in a gantry
-            // readLine after an E-STOP). Never join() it on the UI thread — that's what
+            // readLine after an E-STOP). Never join() it on the UI thread -- that's what
             // froze the program. Refuse until it has actually finished.
             if (jobRunning) {
-                logQ.push("Previous job still stopping — wait for it to finish");
+                logQ.push("Previous job still stopping -- wait for it to finish");
                 return;
             }
             if (selectedJob.empty()) { logQ.push("Select a job first"); return; }
@@ -1853,14 +1943,14 @@ export namespace LithoControl {
                 return;
             }
 
-            // STM32 path — execute in background thread
+            // STM32 path -- execute in background thread
             if (!stmSerial) { logQ.push("Not connected to STM32"); return; }
             abortFlag = false;
             jobState  = JobState::Running;
             dispState = 1;
 
             // Use the SAME resolved (absolute) directory the queue scans, not the raw
-            // "./jobs" text — otherwise the job path is relative to the EXE's CWD and
+            // "./jobs" text -- otherwise the job path is relative to the EXE's CWD and
             // the manifest can't be found.
             std::string dir     = resolveJobsDir();
             std::string jobName = selectedJob;
@@ -1992,15 +2082,16 @@ export namespace LithoControl {
             }
 
             logQ.push("JOB_DONE");
+            queryPosition();
             // Marshal the label/progress to the main thread (this is the job thread).
             frameN    = frameTotal.load();
             dispState = 2;
             jobState  = JobState::Idle;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Jog
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         // Run a gantry command on a detached thread while publishing its Win32 handle
         // so E-STOP can CancelSynchronousIo() the blocking serial read it's parked on.
@@ -2018,7 +2109,7 @@ export namespace LithoControl {
 
         void jog(const std::string& axis, int dir) {
             if (!connFlag) { logQ.push("Not connected"); return; }
-            if (estopped)  { logQ.push("E-STOP active — press RESET first"); return; }
+            if (estopped)  { logQ.push("E-STOP active -- press RESET first"); return; }
 
             float dist  = jogDistInput ? parseFloat(jogDistInput->text->strContent, 1.0f) : 1.0f;
             float feed  = settings.feedRate;
@@ -2031,16 +2122,16 @@ export namespace LithoControl {
             runGantryOp([this, cmd]() {
                 if (platform == Platform::STM32 && stmSerial) {
                     // Bounded RELATIVE move so the gantry travels exactly `dist` and
-                    // stops — an absolute G1 could run to a far coordinate. Restore
+                    // stops -- an absolute G1 could run to a far coordinate. Restore
                     // absolute mode afterwards regardless of outcome.
                     if (!stmSendWait("GANTRY G91\n", "OK", 5000)) return;
                     bool ok = stmSendWait("GANTRY G1 " + cmd + "\n", "OK", 5000);
-                    // G4 P0 dwell completes only after all buffered motion is done —
+                    // G4 P0 dwell completes only after all buffered motion is done --
                     // without this, "OK" returns as soon as FluidNC accepts the G1
                     // command, before the axis has actually finished moving.
                     if (ok) ok = stmSendWait("GANTRY G4 P0\n", "OK", 130000);  // must exceed firmware 120s deadline
                     stmSendWait("GANTRY G90\n", "OK", 5000);
-                    if (ok) logQ.push("JOG_DONE");
+                    if (ok) { logQ.push("JOG_DONE"); queryPosition(); }
                 } else if (piClient) {
                     piClient->sendLine("JOG " + cmd);
                 }
@@ -2049,7 +2140,7 @@ export namespace LithoControl {
 
         void sendHome() {
             if (!connFlag) { logQ.push("Not connected"); return; }
-            if (estopped)  { logQ.push("E-STOP active — press RESET first"); return; }
+            if (estopped)  { logQ.push("E-STOP active -- press RESET first"); return; }
             logQ.push("-> HOME");
             runGantryOp([this]() {
                 if (platform == Platform::STM32 && stmSerial) {
@@ -2057,6 +2148,7 @@ export namespace LithoControl {
                     if (abortFlag) return;
                     stmSendWait("GANTRY G4 P0\n", "OK", 130000);
                     logQ.push("JOG_DONE");
+                    queryPosition();
                 } else if (piClient) {
                     piClient->sendLine("JOG HOME");
                 }
@@ -2069,7 +2161,7 @@ export namespace LithoControl {
             abortFlag = true;
 
             // Abort any in-flight serial read so a job thread blocked waiting on a
-            // gantry response returns immediately — the job loop then stops at once
+            // gantry response returns immediately -- the job loop then stops at once
             // instead of waiting out the device's move timeout. The serial handle is
             // synchronous, so the read must be cancelled on its OWNING thread via
             // CancelSynchronousIo; PurgeComm/CancelIoEx only cover overlapped I/O.
@@ -2083,7 +2175,7 @@ export namespace LithoControl {
             // ...but issue the serial/socket write on a detached thread. A synchronous
             // WriteFile with no write timeout (or one contended by the running job
             // thread) would otherwise block the UI thread and freeze the program.
-            // This is an emergency write — it deliberately skips the serial mutex.
+            // This is an emergency write -- it deliberately skips the serial mutex.
             std::thread([this]() {
                 if (platform == Platform::STM32 && stmSerial) {
                     // Bare realtime bytes: the firmware relays these straight to the
@@ -2110,12 +2202,21 @@ export namespace LithoControl {
 
             std::thread([this]() {
                 if (platform == Platform::STM32 && stmSerial) {
-                    std::lock_guard<std::mutex> lk(serialMtx);
-                    stmSerial->sendText("BLANK\n");
-                    // Clear FluidNC's alarm/lock left by an E-STOP soft-reset, then
-                    // restore absolute mode so subsequent jogs/jobs behave.
-                    stmSerial->sendText("GANTRY $X\n");
-                    stmSerial->sendText("GANTRY G90\n");
+                    // Purge any stale bytes (partial responses from commands that were
+                    // cancelled by E-STOP). Without this, a queued "OK" response would
+                    // be consumed by the first stmSendWait in a subsequent jog/job,
+                    // making it return immediately before the gantry actually moves.
+                    if (stmSerial->handle != INVALID_HANDLE_VALUE)
+                        PurgeComm(stmSerial->handle, PURGE_RXCLEAR | PURGE_TXCLEAR);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+                    // Use proper send-and-wait for each command so responses are
+                    // consumed here and don't pollute subsequent operations.
+                    stmSendWait("BLANK\n", "OK", 3000);
+                    // Give FluidNC time to finish its soft-reset sequence after 0x18
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    stmSendWait("GANTRY $X\n", "OK", 5000);
+                    stmSendWait("GANTRY G90\n", "OK", 5000);
                     logQ.push("READY");
                 } else if (piClient) {
                     piClient->sendLine("RESET");
@@ -2125,16 +2226,56 @@ export namespace LithoControl {
 
         void sendSetHome() {
             if (!connFlag) { logQ.push("Not connected"); return; }
-            if (estopped)  { logQ.push("E-STOP active — press RESET first"); return; }
+            if (estopped)  { logQ.push("E-STOP active -- press RESET first"); return; }
             logQ.push("-> SET_HOME");
             std::thread([this]() {
                 if (platform == Platform::STM32 && stmSerial) {
                     if (stmSendWait("GANTRY G10 L20 P1 X0 Y0\n", "OK", 10000) &&
                         stmSendWait("GANTRY G28.1\n", "OK", 10000)) {
                         logQ.push("HOME_SET");
+                        queryPosition();
                     }
                 } else if (piClient) {
                     piClient->sendLine("SET_HOME");
+                }
+            }).detach();
+        }
+
+        void queryPosition() {
+            if (!connFlag) { logQ.push("Not connected"); return; }
+            std::thread([this]() {
+                if (platform == Platform::STM32 && stmSerial) {
+                    std::lock_guard<std::mutex> lk(serialMtx);
+                    stmSerial->sendText("STATUS\n");
+                    std::string r = stmSerial->readLine(1000);
+                    if (r.empty() || r.rfind("ERROR", 0) == 0) {
+                        logQ.push("[POS] " + (r.empty() ? "no response" : r));
+                        return;
+                    }
+                    // Parse FluidNC status: <State|MPos:x,y,z|...> or <State|WPos:x,y,z|...>
+                    // Look for MPos or WPos
+                    auto extract = [&](const std::string& key) -> std::string {
+                        auto p = r.find(key + ":");
+                        if (p == std::string::npos) return "";
+                        p += key.size() + 1;
+                        auto end = r.find_first_of("|>", p);
+                        return r.substr(p, end == std::string::npos ? std::string::npos : end - p);
+                    };
+                    std::string coords = extract("MPos");
+                    if (coords.empty()) coords = extract("WPos");
+                    if (coords.empty()) { logQ.push("[POS] " + r); return; }
+
+                    // coords = "x,y,z"
+                    float x = 0, y = 0, z = 0;
+                    sscanf(coords.c_str(), "%f,%f,%f", &x, &y, &z);
+                    char buf[64];
+                    {
+                        std::lock_guard<std::mutex> lk(posMtx);
+                        std::snprintf(buf, sizeof(buf), "%.3f", x); pendingPosX = buf;
+                        std::snprintf(buf, sizeof(buf), "%.3f", y); pendingPosY = buf;
+                        std::snprintf(buf, sizeof(buf), "%.3f", z); pendingPosZ = buf;
+                    }
+                    posUpdatePending = true;
                 }
             }).detach();
         }
@@ -2181,7 +2322,7 @@ export namespace LithoControl {
 
                 std::string label;
                 if (!friendly.empty())
-                    label = std::string(portName) + " \xe2\x80\x94 " + friendly;
+                    label = std::string(portName) + " -- " + friendly;
                 else
                     label = std::string(portName);
 
@@ -2196,7 +2337,7 @@ export namespace LithoControl {
                 return;
             }
 
-            // Populate dropdown. Only auto-select when the user pressed SCAN — on the
+            // Populate dropdown. Only auto-select when the user pressed SCAN -- on the
             // startup scan we list ports but leave the selection empty (no connect).
             if (portDrop) {
                 portDrop->params.options = found;
@@ -2210,9 +2351,9 @@ export namespace LithoControl {
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Slicer
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         void browseFile() {
             OPENFILENAMEA ofn{};
@@ -2339,7 +2480,7 @@ export namespace LithoControl {
             std::string absOutDir = outDir.empty() ? "jobs" : outDir;
             if (!fs::path(absOutDir).is_absolute() && !repoRoot.empty())
                 absOutDir = (fs::path(repoRoot) / absOutDir).string();
-            // Strip trailing backslashes — a trailing \ before the closing " would
+            // Strip trailing backslashes -- a trailing \ before the closing " would
             // be interpreted as an escaped quote by Windows command-line parsing,
             // causing argparse to absorb subsequent arguments into the path value.
             while (!absOutDir.empty() &&
@@ -2354,7 +2495,7 @@ export namespace LithoControl {
             if (!jobName.empty())   cmd += " --job-name \"" + jobName + "\"";
             if (invert)             cmd += " --invert";
 
-            // slicer.py SCPs the job to the Pi by default — suppress that unless the
+            // slicer.py SCPs the job to the Pi by default -- suppress that unless the
             // user explicitly enabled "send to target" (Pi platform only).
             if (sendToTarget) {
                 cmd += " --pi-host " + piHost;
@@ -2385,7 +2526,7 @@ export namespace LithoControl {
 
             if (!ok) {
                 CloseHandle(hR);
-                logQ.push("[ERR] Failed to start slicer — is Python in PATH?");
+                logQ.push("[ERR] Failed to start slicer -- is Python in PATH?");
                 pendingSliceDone = true;   // reset SLICE label on main thread
                 return;
             }
@@ -2438,9 +2579,9 @@ export namespace LithoControl {
             pendingSliceDone = true;   // reset SLICE label on the main thread
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Settings persistence (INI file in %APPDATA%)
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         std::string settingsPath() {
             char ap[MAX_PATH];
@@ -2498,9 +2639,9 @@ export namespace LithoControl {
             ws("dlpRoot",      dlpRoot);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
         // Helpers
-        // ─────────────────────────────────────────────────────────────────────
+        // ---------------------------------------------------------------------
 
         // Create a labelled TextInput with dark-theme label colour
         TextInput* makeInput(Box* parent, const std::string& lbl, const std::string& val, size_t maxLen) {
@@ -2528,15 +2669,12 @@ export namespace LithoControl {
                 inp->container->style->overflow          = Overflow::Hide;
             }
             if (inp->text) {
-                inp->text->style->text.wrap = Wrap::False;   // single line, clipped
-                // Cap the text element at the container width so the row never grows
-                // wider than the container. Without this, a long value (e.g. a full
-                // path) makes row_w > container_w, which gives a negative rowOffsetX
-                // under Align::Center and clips the LEFT end of the text. With
-                // max-width:100% the row is exactly container_w, offset is always 0,
-                // and text renders from the left edge — clipped at the right by
-                // the container's Overflow::Hide.
-                inp->text->style->size.max.width = 100_pct;
+                inp->text->style->text.wrap = Wrap::False;
+                // Grow() for width so the grow phase allocates container width.
+                // min.width explicitly zeroed so the 100_pct min from TextInput::Styles::Text
+                // does not survive the cascade and force the element wider than the container.
+                inp->text->style->size = { Grow() };
+                inp->text->style->size.min.width = 0_px;
             }
             if (inp->placeholder) {
                 inp->placeholder->style->text.wrap = Wrap::False;
@@ -2590,7 +2728,7 @@ export namespace LithoControl {
         // Send serial command, wait for exact response token
         bool stmSendWait(const std::string& cmd, const std::string& expect, int timeoutMs) {
             if (!stmSerial) return false;
-            // Hold the serial mutex for the whole send→reply so a concurrent jog or
+            // Hold the serial mutex for the whole send->reply so a concurrent jog or
             // job-frame transaction can't interleave bytes and garble the response.
             std::lock_guard<std::mutex> lk(serialMtx);
             stmSerial->sendText(cmd);
@@ -2602,7 +2740,11 @@ export namespace LithoControl {
             return true;
         }
 
-        // PNG file → 640×360 1bpp bitmap (28 800 bytes) using GDI+
+        // PNG file -> 640x360 1bpp bitmap (28800 bytes) using GDI+
+        // Job frames use red-channel-only PNGs (R=255 = expose, R=0 = mask).
+        // PIXEL_ON = 0xF800 (pure red in RGB565) drives the blue LED via the
+        // LTDC_R* -> EVM Blue wiring. Using max(R,G,B) makes this work for any
+        // single-channel or white-pixel frame format.
         std::vector<uint8_t> pngToBitmap(const std::string& path) {
             const int W = 640, H = 360, BYTES = W * H / 8;
             std::wstring wpath(path.begin(), path.end());
@@ -2627,9 +2769,11 @@ export namespace LithoControl {
             for (int y = 0; y < H; y++) {
                 for (int x = 0; x < W; x++) {
                     uint8_t* p = px + y * bd.Stride + x * 4;
-                    // GDI+ 32bppRGB: B,G,R stored at [0],[1],[2]
-                    uint8_t gray = (uint8_t)(0.299f * p[2] + 0.587f * p[1] + 0.114f * p[0]);
-                    if (gray >= 128) {
+                    // GDI+ 32bppRGB: BGR at [0],[1],[2]. Use max so any single
+                    // channel (red, blue, or white) correctly sets the bit.
+                    uint8_t luma = p[0] > p[1] ? p[0] : p[1];
+                    if (p[2] > luma) luma = p[2];
+                    if (luma >= 128) {
                         int i = y * W + x;
                         result[i >> 3] |= (1 << (7 - (i & 7)));
                     }

@@ -606,7 +606,16 @@ export namespace Rev::Element {
             this->maxWidth = resolved.max.innerWidth;
             this->layoutText();
 
-            layout.size.w = { .val = width, .min = width };
+            // When the width style is Grow() and wrapping is off, report val=min=0
+            // so the parent's grow pass allocates the container width to this element.
+            // computePrimitives renders text from rect.x regardless of element width,
+            // so Overflow::Hide on the container clips the right side cleanly.
+            if (resolved.style.size.width.type == Dist::Type::Grow &&
+                resolved.style.text.wrap     == Wrap::False) {
+                layout.size.w = { .val = 0, .min = 0 };
+            } else {
+                layout.size.w = { .val = width, .min = width };
+            }
             layout.size.h = { .val = height, .min = height };
         }
 
