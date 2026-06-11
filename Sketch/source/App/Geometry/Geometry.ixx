@@ -876,6 +876,98 @@ export namespace Sketch::App {
         }
     };
 
+    // Offset ellipse -- the EXACT parallel curve of an ellipse: every point of the
+    // base ellipse displaced distance `d` along its true outward normal. This is
+    // the curve an ellipse offsets to (it is NOT an ellipse, nor any Bezier --
+    // offsets of non-Pythagorean-hodograph curves are non-rational), represented
+    // exactly by its defining data: base (c, u, v), distance d, and the parameter
+    // span. Travel runs a0 -> a1 in PARAMETER, either direction -- so reversal is
+    // swapping a0/a1 and splitting is interval arithmetic, both exact. The family
+    // is closed under offsetting: offsetting by delta just changes d.
+    struct OffsetEllipse2 : public Stoicheion {
+
+        Pos2 c, u, v;                      // the base ellipse (conjugate semi-axes)
+        float d = 0.0f;                    // outward offset distance (signed)
+        float a0 = 0.0f, a1 = 0.0f;        // travel: parameter a0 -> a1
+
+        OffsetEllipse2() = default;
+        OffsetEllipse2(const Pos& c, const Pos& u, const Pos& v, float d, float a0, float a1)
+            : c(c), u(u), v(v), d(d), a0(a0), a1(a1) {}
+
+        // Normalised travel coordinate s in [0,1] -> parameter / point / tangent.
+        float paramAt(float s) const { return a0 + (a1 - a0) * s; }
+        Pos pointAt(float s) const { return ellipseOffsetPoint(c, u, v, paramAt(s), d); }
+
+        // Unit travel tangent by guarded central difference. (The analytic form
+        // involves the unit-normal derivative; the difference is accurate to
+        // ~1e-7 of scale and degrades gracefully at offset cusps, where the true
+        // tangent is genuinely discontinuous anyway.)
+        Pos tangentAt(float s) const {
+            const float h = 1e-3f;
+            Pos a = pointAt(std::max(0.0f, s - h));
+            Pos b = pointAt(std::min(1.0f, s + h));
+            Pos t = b - a; float l = t.pythag();
+            return (l > 1e-12f) ? t / l : Pos(1.0f, 0.0f);
+        }
+
+        bool fullLoop() const { return std::fabs(std::fabs(a1 - a0) - TAU) < 1e-5f; }
+
+        const char* kind() const override { return "offsetEllipse"; }
+        std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<OffsetEllipse2>(*this); }
+        Json data() const override {
+            return Json{ { "c", c.toJson() }, { "u", u.toJson() }, { "v", v.toJson() },
+                         { "d", d }, { "a0", a0 }, { "a1", a1 } };
+        }
+        void load(const Json& j) override {
+            c = Pos2::fromJson(j.value("c", Json::object()));
+            u = Pos2::fromJson(j.value("u", Json::object()));
+            v = Pos2::fromJson(j.value("v", Json::object()));
+            d = j.value("d", 0.0f); a0 = j.value("a0", 0.0f); a1 = j.value("a1", 0.0f);
+        }
+
+        void tessellate(std::vector<Pos>& out) const override {
+            int steps = spanSteps(std::fabs(a1 - a0));
+            for (int i = 0; i <= steps; i++) { out.push_back(pointAt(static_cast<float>(i) / steps)); }
+        }
+
+        // Quadrature of ∮(x dy - y dx): the chord shoelace over a fine sampling of
+        // the exact curve (no elementary closed form exists for the parallel
+        // curve's area integral -- it is elliptic).
+        float signedAreaTerm() const override {
+            const int N = 256;
+            float sum = 0.0f;
+            Pos prev = pointAt(0.0f);
+            for (int i = 1; i <= N; i++) {
+                Pos p = pointAt(static_cast<float>(i) / N);
+                sum += prev.x * p.y - prev.y * p.x;
+                prev = p;
+            }
+            return sum;
+        }
+
+        float distanceTo(Pos p) const override {
+            Pos foot; footNearest(p, foot); return (p - foot).pythag();
+        }
+        void anchors(std::vector<Pos>& out) const override {
+            out.push_back(pointAt(0.0f)); out.push_back(pointAt(1.0f));
+        }
+        bool footOnCurve(Pos p, Pos& out) const override { footNearest(p, out); return true; }
+        void controlPoints(std::vector<Pos2*>& out) override {}   // derived geometry: nothing solvable
+
+        // Stoicheion::offset semantics (+grows): outward is simply more d.
+        void offset(float amount) override { d += amount; }
+
+      protected:
+        void footNearest(Pos p, Pos& out) const {
+            const int N = 96; float best = 1e30f;
+            for (int i = 0; i <= N; i++) {
+                Pos e = pointAt(static_cast<float>(i) / N);
+                float dist = (p - e).pythag();
+                if (dist < best) { best = dist; out = e; }
+            }
+        }
+    };
+
     // Factory: reconstruct an entity from its JSON envelope.
     //--------------------------------------------------
     inline std::unique_ptr<Stoicheion> stoicheionFromJson(const Json& j) {
@@ -889,6 +981,7 @@ export namespace Sketch::App {
         else if (kind == "arc")        { e = std::make_unique<Arc2>(); }
         else if (kind == "ellipse")    { e = std::make_unique<Ellipse2>(); }
         else if (kind == "ellipseArc") { e = std::make_unique<EllipseArc2>(); }
+        else if (kind == "offsetEllipse") { e = std::make_unique<OffsetEllipse2>(); }
         else { return nullptr; }
 
         e->load(j);

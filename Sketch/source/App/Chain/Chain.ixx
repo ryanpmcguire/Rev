@@ -6,6 +6,7 @@ module;
 #include <cmath>
 #include <algorithm>
 #include <utility>
+#include <functional>
 
 export module Sketch.App.Chain;
 
@@ -674,10 +675,11 @@ export namespace Sketch::App {
 
         // THE crossing method, end to end: this (source) chain in, valid offset
         // chains out. Blind left-offset, crossing-number walk, minimum-level
-        // extraction, stitching, and the chirality trial of the number. Returns
-        // empty when the number is convicted (an inverted profile has no valid
-        // offset). Defined out of line, after NumberedChain.
-        std::vector<Chain> offsetValid(float amount, float eps = 1e-3f) const;
+        // extraction, stitching, and (optionally) the chirality trial of the
+        // number -- with `trial` false, every minimum-level chain is returned
+        // unjudged. Returns empty when the trial convicts (an inverted profile
+        // has no valid offset). Defined out of line, after NumberedChain.
+        std::vector<Chain> offsetValid(float amount, bool trial = true, float eps = 1e-3f) const;
 
         // Mitosis -- resolve mutual overlap among well-formed loops that all carry
         // their material on the LEFT of travel (a CCW outer shrinking inward, a CW
@@ -722,16 +724,46 @@ export namespace Sketch::App {
             std::vector<Chain> out;
             std::vector<std::unique_ptr<Stoicheion>> pool;
 
+            // An ellipse (or elliptical arc) enters the chain as an ARC-SPLINE: per
+            // parameter span, the circular arc through three exact points of the
+            // true ellipse (Arc2::ThreePoint), inheriting the travel direction from
+            // the parameterisation. The true offset of an ellipse is not an ellipse
+            // (and has no closed-form intersections), but arcs live in the algebra
+            // the whole method is exact over -- so the approximation happens once,
+            // here at the door, and everything downstream stays exact. Near-straight
+            // spans (degenerate circumcentre) fall back to a segment.
+            auto ellipseToArcs = [&pool](Pos c, Pos u, Pos v, float t0, float span) {
+                int spans = std::max(8, static_cast<int>(std::ceil(std::fabs(span) / (TAU / 32.0f))));
+                for (int i = 0; i < spans; i++) {
+                    float ta = t0 + span * (static_cast<float>(i) / spans);
+                    float tb = t0 + span * (static_cast<float>(i + 1) / spans);
+                    Pos p0 = ellipsePointAt(c, u, v, ta);
+                    Pos pm = ellipsePointAt(c, u, v, (ta + tb) * 0.5f);
+                    Pos p1 = ellipsePointAt(c, u, v, tb);
+                    Arc2 arc = Arc2::ThreePoint(p0, pm, p1);
+                    if (arc.radius() > (p1 - p0).pythag() * 1e4f) {
+                        pool.push_back(std::make_unique<Segment2>(p0, p1));   // near-straight span
+                    }
+                    else {
+                        pool.push_back(std::make_unique<Arc2>(arc));
+                    }
+                }
+            };
+
             for (const auto& e : src) {
                 if (!e || e->locked || e->construction || e->isPoint()) { continue; }
                 std::string k = e->kind();
-                if (k == "circle" || k == "ellipse") {                     // prime closed curve: its own loop
+                if (k == "circle") {                                       // prime closed curve: its own loop
                     Chain c; c.closed = true; c.edges.push_back(e->clone()); out.push_back(std::move(c));
                 }
                 else if (k == "segment" || k == "arc") { pool.push_back(e->clone()); }
-                else {                                                    // elliptical arc (open) -> polyline
-                    std::vector<Pos> pts; e->tessellate(pts);
-                    for (size_t i = 0; i + 1 < pts.size(); i++) { pool.push_back(std::make_unique<Segment2>(pts[i], pts[i + 1])); }
+                else if (k == "ellipse") {
+                    const Ellipse2* el = static_cast<const Ellipse2*>(e.get());
+                    ellipseToArcs(el->c, el->u, el->v, 0.0f, TAU);
+                }
+                else if (k == "ellipseArc") {
+                    const EllipseArc2* ea = static_cast<const EllipseArc2*>(e.get());
+                    ellipseToArcs(ea->c, ea->u, ea->v, ea->a0, ea->span());
                 }
             }
 
@@ -783,7 +815,7 @@ export namespace Sketch::App {
     }
 
     // The crossing method, end to end (see the in-class declaration).
-    inline std::vector<Chain> Chain::offsetValid(float amount, float eps) const {
+    inline std::vector<Chain> Chain::offsetValid(float amount, bool trial, float eps) const {
         std::vector<Chain> out;
 
         // 1. blind offset, split at self-crossings, walk, fragment by level.
@@ -808,17 +840,18 @@ export namespace Sketch::App {
             out.push_back(std::move(m));
         }
 
-        // 3. the trial of the NUMBER: if any stitched chain travels opposite this
-        //    source, the only candidate crossing number was bad -- no valid chains
-        //    at all. (Judged only where both senses are measurable: closed source,
-        //    closed candidate; an open chain has no chirality to disagree with.)
+        // 3. the trial -- THE handedness rule: an outside can get a new inside,
+        //    but an inside cannot get a new outside. A candidate's handedness may
+        //    never EXCEED its source's: a clockwise source can legitimately give
+        //    birth to a counterclockwise chain (an outset pinching off a new
+        //    cavity), but a counterclockwise source producing a clockwise chain is
+        //    inversion -- that candidate is discarded. (Judged only where both
+        //    senses are measurable: closed source, closed candidate.)
         const int srcChir = turningSign();
-        if (closed && srcChir != 0) {
-            for (const Chain& m : out) {
-                if (!m.closed) { continue; }
-                int chir = m.turningSign();
-                if (chir != 0 && chir != srcChir) { out.clear(); break; }
-            }
+        if (trial && closed && srcChir > 0) {
+            std::erase_if(out, [](const Chain& m) {
+                return m.closed && m.turningSign() < 0;
+            });
         }
         return out;
     }
