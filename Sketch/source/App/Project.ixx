@@ -192,23 +192,44 @@ export namespace Sketch::App {
             dirty = true;
         }
 
-        // PRODUCTION -- the crossing method, packaged: each source chain in, its
-        // valid offset chains out (Chain::offsetValid does everything: blind
-        // offset, crossing walk, minimum-level extraction, stitching, and the
-        // chirality trial). The one remaining classification is by exact signed
-        // area: positive -> "valid/pos" (red), negative -> "valid/neg" (green).
+        // PRODUCTION -- the complete method, in two stages.
+        //
+        // STAGE A (each source chain in its own universe): Chain::offsetValid does
+        // everything per chain -- blind offset, crossing walk, minimum-level
+        // extraction, stitching, the handedness law.
+        //
+        // STAGE B (the universes meet): the validated chains from SEPARATE source
+        // profiles are clustered by interaction and mitosed against each other --
+        // a shrinking outer meeting a growing island carves and splits; two
+        // expanding traces merge into one enclosing trace; disjoint chains and
+        // open chains pass untouched (Chain::mitose).
+        //
+        // The final classification is by exact signed area: positive ->
+        // "valid/pos" (red), negative -> "valid/neg" (green).
         void validMethod(SketchGeometry& result) {
             crossingFragments.clear();
+
+            // Stage A: independent offsets, exactly what the method has produced
+            // so far.
+            std::vector<Chain> valid;
             for (const Chain& source : sourceChains) {
                 for (Chain& m : source.offsetValid(lastOffsetAmount)) {
-                    const char* label = (m.signedArea() >= 0.0f) ? "valid/pos" : "valid/neg";
-                    for (const auto& e : m.edges) {
-                        std::unique_ptr<Stoicheion> copy = e->clone();
-                        copy->group = label;
-                        result.add(std::move(copy));
-                    }
-                    crossingFragments.push_back(Chain::NumberedChain{ std::move(m), 0 });
+                    valid.push_back(std::move(m));
                 }
+            }
+
+            // Stage B: inter-chain merge / split / mitosis, consuming stage A's
+            // chains as they stand.
+            std::vector<Chain> loops = Chain::mitose(valid);
+
+            for (Chain& m : loops) {
+                const char* label = (m.signedArea() >= 0.0f) ? "valid/pos" : "valid/neg";
+                for (const auto& e : m.edges) {
+                    std::unique_ptr<Stoicheion> copy = e->clone();
+                    copy->group = label;
+                    result.add(std::move(copy));
+                }
+                crossingFragments.push_back(Chain::NumberedChain{ std::move(m), 0 });
             }
         }
 
