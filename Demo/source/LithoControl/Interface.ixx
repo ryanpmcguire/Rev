@@ -1951,8 +1951,8 @@ export namespace LithoControl {
                 gcodeQ.push(gline);
 
                 // Move gantry
-                if (!stmSendWait("GANTRY " + gline + "\n", "OK", 60000)) return;
-                if (!stmSendWait("GANTRY G4 P0\n", "OK", 10000)) return;
+                if (!stmSendWait("GANTRY " + gline + "\n", "OK", 130000)) return;
+                if (!stmSendWait("GANTRY G4 P0\n", "OK", 130000)) return;
 
                 // Load frame bitmap
                 char frameName[16];
@@ -2034,7 +2034,11 @@ export namespace LithoControl {
                     // stops — an absolute G1 could run to a far coordinate. Restore
                     // absolute mode afterwards regardless of outcome.
                     if (!stmSendWait("GANTRY G91\n", "OK", 5000)) return;
-                    bool ok = stmSendWait("GANTRY G1 " + cmd + "\n", "OK", 30000);
+                    bool ok = stmSendWait("GANTRY G1 " + cmd + "\n", "OK", 5000);
+                    // G4 P0 dwell completes only after all buffered motion is done —
+                    // without this, "OK" returns as soon as FluidNC accepts the G1
+                    // command, before the axis has actually finished moving.
+                    if (ok) ok = stmSendWait("GANTRY G4 P0\n", "OK", 130000);  // must exceed firmware 120s deadline
                     stmSendWait("GANTRY G90\n", "OK", 5000);
                     if (ok) logQ.push("JOG_DONE");
                 } else if (piClient) {
@@ -2049,9 +2053,9 @@ export namespace LithoControl {
             logQ.push("-> HOME");
             runGantryOp([this]() {
                 if (platform == Platform::STM32 && stmSerial) {
-                    if (!stmSendWait("GANTRY G28\n", "OK", 60000)) return;
+                    if (!stmSendWait("GANTRY G28\n", "OK", 130000)) return;
                     if (abortFlag) return;
-                    stmSendWait("GANTRY G4 P0\n", "OK", 10000);
+                    stmSendWait("GANTRY G4 P0\n", "OK", 130000);
                     logQ.push("JOG_DONE");
                 } else if (piClient) {
                     piClient->sendLine("JOG HOME");
@@ -2525,9 +2529,14 @@ export namespace LithoControl {
             }
             if (inp->text) {
                 inp->text->style->text.wrap = Wrap::False;   // single line, clipped
-                // Keep the editable text element at full width (TextInput default
-                // min-width:100%) so clicking anywhere in the field focuses it.
-                // Left alignment comes from the container's Align::Start above.
+                // Cap the text element at the container width so the row never grows
+                // wider than the container. Without this, a long value (e.g. a full
+                // path) makes row_w > container_w, which gives a negative rowOffsetX
+                // under Align::Center and clips the LEFT end of the text. With
+                // max-width:100% the row is exactly container_w, offset is always 0,
+                // and text renders from the left edge — clipped at the right by
+                // the container's Overflow::Hide.
+                inp->text->style->size.max.width = 100_pct;
             }
             if (inp->placeholder) {
                 inp->placeholder->style->text.wrap = Wrap::False;
