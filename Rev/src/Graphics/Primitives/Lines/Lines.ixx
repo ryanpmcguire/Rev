@@ -24,6 +24,7 @@ import Rev.Graphics.Shader;
 export namespace Rev::Primitives {
 
     using namespace sentinel;
+    using namespace Rev::Core;
 
     struct Lines : public Primitive {
 

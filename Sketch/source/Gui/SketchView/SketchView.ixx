@@ -101,7 +101,7 @@ export namespace Sketch::Gui {
         // Toolpath sandbox: when on, the offset/inset profile is recomputed from the
         // live geometry every rebuild, so it tracks the sketch as it is dragged.
         bool  insetActive = false;
-        float insetAmount = -1.0f;   // 1mm inward
+        float insetAmount = 1.0f;   // 1mm to the LEFT of travel: a CCW chain insets, a CW chain offsets outward
 
         // Drag-to-move state.
         //
@@ -632,7 +632,10 @@ export namespace Sketch::Gui {
 
         // Draw a single entity: let it tessellate itself into a polyline, then push
         // it as one Line. Point-like entities become a dot.
-        void appendEntity(FastLines* dst, const Sketch::App::Stoicheion& e, Color color) {
+        // `arrow = true` additionally draws a little arrowhead at the entity's
+        // travel midpoint, pointing the way the curve is walked -- so every edge of
+        // a chain display wears its direction on its sleeve.
+        void appendEntity(FastLines* dst, const Sketch::App::Stoicheion& e, Color color, bool arrow = false) {
 
             std::vector<Pos> pts;
             e.tessellate(pts);
@@ -647,6 +650,28 @@ export namespace Sketch::Gui {
             vs.reserve(pts.size());
             for (const Pos& p : pts) { vs.push_back(Vertex(p.x, p.y)); }
             dst->lines.push_back({ .points = std::move(vs), .color = color });
+
+            if (arrow && pts.size() >= 2) {
+                // Arrow at the END of travel. Arc tessellation runs over the CCW
+                // span regardless of travel chirality -- ask the true travel
+                // tangent (and true endpoint) for circular edges.
+                std::string kind = e.kind();
+                bool circular = (kind == "arc" || kind == "circle");
+                Pos tip = circular ? Sketch::App::Chain::eEnd(e) : pts.back();
+                Pos t = circular ? Sketch::App::Chain::travelDirAt(e, tip)
+                                 : (pts.back() - pts[pts.size() - 2]);
+                float len = t.pythag();
+                if (len > 1e-9f) {
+                    t = t / len;
+                    Pos left(-t.y, t.x);
+                    float s = 9.0f / scale;                      // ~9 px, zoom-invariant
+                    Vertex vt(tip.x, tip.y);
+                    Pos b1 = tip - t * s + left * (s * 0.45f);
+                    Pos b2 = tip - t * s - left * (s * 0.45f);
+                    dst->lines.push_back({ .points = { Vertex(b1.x, b1.y), vt }, .color = color });
+                    dst->lines.push_back({ .points = { Vertex(b2.x, b2.y), vt }, .color = color });
+                }
+            }
         }
 
         void appendGeometry(FastLines* dst, const SketchGeometry& g, Color color) {
@@ -1489,27 +1514,42 @@ export namespace Sketch::Gui {
                 Color otherColor { 0.20f, 0.85f, 0.85f, 0.95f };   // anything unlabelled
                 Color crossColor { 1.00f, 0.90f, 0.20f, 1.00f };   // "intersections"
 
+                // Crossing numbers are normalised so the chain's MAX level is 0:
+                // 0 = blue (the outside), -1 = green (one in), -2 = red (two in),
+                // deeper levels dim toward dark red.
                 auto groupColor = [&](const std::string& g) -> Color {
                     if (g == "chirality/cw")  { return cwColor; }
                     if (g == "chirality/ccw") { return ccwColor; }
                     if (g.rfind("crossing/", 0) == 0) {
                         int v = static_cast<int>(std::strtol(g.c_str() + 9, nullptr, 10));
-                        if (v == 0) { return Color{ 0.25f, 0.90f, 0.40f, 0.95f }; }   // settled
-                        float dim = std::max(0.45f, 1.0f - 0.25f * (std::abs(v) - 1));
-                        return (v > 0) ? Color{ 0.95f * dim, 0.30f * dim, 0.25f * dim, 0.95f }
-                                       : Color{ 0.30f * dim, 0.50f * dim, 1.00f * dim, 0.95f };
+                        if (v >= 0)  { return Color{ 0.30f, 0.50f, 1.00f, 0.95f }; }   // max: blue
+                        if (v == -1) { return Color{ 0.25f, 0.90f, 0.40f, 0.95f }; }   // one in: green
+                        float dim = std::max(0.40f, 1.0f - 0.22f * (-v - 2));
+                        return Color{ 0.95f * dim, 0.30f * dim, 0.25f * dim, 0.95f };  // two+ in: reds
                     }
                     return otherColor;
                 };
 
+                Color startColor { 1.00f, 0.45f, 0.85f, 1.00f };   // "start": the walk's origin, pink
+
+                Color minColor { 1.00f, 0.68f, 0.92f, 1.00f };   // "minimum": the extracted valid path, pastel magenta
+
                 for (const SketchGeometry& layer : app->activeProject->offsetLayers) {
                     for (const auto& e : layer.entities) {
-                        if (!e || e->group == "intersections") { continue; }
-                        appendEntity(geometry, *e, groupColor(e->group));
+                        if (!e || e->group == "intersections" || e->group == "start" || e->group == "minimum") { continue; }
+                        appendEntity(geometry, *e, groupColor(e->group), true);   // with travel arrows
+                    }
+                    // The minimum-level extraction rides on top of the level colours.
+                    for (const auto& e : layer.entities) {
+                        if (e && e->group == "minimum") { appendEntity(geometry, *e, minColor, true); }
                     }
                     for (const auto& e : layer.entities) {
-                        if (e && e->group == "intersections" && e->isPoint()) {
+                        if (!e || !e->isPoint()) { continue; }
+                        if (e->group == "intersections") {
                             appendPoint(geometry, *static_cast<const Sketch::App::Point2*>(e.get()), crossColor, 5.0f);
+                        }
+                        else if (e->group == "start") {
+                            appendPoint(geometry, *static_cast<const Sketch::App::Point2*>(e.get()), startColor, 6.5f);
                         }
                     }
                 }

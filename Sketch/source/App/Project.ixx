@@ -73,7 +73,13 @@ export namespace Sketch::App {
 
         // The pure blind offset, kept as well-formed chains (not the flattened
         // display copy): the artifact the valid/invalid chain extraction consumes.
+        // sourceChains holds the chains the offsets were made FROM (index-aligned),
+        // and lastOffsetAmount the distance -- together they let the prune MEASURE
+        // which crossing-number level is the valid one (true offset stretches keep
+        // exactly |amount| of clearance from their source; burrs dip closer).
         std::vector<Chain> offsetChains;
+        std::vector<Chain> sourceChains;
+        float lastOffsetAmount = 0.0f;
 
         // The crossing method's fragments: the blind offset split at every crossing
         // and regrouped into sub-chains of contiguous same-crossing-number pieces.
@@ -161,8 +167,11 @@ export namespace Sketch::App {
         // "intersections" dot group on top.
         void insetIntoNewLayer(float amount) {
             offsetChains.clear();
+            sourceChains.clear();
+            lastOffsetAmount = amount;
             for (Chain& chain : Chain::build(geometry.entities)) {
                 offsetChains.push_back(chain.offsetRaw(amount));
+                sourceChains.push_back(std::move(chain));
             }
 
             SketchGeometry result;
@@ -195,57 +204,117 @@ export namespace Sketch::App {
             }
         }
 
-        // Method TWO -- the crossing method: split each blind-offset chain at every
-        // self-crossing, walk the sub-edges in their original order accumulating the
-        // signed crossing number (the other strand crossing from our positive side
-        // to our negative side counts -1, negative to positive +1), fragment the run
-        // into sub-chains of contiguous same-number pieces, then PRUNE: the blue
-        // (-1) fragments are the valid ones, for both handedness. The surviving
-        // loops then MITOSE: loops from different profiles (an inward-shrinking
-        // outer, an outward-growing island) split each other where they cross, and
-        // only the pieces whose left-hand (material) side is claimed exactly once
-        // survive, re-stitched into well-formed offspring of the same handedness.
-        // The final loops live whole in crossingFragments; the display copy is
+        // Method TWO -- the crossing method, in two strictly separated stages.
+        //
+        // STAGE A (each chain in its own universe): split the blind offset at its
+        // OWN self-crossings only -- no other chain exists yet -- walk the sub-edges
+        // in original order accumulating the signed crossing number, fragment into
+        // same-number sub-chains, and keep the measured level (the fragment holding
+        // exactly |amount| of clearance from its source names it). The output is
+        // each chain's fully validated offset, computed in isolation.
+        //
+        // STAGE B (the universes meet): only the validated results are then
+        // considered against each other -- clustered by interaction and mitosed,
+        // each cluster judged by its own measured orientation. Same-handed traces
+        // merge into one enclosing trace; an opposite-handed island carves and can
+        // split the pocket. Disjoint chains, and all open chains, pass untouched.
+        //
+        // The final chains live whole in crossingFragments; the display copy is
         // stamped "crossing/<number>/<fragment>". offsetChains is untouched.
+        // DISCARD LOGIC DISCONNECTED. Back to the naive instrument: every fragment
+        // of every chain is shown, coloured purely by its RELATIVE accumulated
+        // crossing number (0 at the chain's start, differences only). No prune, no
+        // mitosis -- the true discard rule (some combination of handedness and
+        // crossing number) is being worked out by inspection first.
         void crossingMethod(SketchGeometry& result) {
             crossingFragments.clear();
+            for (size_t ci = 0; ci < offsetChains.size(); ci++) {
+                const Chain& raw = offsetChains[ci];
+                std::vector<Chain::NumberedChain> frags = raw.fragmentByCrossingNumber();
+                if (frags.empty()) { continue; }
 
-            // 1. per-chain prune: keep the blue (-1) fragments.
-            std::vector<Chain> valid;
-            for (const Chain& raw : offsetChains) {
-                for (Chain::NumberedChain& nc : raw.fragmentByCrossingNumber()) {
-                    if (nc.number != -1) { continue; }
-                    valid.push_back(std::move(nc.chain));
+                // The invariant: the valid path is composed of the fragments at the
+                // chain's MINIMUM accumulated crossing number -- with one final
+                // check. The candidate's chirality must MATCH the source chain's
+                // (both measured, from their own stoicheia): a true offset always
+                // inherits its source's sense of travel, so a minimum-level loop
+                // travelling OPPOSITE its source is an inverted profile -- the
+                // collapse case -- and then there is NO valid chain at all.
+                int minLevel = frags.front().number;
+                for (const Chain::NumberedChain& nc : frags) { minLevel = std::min(minLevel, nc.number); }
+
+                // 1. EXTRACT first, and STITCH: the minimum-level segments arrive
+                //    as several open fragments (the walk's excursions interrupt
+                //    them), but they meet end-to-start at the crossing vertices --
+                //    at each crossing the min-level pool has exactly one end and
+                //    one start, so stitching is unambiguous and never reverses an
+                //    edge. The stitched chains ARE the magenta candidates.
+                std::vector<std::unique_ptr<Stoicheion>> pool;
+                for (const Chain::NumberedChain& nc : frags) {
+                    if (nc.number != minLevel) { continue; }
+                    for (const auto& e : nc.chain.edges) { pool.push_back(e->clone()); }
                 }
-            }
-
-            // 2. mitosis: resolve overlap between the surviving loops.
-            std::vector<Chain> loops = Chain::mitose(valid);
-
-            // 3. emit.
-            for (Chain& loop : loops) {
-                std::string label = "crossing/-1/" + std::to_string(crossingFragments.size());
-                for (const auto& e : loop.edges) {
-                    std::unique_ptr<Stoicheion> copy = e->clone();
-                    copy->group = label;
-                    result.add(std::move(copy));
+                std::vector<Chain> magenta;
+                while (!pool.empty()) {
+                    Chain m = Chain::buildOne(pool, 1e-3f);
+                    if (m.edges.empty()) { break; }
+                    magenta.push_back(std::move(m));
                 }
-                crossingFragments.push_back(Chain::NumberedChain{ std::move(loop), -1 });
+
+                // 2. THEN judge -- and the verdict is about the NUMBER: if any
+                //    stitched magenta chain travels OPPOSITE the source path we set
+                //    out to offset, the only candidate crossing number turned out
+                //    bad, and there are no valid chains at all. (The raw offset
+                //    chain as a WHOLE always matches its source, which is why the
+                //    test must be applied to the stitched extraction, never to the
+                //    whole or to the unstitched fragments.)
+                const int srcChir = (ci < sourceChains.size()) ? sourceChains[ci].turningSign() : 0;
+                bool numberIsBad = false;
+                for (const Chain& m : magenta) {
+                    if (!m.closed || srcChir == 0) { continue; }
+                    int chir = m.turningSign();
+                    if (chir != 0 && chir != srcChir) { numberIsBad = true; break; }
+                }
+
+                // 3. emit: the level colouring always; the magenta only if the
+                //    number survived its trial.
+                for (Chain::NumberedChain& nc : frags) {
+                    std::string label = "crossing/" + std::to_string(nc.number)
+                                      + "/" + std::to_string(crossingFragments.size());
+                    for (const auto& e : nc.chain.edges) {
+                        std::unique_ptr<Stoicheion> copy = e->clone();
+                        copy->group = label;
+                        result.add(std::move(copy));
+                    }
+                    crossingFragments.push_back(std::move(nc));
+                }
+                if (!numberIsBad) {
+                    for (const Chain& m : magenta) {
+                        for (const auto& e : m.edges) {
+                            std::unique_ptr<Stoicheion> copy = e->clone();
+                            copy->group = "minimum";
+                            result.add(std::move(copy));
+                        }
+                    }
+                }
             }
         }
 
-        // Every intersection of the pure blind offset -- each chain crossed with
-        // itself, and each pair of chains with each other -- as Point2 stoicheia in
-        // the "intersections" group.
+        // The intersection marks, staged exactly like the pipeline. Stage A: each
+        // raw offset chain's SELF-crossings -- found in its own universe, blind to
+        // every other chain (these are the cuts the per-chain crossing numbers
+        // resolved). Stage B: the MUTUAL crossings between the validated result
+        // chains -- the only inter-chain intersections that mean anything, since
+        // mitosis only ever sees validated chains.
         void addIntersectionMarks(SketchGeometry& result) {
             std::vector<Pos> crossings;
             for (const Chain& c : offsetChains) {
                 for (const Pos& p : c.allSelfIntersections()) { crossings.push_back(p); }
             }
-            for (size_t i = 0; i < offsetChains.size(); i++) {
-                for (size_t j = i + 1; j < offsetChains.size(); j++) {
-                    for (const auto& ea : offsetChains[i].edges) {
-                        for (const auto& eb : offsetChains[j].edges) {
+            for (size_t i = 0; i < crossingFragments.size(); i++) {
+                for (size_t j = i + 1; j < crossingFragments.size(); j++) {
+                    for (const auto& ea : crossingFragments[i].chain.edges) {
+                        for (const auto& eb : crossingFragments[j].chain.edges) {
                             Chain::edgeCross(*ea, *eb, crossings);
                         }
                     }
@@ -254,6 +323,16 @@ export namespace Sketch::App {
             for (const Pos& p : crossings) {
                 std::unique_ptr<Point2> dot = std::make_unique<Point2>(p);
                 dot->group = "intersections";
+                result.add(std::move(dot));
+            }
+
+            // The walk's starting point of every offset chain -- where the relative
+            // count begins at 0 -- so the start-dependence of the colouring is
+            // visible at a glance.
+            for (const Chain& c : offsetChains) {
+                if (c.edges.empty()) { continue; }
+                std::unique_ptr<Point2> dot = std::make_unique<Point2>(Chain::eStart(*c.edges.front()));
+                dot->group = "start";
                 result.add(std::move(dot));
             }
         }

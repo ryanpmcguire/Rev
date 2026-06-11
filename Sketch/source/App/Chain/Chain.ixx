@@ -29,6 +29,37 @@ export namespace Sketch::App {
 
     using Rev::Core::Pos;
 
+    // dPos -- double-precision computation point. Stored geometry stays float
+    // (Pos); the chain's numerical KERNELS run in double, converting at the
+    // boundaries. The failures double prevents are catastrophic cancellations:
+    // a nearly-complete corner arc subtracts two nearly-equal angles, a near-miss
+    // intersection divides by a nearly-vanishing cross product -- float's ~7
+    // digits get eaten whole, double's ~16 leave plenty.
+    struct dPos {
+        double x = 0.0, y = 0.0;
+        dPos() = default;
+        dPos(double x, double y) : x(x), y(y) {}
+        dPos(const Pos& p) : x(p.x), y(p.y) {}
+
+        Pos f() const { return Pos(static_cast<float>(x), static_cast<float>(y)); }
+
+        dPos operator+(dPos o) const { return { x + o.x, y + o.y }; }
+        dPos operator-(dPos o) const { return { x - o.x, y - o.y }; }
+        dPos operator*(double k) const { return { x * k, y * k }; }
+        dPos operator/(double k) const { return { x / k, y / k }; }
+
+        double dot(dPos o) const { return x * o.x + y * o.y; }
+        double cross(dPos o) const { return x * o.y - y * o.x; }
+        double len() const { return std::sqrt(x * x + y * y); }
+        double angle() const { return std::atan2(y, x); }
+        dPos perp() const { return { -y, x }; }                       // +90 deg
+        dPos unit() const { double l = len(); return (l > 0.0) ? dPos(x / l, y / l) : dPos(); }
+        static dPos fromAngle(double a) { return { std::cos(a), std::sin(a) }; }
+    };
+
+    inline constexpr double dTAU = 6.283185307179586476925287;
+    inline double dWrap(double a) { while (a < 0.0) { a += dTAU; } while (a >= dTAU) { a -= dTAU; } return a; }
+
     struct Chain {
 
         std::vector<std::unique_ptr<Stoicheion>> edges;   // oriented: travel is start -> end
@@ -151,28 +182,45 @@ export namespace Sketch::App {
         }
 
         // Infinite-support intersection primitives (extended line / full circle),
-        // shared by the exact edge-crossing test below.
+        // shared by the exact edge-crossing test below. All computed in DOUBLE:
+        // these are the cancellation-prone kernels (near-parallel cross products,
+        // grazing-circle discriminants).
         static bool lineLineInf(Pos a0, Pos a1, Pos b0, Pos b1, Pos& out) {
-            Pos r = a1 - a0, s = b1 - b0; float rxs = r.cross(s);
-            if (std::fabs(rxs) < 1e-9f) { return false; }
-            out = a0 + r * ((b0 - a0).cross(s) / rxs); return true;
+            dPos A0(a0), B0(b0);
+            dPos r = dPos(a1) - A0, s = dPos(b1) - B0;
+            double rxs = r.cross(s);
+            if (std::fabs(rxs) <= 1e-12 * r.len() * s.len()) { return false; }   // parallel, RELATIVE test
+            out = (A0 + r * ((B0 - A0).cross(s) / rxs)).f();
+            return true;
         }
         static void lineCircleInf(Pos a0, Pos a1, Pos c, float rad, std::vector<Pos>& out) {
-            Pos d = a1 - a0; float A = d.dot(d); if (A < 1e-12f) { return; }
-            Pos f = a0 - c; float B = 2.0f * f.dot(d), C = f.dot(f) - rad * rad;
-            float disc = B * B - 4.0f * A * C; if (disc < 0.0f) { return; }
-            disc = std::sqrt(disc);
-            out.push_back(a0 + d * ((-B - disc) / (2.0f * A)));
-            if (disc > 1e-9f) { out.push_back(a0 + d * ((-B + disc) / (2.0f * A))); }
+            dPos A0(a0);
+            dPos d = dPos(a1) - A0, fc = A0 - dPos(c);
+            double A = d.dot(d); if (A < 1e-18) { return; }
+            double B = 2.0 * fc.dot(d), C = fc.dot(fc) - static_cast<double>(rad) * rad;
+            double disc = B * B - 4.0 * A * C; if (disc < 0.0) { return; }
+            double sq = std::sqrt(disc);
+            // Numerically stable roots: never subtract nearly-equal quantities.
+            double q = -0.5 * (B + (B >= 0.0 ? sq : -sq));
+            double t1 = q / A;
+            out.push_back((A0 + d * t1).f());
+            if (sq > 0.0 && std::fabs(q) > 1e-300) {
+                double t2 = C / q;
+                if (t2 != t1) { out.push_back((A0 + d * t2).f()); }
+            }
         }
         static void circleCircle(Pos c0, float r0, Pos c1, float r1, std::vector<Pos>& out) {
-            Pos d = c1 - c0; float dist = d.pythag();
-            if (dist < 1e-9f || dist > r0 + r1 + 1e-6f || dist < std::fabs(r0 - r1) - 1e-6f) { return; }
-            float a = (r0 * r0 - r1 * r1 + dist * dist) / (2.0f * dist);
-            float h2 = r0 * r0 - a * a; if (h2 < 0.0f) { h2 = 0.0f; }
-            float h = std::sqrt(h2); Pos mid = c0 + d * (a / dist);
-            Pos perp(-d.y / dist * h, d.x / dist * h);
-            out.push_back(mid + perp); if (h > 1e-9f) { out.push_back(mid - perp); }
+            dPos C0(c0), C1(c1);
+            double R0 = r0, R1 = r1;
+            dPos d = C1 - C0; double dist = d.len();
+            if (dist < 1e-12 || dist > R0 + R1 + 1e-6 || dist < std::fabs(R0 - R1) - 1e-6) { return; }
+            double a = (R0 * R0 - R1 * R1 + dist * dist) / (2.0 * dist);
+            double h2 = R0 * R0 - a * a; if (h2 < 0.0) { h2 = 0.0; }
+            double h = std::sqrt(h2);
+            dPos mid = C0 + d * (a / dist);
+            dPos perp = d.perp() * (h / dist);
+            out.push_back((mid + perp).f());
+            if (h > 1e-12) { out.push_back((mid - perp).f()); }
         }
         // The *raw* offset, done BLINDLY: every edge slides to the LEFT of its own
         // travel direction by `amount` -- no winding test, no preferred side. The
@@ -229,17 +277,20 @@ export namespace Sketch::App {
                 Pos endA = eEnd(*off[k]);
                 Pos startB = eStart(*off[(k + 1) % n]);
                 if ((endA - startB).pythag() < 1e-4f) { continue; }   // tangent-continuous: already joined
-                Pos radial = endA - corner;
-                float r = radial.pythag();
-                if (r < 1e-9f) { continue; }
+                // All angle math in DOUBLE: a nearly-complete around-the-bend arc
+                // subtracts two nearly-equal angles, which float cannot survive.
+                dPos C(corner);
+                dPos radial = dPos(endA) - C;
+                double r = radial.len();
+                if (r < 1e-12) { continue; }
                 // Travel sense around the corner: does leaving along A's direction head
                 // CCW about the centre? Place the through-point d at the swept midpoint.
-                int s = (eEndDir(*off[k]).dot(perpCCW(radial)) >= 0.0f) ? 1 : -1;
-                float angA = radial.angle(), angB = (startB - corner).angle();
-                float span = (s > 0) ? wrapTau(angB - angA) : wrapTau(angA - angB);
-                float midAng = angA + static_cast<float>(s) * span * 0.5f;
+                int s = (dPos(eEndDir(*off[k])).dot(radial.perp()) >= 0.0) ? 1 : -1;
+                double angA = radial.angle(), angB = (dPos(startB) - C).angle();
+                double span = (s > 0) ? dWrap(angB - angA) : dWrap(angA - angB);
+                double midAng = angA + static_cast<double>(s) * span * 0.5;
                 joinArc[k] = std::make_unique<Arc2>(corner, endA, startB,
-                                                    corner + Pos::fromAngle(midAng) * r);
+                                                    (C + dPos::fromAngle(midAng) * r).f());
             }
 
             for (size_t i = 0; i < n; i++) {
@@ -252,20 +303,32 @@ export namespace Sketch::App {
         // Intersections -- exact crossings of the (possibly self-intersecting) offset.
         //--------------------------------------------------
 
-        // True (with the parameter) when a point lies strictly inside a segment span.
+        // True (with the parameter) when a point lies strictly inside a segment
+        // span. Strict interiority is measured in absolute DISTANCE from the
+        // endpoints, never in parameter space -- a parameter tolerance scales with
+        // edge length, carving a fat exclusion zone at the ends of long edges
+        // (which is exactly where a collapsing shape's self-crossings migrate).
         static bool onSeg(Pos a, Pos b, Pos p, float& t) {
-            Pos d = b - a; float l2 = d.dot(d);
-            if (l2 < 1e-12f) { return false; }
-            t = (p - a).dot(d) / l2;
-            return t > 1e-3f && t < 1.0f - 1e-3f;
+            dPos A(a), D = dPos(b) - dPos(a), P(p);
+            double l2 = D.dot(D);
+            if (l2 < 1e-18) { return false; }
+            double td = (P - A).dot(D) / l2;
+            t = static_cast<float>(td);
+            if (td < 0.0 || td > 1.0) { return false; }
+            return (P - A).len() > 1e-3 && (P - dPos(b)).len() > 1e-3;
         }
         // True when a point on a circular edge's circle lies strictly inside its
         // swept range. A full circle (sweep == TAU) contains its whole circumference
-        // -- it has no endpoints to exclude.
+        // -- it has no endpoints to exclude. Interiority is measured as absolute ARC
+        // LENGTH from the ends (angle * radius), never as a bare angle, which would
+        // scale the exclusion zone with the radius.
         static bool onSpan(Pos c, float a0, float sweep, Pos p) {
             if (sweep >= TAU - 1e-6f) { return true; }
-            float rel = wrapTau((p - c).angle() - a0);
-            return rel > 1e-3f && rel < sweep - 1e-3f;
+            dPos d = dPos(p) - dPos(c);
+            double rel = dWrap(d.angle() - static_cast<double>(a0));
+            if (rel > static_cast<double>(sweep)) { return false; }
+            double r = d.len();
+            return rel * r > 1e-3 && (static_cast<double>(sweep) - rel) * r > 1e-3;
         }
 
         // Genuine crossing points of two edges (segments, arcs or full circles),
@@ -324,17 +387,25 @@ export namespace Sketch::App {
         // pure subdivision -- both halves laid end to end retrace the parent exactly.
 
         // Parameter (0..1) of a point along an edge's travel (for ordering cuts).
+        // A full circle parameterises by travel angle from its point a.
         static float paramOnEdge(const Stoicheion& e, Pos p) {
             if (isArc(e)) {
                 const Arc2* a = asArc(e);
                 float a0, sweep; a->range(a0, sweep);
                 if (sweep < 1e-9f) { return 0.0f; }
-                float rel = wrapTau((p - a->c).angle() - a0) / sweep;
-                return (a->chirality() > 0) ? rel : 1.0f - rel;   // along TRAVEL, not CCW
+                double rel = dWrap((dPos(p) - dPos(a->c)).angle() - static_cast<double>(a0))
+                           / static_cast<double>(sweep);
+                return static_cast<float>((a->chirality() > 0) ? rel : 1.0 - rel);   // along TRAVEL, not CCW
             }
-            Pos s = eStart(e), en = eEnd(e);
-            Pos d = en - s; float l2 = d.dot(d);
-            return (l2 > 1e-12f) ? (p - s).dot(d) / l2 : 0.0f;
+            if (isCircle(e)) {
+                const Circle2* k = asCirc(e);
+                dPos C(k->c);
+                double rel = dWrap((dPos(p) - C).angle() - (dPos(k->a) - C).angle()) / dTAU;
+                return static_cast<float>((k->chirality() > 0) ? rel : ((rel > 1e-12) ? 1.0 - rel : 0.0));
+            }
+            dPos s(eStart(e)), d = dPos(eEnd(e)) - dPos(eStart(e));
+            double l2 = d.dot(d);
+            return (l2 > 1e-18) ? static_cast<float>((dPos(p) - s).dot(d) / l2) : 0.0f;
         }
 
         // Split an edge at a point on it, preserving kind, direction and chirality:
@@ -345,16 +416,17 @@ export namespace Sketch::App {
                               std::unique_ptr<Stoicheion>& first, std::unique_ptr<Stoicheion>& second) {
             if (isArc(e)) {
                 const Arc2* arc = asArc(e);
-                float r = arc->radius();
-                Pos s = arc->c + (p - arc->c).normalized() * r;          // exact point on the circle
+                dPos C(arc->c);
+                double r = (dPos(arc->a) - C).len();
+                dPos s = C + (dPos(p) - C).unit() * r;                   // exact point on the circle
                 int sgn = arc->chirality();
-                float angA = (arc->a - arc->c).angle();
-                float angS = (s - arc->c).angle();
-                float angB = (arc->b - arc->c).angle();
-                float midL = (sgn > 0) ? (angA + wrapTau(angS - angA) * 0.5f) : (angA - wrapTau(angA - angS) * 0.5f);
-                float midR = (sgn > 0) ? (angS + wrapTau(angB - angS) * 0.5f) : (angS - wrapTau(angS - angB) * 0.5f);
-                first  = std::make_unique<Arc2>(arc->c, Pos(arc->a), s, arc->c + Pos::fromAngle(midL) * r);
-                second = std::make_unique<Arc2>(arc->c, s, Pos(arc->b), arc->c + Pos::fromAngle(midR) * r);
+                double angA = (dPos(arc->a) - C).angle();
+                double angS = (s - C).angle();
+                double angB = (dPos(arc->b) - C).angle();
+                double midL = (sgn > 0) ? (angA + dWrap(angS - angA) * 0.5) : (angA - dWrap(angA - angS) * 0.5);
+                double midR = (sgn > 0) ? (angS + dWrap(angB - angS) * 0.5) : (angS - dWrap(angS - angB) * 0.5);
+                first  = std::make_unique<Arc2>(arc->c, Pos(arc->a), s.f(), (C + dPos::fromAngle(midL) * r).f());
+                second = std::make_unique<Arc2>(arc->c, s.f(), Pos(arc->b), (C + dPos::fromAngle(midR) * r).f());
             }
             else {
                 const Segment2* seg = asSeg(e);
@@ -364,23 +436,55 @@ export namespace Sketch::App {
         }
 
         // Split an edge at every cut point on it, sorted along its travel, into
-        // sub-edges emitted in travel order.
+        // sub-edges emitted in travel order. A full circle has no endpoints, so its
+        // splitting is CYCLIC: n cuts make a ring of n arcs, wrapping around -- each
+        // arc travelling the circle's own way (chirality inherited, never inferred).
         static void splitEdgeAtPoints(const Stoicheion& e, const std::vector<Pos>& points,
                                       std::vector<std::unique_ptr<Stoicheion>>& out) {
+            if (isCircle(e) && points.size() >= 2) {
+                const Circle2* k = asCirc(e);
+                float r = k->radius();
+                int s = k->chirality();
+                std::vector<std::pair<float, Pos>> sp;
+                for (const Pos& p : points) {
+                    Pos q = k->c + (p - k->c).normalized() * r;          // exact point on the circle
+                    sp.push_back({ paramOnEdge(e, q), q });
+                }
+                std::sort(sp.begin(), sp.end(),
+                          [](const std::pair<float, Pos>& a, const std::pair<float, Pos>& b) { return a.first < b.first; });
+                dPos C(k->c);
+                for (size_t i = 0; i < sp.size(); i++) {
+                    const Pos& pa = sp[i].second;
+                    const Pos& pb = sp[(i + 1) % sp.size()].second;
+                    float dt = sp[(i + 1) % sp.size()].first - sp[i].first;
+                    if (i + 1 == sp.size()) { dt += 1.0f; }              // the wrap span
+                    if (dt * TAU * r < 1e-3f) { continue; }              // coincident cuts (absolute arc length)
+                    double angA = (dPos(pa) - C).angle(), angB = (dPos(pb) - C).angle();
+                    double span = (s > 0) ? dWrap(angB - angA) : dWrap(angA - angB);
+                    double midAng = angA + static_cast<double>(s) * span * 0.5;
+                    out.push_back(std::make_unique<Arc2>(k->c, pa, pb,
+                                                         (C + dPos::fromAngle(midAng) * static_cast<double>(r)).f()));
+                }
+                return;
+            }
+            if (isCircle(e)) { out.push_back(e.clone()); return; }       // 0..1 cuts: unsplittable
             if (points.empty()) { out.push_back(e.clone()); return; }
             std::vector<std::pair<float, Pos>> sp;
             for (const Pos& p : points) { sp.push_back({ paramOnEdge(e, p), p }); }
             std::sort(sp.begin(), sp.end(),
                       [](const std::pair<float, Pos>& a, const std::pair<float, Pos>& b) { return a.first < b.first; });
             std::unique_ptr<Stoicheion> rem = e.clone();
-            float lastT = 0.0f;
+            Pos lastCut = eStart(e);
             for (const auto& pr : sp) {
-                if (pr.first <= lastT + 1e-3f || pr.first >= 1.0f - 1e-3f) { continue; }   // endpoint / duplicate
+                // Endpoint / duplicate filters in absolute DISTANCE (a parameter
+                // tolerance would scale with edge length).
+                if ((pr.second - lastCut).pythag() <= 1e-3f) { continue; }
+                if ((pr.second - eEnd(e)).pythag() <= 1e-3f) { continue; }
                 std::unique_ptr<Stoicheion> first, second;
                 splitEdge(*rem, pr.second, first, second);
                 out.push_back(std::move(first));
                 rem = std::move(second);
-                lastT = pr.first;
+                lastCut = pr.second;
             }
             out.push_back(std::move(rem));
         }
@@ -448,31 +552,32 @@ export namespace Sketch::App {
         // counts +1, heading downward -1. Pure reading of the path -- no start
         // vertex, no extremes, no area.
         int windingAround(Pos probe) const {
+            const dPos P(probe);
             int w = 0;
             for (const auto& e : edges) {
                 Pos c; float r, a0, sweep; int chir;
                 if (circularOf(*e, c, r, a0, sweep, chir)) {
-                    float dy = probe.y - c.y;
-                    float h2 = r * r - dy * dy;
-                    if (h2 <= 1e-12f) { continue; }
-                    float h = std::sqrt(h2);
-                    for (float qx : { c.x + h, c.x - h }) {
-                        Pos q(qx, probe.y);
-                        if (q.x <= probe.x) { continue; }
+                    double dy = P.y - static_cast<double>(c.y);
+                    double h2 = static_cast<double>(r) * r - dy * dy;
+                    if (h2 <= 1e-18) { continue; }
+                    double h = std::sqrt(h2);
+                    for (double qx : { static_cast<double>(c.x) + h, static_cast<double>(c.x) - h }) {
+                        if (qx <= P.x) { continue; }
+                        Pos q(static_cast<float>(qx), probe.y);
                         if (!onSpan(c, a0, sweep, q)) { continue; }
                         Pos t = travelDirAt(*e, q);
                         if (t.y > 1e-9f) { w++; } else if (t.y < -1e-9f) { w--; }
                     }
                 }
                 else {
-                    Pos a = eStart(*e), b = eEnd(*e);
-                    float dy = b.y - a.y;
-                    if (std::fabs(dy) < 1e-12f) { continue; }
-                    float u = (probe.y - a.y) / dy;
-                    if (u < 0.0f || u >= 1.0f) { continue; }   // half-open: a shared vertex counts once
-                    float x = a.x + (b.x - a.x) * u;
-                    if (x <= probe.x) { continue; }
-                    w += (dy > 0.0f) ? 1 : -1;
+                    dPos a(eStart(*e)), b(eEnd(*e));
+                    double dy = b.y - a.y;
+                    if (std::fabs(dy) < 1e-15) { continue; }
+                    double u = (P.y - a.y) / dy;
+                    if (u < 0.0 || u >= 1.0) { continue; }     // half-open: a shared vertex counts once
+                    double x = a.x + (b.x - a.x) * u;
+                    if (x <= P.x) { continue; }
+                    w += (dy > 0.0) ? 1 : -1;
                 }
             }
             return w;
@@ -488,18 +593,18 @@ export namespace Sketch::App {
         float totalTurning() const {
             const size_t n = edges.size();
             if (n == 0) { return 0.0f; }
-            float total = 0.0f;
+            double total = 0.0;
             for (const auto& e : edges) {
                 Pos c; float r, a0, sweep; int chir;
-                if (circularOf(*e, c, r, a0, sweep, chir)) { total += static_cast<float>(chir) * sweep; }
+                if (circularOf(*e, c, r, a0, sweep, chir)) { total += static_cast<double>(chir) * sweep; }
             }
             const size_t corners = closed ? n : (n - 1);
             for (size_t k = 0; k < corners; k++) {
-                Pos a = eEndDir(*edges[k]);
-                Pos b = eStartDir(*edges[(k + 1) % n]);
+                dPos a(eEndDir(*edges[k]));
+                dPos b(eStartDir(*edges[(k + 1) % n]));
                 total += std::atan2(a.cross(b), a.dot(b));   // signed exterior angle
             }
-            return total;
+            return static_cast<float>(total);
         }
         int turningSign() const {
             float t = totalTurning();
@@ -578,46 +683,15 @@ export namespace Sketch::App {
                 }
             }
 
-            // 4. anchor by KNOWN-SIDEDNESS. The walk only accumulates DIFFERENCES:
-            //    along the path the count changes exactly as the winding number of
-            //    the face to our RIGHT changes (count == -w_right + constant). So
-            //    the absolute level of every sub-edge is fixed by measuring w_right
-            //    once, directly: probe a point just right of one sub-edge's midpoint
-            //    and ray-cast the whole path around it. Exact, start-invariant, no
-            //    extremes, no area.
-            if (!run.edges.empty()) {
-                size_t anchor = 0; float bestLen = -1.0f;
-                for (size_t k = 0; k < run.edges.size(); k++) {
-                    float len = edgeLength(*run.edges[k]);
-                    if (len > bestLen) { bestLen = len; anchor = k; }
-                }
-                Pos mid = edgeMidpoint(*run.edges[anchor]);
-                Pos t = travelDirAt(*run.edges[anchor], mid);
-
-                // Probe just to the RIGHT of the anchor edge -- closer than any
-                // other strand of the path, so it cannot land on the far side of a
-                // thin feature.
-                float clearance = 1e30f;
-                for (size_t k = 0; k < run.edges.size(); k++) {
-                    if (k == anchor) { continue; }
-                    clearance = std::min(clearance, run.edges[k]->distanceTo(mid));
-                }
-                float reach = std::min(1e-2f * bestLen, 0.4f * clearance);
-                Pos probe = mid - perpCCW(t) * std::max(reach, 1e-4f);
-                int wRight = windingAround(probe);
-
-                // count == -w_right + C  =>  shift so every number IS -w_right.
-                int shift = run.number[anchor] + wRight;
-                for (int& v : run.number) { v -= shift; }
-
-                // 5. fold in the ACCUMULATED TURNING (the rotation index -- stable
-                //    under thin features, unlike signed area) to unify handedness:
-                //    a CCW path's valid stretches have the void (w == 0) on their
-                //    right, so -w_right == 0; a CW path's valid stretches have the
-                //    material (w == -1) on their right, so -w_right == +1. After the
-                //    fold, valid reads 0 for both, and burrs read off-zero.
-                if (turningSign() < 0) { for (int& v : run.number) { v = v - 1; } }
-                else                   { for (int& v : run.number) { v = -v; } }
+            // Normalise RELATIVE TO THE MAX: the walk's raw numbers carry an
+            // arbitrary start-dependent constant, but the maximum over the whole
+            // chain is a global property of the walk -- so shifting it to 0 makes
+            // every number start-invariant with no external measurement at all.
+            // The scale reads: 0 (the max) = blue, -1 = green, -2 = red.
+            if (!run.number.empty()) {
+                int maxN = run.number.front();
+                for (int v : run.number) { maxN = std::max(maxN, v); }
+                for (int& v : run.number) { v -= maxN; }
             }
             return run;
         }
@@ -739,59 +813,129 @@ export namespace Sketch::App {
         return out;
     }
 
-    // Mitosis. Every loop is split at its crossings with every OTHER loop; a piece
-    // survives iff the total winding of ALL loops around a probe just LEFT of it is
-    // exactly 1 -- the material there is claimed once and only once. With the
-    // material-on-the-left convention this one rule does it all: an outer piece
-    // swallowed by the island reads 0 (the island un-claims it), an island piece
-    // escaping the outer reads 0 (nothing claims it), doubly-covered overlap reads
-    // 2 -- only the true frontier reads 1. The survivors stitch back into loops at
-    // the crossing points (they meet there exactly, so this is reassembly, not
-    // inference). A lone loop is returned untouched: there is nothing to overlap.
-    inline std::vector<Chain> Chain::mitose(std::vector<Chain>& loops, float eps) {
-        if (loops.size() <= 1) { return std::move(loops); }
+    // Mitosis. Every loop is split at its crossings with every OTHER loop, and a
+    // piece survives iff it is a true FRONTIER of the material: exactly one of its
+    // two sides lies inside the material region. No side is ever assumed -- the
+    // material region is {points where (total winding of all loops) * s >= 1},
+    // with the sign s read off the OUTERMOST loop's own turning (a loop wound by
+    // no other loop), so clockwise and counterclockwise scenes measure their own
+    // orientation. Both sides material = interior of the union (discarded); both
+    // sides void = swallowed or escaped (discarded); one of each = frontier. The
+    // survivors stitch back into loops at the crossing points (they meet there
+    // exactly, so this is reassembly, not inference). A lone loop is returned
+    // untouched: there is nothing to overlap.
+    inline std::vector<Chain> Chain::mitose(std::vector<Chain>& allChains, float eps) {
 
-        std::vector<std::unique_ptr<Stoicheion>> kept;
-        for (size_t a = 0; a < loops.size(); a++) {
-            for (const auto& edge : loops[a].edges) {
-
-                // Cut this edge wherever any other loop crosses it.
-                std::vector<Pos> cuts;
-                for (size_t b = 0; b < loops.size(); b++) {
-                    if (b == a) { continue; }
-                    for (const auto& eb : loops[b].edges) { edgeCross(*edge, *eb, cuts); }
-                }
-                std::vector<std::unique_ptr<Stoicheion>> pieces;
-                splitEdgeAtPoints(*edge, cuts, pieces);
-
-                // Keep each piece iff the material just left of it is singly claimed.
-                for (auto& piece : pieces) {
-                    Pos mid = edgeMidpoint(*piece);
-                    Pos t = travelDirAt(*piece, mid);
-
-                    float clearance = 1e30f;
-                    for (const Chain& lp : loops) {
-                        for (const auto& le : lp.edges) {
-                            if (le.get() == edge.get()) { continue; }
-                            clearance = std::min(clearance, le->distanceTo(mid));
-                        }
-                    }
-                    float reach = std::max(1e-4f, std::min(1e-2f * edgeLength(*piece), 0.4f * clearance));
-                    Pos probe = mid + perpCCW(t) * reach;   // just to the LEFT (material side)
-
-                    int w = 0;
-                    for (const Chain& lp : loops) { w += lp.windingAround(probe); }
-                    if (w == 1) { kept.push_back(std::move(piece)); }
-                }
-            }
+        // Only CLOSED loops bound regions, so only they may be asked region
+        // questions (winding, containment, frontier-ness). Open chains have no
+        // inside -- they pass through untouched, at face value, and must never
+        // poison a cluster with meaningless winding answers.
+        std::vector<Chain> out;
+        std::vector<Chain> loops;
+        for (Chain& ch : allChains) {
+            if (ch.closed && !ch.edges.empty()) { loops.push_back(std::move(ch)); }
+            else if (!ch.edges.empty())         { out.push_back(std::move(ch)); }
         }
 
-        // Stitch the surviving pieces back into well-formed loops.
-        std::vector<Chain> out;
-        while (!kept.empty()) {
-            Chain c = buildOne(kept, eps);
-            if (c.edges.empty()) { break; }
-            out.push_back(std::move(c));
+        const size_t n = loops.size();
+        if (n == 1) { out.push_back(std::move(loops.front())); return out; }
+        if (n == 0) { return out; }
+
+        // Cluster loops by INTERACTION (they cross, or one contains the other).
+        // Disjoint profiles are independent worlds: a loop must never be judged by
+        // the handedness of a loop it doesn't touch.
+        auto interacts = [&](size_t a, size_t b) {
+            std::vector<Pos> x;
+            for (const auto& ea : loops[a].edges) {
+                for (const auto& eb : loops[b].edges) {
+                    edgeCross(*ea, *eb, x);
+                    if (!x.empty()) { return true; }
+                }
+            }
+            if (loops[b].windingAround(edgeMidpoint(*loops[a].edges.front())) != 0) { return true; }
+            if (loops[a].windingAround(edgeMidpoint(*loops[b].edges.front())) != 0) { return true; }
+            return false;
+        };
+        std::vector<int> cluster(n, -1);
+        int clusters = 0;
+        for (size_t a = 0; a < n; a++) {
+            if (cluster[a] >= 0) { continue; }
+            cluster[a] = clusters;
+            std::vector<size_t> queue{ a };                       // flood the component
+            while (!queue.empty()) {
+                size_t cur = queue.back(); queue.pop_back();
+                for (size_t b = 0; b < n; b++) {
+                    if (cluster[b] >= 0 || !interacts(cur, b)) { continue; }
+                    cluster[b] = clusters;
+                    queue.push_back(b);
+                }
+            }
+            clusters++;
+        }
+
+        for (int c = 0; c < clusters; c++) {
+            std::vector<size_t> mem;
+            for (size_t a = 0; a < n; a++) { if (cluster[a] == c) { mem.push_back(a); } }
+
+            // A lone loop has nothing to overlap: through untouched.
+            if (mem.size() == 1) { out.push_back(std::move(loops[mem[0]])); continue; }
+
+            // The cluster's material orientation, measured: the turning of one of
+            // its outermost loops (wound by no other loop of the cluster).
+            int s = 0;
+            for (size_t a : mem) {
+                Pos sample = edgeMidpoint(*loops[a].edges.front());
+                int w = 0;
+                for (size_t b : mem) { if (b != a) { w += loops[b].windingAround(sample); } }
+                if (w == 0) { s = loops[a].turningSign(); break; }
+            }
+            if (s == 0) { s = 1; }
+
+            std::vector<std::unique_ptr<Stoicheion>> kept;
+            for (size_t a : mem) {
+                for (const auto& edge : loops[a].edges) {
+
+                    // Cut this edge wherever any other cluster loop crosses it.
+                    std::vector<Pos> cuts;
+                    for (size_t b : mem) {
+                        if (b == a) { continue; }
+                        for (const auto& eb : loops[b].edges) { edgeCross(*edge, *eb, cuts); }
+                    }
+                    std::vector<std::unique_ptr<Stoicheion>> pieces;
+                    splitEdgeAtPoints(*edge, cuts, pieces);
+
+                    // Frontier test: material (within this cluster) on exactly one side.
+                    for (auto& piece : pieces) {
+                        Pos mid = edgeMidpoint(*piece);
+                        Pos t = travelDirAt(*piece, mid);
+
+                        float clearance = 1e30f;
+                        for (size_t b : mem) {
+                            for (const auto& le : loops[b].edges) {
+                                if (le.get() == edge.get()) { continue; }
+                                clearance = std::min(clearance, le->distanceTo(mid));
+                            }
+                        }
+                        float reach = std::max(1e-4f, std::min(1e-2f * edgeLength(*piece), 0.4f * clearance));
+
+                        auto totalWinding = [&](Pos probe) {
+                            int w = 0;
+                            for (size_t b : mem) { w += loops[b].windingAround(probe); }
+                            return w;
+                        };
+                        bool leftIn  = totalWinding(mid + perpCCW(t) * reach) * s >= 1;
+                        bool rightIn = totalWinding(mid - perpCCW(t) * reach) * s >= 1;
+                        if (leftIn != rightIn) { kept.push_back(std::move(piece)); }
+                    }
+                }
+            }
+
+            // Stitch the cluster's surviving pieces back into well-formed loops.
+            while (!kept.empty()) {
+                Chain stitched = buildOne(kept, eps);
+                if (stitched.edges.empty()) { break; }
+                out.push_back(std::move(stitched));
+            }
         }
         return out;
     }
