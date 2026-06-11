@@ -14,11 +14,15 @@ module;
 
 #include <nlohmann/json.hpp>
 
-export module Sketch.App.Geometry;
+export module Geo.Geometry;
 
 import Rev.Core.Pos;
 
-export namespace Sketch::App {
+// The shared 2D geometry kernel -- stoicheia, relations, the sketch geometry
+// container -- consumed by both the Sketch app and the CAM app. Application
+// modules re-export these names into their own namespaces (see the
+// Sketch.App.Geometry shim on the Sketch side).
+export namespace Geo {
 
     using Json = nlohmann::json;
     using Rev::Core::Pos;
@@ -687,7 +691,10 @@ export namespace Sketch::App {
         // Concentric offset, chirality-aware. The chirality is the travel direction
         // A -> B through D: CCW (+1) behaves like a CCW boundary, so a negative amount
         // shrinks it; CW (-1) reverses the sense, so the same amount grows it. Driving
-        // the radius through zero flips the points to the antipode ("flips around").
+        // the radius through zero flips the endpoints to their antipodes AND flips
+        // the chirality: the through-point keeps its ORIGINAL bearing (|nr|), landing
+        // on the complementary side of the chord -- the inverted arc travels the
+        // other way round, exactly as a segment spline of the arc would.
         void offset(float amount) override {
             float rad = radius();
             if (rad < 1e-9f) { return; }
@@ -695,7 +702,7 @@ export namespace Sketch::App {
             a = c + (a - c) / rad * nr;
             b = c + (b - c) / rad * nr;
             float ld = (d - c).pythag();
-            if (ld > 1e-9f) { d = c + (d - c) / ld * nr; }   // keep D's angle, on the new circle
+            if (ld > 1e-9f) { d = c + (d - c) / ld * std::fabs(nr); }   // |nr|: chirality flips through zero
         }
 
         // d is the chirality marker, not a solved point, and is kept canonical:

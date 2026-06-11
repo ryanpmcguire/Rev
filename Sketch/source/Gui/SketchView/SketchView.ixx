@@ -98,10 +98,10 @@ export namespace Sketch::Gui {
         // Whether new geometry is being drawn as construction (reference) geometry.
         bool drawingConstruction = false;
 
-        // Toolpath sandbox: when on, the offset/inset profile is recomputed from the
+        // Toolpath sandbox: when on, the active strategy is recomputed from the
         // live geometry every rebuild, so it tracks the sketch as it is dragged.
-        bool  insetActive = false;
-        float insetAmount = 1.0f;   // 1mm to the LEFT of travel: a CCW chain insets, a CW chain offsets outward
+        // Radius and strategy come from the parameter panel (via AppState).
+        bool insetActive = false;
 
         // Drag-to-move state.
         //
@@ -165,7 +165,10 @@ export namespace Sketch::Gui {
         // changes; pan/zoom just swaps the GPU transform (no CPU rebuild).
         bool geometryDirty = true;
         Sketch::App::Project* lastProject = nullptr;
-        int lastViewOptions = -1;   // bitmask of the view-select options last built with
+        int lastViewOptions = -1;          // bitmask of the view-select options last built with
+        float lastToolRadius = -1.0f;      // parameter-panel values last built with
+        int lastIterations = -1;
+        std::string lastStrategy;
 
         SketchView(Element* parent, StyleList styles = {}) : Box(parent, styles, "SketchView") {
 
@@ -1415,7 +1418,9 @@ export namespace Sketch::Gui {
             if (!insetActive) {
                 app->activeProject->offsetLayers.clear();
                 app->activeProject->offsetChains.clear();
+                app->activeProject->sourceChains.clear();
                 app->activeProject->crossingFragments.clear();
+                app->activeProject->profiles.clear();
             }
             return true;
         }
@@ -1497,14 +1502,16 @@ export namespace Sketch::Gui {
                 appendCommitted(geometry, app->activeProject->geometry,
                                 realColor, constructionColor, solvedColor);
 
-                // Live offset/inset (the "i" toggle): recomputed from the current
-                // geometry each rebuild, so it follows the sketch as it is dragged.
-                // The view-select options are mirrored onto the project first.
+                // Live toolpathing (the "i" toggle): the active strategy is re-run
+                // on the current geometry each rebuild, so it follows the sketch as
+                // it is dragged. The view-select options are mirrored onto the
+                // project first; radius and strategy come from the parameter panel.
                 if (insetActive) {
                     app->activeProject->viewValid     = app->viewValid;
                     app->activeProject->viewWinding   = app->viewWinding;
                     app->activeProject->viewDiscarded = app->viewDiscarded;
-                    app->activeProject->insetIntoNewLayer(insetAmount);
+                    app->activeProject->iterations    = app->iterations;
+                    app->activeProject->runStrategy(app->strategy, app->toolRadius);
                 }
 
                 // Offset layers, styled blindly by each stoicheion's own group label
@@ -1624,13 +1631,17 @@ export namespace Sketch::Gui {
                 geometryDirty = true;
             }
 
-            // A view-option change (toolbar's view-select group) needs a rebuild.
+            // A view-option or parameter change (toolbar view-select group, left
+            // parameter panel) needs a rebuild.
             if (app) {
                 int options = (app->viewValid     ? 1 : 0)
                             | (app->viewWinding   ? 2 : 0)
                             | (app->viewDiscarded ? 4 : 0)
                             | (app->viewArrows    ? 8 : 0);
                 if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
+                if (app->toolRadius != lastToolRadius) { lastToolRadius = app->toolRadius; geometryDirty = true; }
+                if (app->iterations != lastIterations) { lastIterations = app->iterations; geometryDirty = true; }
+                if (app->strategy != lastStrategy) { lastStrategy = app->strategy; geometryDirty = true; }
             }
 
             updateTransform();

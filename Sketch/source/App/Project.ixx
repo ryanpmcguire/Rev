@@ -71,12 +71,14 @@ export namespace Sketch::App {
         // tag (the offset loops, the "intersections" dots, ...).
         std::vector<SketchGeometry> offsetLayers;
 
-        // The pure blind offset, kept as well-formed chains (not the flattened
-        // display copy): the artifact the valid/invalid chain extraction consumes.
-        // sourceChains holds the chains the offsets were made FROM (index-aligned),
-        // and lastOffsetAmount the distance -- together they let the prune MEASURE
-        // which crossing-number level is the valid one (true offset stretches keep
-        // exactly |amount| of clearance from their source; burrs dip closer).
+        // The profile series: profiles[0] is the chains as drawn; profiles[n+1] is
+        // profiles[n] offset by one step -- the whole method behind one call
+        // (Profile::offsetBy). Regenerated on each rebuild while the inset is live.
+        std::vector<Profile> profiles;
+
+        // Debug artifacts mirroring the FIRST offset step (the debug views inspect
+        // one step's anatomy): the raw blind offsets and their source chains,
+        // index-aligned, plus the offset distance.
         std::vector<Chain> offsetChains;
         std::vector<Chain> sourceChains;
         float lastOffsetAmount = 0.0f;
@@ -92,6 +94,7 @@ export namespace Sketch::App {
         bool viewValid = true;        // production: the final valid chains
         bool viewWinding = false;     // debug: level colours + magenta + marks
         bool viewDiscarded = false;   // debug: include non-minimum fragments
+        int  iterations = 32;         // max offset generations per strategy run
 
         // Create
         //--------------------------------------------------
@@ -171,13 +174,38 @@ export namespace Sketch::App {
         // loops, each coloured strictly by its own ABSOLUTE chirality -- every CW
         // loop blue, every CCW loop red, never relative to anything -- plus the
         // "intersections" dot group on top.
-        void insetIntoNewLayer(float amount) {
+        // Toolpathing strategies -- MOCK home. The strategies live here in the
+        // sketch app so they can be exercised against live geometry before they
+        // integrate into the CAM app; each one consumes the same Geo::Profile API
+        // (profile 0 = the chains as drawn; offsetBy() = one generation).
+        //--------------------------------------------------
+
+        void runStrategy(const std::string& strategy, float radius) {
+            lastOffsetAmount = radius;
+
+            // Profile 0: the chains as drawn.
+            profiles.clear();
+            profiles.push_back(Profile::fromEntities(geometry.entities));
+
+            // Debug artifacts mirror the first step.
             offsetChains.clear();
             sourceChains.clear();
-            lastOffsetAmount = amount;
-            for (Chain& chain : Chain::build(geometry.entities)) {
-                offsetChains.push_back(chain.offsetRaw(amount));
-                sourceChains.push_back(std::move(chain));
+            for (const Chain& chain : profiles.front().chains) {
+                offsetChains.push_back(chain.offsetRaw(radius));
+                sourceChains.push_back(chain.clone());
+            }
+
+            if (strategy == "hatch") { hatchStrategy(radius); }
+            else                     { profileStrategy(radius); }
+
+            // Trace: the total signed area of every generation (a healthy inset
+            // shrinks monotonically toward zero; a jump the wrong way fingers the
+            // first bad generation).
+            for (size_t g = 0; g < profiles.size(); g++) {
+                float area = 0.0f;
+                for (const Chain& c : profiles[g].chains) { area += c.signedArea(); }
+                dbg("[profile %zu] %zu chains, total signed area %.4f\n",
+                    g, profiles[g].chains.size(), area);
             }
 
             // Compose the selected views (debug first, so production fragments own
@@ -190,6 +218,38 @@ export namespace Sketch::App {
             offsetLayers.clear();
             offsetLayers.push_back(std::move(result));
             dirty = true;
+        }
+
+        // The PROFILE strategy: recursively offset until extinction (or a sanity
+        // cap -- outsets grow forever). Open chains ride along for one generation
+        // but do not seed further ones (an open chain's offset never terminates;
+        // it just marches sideways).
+        void profileStrategy(float radius) {
+            const size_t MaxGenerations = static_cast<size_t>(std::max(1, iterations));
+            if (std::fabs(radius) <= 1e-6f) { return; }
+            while (profiles.size() <= MaxGenerations) {
+                Profile seed;
+                if (profiles.size() == 1) { seed = profiles.back().clone(); }
+                else {
+                    for (const Chain& c : profiles.back().chains) {
+                        if (c.closed) { seed.chains.push_back(c.clone()); }
+                    }
+                }
+                if (seed.empty()) { break; }
+                Profile next = seed.offsetBy(radius);
+                if (next.empty()) { break; }
+                profiles.push_back(std::move(next));
+            }
+        }
+
+        // The HATCH strategy: MOCK placeholder. The eventual hatch uses offsetting
+        // differently -- one boundary inset, then fill rasters clipped to it. For
+        // now it produces just the single boundary generation, so the strategy
+        // plumbing (panel, dispatch, display) can be exercised end to end.
+        void hatchStrategy(float radius) {
+            if (std::fabs(radius) <= 1e-6f) { return; }
+            Profile boundary = profiles.front().offsetBy(radius);
+            if (!boundary.empty()) { profiles.push_back(std::move(boundary)); }
         }
 
         // PRODUCTION -- the complete method, in two stages.
@@ -209,27 +269,18 @@ export namespace Sketch::App {
         void validMethod(SketchGeometry& result) {
             crossingFragments.clear();
 
-            // Stage A: independent offsets, exactly what the method has produced
-            // so far.
-            std::vector<Chain> valid;
-            for (const Chain& source : sourceChains) {
-                for (Chain& m : source.offsetValid(lastOffsetAmount)) {
-                    valid.push_back(std::move(m));
+            // Every generated profile (1..n) -- the whole recursive series, each
+            // chain coloured by its exact signed area.
+            for (size_t g = 1; g < profiles.size(); g++) {
+                for (const Chain& m : profiles[g].chains) {
+                    const char* label = (m.signedArea() >= 0.0f) ? "valid/pos" : "valid/neg";
+                    for (const auto& e : m.edges) {
+                        std::unique_ptr<Stoicheion> copy = e->clone();
+                        copy->group = label;
+                        result.add(std::move(copy));
+                    }
+                    crossingFragments.push_back(Chain::NumberedChain{ m.clone(), 0 });
                 }
-            }
-
-            // Stage B: inter-chain merge / split / mitosis, consuming stage A's
-            // chains as they stand.
-            std::vector<Chain> loops = Chain::mitose(valid);
-
-            for (Chain& m : loops) {
-                const char* label = (m.signedArea() >= 0.0f) ? "valid/pos" : "valid/neg";
-                for (const auto& e : m.edges) {
-                    std::unique_ptr<Stoicheion> copy = e->clone();
-                    copy->group = label;
-                    result.add(std::move(copy));
-                }
-                crossingFragments.push_back(Chain::NumberedChain{ std::move(m), 0 });
             }
         }
 

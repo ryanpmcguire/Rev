@@ -8,11 +8,11 @@ module;
 #include <utility>
 #include <functional>
 
-export module Sketch.App.Chain;
+export module Geo.Chain;
 
 import Rev.Core.Pos;
 
-import Sketch.App.Geometry;
+export import Geo.Geometry;
 
 // =====================================================================
 // Chain -- an ordered run of stoicheia (segments / arcs) connected end to end,
@@ -26,7 +26,7 @@ import Sketch.App.Geometry;
 // from the chain's own chirality, and the raw result's self-crossings are the
 // raw material for the chain extraction step that follows.
 // =====================================================================
-export namespace Sketch::App {
+export namespace Geo {
 
     using Rev::Core::Pos;
 
@@ -212,10 +212,16 @@ export namespace Sketch::App {
                 float r = a->radius();
                 if (r < 1e-9f) { return e.clone(); }
                 float nr = r - d * static_cast<float>(a->chirality());   // left = inward for CCW
+                // Through the singularity (nr < 0) the arc re-emerges on the far
+                // side with its chirality FLIPPED -- the behaviour a segment spline
+                // of the arc exhibits naturally. Endpoints scale by nr (negative =
+                // their true antipodal parallel points); the through-point scales by
+                // |nr|, KEEPING its original bearing -- which lands it on the
+                // complementary side of the chord and flips the travel sense.
                 Pos na = a->c + (a->a - a->c) / r * nr;
                 Pos nb = a->c + (a->b - a->c) / r * nr;
                 float ld = (a->d - a->c).pythag();
-                Pos nd = (ld > 1e-9f) ? (a->c + (a->d - a->c) / ld * nr) : Pos(a->d);
+                Pos nd = (ld > 1e-9f) ? (a->c + (a->d - a->c) / ld * std::fabs(nr)) : Pos(a->d);
                 return std::make_unique<Arc2>(a->c, na, nb, nd);
             }
             if (isCircle(e)) {
@@ -223,9 +229,12 @@ export namespace Sketch::App {
                 float r = k->radius();
                 if (r < 1e-9f) { return e.clone(); }
                 float nr = r - d * static_cast<float>(k->chirality());   // left = inward for CCW
+                // Same flip-through-zero rule: the radius point antipodes (scale by
+                // nr), the chirality marker keeps its bearing (scale by |nr|) -- a
+                // circle driven through its centre turns inside out.
                 Pos na = k->c + (k->a - k->c) / r * nr;
                 float lb = (k->b - k->c).pythag();
-                Pos nb = (lb > 1e-9f) ? (k->c + (k->b - k->c) / lb * nr) : Pos(k->b);
+                Pos nb = (lb > 1e-9f) ? (k->c + (k->b - k->c) / lb * std::fabs(nr)) : Pos(k->b);
                 return std::make_unique<Circle2>(k->c, na, nb);
             }
             if (isOffEll(e)) {
@@ -691,54 +700,104 @@ export namespace Sketch::App {
             if (isOffEll(e)) { return asOff(e)->pointAt(0.5f); }
             return (eStart(e) + eEnd(e)) * 0.5f;
         }
+        // A point a fraction f in [0,1] along an edge's body.
+        static Pos edgePointAt(const Stoicheion& e, float f) {
+            Pos c; float r, a0, sweep; int chir;
+            if (circularOf(e, c, r, a0, sweep, chir)) { return c + Pos::fromAngle(a0 + sweep * f) * r; }
+            if (isOffEll(e)) { return asOff(e)->pointAt(f); }
+            return eStart(e) + (eEnd(e) - eStart(e)) * f;
+        }
 
-        // The winding number of this chain around a probe point, by exact signed ray
-        // casting toward +x: every place the path crosses the ray heading upward
-        // counts +1, heading downward -1. Pure reading of the path -- no start
-        // vertex, no extremes, no area.
+        // The point of greatest x anywhere on an edge / on a whole loop. The loop
+        // attaining a cluster's global maximum x is PROVABLY unenclosed (nothing
+        // reaches beyond the rightmost point) -- an exact identification of an
+        // outermost loop, with no winding probe and no sample heuristics.
+        static Pos edgeMaxXPoint(const Stoicheion& e) {
+            Pos c; float r, a0, sweep; int chir;
+            if (circularOf(e, c, r, a0, sweep, chir)) {
+                Pos best = (eStart(e).x >= eEnd(e).x) ? eStart(e) : eEnd(e);
+                if (sweep >= TAU - 1e-6f || wrapTau(-a0) <= sweep) {
+                    Pos east = c + Pos(r, 0.0f);
+                    if (east.x > best.x) { best = east; }
+                }
+                return best;
+            }
+            if (isOffEll(e)) {
+                const OffsetEllipse2* o = asOff(e);
+                Pos best = o->pointAt(0.0f);
+                const int N = 64;
+                for (int i = 1; i <= N; i++) {
+                    Pos p = o->pointAt(static_cast<float>(i) / N);
+                    if (p.x > best.x) { best = p; }
+                }
+                return best;
+            }
+            return (eStart(e).x >= eEnd(e).x) ? eStart(e) : eEnd(e);
+        }
+        static Pos loopMaxXPoint(const Chain& L) {
+            Pos best(-1e30f, 0.0f);
+            for (const auto& e : L.edges) {
+                Pos p = edgeMaxXPoint(*e);
+                if (p.x > best.x) { best = p; }
+            }
+            return best;
+        }
+
+        // The winding number of this chain around a probe point, by ACCUMULATED
+        // SUBTENDED ANGLE -- deliberately NOT ray casting. A ray extends through
+        // the whole plane, so its count flips when DISTANT geometry slides across
+        // the ray line (a razor-edge double crossing at a far-away vertex: action
+        // at a distance, the classic source of judgement flicker that correlates
+        // with nothing local). The angle sum is continuous in every vertex
+        // position -- it can only destabilise when the probe sits ON the curve.
+        // Segments contribute their exact wrapped bearing delta; circular spans
+        // contribute exactly via the inside/outside case (from inside the circle,
+        // the bearing advances monotonically, fixing the 2-pi branch uniquely);
+        // offset ellipses contribute by fine chordal sampling.
         int windingAround(Pos probe) const {
             const dPos P(probe);
-            int w = 0;
+            double total = 0.0;
+
+            auto chord = [&](dPos a, dPos b) {
+                dPos u = a - P, v = b - P;
+                return std::atan2(u.cross(v), u.dot(v));   // wrapped to (-pi, pi]
+            };
+
             for (const auto& e : edges) {
                 Pos c; float r, a0, sweep; int chir;
                 if (circularOf(*e, c, r, a0, sweep, chir)) {
-                    double dy = P.y - static_cast<double>(c.y);
-                    double h2 = static_cast<double>(r) * r - dy * dy;
-                    if (h2 <= 1e-18) { continue; }
-                    double h = std::sqrt(h2);
-                    for (double qx : { static_cast<double>(c.x) + h, static_cast<double>(c.x) - h }) {
-                        if (qx <= P.x) { continue; }
-                        Pos q(static_cast<float>(qx), probe.y);
-                        if (!onSpan(c, a0, sweep, q)) { continue; }
-                        Pos t = travelDirAt(*e, q);
-                        if (t.y > 1e-9f) { w++; } else if (t.y < -1e-9f) { w--; }
+                    dPos C(c);
+                    double R = r;
+                    dPos p0 = C + dPos::fromAngle(a0) * R;
+                    dPos p1 = C + dPos::fromAngle(static_cast<double>(a0) + sweep) * R;
+                    double wrapped = chord(p0, p1);          // CCW-span bearing delta, mod 2pi
+                    double d;
+                    if ((P - C).len() < R) {
+                        // Inside the circle: the bearing advances monotonically CCW
+                        // with the parameter, so the true advance lies in (0, 2pi)
+                        // and the branch is unique.
+                        d = (wrapped > 0.0) ? wrapped : wrapped + dTAU;
                     }
+                    else {
+                        d = wrapped;                         // outside: |advance| < pi
+                    }
+                    total += (chir > 0) ? d : -d;            // travel direction signs it
                 }
                 else if (isOffEll(*e)) {
                     const OffsetEllipse2* o = asOff(*e);
-                    std::vector<double> roots;
-                    scanRoots([&](double s) {
-                        return static_cast<double>(o->pointAt(static_cast<float>(s)).y) - P.y;
-                    }, 256, roots);
-                    for (double s : roots) {
-                        Pos q = o->pointAt(static_cast<float>(s));
-                        if (q.x <= probe.x) { continue; }
-                        Pos t = o->tangentAt(static_cast<float>(s));
-                        if (t.y > 1e-9f) { w++; } else if (t.y < -1e-9f) { w--; }
+                    const int N = 256;
+                    dPos prev(o->pointAt(0.0f));
+                    for (int i = 1; i <= N; i++) {
+                        dPos cur(o->pointAt(static_cast<float>(i) / N));
+                        total += chord(prev, cur);
+                        prev = cur;
                     }
                 }
                 else {
-                    dPos a(eStart(*e)), b(eEnd(*e));
-                    double dy = b.y - a.y;
-                    if (std::fabs(dy) < 1e-15) { continue; }
-                    double u = (P.y - a.y) / dy;
-                    if (u < 0.0 || u >= 1.0) { continue; }     // half-open: a shared vertex counts once
-                    double x = a.x + (b.x - a.x) * u;
-                    if (x <= P.x) { continue; }
-                    w += (dy > 0.0) ? 1 : -1;
+                    total += chord(dPos(eStart(*e)), dPos(eEnd(*e)));
                 }
             }
-            return w;
+            return static_cast<int>(std::lround(total / dTAU));
         }
 
         // The path's total accumulated turning, in radians: each edge's own swept
@@ -898,8 +957,12 @@ export namespace Sketch::App {
         //--------------------------------------------------
 
         // Grow one chain out of the remaining edge pool, connecting end-to-start
-        // (reversing edges as needed) until it closes or runs out of neighbours.
-        static Chain buildOne(std::vector<std::unique_ptr<Stoicheion>>& pool, float eps) {
+        // until it closes or runs out of neighbours. `allowReverse` permits
+        // flipping an edge to make a connection -- legitimate when chaining a
+        // user's unordered sketch strokes, FORBIDDEN when reassembling oriented
+        // frontier pieces (a silent reversal there fabricates wrong-handed loops).
+        static Chain buildOne(std::vector<std::unique_ptr<Stoicheion>>& pool, float eps,
+                              bool allowReverse = true) {
             Chain c;
             if (pool.empty()) { return c; }
             c.edges.push_back(std::move(pool.front()));
@@ -911,9 +974,11 @@ export namespace Sketch::App {
                 int best = -1; bool rev = false; float bestD = eps;
                 for (size_t i = 0; i < pool.size(); i++) {
                     float dS = (cur - eStart(*pool[i])).pythag();
-                    float dE = (cur - eEnd(*pool[i])).pythag();
                     if (dS < bestD) { best = static_cast<int>(i); rev = false; bestD = dS; }
-                    if (dE < bestD) { best = static_cast<int>(i); rev = true;  bestD = dE; }
+                    if (allowReverse) {
+                        float dE = (cur - eEnd(*pool[i])).pythag();
+                        if (dE < bestD) { best = static_cast<int>(i); rev = true; bestD = dE; }
+                    }
                 }
                 if (best < 0) { break; }
                 std::unique_ptr<Stoicheion> next = rev ? reversedEdge(*pool[best]) : std::move(pool[best]);
@@ -1033,7 +1098,7 @@ export namespace Sketch::App {
             for (auto& e : nc.chain.edges) { pool.push_back(std::move(e)); }
         }
         while (!pool.empty()) {
-            Chain m = buildOne(pool, eps);
+            Chain m = buildOne(pool, eps, false);   // oriented pieces: never reverse
             if (m.edges.empty()) { break; }
             out.push_back(std::move(m));
         }
@@ -1093,8 +1158,12 @@ export namespace Sketch::App {
                     if (!x.empty()) { return true; }
                 }
             }
-            if (loops[b].windingAround(edgeMidpoint(*loops[a].edges.front())) != 0) { return true; }
-            if (loops[a].windingAround(edgeMidpoint(*loops[b].edges.front())) != 0) { return true; }
+            // Containment, probed at each loop's own EXTREME point: guaranteed on
+            // the loop and far from the other unless they genuinely touch -- so the
+            // answer can only change at a real geometric event, never at a sample
+            // threshold.
+            if (loops[b].windingAround(loopMaxXPoint(loops[a])) != 0) { return true; }
+            if (loops[a].windingAround(loopMaxXPoint(loops[b])) != 0) { return true; }
             return false;
         };
         std::vector<int> cluster(n, -1);
@@ -1121,16 +1190,18 @@ export namespace Sketch::App {
             // A lone loop has nothing to overlap: through untouched.
             if (mem.size() == 1) { out.push_back(std::move(loops[mem[0]])); continue; }
 
-            // The cluster's material orientation, measured: the turning of one of
-            // its outermost loops (wound by no other loop of the cluster).
-            int s = 0;
+            // The cluster's material orientation, by DOCTRINE, not measurement:
+            // counterclockwise chains always bound the INSIDE of a shape, clockwise
+            // chains always bound the OUTSIDE -- handedness is preserved through
+            // every touch. So a cluster containing any CCW loop is an inside system
+            // (s = +1; CW members are its islands), and a pure-CW cluster is an
+            // outside system (s = -1; outer traces merging outward). A handedness
+            // census is exact and global: no probes, no outermost hunt, no possible
+            // dependence on start points or samples.
+            int s = -1;
             for (size_t a : mem) {
-                Pos sample = edgeMidpoint(*loops[a].edges.front());
-                int w = 0;
-                for (size_t b : mem) { if (b != a) { w += loops[b].windingAround(sample); } }
-                if (w == 0) { s = loops[a].turningSign(); break; }
+                if (loops[a].turningSign() > 0) { s = 1; break; }
             }
-            if (s == 0) { s = 1; }
 
             std::vector<std::unique_ptr<Stoicheion>> kept;
             for (size_t a : mem) {
@@ -1172,12 +1243,74 @@ export namespace Sketch::App {
             }
 
             // Stitch the cluster's surviving pieces back into well-formed loops.
+            // Oriented frontier pieces: reversal is forbidden -- if ends don't
+            // meet forward, the piece set is wrong and must FAIL VISIBLY (an open
+            // remnant) rather than be silently flipped into a wrong-handed loop.
             while (!kept.empty()) {
-                Chain stitched = buildOne(kept, eps);
+                Chain stitched = buildOne(kept, eps, false);
                 if (stitched.edges.empty()) { break; }
                 out.push_back(std::move(stitched));
             }
         }
         return out;
     }
+
+    // =====================================================================
+    // Profile -- one GENERATION of a sketch's geometry: the set of chains that
+    // together bound the material at one offset depth. Profile 0 is the chains
+    // as drawn; profile n+1 is profile n offset by one step. The pair
+    // offset() / offsetBy() mirrors Stoicheion's (in place / value-returning):
+    // the entire method -- stage A per chain, stage B across chains -- hides
+    // behind these two calls, so recursive offsetting is just a loop.
+    // =====================================================================
+    struct Profile {
+
+        std::vector<Chain> chains;
+
+        Profile() = default;
+        Profile(Profile&&) = default;
+        Profile& operator=(Profile&&) = default;
+
+        Profile clone() const {
+            Profile p;
+            for (const Chain& c : chains) { p.chains.push_back(c.clone()); }
+            return p;
+        }
+
+        bool empty() const { return chains.empty(); }
+
+        // Profile 0: every chain the sketch's entities form.
+        static Profile fromEntities(const std::vector<std::unique_ptr<Stoicheion>>& src) {
+            Profile p;
+            p.chains = Chain::build(src);
+            return p;
+        }
+
+        // The complete method, one generation forward:
+        //   stage A -- each chain offset in its own universe (Chain::offsetValid:
+        //   blind offset, crossing walk, minimum level, stitching, handedness law);
+        //   stage B -- the validated chains meet (Chain::mitose: cluster, frontier
+        //   test, merge / carve / mitose).
+        // An exhausted profile (everything inverted away) returns empty.
+        // The net handedness of a profile: the sum of every closed chain's
+        // turning sign (+1 CCW, -1 CW).
+        int netChirality() const {
+            int t = 0;
+            for (const Chain& c : chains) { if (c.closed) { t += c.turningSign(); } }
+            return t;
+        }
+
+        Profile offsetBy(float amount) const {
+            Profile next;
+            std::vector<Chain> valid;
+            for (const Chain& c : chains) {
+                for (Chain& m : c.offsetValid(amount)) { valid.push_back(std::move(m)); }
+            }
+            next.chains = Chain::mitose(valid);
+            return next;
+        }
+
+        // In-place twin.
+        void offset(float amount) { *this = offsetBy(amount); }
+    };
 }

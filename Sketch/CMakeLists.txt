@@ -52,7 +52,7 @@ target_sources(Sketch
     FILE_SET cxx_modules TYPE CXX_MODULES FILES ${MODULE_SOURCES}
 )
 
-target_link_libraries(Sketch PRIVATE Rev)
+target_link_libraries(Sketch PRIVATE Rev Geometry)
 
 target_compile_definitions(Sketch PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
