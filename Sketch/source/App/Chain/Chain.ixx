@@ -489,50 +489,12 @@ export namespace Sketch::App {
             out.push_back(std::move(rem));
         }
 
-        // Extraction strategy ONE: the arrangement fracture. Find ALL self-crossings,
-        // split EVERY edge at all of its cuts (each sub-edge keeping its parent's
-        // direction and chirality), then walk the sub-edges in travel order, popping
-        // a loop off whenever the walk returns to a vertex it already passed through.
-        // `this` is untouched -- the result is built from clones.
-        std::vector<Chain> extractLoopsByFracture(float eps = 1e-3f) const {
-            size_t n = edges.size();
-
-            // 1. all crossing points, gathered per edge.
-            std::vector<std::vector<Pos>> pts(n);
-            for (size_t i = 0; i < n; i++) {
-                for (size_t j = i + 1; j < n; j++) {
-                    std::vector<Pos> c; edgeCross(*edges[i], *edges[j], c);
-                    for (const Pos& p : c) { pts[i].push_back(p); pts[j].push_back(p); }
-                }
-            }
-
-            // 2. split every edge at its cuts -> the fine sequence, in chain order.
-            std::vector<std::unique_ptr<Stoicheion>> fine;
-            for (size_t i = 0; i < n; i++) { splitEdgeAtPoints(*edges[i], pts[i], fine); }
-
-            // 3. trace simple loops, never reversing an edge.
-            std::vector<Chain> loops;
-            std::vector<std::unique_ptr<Stoicheion>> cur;
-            for (auto& e : fine) {
-                cur.push_back(std::move(e));
-                Pos v = eEnd(*cur.back());
-                int idx = -1;
-                for (size_t k = 0; k + 1 < cur.size(); k++) {
-                    if ((eStart(*cur[k]) - v).pythag() < eps) { idx = static_cast<int>(k); break; }
-                }
-                if (idx >= 0) {
-                    Chain loop; loop.closed = true;
-                    for (size_t k = static_cast<size_t>(idx); k < cur.size(); k++) { loop.edges.push_back(std::move(cur[k])); }
-                    cur.erase(cur.begin() + idx, cur.end());
-                    loops.push_back(std::move(loop));
-                }
-            }
-            if (!cur.empty()) {
-                Chain loop; loop.closed = true;
-                for (auto& e : cur) { loop.edges.push_back(std::move(e)); }
-                loops.push_back(std::move(loop));
-            }
-            return loops;
+        // The exact signed area enclosed by this chain: half the Green's-theorem
+        // sum of each edge's closed-form ∮(x dy - y dx) term. Positive = CCW.
+        float signedArea() const {
+            float twice = 0.0f;
+            for (const auto& e : edges) { twice += e->signedAreaTerm(); }
+            return 0.5f * twice;
         }
 
         // Arc length of an edge and the point at its travel midpoint.
@@ -710,6 +672,13 @@ export namespace Sketch::App {
         struct NumberedChain;
         std::vector<NumberedChain> fragmentByCrossingNumber(float eps = 1e-3f) const;
 
+        // THE crossing method, end to end: this (source) chain in, valid offset
+        // chains out. Blind left-offset, crossing-number walk, minimum-level
+        // extraction, stitching, and the chirality trial of the number. Returns
+        // empty when the number is convicted (an inverted profile has no valid
+        // offset). Defined out of line, after NumberedChain.
+        std::vector<Chain> offsetValid(float amount, float eps = 1e-3f) const;
+
         // Mitosis -- resolve mutual overlap among well-formed loops that all carry
         // their material on the LEFT of travel (a CCW outer shrinking inward, a CW
         // island growing outward). Defined out of line, after NumberedChain.
@@ -809,6 +778,47 @@ export namespace Sketch::App {
             if (nc.chain.edges.empty()) { continue; }
             nc.chain.closed =
                 (eEnd(*nc.chain.edges.back()) - eStart(*nc.chain.edges.front())).pythag() <= eps;
+        }
+        return out;
+    }
+
+    // The crossing method, end to end (see the in-class declaration).
+    inline std::vector<Chain> Chain::offsetValid(float amount, float eps) const {
+        std::vector<Chain> out;
+
+        // 1. blind offset, split at self-crossings, walk, fragment by level.
+        Chain raw = offsetRaw(amount);
+        std::vector<NumberedChain> frags = raw.fragmentByCrossingNumber(eps);
+        if (frags.empty()) { return out; }
+
+        // 2. extract and STITCH the minimum-level fragments: they arrive as open
+        //    runs interrupted by the excursions, but meet end-to-start at the
+        //    crossing vertices (at each crossing the min-level pool holds exactly
+        //    one end and one start, so stitching is unambiguous, never reversing).
+        int minLevel = frags.front().number;
+        for (const NumberedChain& nc : frags) { minLevel = std::min(minLevel, nc.number); }
+        std::vector<std::unique_ptr<Stoicheion>> pool;
+        for (NumberedChain& nc : frags) {
+            if (nc.number != minLevel) { continue; }
+            for (auto& e : nc.chain.edges) { pool.push_back(std::move(e)); }
+        }
+        while (!pool.empty()) {
+            Chain m = buildOne(pool, eps);
+            if (m.edges.empty()) { break; }
+            out.push_back(std::move(m));
+        }
+
+        // 3. the trial of the NUMBER: if any stitched chain travels opposite this
+        //    source, the only candidate crossing number was bad -- no valid chains
+        //    at all. (Judged only where both senses are measurable: closed source,
+        //    closed candidate; an open chain has no chirality to disagree with.)
+        const int srcChir = turningSign();
+        if (closed && srcChir != 0) {
+            for (const Chain& m : out) {
+                if (!m.closed) { continue; }
+                int chir = m.turningSign();
+                if (chir != 0 && chir != srcChir) { out.clear(); break; }
+            }
         }
         return out;
     }

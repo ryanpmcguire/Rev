@@ -16,6 +16,7 @@ import Rev.Appearance;
 
 import Rev.Element.Box;
 import Rev.Element.Svg;
+import Rev.Element.Text;
 
 import Sketch.App;
 import Sketch.Gui.Theme;
@@ -50,6 +51,27 @@ export namespace Sketch::Gui {
 
         Style Icon = {
             .size = { 20_px, 20_px }
+        };
+
+        // The flexible gap between the tool group (left) and the view-select
+        // group (right): a single growing element pushes the groups apart.
+        Style Spacer = {
+            .size = { .width = Grow() }
+        };
+
+        // View-select toggles: small text pills on the right.
+        Style ViewButton = {
+            .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size = { .height = 26_px },
+            .margin = { .left = 4_px },
+            .padding = { 10_px, 10_px, 2_px, 2_px },
+            .background = { .color = rgba(0, 0, 0, 0.0), .transition = 100_ms },
+            .border = { .color = rgba(0, 0, 0, 0.0), .width = 1_px, .radius = 13_px },
+            .cursor = Cursor::Hand
+        };
+
+        Style ViewLabel = {
+            .text = { .size = 12_px }
         };
     }
 
@@ -125,6 +147,73 @@ export namespace Sketch::Gui {
         }
     };
 
+    // A view-select toggle: flips one AppState display flag, lit while on. The
+    // flag is the single source of truth -- the button just reflects it, the
+    // same pattern as ToolButton and the active tool.
+    struct ViewToggle : public Box {
+
+        Sketch::App::AppState* app = nullptr;
+        bool* flag = nullptr;
+
+        Text* label = nullptr;
+
+        ViewToggle(
+            Element* parent,
+            Sketch::App::AppState* app,
+            bool* flag,
+            const std::string& name
+        ) : Box(
+            parent,
+            Theme::layer({
+                &ToolbarStyle::ViewButton,
+                &Theme::Styles::ChromeHover
+            }, {}),
+            "ViewToggle"
+        ) {
+            this->app = app;
+            this->flag = flag;
+
+            label = new Text(
+                this,
+                name,
+                Theme::layer({
+                    &ToolbarStyle::ViewLabel,
+                    &Theme::Styles::ChromeIconHover
+                }, {
+                    &Theme::Styles::ChromeIcon
+                })
+            );
+
+            onClick([this](Event& e) {
+                if (!this->flag) { return; }
+                *this->flag = !*this->flag;
+                refresh(e);
+                e.propagate = false;
+            });
+        }
+
+        bool isActive() const {
+            return flag && *flag;
+        }
+
+        // Appearance only: reflect the flag.
+        void computeStyle(Event& e) override {
+
+            if (isActive()) {
+                styles.add(&Theme::Styles::Button);
+                styles.add(&ToolbarStyle::ButtonActive);
+                if (label) { label->styles.add(&Theme::Styles::AccentText); }
+            }
+            else {
+                styles.remove(&Theme::Styles::Button);
+                styles.remove(&ToolbarStyle::ButtonActive);
+                if (label) { label->styles.remove(&Theme::Styles::AccentText); }
+            }
+
+            Box::computeStyle(e);
+        }
+    };
+
     struct Toolbar : public Box {
 
         Sketch::App::AppState* app = nullptr;
@@ -149,6 +238,15 @@ export namespace Sketch::Gui {
             addTool(SketchTool::Box,        File("./Box.svg"));
             addTool(SketchTool::Ellipse,    File("./Ellipse.svg"));
             addTool(SketchTool::EllipseArc, File("./EllipseArc.svg"));
+
+            // A single growing spacer pushes the view-select group to the right.
+            new Box(this, { &ToolbarStyle::Spacer }, "ToolbarSpacer");
+
+            // The view-select group: which offset views the sketch shows.
+            new ViewToggle(this, app, &app->viewArrows,    "Arrows");
+            new ViewToggle(this, app, &app->viewWinding,   "Winding");
+            new ViewToggle(this, app, &app->viewDiscarded, "Discarded");
+            new ViewToggle(this, app, &app->viewValid,     "Valid");
         }
 
         void addTool(Sketch::App::SketchTool tool, Rev::Core::Resource iconResource) {

@@ -42,6 +42,12 @@ export namespace Sketch::App {
         // Generic display setting: stroke width (px) for sketch geometry.
         float lineThickness = 2.0f;
 
+        // Offset display options (the toolbar's right-hand view-select group).
+        bool viewValid     = true;    // final valid chains (red/green by signed area)
+        bool viewWinding   = false;   // debug: crossing-number level colours + magenta + marks
+        bool viewDiscarded = false;   // debug: include the discarded (non-minimum) fragments
+        bool viewArrows    = true;    // travel-direction arrows on offset chains
+
         // Select a tool, toggling it off if it was already active.
         void selectTool(SketchTool tool) {
             activeTool = (activeTool == tool) ? SketchTool::None : tool;

@@ -87,6 +87,12 @@ export namespace Sketch::App {
         // unbounded outside); the final step simply keeps the zero fragments.
         std::vector<Chain::NumberedChain> crossingFragments;
 
+        // Which offset views to emit (mirrored from the app's view options by the
+        // sketch view before each rebuild).
+        bool viewValid = true;        // production: the final valid chains
+        bool viewWinding = false;     // debug: level colours + magenta + marks
+        bool viewDiscarded = false;   // debug: include non-minimum fragments
+
         // Create
         //--------------------------------------------------
 
@@ -174,9 +180,11 @@ export namespace Sketch::App {
                 sourceChains.push_back(std::move(chain));
             }
 
+            // Compose the selected views (debug first, so production fragments own
+            // crossingFragments when both are shown).
             SketchGeometry result;
-            crossingMethod(result);           // the other strategy: signedAreaMethod
-            addIntersectionMarks(result);     // appended last, so the dots draw on top
+            if (viewWinding || viewDiscarded) { crossingMethod(result); addIntersectionMarks(result); }
+            if (viewValid) { validMethod(result); }
 
             result.normalize();
             offsetLayers.clear();
@@ -184,27 +192,31 @@ export namespace Sketch::App {
             dirty = true;
         }
 
-        // The absolute-chirality group label of a loop, read straight off its own
-        // signed area: CW and CCW are facts of the geometry, not comparisons.
-        static const char* chiralityGroup(const Chain& loop) {
-            int w = loop.windingSign();
-            return (w < 0) ? "chirality/cw" : (w > 0) ? "chirality/ccw" : "chirality/none";
-        }
-
-        // Method ONE -- the signed-area method: fracture each blind-offset chain at
-        // every self-crossing into simple loops (direction-preserving splits only),
-        // then stamp each loop with its own absolute chirality, read from its exact
-        // signed area. offsetChains is untouched.
-        void signedAreaMethod(SketchGeometry& result) {
-            for (const Chain& raw : offsetChains) {
-                for (Chain& loop : raw.extractLoopsByFracture()) {
-                    const char* label = chiralityGroup(loop);
-                    for (auto& e : loop.edges) { e->group = label; result.add(std::move(e)); }
+        // PRODUCTION -- the crossing method, packaged: each source chain in, its
+        // valid offset chains out (Chain::offsetValid does everything: blind
+        // offset, crossing walk, minimum-level extraction, stitching, and the
+        // chirality trial). The one remaining classification is by exact signed
+        // area: positive -> "valid/pos" (red), negative -> "valid/neg" (green).
+        void validMethod(SketchGeometry& result) {
+            crossingFragments.clear();
+            for (const Chain& source : sourceChains) {
+                for (Chain& m : source.offsetValid(lastOffsetAmount)) {
+                    const char* label = (m.signedArea() >= 0.0f) ? "valid/pos" : "valid/neg";
+                    for (const auto& e : m.edges) {
+                        std::unique_ptr<Stoicheion> copy = e->clone();
+                        copy->group = label;
+                        result.add(std::move(copy));
+                    }
+                    crossingFragments.push_back(Chain::NumberedChain{ std::move(m), 0 });
                 }
             }
         }
 
-        // Method TWO -- the crossing method, in two strictly separated stages.
+        // DEBUG VIEW (kept, not called in production -- swap it in inside
+        // insetIntoNewLayer to inspect the method's anatomy: level colouring,
+        // magenta extraction, intersection dots, start markers).
+        //
+        // The crossing method, in two strictly separated stages.
         //
         // STAGE A (each chain in its own universe): split the blind offset at its
         // OWN self-crossings only -- no other chain exists yet -- walk the sub-edges
@@ -279,12 +291,15 @@ export namespace Sketch::App {
                 // 3. emit: the level colouring always; the magenta only if the
                 //    number survived its trial.
                 for (Chain::NumberedChain& nc : frags) {
-                    std::string label = "crossing/" + std::to_string(nc.number)
-                                      + "/" + std::to_string(crossingFragments.size());
-                    for (const auto& e : nc.chain.edges) {
-                        std::unique_ptr<Stoicheion> copy = e->clone();
-                        copy->group = label;
-                        result.add(std::move(copy));
+                    // Non-minimum (discarded) fragments only when asked for.
+                    if (nc.number == minLevel || viewDiscarded) {
+                        std::string label = "crossing/" + std::to_string(nc.number)
+                                          + "/" + std::to_string(crossingFragments.size());
+                        for (const auto& e : nc.chain.edges) {
+                            std::unique_ptr<Stoicheion> copy = e->clone();
+                            copy->group = label;
+                            result.add(std::move(copy));
+                        }
                     }
                     crossingFragments.push_back(std::move(nc));
                 }

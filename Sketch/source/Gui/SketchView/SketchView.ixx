@@ -165,6 +165,7 @@ export namespace Sketch::Gui {
         // changes; pan/zoom just swaps the GPU transform (no CPU rebuild).
         bool geometryDirty = true;
         Sketch::App::Project* lastProject = nullptr;
+        int lastViewOptions = -1;   // bitmask of the view-select options last built with
 
         SketchView(Element* parent, StyleList styles = {}) : Box(parent, styles, "SketchView") {
 
@@ -1498,7 +1499,13 @@ export namespace Sketch::Gui {
 
                 // Live offset/inset (the "i" toggle): recomputed from the current
                 // geometry each rebuild, so it follows the sketch as it is dragged.
-                if (insetActive) { app->activeProject->insetIntoNewLayer(insetAmount); }
+                // The view-select options are mirrored onto the project first.
+                if (insetActive) {
+                    app->activeProject->viewValid     = app->viewValid;
+                    app->activeProject->viewWinding   = app->viewWinding;
+                    app->activeProject->viewDiscarded = app->viewDiscarded;
+                    app->activeProject->insetIntoNewLayer(insetAmount);
+                }
 
                 // Offset layers, styled blindly by each stoicheion's own group label
                 // (the view maps label -> style, it decides nothing).
@@ -1509,39 +1516,47 @@ export namespace Sketch::Gui {
                 //     the count deepens.
                 // The "intersections" group renders as yellow dots, drawn second so
                 // it sits on top.
-                Color cwColor    { 0.30f, 0.50f, 1.00f, 0.95f };   // "chirality/cw"
-                Color ccwColor   { 0.95f, 0.25f, 0.25f, 0.95f };   // "chirality/ccw"
-                Color otherColor { 0.20f, 0.85f, 0.85f, 0.95f };   // anything unlabelled
-                Color crossColor { 1.00f, 0.90f, 0.20f, 1.00f };   // "intersections"
+                // Debug anatomy renders at 2/3 opacity; the valid chains at full.
+                constexpr float DebugA = 0.66f;
+                Color cwColor    { 0.30f, 0.50f, 1.00f, DebugA };   // "chirality/cw"
+                Color ccwColor   { 0.95f, 0.25f, 0.25f, DebugA };   // "chirality/ccw"
+                Color otherColor { 0.20f, 0.85f, 0.85f, DebugA };   // anything unlabelled
+                Color crossColor { 1.00f, 0.90f, 0.20f, DebugA };   // "intersections"
 
                 // Crossing numbers are normalised so the chain's MAX level is 0:
                 // 0 = blue (the outside), -1 = green (one in), -2 = red (two in),
                 // deeper levels dim toward dark red.
                 auto groupColor = [&](const std::string& g) -> Color {
+                    // Production labels: the valid offset chains, classified by
+                    // exact signed area -- positive red, negative green. Full opacity.
+                    if (g == "valid/pos") { return Color{ 0.95f, 0.30f, 0.25f, 1.00f }; }
+                    if (g == "valid/neg") { return Color{ 0.25f, 0.90f, 0.40f, 1.00f }; }
+                    // Debug labels below (level colouring, legacy chirality view).
                     if (g == "chirality/cw")  { return cwColor; }
                     if (g == "chirality/ccw") { return ccwColor; }
                     if (g.rfind("crossing/", 0) == 0) {
                         int v = static_cast<int>(std::strtol(g.c_str() + 9, nullptr, 10));
-                        if (v >= 0)  { return Color{ 0.30f, 0.50f, 1.00f, 0.95f }; }   // max: blue
-                        if (v == -1) { return Color{ 0.25f, 0.90f, 0.40f, 0.95f }; }   // one in: green
+                        if (v >= 0)  { return Color{ 0.30f, 0.50f, 1.00f, DebugA }; }   // max: blue
+                        if (v == -1) { return Color{ 0.25f, 0.90f, 0.40f, DebugA }; }   // one in: green
                         float dim = std::max(0.40f, 1.0f - 0.22f * (-v - 2));
-                        return Color{ 0.95f * dim, 0.30f * dim, 0.25f * dim, 0.95f };  // two+ in: reds
+                        return Color{ 0.95f * dim, 0.30f * dim, 0.25f * dim, DebugA };  // two+ in: reds
                     }
                     return otherColor;
                 };
 
-                Color startColor { 1.00f, 0.45f, 0.85f, 1.00f };   // "start": the walk's origin, pink
+                Color startColor { 1.00f, 0.45f, 0.85f, DebugA };   // "start": the walk's origin, pink (debug)
 
-                Color minColor { 1.00f, 0.68f, 0.92f, 1.00f };   // "minimum": the extracted valid path, pastel magenta
+                Color minColor { 1.00f, 0.68f, 0.92f, DebugA };   // "minimum": the extracted valid path, pastel magenta (debug)
 
                 for (const SketchGeometry& layer : app->activeProject->offsetLayers) {
+                    bool arrows = app->viewArrows;
                     for (const auto& e : layer.entities) {
                         if (!e || e->group == "intersections" || e->group == "start" || e->group == "minimum") { continue; }
-                        appendEntity(geometry, *e, groupColor(e->group), true);   // with travel arrows
+                        appendEntity(geometry, *e, groupColor(e->group), arrows);
                     }
                     // The minimum-level extraction rides on top of the level colours.
                     for (const auto& e : layer.entities) {
-                        if (e && e->group == "minimum") { appendEntity(geometry, *e, minColor, true); }
+                        if (e && e->group == "minimum") { appendEntity(geometry, *e, minColor, arrows); }
                     }
                     for (const auto& e : layer.entities) {
                         if (!e || !e->isPoint()) { continue; }
@@ -1607,6 +1622,15 @@ export namespace Sketch::Gui {
             if (app && app->activeProject != lastProject) {
                 lastProject = app->activeProject;
                 geometryDirty = true;
+            }
+
+            // A view-option change (toolbar's view-select group) needs a rebuild.
+            if (app) {
+                int options = (app->viewValid     ? 1 : 0)
+                            | (app->viewWinding   ? 2 : 0)
+                            | (app->viewDiscarded ? 4 : 0)
+                            | (app->viewArrows    ? 8 : 0);
+                if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
             }
 
             updateTransform();
