@@ -76,15 +76,11 @@ export namespace Sketch::Gui {
         Slider* slider = nullptr;
         Box* playButton = nullptr;
         Text* playLabel = nullptr;
-        Box* directionButton = nullptr;
-        Text* directionLabel = nullptr;
 
         float percent = 0.0f;
-        bool reverse = false;          // execute the whole path backwards
         Rev::Core::Animator animator;
 
         std::function<void(Event&)> onPercentChanged;
-        std::function<void(Event&)> onDirectionChanged;
         std::function<void(Rev::Core::AnimationEvent&, Event&)> onAnimateFrame;
 
         PreviewBar(Element* parent, StyleList styles = {}) : Box(parent, styles, "PreviewBar") {
@@ -116,33 +112,6 @@ export namespace Sketch::Gui {
 
             playButton->onClick([this](Event& e) {
                 if (animator.isPlaying()) { pause(e); } else { play(e); }
-                e.propagate = false;
-            });
-
-            // Direction: forward or the entire path executed backwards.
-            directionButton = new Box(
-                transport,
-                Theme::layer({ &PreviewBarStyle::PlayButton, &Theme::Styles::ChromeHover }, {}),
-                "PreviewDirection"
-            );
-            directionButton->interceptHits = true;
-
-            directionLabel = new Text(
-                directionButton,
-                "Fwd",
-                Theme::layer({
-                    &PreviewBarStyle::PlayLabel,
-                    &Theme::Styles::ChromeIconHover
-                }, {
-                    &Theme::Styles::ChromeIcon
-                })
-            );
-
-            directionButton->onClick([this](Event& e) {
-                reverse = !reverse;
-                if (directionLabel) { directionLabel->setContent(std::string(reverse ? "Rev" : "Fwd")); }
-                if (onDirectionChanged) { onDirectionChanged(e); }
-                refresh(e);
                 e.propagate = false;
             });
 

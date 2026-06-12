@@ -39,6 +39,8 @@ export namespace Sketch::Gui {
         Slider* radius = nullptr;
         Slider* iterations = nullptr;
         Dropdown* strategy = nullptr;
+        Dropdown* direction = nullptr;
+        Dropdown* milling = nullptr;
 
         // The per-iteration signed-area readout: a fixed pool of rows, filled
         // from the live profile series each style pass (unused rows go blank).
@@ -81,6 +83,47 @@ export namespace Sketch::Gui {
 
             strategy->onChange = [this](Event& e) {
                 if (this->app && this->strategy) { this->app->strategy = this->strategy->params.value; }
+                refresh(e);
+            };
+
+            // Direction: a TOOLPATH SETTING handed to the strategy -- "please emit
+            // the final toolpath backwards when you're done". Changing it triggers
+            // a complete regeneration; the view replays whatever comes back,
+            // blindly.
+            Dropdown::Params dp;
+            dp.label = "Direction";
+            dp.options = {
+                { "Forward", "forward" },
+                { "Reverse", "reverse" }
+            };
+            dp.placeholder = "Forward";
+            dp.value = (app && app->toolReverse) ? "reverse" : "forward";
+            direction = new Dropdown(this, dp);
+
+            direction->onChange = [this](Event& e) {
+                if (this->app && this->direction) {
+                    this->app->toolReverse = (this->direction->params.value == "reverse");
+                }
+                refresh(e);
+            };
+
+            // Milling: climb or conventional -- the HANDEDNESS of every toolpath
+            // chain (which way the tool travels around each ring). Order is the
+            // Direction setting's business; this never reorders anything.
+            Dropdown::Params mp;
+            mp.label = "Milling";
+            mp.options = {
+                { "Climb",        "climb" },
+                { "Conventional", "conventional" }
+            };
+            mp.placeholder = "Climb";
+            mp.value = (app && !app->climbMilling) ? "conventional" : "climb";
+            milling = new Dropdown(this, mp);
+
+            milling->onChange = [this](Event& e) {
+                if (this->app && this->milling) {
+                    this->app->climbMilling = (this->milling->params.value != "conventional");
+                }
                 refresh(e);
             };
 

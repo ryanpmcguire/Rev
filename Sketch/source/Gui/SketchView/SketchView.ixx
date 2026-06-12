@@ -235,14 +235,6 @@ export namespace Sketch::Gui {
                 refresh(e);
             };
 
-            // Direction is a STRATEGY option, not a display trick: it rebuilds the
-            // actual toolpath geometry with reversed order and travel.
-            previewBar->onDirectionChanged = [this](Event& e) {
-                if (app) { app->toolReverse = previewBar->reverse; }
-                geometryDirty = true;
-                refresh(e);
-            };
-
             previewBar->onAnimateFrame = [this](Rev::Core::AnimationEvent& frame, Event& e) {
                 // A full run takes ~12 seconds end to end (speed knob later).
                 float step = static_cast<float>(frame.deltaMs) * (100.0f / 12000.0f);
@@ -1624,6 +1616,7 @@ export namespace Sketch::Gui {
                     app->activeProject->viewDiscarded = app->viewDiscarded;
                     app->activeProject->viewToolpath  = app->viewToolpath;
                     app->activeProject->reverseToolpath = app->toolReverse;
+                    app->activeProject->climbMilling  = app->climbMilling;
                     app->activeProject->iterations    = app->iterations;
                     app->activeProject->runStrategy(app->strategy, app->toolRadius);
                 }
@@ -1836,7 +1829,8 @@ export namespace Sketch::Gui {
                             | (app->viewDiscarded ? 4 : 0)
                             | (app->viewArrows    ? 8 : 0)
                             | (app->viewToolpath  ? 16 : 0)
-                            | (app->toolReverse   ? 32 : 0);
+                            | (app->toolReverse   ? 32 : 0)
+                            | (app->climbMilling  ? 64 : 0);
                 if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
                 if (app->toolRadius != lastToolRadius) { lastToolRadius = app->toolRadius; geometryDirty = true; }
                 if (app->iterations != lastIterations) { lastIterations = app->iterations; geometryDirty = true; }

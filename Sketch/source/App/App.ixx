@@ -54,7 +54,8 @@ export namespace Sketch::App {
         // be exercised here before they integrate into the CAM app.
         float toolRadius = 1.0f;
         int   iterations = 32;        // max offset generations per run
-        bool  toolReverse = false;    // execute the final toolpath backwards (actual tool direction!)
+        bool  toolReverse = false;    // execute the final toolpath backwards (chain ORDER only)
+        bool  climbMilling = true;    // climb vs conventional: the HANDEDNESS of every toolpath chain
         std::string strategy = "profile";
 
         // Select a tool, toggling it off if it was already active.

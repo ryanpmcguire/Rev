@@ -97,7 +97,8 @@ export namespace Sketch::App {
         bool viewWinding = false;     // debug: level colours + magenta + marks
         bool viewDiscarded = false;   // debug: include non-minimum fragments
         bool viewToolpath = true;     // toolpath rules applied over the method's output
-        bool reverseToolpath = false; // the tool executes the whole path backwards
+        bool reverseToolpath = false; // chain ORDER reversed (execution sequence only)
+        bool climbMilling = true;     // chain HANDEDNESS: climb keeps the method's travel, conventional flips it
         int  iterations = 32;         // max offset generations per strategy run
 
         // The TOOLPATH layer: one step per generated profile, with the stats and
@@ -338,14 +339,28 @@ export namespace Sketch::App {
             return out;
         }
 
-        // Build the final toolpath from the depth-first extraction: cloned out of
-        // the profiles (so it owns its geometry), then -- if reversed -- flipped
-        // in both order and travel. From here on, chain direction IS tool motion.
+        // Build the final toolpath from the depth-first extraction -- PURE
+        // POST-PROCESSING on clones; the method's own profiles are never touched.
+        // Two independent axes:
+        //
+        //   * Direction (forward/reverse): the chain ORDER only -- which ring is
+        //     cut first. It never flips any chain's travel.
+        //
+        //   * Milling (climb/conventional): the HANDEDNESS of every chain -- which
+        //     way the tool travels around each ring. The method's output carries
+        //     material on the left of travel; that is the climb sense, so climb
+        //     keeps each chain's travel as produced and conventional reverses it.
+        //
+        // From here on, chain direction IS tool motion.
         void buildToolpath() {
             toolpath.clear();
             for (const Chain* c : playbackChains()) { toolpath.push_back(c->clone()); }
+
             if (reverseToolpath) {
                 std::reverse(toolpath.begin(), toolpath.end());
+            }
+
+            if (!climbMilling) {
                 for (Chain& c : toolpath) { c = c.reversed(); }
             }
         }
