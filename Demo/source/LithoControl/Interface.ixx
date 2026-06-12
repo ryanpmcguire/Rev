@@ -804,6 +804,7 @@ export namespace LithoControl {
         ~Interface() {
             abortFlag = true;
             if (jobThread.joinable()) jobThread.join();
+            if (hdmiWinThread.joinable()) hdmiWinThread.detach();
             delete stmSerial;
             delete piClient;
             saveSettings();
@@ -1135,8 +1136,7 @@ export namespace LithoControl {
                 RECT rc; GetClientRect(hwnd, &rc);
                 int ww = rc.right, wh = rc.bottom;
                 // Build 32bpp pixel buffer from current 1bpp frame
-                static std::vector<uint32_t> px;
-                px.assign(640 * 360, 0xFF000000u);
+                std::vector<uint32_t> px(640 * 360, 0xFF000000u);
                 if (self) {
                     std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
                     if (!self->hdmiCurrentFrame.empty()) {

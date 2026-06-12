@@ -807,7 +807,7 @@ export namespace Rev::Element {
             if (mode == newMode) { return *this; }
 
             mode = newMode;
-            *dirty = true;
+            if (dirty) { *dirty = true; }
 
             return *this;
         }
