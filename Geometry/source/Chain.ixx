@@ -1307,18 +1307,24 @@ export namespace Geo {
             // A lone loop has nothing to overlap: through untouched.
             if (mem.size() == 1) { out.push_back(std::move(loops[mem[0]])); continue; }
 
-            // The cluster's material orientation, by DOCTRINE, not measurement:
-            // counterclockwise chains always bound the INSIDE of a shape, clockwise
-            // chains always bound the OUTSIDE -- handedness is preserved through
-            // every touch. So a cluster containing any CCW loop is an inside system
-            // (s = +1; CW members are its islands), and a pure-CW cluster is an
-            // outside system (s = -1; outer traces merging outward). A handedness
-            // census is exact and global: no probes, no outermost hunt, no possible
-            // dependence on start points or samples.
-            int s = -1;
-            for (size_t a : mem) {
-                if (loops[a].turningSign() > 0) { s = 1; break; }
+            // The cluster's material orientation: declared by its OUTERMOST loop.
+            // An inside system (CCW outermost) carries CW islands; an outside
+            // system (CW outermost) carries CCW cavities -- so a handedness census
+            // of members cannot decide (a CW outer trace whose expansion pinched
+            // off a legitimate CCW cavity would be misread as an inside system and
+            // annihilated). The outermost loop is identified EXACTLY: the loop
+            // holding the cluster's global maximum-x point can be enclosed by
+            // nothing -- no probes, no samples, no start dependence.
+            int s = 0;
+            {
+                size_t outer = mem.front(); float bestX = -1e30f;
+                for (size_t a : mem) {
+                    float x = loopMaxXPoint(loops[a]).x;
+                    if (x > bestX) { bestX = x; outer = a; }
+                }
+                s = loops[outer].turningSign();
             }
+            if (s == 0) { s = 1; }
 
             std::vector<std::unique_ptr<Stoicheion>> kept;
             for (size_t a : mem) {
