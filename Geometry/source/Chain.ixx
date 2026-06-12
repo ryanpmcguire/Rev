@@ -1307,24 +1307,45 @@ export namespace Geo {
             // A lone loop has nothing to overlap: through untouched.
             if (mem.size() == 1) { out.push_back(std::move(loops[mem[0]])); continue; }
 
-            // The cluster's material orientation: declared by its OUTERMOST loop.
-            // An inside system (CCW outermost) carries CW islands; an outside
-            // system (CW outermost) carries CCW cavities -- so a handedness census
-            // of members cannot decide (a CW outer trace whose expansion pinched
-            // off a legitimate CCW cavity would be misread as an inside system and
-            // annihilated). The outermost loop is identified EXACTLY: the loop
-            // holding the cluster's global maximum-x point can be enclosed by
-            // nothing -- no probes, no samples, no start dependence.
-            int s = 0;
-            {
-                size_t outer = mem.front(); float bestX = -1e30f;
-                for (size_t a : mem) {
-                    float x = loopMaxXPoint(loops[a]).x;
-                    if (x > bestX) { bestX = x; outer = a; }
+            // The cluster's material orientation. A CCW loop ASSERTS an inside
+            // system -- unless it is a CAVITY: strictly contained in some CW loop
+            // it never crosses (the pinched-off air of an outside system). Any
+            // asserting CCW loop makes the cluster an inside system (s = +1);
+            // with none, it is an outside system (s = -1). The two counterexamples
+            // this rule reconciles: a CW trace's sealed CCW cavity must NOT flip
+            // the system inside-out (the census's failure), and a CCW boundary
+            // CROSSING a CW loop must not be out-voted by the CW loop merely
+            // reaching further (the outermost rule's failure) -- when a CCW loop
+            // has any standing to claim territory, the least-clockwise
+            // interpretation wins. Everything here is exact: crossings and
+            // containment, no samples, no size contests.
+            int s = -1;
+            for (size_t a : mem) {
+                if (loops[a].turningSign() <= 0) { continue; }       // CCW loops only
+
+                bool cavity = false;
+                for (size_t b : mem) {
+                    if (b == a || loops[b].turningSign() >= 0) { continue; }   // vs CW loops
+
+                    bool crosses = false;
+                    std::vector<Pos> x;
+                    for (const auto& ea : loops[a].edges) {
+                        for (const auto& eb : loops[b].edges) {
+                            edgeCross(*ea, *eb, x);
+                            if (!x.empty()) { crosses = true; break; }
+                        }
+                        if (crosses) { break; }
+                    }
+                    if (crosses) { continue; }                       // fighting, not sealed
+
+                    if (loops[b].windingAround(loopMaxXPoint(loops[a])) != 0) {
+                        cavity = true;                               // sealed inside this CW loop
+                        break;
+                    }
                 }
-                s = loops[outer].turningSign();
+
+                if (!cavity) { s = 1; break; }                       // an asserting CCW loop
             }
-            if (s == 0) { s = 1; }
 
             std::vector<std::unique_ptr<Stoicheion>> kept;
             for (size_t a : mem) {
