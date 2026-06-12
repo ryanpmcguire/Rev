@@ -140,7 +140,8 @@
       ],
       "sources": [
         "Geometry/source/Geometry.ixx",
-        "Geometry/source/Chain.ixx"
+        "Geometry/source/Chain.ixx",
+        "Geometry/source/Strategy.ixx"
       ],
       "output": "Geometry/Geometry.lib",
       "depends": [

@@ -14,6 +14,8 @@ module;
 
 export module Sketch.App.Project;
 
+import Geo.Strategy;
+
 export import Sketch.App.Layer;
 export import Sketch.App.Geometry;
 export import Sketch.App.Chain;
@@ -101,25 +103,12 @@ export namespace Sketch::App {
         bool climbMilling = true;     // chain HANDEDNESS: climb keeps the method's travel, conventional flips it
         int  iterations = 32;         // max offset generations per strategy run
 
-        // The TOOLPATH layer: one step per generated profile, with the stats and
-        // sanity verdicts a machinist (or a linking/ordering pass) needs. This
-        // judges what the toolpath DOES with the method's output -- the method's
-        // own results are never altered by it.
-        struct ToolpathStep {
-            size_t profile = 0;       // index into `profiles`
-            size_t chains = 0;
-            float area = 0.0f;        // signed area of the whole system at this step
-            float cleared = 0.0f;     // |area| removed since the previous step
-            float length = 0.0f;      // total cutting length
-            bool included = true;     // sanity verdict: negative systems are skipped
-        };
+        // The slice strategy's outputs, stored verbatim. The strategy (Geo.Strategy
+        // -- the same module CAM will consume, with zero modification) returns the
+        // generation series, the step stats/verdicts, and the final toolpath; the
+        // app keeps them only to DISPLAY them.
+        using ToolpathStep = Geo::SliceStep;
         std::vector<ToolpathStep> toolpathSteps;
-
-        // The final TOOLPATH: the flattened, ordered, ACTUAL tool motion. The
-        // directions and handedness of these chains mean one thing only -- the
-        // direction the tool travels. They are NOT the input convention any more:
-        // reverse flips the chain order AND every chain's travel (Chain::reversed,
-        // the geometric reversal), exactly as the machine would run it.
         std::vector<Chain> toolpath;
 
         // Create
@@ -200,49 +189,42 @@ export namespace Sketch::App {
         // loops, each coloured strictly by its own ABSOLUTE chirality -- every CW
         // loop blue, every CCW loop red, never relative to anything -- plus the
         // "intersections" dot group on top.
-        // Toolpathing strategies -- MOCK home. The strategies live here in the
-        // sketch app so they can be exercised against live geometry before they
-        // integrate into the CAM app; each one consumes the same Geo::Profile API
-        // (profile 0 = the chains as drawn; offsetBy() = one generation).
+        // Toolpathing -- the BLIND CALLER's side of the contract. The slice
+        // strategy lives in Geo.Strategy (the very module CAM will consume,
+        // unmodified); this app's only jobs are (1) hand it PREPARED geometry --
+        // here the user's drawn directions and open-air marks ARE the
+        // preparation -- and (2) display the result verbatim. The strategy has
+        // no idea this app exists.
         //--------------------------------------------------
 
         void runStrategy(const std::string& strategy, float radius) {
             lastOffsetAmount = radius;
 
-            // Profile 0: the chains as drawn.
-            profiles.clear();
-            profiles.push_back(Profile::fromEntities(geometry.entities));
+            Geo::SliceParams params;
+            params.kind = (strategy == "hatch") ? Geo::StrategyKind::Hatch
+                                                : Geo::StrategyKind::Profile;
+            params.toolRadius = radius;
+            params.maxGenerations = std::max(1, iterations);
+            params.reverse = reverseToolpath;
+            params.climb = climbMilling;
 
-            // Open-air pre-push (profile strategy): edges marked open-air are
-            // rigidly translated a SLIGHT distance into the free region BEFORE the
-            // recursion -- a toolpathy coverage margin, not a geometric operation.
-            // The tool sweeps one radius past its centreline, so any positive push
-            // guarantees the cut clears the original open boundary; the margin
-            // makes the corners against the open region come out fully covered.
-            if (strategy != "hatch") {
-                // EXPERIMENT: push by 1.333x the tool radius -- deliberately OFF the
-                // exact-tangency configuration (push == radius makes the first ring
-                // land exactly on lines/arcs it can only kiss). If the failure was
-                // exactness-induced degeneracy, this should behave; if it misbehaves
-                // identically, the bug is structural, not numerical.
-                for (Chain& c : profiles.front().chains) {
-                    c = c.withOpenAirPushed(radius * 1.333f);
-                }
-            }
+            Geo::SliceResult sliced =
+                Geo::runSliceStrategy(Profile::fromEntities(geometry.entities), params);
 
-            // Debug artifacts mirror the first step.
+            // Stored verbatim, displayed blindly.
+            profiles = std::move(sliced.profiles);
+            toolpathSteps = std::move(sliced.steps);
+            toolpath = std::move(sliced.toolpath);
+
+            // Debug artifacts mirror the first step (display-only instruments).
             offsetChains.clear();
             sourceChains.clear();
-            for (const Chain& chain : profiles.front().chains) {
-                offsetChains.push_back(chain.offsetRaw(radius));
-                sourceChains.push_back(chain.clone());
+            if (!profiles.empty()) {
+                for (const Chain& chain : profiles.front().chains) {
+                    offsetChains.push_back(chain.offsetRaw(radius));
+                    sourceChains.push_back(chain.clone());
+                }
             }
-
-            if (strategy == "hatch") { hatchStrategy(radius); }
-            else                     { profileStrategy(radius); }
-
-            buildToolpathSteps();
-            buildToolpath();
 
             // Trace: the total signed area of every generation (a healthy inset
             // shrinks monotonically toward zero; a jump the wrong way fingers the
@@ -268,103 +250,6 @@ export namespace Sketch::App {
             dirty = true;
         }
 
-        // Build the toolpath step list: per generation, the system's stats and the
-        // FINAL SANITY RULE -- after all the method's own judgments, a step whose
-        // total signed area is negative is not a machinable profile (the signature
-        // of an outside having grown past an inside without ever touching it:
-        // bullshit-tier input the method dutifully offsets but no tool should
-        // cut). The step is recorded, measured, and SKIPPED by the toolpath.
-        void buildToolpathSteps() {
-            toolpathSteps.clear();
-            if (profiles.empty()) { return; }
-            float prevArea = 0.0f;
-            for (const Chain& c : profiles.front().chains) { prevArea += c.signedArea(); }
-            for (size_t g = 1; g < profiles.size(); g++) {
-                ToolpathStep s;
-                s.profile = g;
-                s.chains = profiles[g].chains.size();
-                for (const Chain& c : profiles[g].chains) {
-                    s.area += c.signedArea();
-                    for (const auto& e : c.edges) { s.length += Chain::edgeLength(*e); }
-                }
-                s.cleared = std::fabs(prevArea) - std::fabs(s.area);
-                s.included = s.area >= 0.0f;
-                prevArea = s.area;
-                toolpathSteps.push_back(s);
-            }
-        }
-
-        // The flattened PLAYBACK list, extracted DEPTH-FIRST from the ancestral
-        // forest: once a chain splits, one child lineage is followed all the way
-        // to extinction before backing up -- just far enough to the nearest
-        // unaccounted sibling -- and continuing. So when an inner profile pinches
-        // into two independent islands, each island is finished COMPLETELY before
-        // the other begins. Children are found by parent reference alone
-        // (generation g+1 chains whose parent == this chain's id); siblings run
-        // in their profile order. Toolpath-skipped generations are traversed but
-        // not emitted; an orphan sweep appends anything whose lineage broke, in
-        // breadth-first order, so nothing is ever lost. Pointers into `profiles`:
-        // valid until the next strategy run.
-        std::vector<const Chain*> playbackChains() const {
-            std::vector<const Chain*> out;
-            if (profiles.size() < 2) { return out; }
-
-            auto included = [&](size_t g) {
-                return (g - 1 < toolpathSteps.size()) ? toolpathSteps[g - 1].included : true;
-            };
-
-            std::unordered_set<const Chain*> visited;
-
-            std::function<void(const Chain&, size_t)> visit = [&](const Chain& c, size_t g) {
-                visited.insert(&c);
-                if (included(g)) { out.push_back(&c); }
-                if (g + 1 >= profiles.size()) { return; }
-                for (const Chain& child : profiles[g + 1].chains) {
-                    if (child.parent == c.id) { visit(child, g + 1); }
-                }
-            };
-
-            for (const Chain& c : profiles[1].chains) { visit(c, 1); }
-
-            // Orphan sweep: lineage can break (an open chain rides one generation,
-            // a merged offspring's dominant ancestor may live elsewhere) -- emit
-            // whatever the walk missed, in plain generation order.
-            for (size_t g = 1; g < profiles.size(); g++) {
-                if (!included(g)) { continue; }
-                for (const Chain& c : profiles[g].chains) {
-                    if (!visited.count(&c)) { out.push_back(&c); }
-                }
-            }
-
-            return out;
-        }
-
-        // Build the final toolpath from the depth-first extraction -- PURE
-        // POST-PROCESSING on clones; the method's own profiles are never touched.
-        // Two independent axes:
-        //
-        //   * Direction (forward/reverse): the chain ORDER only -- which ring is
-        //     cut first. It never flips any chain's travel.
-        //
-        //   * Milling (climb/conventional): the HANDEDNESS of every chain -- which
-        //     way the tool travels around each ring. The method's output carries
-        //     material on the left of travel; that is the climb sense, so climb
-        //     keeps each chain's travel as produced and conventional reverses it.
-        //
-        // From here on, chain direction IS tool motion.
-        void buildToolpath() {
-            toolpath.clear();
-            for (const Chain* c : playbackChains()) { toolpath.push_back(c->clone()); }
-
-            if (reverseToolpath) {
-                std::reverse(toolpath.begin(), toolpath.end());
-            }
-
-            if (!climbMilling) {
-                for (Chain& c : toolpath) { c = c.reversed(); }
-            }
-        }
-
         // DEBUG: the PREPARED profile zero, in yellow -- the drawn chains after
         // open-air preparation (open sides displaced outward, junctions healed
         // with linking segments). This is the exact seed the recursion consumes;
@@ -379,38 +264,6 @@ export namespace Sketch::App {
                     result.add(std::move(copy));
                 }
             }
-        }
-
-        // The PROFILE strategy: recursively offset until extinction (or a sanity
-        // cap -- outsets grow forever). Open chains ride along for one generation
-        // but do not seed further ones (an open chain's offset never terminates;
-        // it just marches sideways).
-        void profileStrategy(float radius) {
-            const size_t MaxGenerations = static_cast<size_t>(std::max(1, iterations));
-            if (std::fabs(radius) <= 1e-6f) { return; }
-            while (profiles.size() <= MaxGenerations) {
-                Profile seed;
-                if (profiles.size() == 1) { seed = profiles.back().clone(); }
-                else {
-                    for (const Chain& c : profiles.back().chains) {
-                        if (c.closed) { seed.chains.push_back(c.clone()); }
-                    }
-                }
-                if (seed.empty()) { break; }
-                Profile next = seed.offsetBy(radius);
-                if (next.empty()) { break; }
-                profiles.push_back(std::move(next));
-            }
-        }
-
-        // The HATCH strategy: MOCK placeholder. The eventual hatch uses offsetting
-        // differently -- one boundary inset, then fill rasters clipped to it. For
-        // now it produces just the single boundary generation, so the strategy
-        // plumbing (panel, dispatch, display) can be exercised end to end.
-        void hatchStrategy(float radius) {
-            if (std::fabs(radius) <= 1e-6f) { return; }
-            Profile boundary = profiles.front().offsetBy(radius);
-            if (!boundary.empty()) { profiles.push_back(std::move(boundary)); }
         }
 
         // PRODUCTION -- the complete method, in two stages.
