@@ -26,10 +26,13 @@ import Rev.Element.Box;
 import Rev.Primitive.FastLines;
 import Rev.Graphics.Canvas;
 
+import Rev.Core.Animator;
+
 import Sketch.App;
 import Sketch.App.Project;
 import Sketch.App.Tool;
 import Sketch.Gui.Theme;
+import Sketch.Gui.PreviewBar;
 
 export namespace Sketch::Gui {
 
@@ -80,6 +83,10 @@ export namespace Sketch::Gui {
         FastLines* axes = nullptr;       // gnomon: world X / Y axes
         FastLines* geometry = nullptr;   // committed geometry + live preview
         FastLines* highlight = nullptr;  // hover/selection overdraw (orange)
+
+        // The toolpath playback bar (bottom of the view): scrub / play through
+        // the flattened chain list, watching the tool trace it.
+        PreviewBar* previewBar = nullptr;
 
         // A stable reference to one selectable thing, by entity index (not pointer)
         // so a selection survives appending new geometry. `point` addresses one of
@@ -217,6 +224,31 @@ export namespace Sketch::Gui {
                     highlightDirty = true;
                     refresh(e);
                 }
+            };
+
+            // Toolpath playback: the bar owns percent + transport; the view maps
+            // percent onto the flattened chain list each rebuild.
+            previewBar = new PreviewBar(this);
+
+            previewBar->onPercentChanged = [this](Event& e) {
+                geometryDirty = true;
+                refresh(e);
+            };
+
+            // Direction is a STRATEGY option, not a display trick: it rebuilds the
+            // actual toolpath geometry with reversed order and travel.
+            previewBar->onDirectionChanged = [this](Event& e) {
+                if (app) { app->toolReverse = previewBar->reverse; }
+                geometryDirty = true;
+                refresh(e);
+            };
+
+            previewBar->onAnimateFrame = [this](Rev::Core::AnimationEvent& frame, Event& e) {
+                // A full run takes ~12 seconds end to end (speed knob later).
+                float step = static_cast<float>(frame.deltaMs) * (100.0f / 12000.0f);
+                float next = previewBar->percent + step;
+                if (next >= 100.0f) { next = 100.0f; previewBar->pause(e); }
+                previewBar->setPercent(next, e);   // triggers onPercentChanged -> rebuild
             };
         }
 
@@ -662,8 +694,8 @@ export namespace Sketch::Gui {
                 // Arrow at the END of travel. Arc tessellation runs over the CCW
                 // span regardless of travel chirality -- ask the true travel
                 // tangent (and true endpoint) for circular edges.
-                std::string kind = e.kind();
-                bool circular = (kind == "arc" || kind == "circle");
+                using Sketch::App::SKind;
+                bool circular = (e.type() == SKind::Arc || e.type() == SKind::Circle);
                 Pos tip = circular ? Sketch::App::Chain::eEnd(e) : pts.back();
                 Pos t = circular ? Sketch::App::Chain::travelDirAt(e, tip)
                                  : (pts.back() - pts[pts.size() - 2]);
@@ -679,6 +711,52 @@ export namespace Sketch::Gui {
                     dst->lines.push_back({ .points = { Vertex(b2.x, b2.y), vt }, .color = color });
                 }
             }
+        }
+
+        // Draw an edge split at `cut` arc length along its travel: the part
+        // already travelled in `done`, the rest in `pending`. Returns the cut
+        // point (the playhead).
+        Pos appendEntitySplit(FastLines* dst, const Sketch::App::Stoicheion& e, float cut,
+                              Color done, Color pending) {
+
+            std::vector<Pos> pts;
+            e.tessellate(pts);
+            if (pts.size() < 2) { return pts.empty() ? Pos() : pts[0]; }
+
+            // Tessellation runs over an arc's CCW span regardless of travel
+            // chirality -- orient it to TRUE travel before cutting, or the
+            // playhead walks the arc backwards.
+            Pos start = Sketch::App::Chain::eStart(e);
+            if ((pts.front() - start).pythag() > (pts.back() - start).pythag()) {
+                std::reverse(pts.begin(), pts.end());
+            }
+
+            std::vector<Vertex> a, b;
+            Pos playhead = pts.front();
+            float acc = 0.0f;
+            bool past = false;
+
+            a.push_back(Vertex(pts[0].x, pts[0].y));
+            for (size_t i = 1; i < pts.size(); i++) {
+                float len = (pts[i] - pts[i - 1]).pythag();
+                if (!past && acc + len >= cut && len > 1e-9f) {
+                    float t = (cut - acc) / len;
+                    Pos mid = pts[i - 1] + (pts[i] - pts[i - 1]) * t;
+                    a.push_back(Vertex(mid.x, mid.y));
+                    b.push_back(Vertex(mid.x, mid.y));
+                    b.push_back(Vertex(pts[i].x, pts[i].y));
+                    playhead = mid;
+                    past = true;
+                }
+                else if (past) { b.push_back(Vertex(pts[i].x, pts[i].y)); }
+                else { a.push_back(Vertex(pts[i].x, pts[i].y)); }
+                acc += len;
+            }
+            if (!past) { playhead = pts.back(); }
+
+            if (a.size() >= 2) { dst->lines.push_back({ .points = std::move(a), .color = done }); }
+            if (b.size() >= 2) { dst->lines.push_back({ .points = std::move(b), .color = pending }); }
+            return playhead;
         }
 
         void appendGeometry(FastLines* dst, const SketchGeometry& g, Color color) {
@@ -1544,6 +1622,8 @@ export namespace Sketch::Gui {
                     app->activeProject->viewValid     = app->viewValid;
                     app->activeProject->viewWinding   = app->viewWinding;
                     app->activeProject->viewDiscarded = app->viewDiscarded;
+                    app->activeProject->viewToolpath  = app->viewToolpath;
+                    app->activeProject->reverseToolpath = app->toolReverse;
                     app->activeProject->iterations    = app->iterations;
                     app->activeProject->runStrategy(app->strategy, app->toolRadius);
                 }
@@ -1567,24 +1647,28 @@ export namespace Sketch::Gui {
                 // Crossing numbers are normalised so the chain's MAX level is 0:
                 // 0 = blue (the outside), -1 = green (one in), -2 = red (two in),
                 // deeper levels dim toward dark red.
-                auto groupColor = [&](const std::string& g) -> Color {
-                    // The prepared profile zero: the recursion's exact seed, yellow.
-                    if (g == "profile0")  { return Color{ 1.00f, 0.85f, 0.20f, 0.90f }; }
-                    // Production labels: the valid offset chains, classified by
-                    // exact signed area -- positive red, negative green. Full opacity.
-                    if (g == "valid/pos") { return Color{ 0.95f, 0.30f, 0.25f, 1.00f }; }
-                    if (g == "valid/neg") { return Color{ 0.25f, 0.90f, 0.40f, 1.00f }; }
-                    // Debug labels below (level colouring, legacy chirality view).
-                    if (g == "chirality/cw")  { return cwColor; }
-                    if (g == "chirality/ccw") { return ccwColor; }
-                    if (g.rfind("crossing/", 0) == 0) {
-                        int v = static_cast<int>(std::strtol(g.c_str() + 9, nullptr, 10));
-                        if (v >= 0)  { return Color{ 0.30f, 0.50f, 1.00f, DebugA }; }   // max: blue
-                        if (v == -1) { return Color{ 0.25f, 0.90f, 0.40f, DebugA }; }   // one in: green
-                        float dim = std::max(0.40f, 1.0f - 0.22f * (-v - 2));
-                        return Color{ 0.95f * dim, 0.30f * dim, 0.25f * dim, DebugA };  // two+ in: reds
+                using Sketch::App::DisplayGroup;
+
+                auto groupColor = [&](const Sketch::App::Stoicheion& e) -> Color {
+                    switch (e.group) {
+                        // The prepared profile zero: the recursion's exact seed, yellow.
+                        case DisplayGroup::Profile0:     { return Color{ 1.00f, 0.85f, 0.20f, 0.90f }; }
+                        // A step the toolpath sanity rule skipped: a ghost.
+                        case DisplayGroup::ToolpathSkip: { return Color{ 0.55f, 0.55f, 0.60f, 0.35f }; }
+                        // Production: the valid offset chains, classified by exact
+                        // signed area -- positive red, negative green. Full opacity.
+                        case DisplayGroup::ValidPos:     { return Color{ 0.95f, 0.30f, 0.25f, 1.00f }; }
+                        case DisplayGroup::ValidNeg:     { return Color{ 0.25f, 0.90f, 0.40f, 1.00f }; }
+                        // Debug: crossing-number level colouring (level in groupLevel).
+                        case DisplayGroup::Crossing: {
+                            int v = e.groupLevel;
+                            if (v >= 0)  { return Color{ 0.30f, 0.50f, 1.00f, DebugA }; }   // max: blue
+                            if (v == -1) { return Color{ 0.25f, 0.90f, 0.40f, DebugA }; }   // one in: green
+                            float dim = std::max(0.40f, 1.0f - 0.22f * (-v - 2));
+                            return Color{ 0.95f * dim, 0.30f * dim, 0.25f * dim, DebugA };  // two+ in: reds
+                        }
+                        default: { return otherColor; }
                     }
-                    return otherColor;
                 };
 
                 Color startColor { 1.00f, 0.45f, 0.85f, DebugA };   // "start": the walk's origin, pink (debug)
@@ -1594,20 +1678,97 @@ export namespace Sketch::Gui {
                 for (const SketchGeometry& layer : app->activeProject->offsetLayers) {
                     bool arrows = app->viewArrows;
                     for (const auto& e : layer.entities) {
-                        if (!e || e->group == "intersections" || e->group == "start" || e->group == "minimum") { continue; }
-                        appendEntity(geometry, *e, groupColor(e->group), arrows);
+                        if (!e
+                            || e->group == DisplayGroup::Intersections
+                            || e->group == DisplayGroup::Start
+                            || e->group == DisplayGroup::Minimum) { continue; }
+                        appendEntity(geometry, *e, groupColor(*e), arrows);
                     }
                     // The minimum-level extraction rides on top of the level colours.
                     for (const auto& e : layer.entities) {
-                        if (e && e->group == "minimum") { appendEntity(geometry, *e, minColor, arrows); }
+                        if (e && e->group == DisplayGroup::Minimum) { appendEntity(geometry, *e, minColor, arrows); }
                     }
                     for (const auto& e : layer.entities) {
                         if (!e || !e->isPoint()) { continue; }
-                        if (e->group == "intersections") {
+                        if (e->group == DisplayGroup::Intersections) {
                             appendPoint(geometry, *static_cast<const Sketch::App::Point2*>(e.get()), crossColor, 5.0f);
                         }
-                        else if (e->group == "start") {
+                        else if (e->group == DisplayGroup::Start) {
                             appendPoint(geometry, *static_cast<const Sketch::App::Point2*>(e.get()), startColor, 6.5f);
+                        }
+                    }
+                }
+
+                // Toolpath playback overlay: the flattened chain list, pending in
+                // gray, achieved in red, with the tool circle at the playhead. The
+                // tool "magically" jumps between chain ends -- linking comes later.
+                if (insetActive && previewBar) {
+
+                    // The REAL toolpath: chain order and travel directions ARE the
+                    // tool motion (reverse already baked in by the strategy layer).
+                    const std::vector<Sketch::App::Chain>& run = app->activeProject->toolpath;
+
+                    float total = 0.0f;
+                    std::vector<float> lens;
+                    lens.reserve(run.size());
+                    for (const auto& c : run) {
+                        float L = 0.0f;
+                        for (const auto& e : c.edges) { L += Sketch::App::Chain::edgeLength(*e); }
+                        lens.push_back(L);
+                        total += L;
+                    }
+
+                    if (total > 1e-6f) {
+                        const float target = total * (previewBar->percent * 0.01f);
+                        const Color pendingColor { 0.55f, 0.55f, 0.58f, 0.85f };
+                        const Color doneColor    { 0.95f, 0.20f, 0.18f, 1.00f };
+                        const Color toolColor    { 1.00f, 0.80f, 0.30f, 1.00f };
+                        const bool runArrows = app->viewArrows;
+
+                        Pos playhead;
+                        bool playheadSet = false;
+                        float acc = 0.0f;
+
+                        for (size_t i = 0; i < run.size(); i++) {
+                            const auto& chain = run[i];
+
+                            if (acc + lens[i] <= target) {            // fully achieved
+                                for (const auto& e : chain.edges) { appendEntity(geometry, *e, doneColor, runArrows); }
+                                if (!chain.edges.empty()) {
+                                    playhead = Sketch::App::Chain::eEnd(*chain.edges.back());
+                                    playheadSet = true;
+                                }
+                            }
+                            else if (acc >= target) {                 // fully pending
+                                for (const auto& e : chain.edges) { appendEntity(geometry, *e, pendingColor, runArrows); }
+                            }
+                            else {                                     // the live chain
+                                float within = target - acc;
+                                for (const auto& e : chain.edges) {
+                                    float L = Sketch::App::Chain::edgeLength(*e);
+                                    if (within >= L) {
+                                        appendEntity(geometry, *e, doneColor, runArrows);
+                                        within -= L;
+                                    }
+                                    else if (within > 0.0f) {
+                                        playhead = appendEntitySplit(geometry, *e, within, doneColor, pendingColor);
+                                        playheadSet = true;
+                                        within = 0.0f;
+                                    }
+                                    else {
+                                        appendEntity(geometry, *e, pendingColor, runArrows);
+                                    }
+                                }
+                            }
+                            acc += lens[i];
+                        }
+
+                        if (!playheadSet && !run.empty() && !run.front().edges.empty()) {
+                            playhead = Sketch::App::Chain::eStart(*run.front().edges.front());
+                            playheadSet = true;
+                        }
+                        if (playheadSet) {
+                            appendArcSpan(geometry, playhead, app->toolRadius, 0.0f, TAU, toolColor);
                         }
                     }
                 }
@@ -1673,7 +1834,9 @@ export namespace Sketch::Gui {
                 int options = (app->viewValid     ? 1 : 0)
                             | (app->viewWinding   ? 2 : 0)
                             | (app->viewDiscarded ? 4 : 0)
-                            | (app->viewArrows    ? 8 : 0);
+                            | (app->viewArrows    ? 8 : 0)
+                            | (app->viewToolpath  ? 16 : 0)
+                            | (app->toolReverse   ? 32 : 0);
                 if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
                 if (app->toolRadius != lastToolRadius) { lastToolRadius = app->toolRadius; geometryDirty = true; }
                 if (app->iterations != lastIterations) { lastIterations = app->iterations; geometryDirty = true; }

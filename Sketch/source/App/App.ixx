@@ -47,12 +47,14 @@ export namespace Sketch::App {
         bool viewWinding   = false;   // debug: crossing-number level colours + magenta + marks
         bool viewDiscarded = false;   // debug: include the discarded (non-minimum) fragments
         bool viewArrows    = true;    // travel-direction arrows on offset chains
+        bool viewToolpath  = true;    // apply toolpath rules (sanity checks, step list) over the method's output
 
         // Toolpathing parameters (the left-hand parameter panel). The strategy
         // names a MOCK strategy implemented in the sketch app, so strategies can
         // be exercised here before they integrate into the CAM app.
         float toolRadius = 1.0f;
         int   iterations = 32;        // max offset generations per run
+        bool  toolReverse = false;    // execute the final toolpath backwards (actual tool direction!)
         std::string strategy = "profile";
 
         // Select a tool, toggling it off if it was already active.

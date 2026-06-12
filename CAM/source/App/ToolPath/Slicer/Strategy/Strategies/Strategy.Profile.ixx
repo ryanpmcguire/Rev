@@ -84,20 +84,20 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
             for (const auto& e : g.edges) {
 
-                std::string k = e->kind();
+                Geo::SKind k = e->type();
 
-                if (k == "segment") {
+                if (k == Geo::SKind::Segment) {
                     const Geo::Segment2* s = static_cast<const Geo::Segment2*>(e.get());
                     c.segments.push_back(Segment::Line(s->a, s->b));
                 }
-                else if (k == "arc") {
+                else if (k == Geo::SKind::Arc) {
                     const Geo::Arc2* a = static_cast<const Geo::Arc2*>(e.get());
                     float a0, sweep; a->range(a0, sweep);
                     float angA = (a->a - a->c).angle();
                     float f2 = (a->chirality() > 0) ? angA + sweep : angA - sweep;
                     c.segments.push_back(Segment::Arc(a->c, a->radius(), angA, f2));
                 }
-                else if (k == "circle") {
+                else if (k == Geo::SKind::Circle) {
                     const Geo::Circle2* k2 = static_cast<const Geo::Circle2*>(e.get());
                     float angA = (k2->a - k2->c).angle();
                     float f2 = (k2->chirality() > 0) ? angA + Geo::TAU : angA - Geo::TAU;

@@ -84,8 +84,9 @@ export namespace Sketch::Gui {
                 refresh(e);
             };
 
-            // Signed-area readout: one row per possible iteration.
-            areaHeader = new Text(this, "Signed area / iteration", { &ParamPanelStyle::AreaHeader });
+            // Toolpath step readout: one row per generated profile, with the stats
+            // a linking / ordering pass will eventually consume.
+            areaHeader = new Text(this, "Toolpath steps", { &ParamPanelStyle::AreaHeader });
             for (int i = 0; i < 33; i++) {
                 areaRows.push_back(new Text(this, "", { &ParamPanelStyle::AreaRow }));
             }
@@ -97,16 +98,17 @@ export namespace Sketch::Gui {
             if (app && radius) { app->toolRadius = radius->data.val; }
             if (app && iterations) { app->iterations = static_cast<int>(iterations->data.val + 0.5f); }
 
-            // Refresh the signed-area readout from the live profile series.
+            // Refresh the toolpath step readout from the live run.
             if (app && app->activeProject) {
-                const auto& profiles = app->activeProject->profiles;
+                const auto& steps = app->activeProject->toolpathSteps;
                 for (size_t i = 0; i < areaRows.size(); i++) {
-                    if (i < profiles.size()) {
-                        float area = 0.0f;
-                        for (const auto& c : profiles[i].chains) { area += c.signedArea(); }
-                        char buf[64];
-                        std::snprintf(buf, sizeof(buf), "%zu:  %.3f  (%zu chains)",
-                                      i, area, profiles[i].chains.size());
+                    if (i < steps.size()) {
+                        const auto& s = steps[i];
+                        char buf[96];
+                        std::snprintf(buf, sizeof(buf),
+                                      "profile %zu:  %zu ch  A %.2f  dA %.2f  L %.1f%s",
+                                      s.profile, s.chains, s.area, s.cleared, s.length,
+                                      s.included ? "" : "  [skip]");
                         areaRows[i]->setContent(std::string(buf));
                     }
                     else {

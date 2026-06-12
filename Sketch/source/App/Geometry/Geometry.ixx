@@ -14,6 +14,8 @@ export namespace Sketch::App {
     using Geo::Json;
     using Geo::PI;
     using Geo::TAU;
+    using Geo::SKind;
+    using Geo::DisplayGroup;
 
     using Geo::Id;
     using Geo::newId;

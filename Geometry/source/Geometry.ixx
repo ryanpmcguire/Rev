@@ -240,6 +240,27 @@ export namespace Geo {
         return base + tier;
     }
 
+    // The concrete stoicheion types, as an enum: the cheap, string-free type
+    // probe (kind() remains only as the serialisation tag).
+    enum class SKind : std::uint8_t {
+        Point, Segment, Circle, Arc, Ellipse, EllipseArc, OffsetEllipse
+    };
+
+    // The display / category group of a stoicheion in generated (offset) layers:
+    // an enum stamped at creation, never strings. Crossing carries its level in
+    // the stoicheion's groupLevel.
+    enum class DisplayGroup : std::uint8_t {
+        None,
+        Profile0,        // the prepared seed chain (yellow)
+        ValidPos,        // valid chain, positive signed area (red)
+        ValidNeg,        // valid chain, negative signed area (green)
+        ToolpathSkip,    // valid by the method, skipped by the toolpath sanity rule
+        Crossing,        // debug: crossing-number level colouring (level in groupLevel)
+        Minimum,         // debug: the extracted minimum-level path (magenta)
+        Intersections,   // debug: crossing dots (yellow)
+        Start            // debug: the walk's origin (pink)
+    };
+
     // ===============================================================
     // Stoicheion (στοιχεῖον) -- the fundamental geometric element.
     //
@@ -264,18 +285,18 @@ export namespace Geo {
         // covered instead of left with rounded internal corners.
         bool openAir = false;
 
-        // Group label: which named group within its layer this stoicheion belongs
-        // to (empty = ungrouped). Stamped at creation by whatever operation produced
-        // the entity -- never derived downstream. A layer is one flat geometry whose
-        // stoicheia partition into groups by this tag, so e.g. each loop of an offset
-        // step can be labelled by its producer and the view maps label -> style
-        // blindly, the same way construction -> grey.
-        std::string group;
+        // Group tag: which display category within its layer this stoicheion
+        // belongs to. Stamped at creation by whatever operation produced the
+        // entity -- never derived downstream; the view maps tag -> style blindly,
+        // the same way construction -> grey. Crossing levels ride in groupLevel.
+        DisplayGroup group = DisplayGroup::None;
+        int groupLevel = 0;
 
         virtual ~Stoicheion() = default;
 
         // Identity / serialisation
-        virtual const char* kind() const = 0;
+        virtual SKind type() const = 0;         // the enum probe (cheap, hot paths)
+        virtual const char* kind() const = 0;   // the serialisation tag only
         virtual std::unique_ptr<Stoicheion> clone() const = 0;
         virtual Json data() const = 0;          // type-specific payload
         virtual void load(const Json& j) = 0;   // read type-specific payload
@@ -287,7 +308,10 @@ export namespace Geo {
             j["construction"] = construction;
             j["locked"] = locked;
             if (openAir) { j["openAir"] = true; }
-            if (!group.empty()) { j["group"] = group; }
+            if (group != DisplayGroup::None) {
+                j["group"] = static_cast<int>(group);
+                j["groupLevel"] = groupLevel;
+            }
             return j;
         }
 
@@ -411,6 +435,7 @@ export namespace Geo {
         Point2() = default;
         Point2(const Pos& pos) : p(pos) {}
 
+        SKind type() const override { return SKind::Point; }
         const char* kind() const override { return "point"; }
         std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Point2>(*this); }
         Json data() const override { return Json{ { "p", p.toJson() } }; }
@@ -432,6 +457,7 @@ export namespace Geo {
         Segment2() = default;
         Segment2(const Pos& a, const Pos& b) : a(a), b(b) {}
 
+        SKind type() const override { return SKind::Segment; }
         const char* kind() const override { return "segment"; }
         std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Segment2>(*this); }
         Json data() const override { return Json{ { "a", a.toJson() }, { "b", b.toJson() } }; }
@@ -499,6 +525,7 @@ export namespace Geo {
         float radius() const { return (a - c).pythag(); }
         int chirality() const { return ((a - c).cross(b - c) >= 0.0f) ? 1 : -1; }   // +1 CCW, -1 CW
 
+        SKind type() const override { return SKind::Circle; }
         const char* kind() const override { return "circle"; }
         std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Circle2>(*this); }
         Json data() const override { return Json{ { "c", c.toJson() }, { "a", a.toJson() }, { "b", b.toJson() } }; }
@@ -628,6 +655,7 @@ export namespace Geo {
             else              { a0 = (b - c).angle(); sweep = TAU - ccwB; }   // CW: the complementary half
         }
 
+        SKind type() const override { return SKind::Arc; }
         const char* kind() const override { return "arc"; }
         std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Arc2>(*this); }
         Json data() const override {
@@ -734,6 +762,7 @@ export namespace Geo {
         Ellipse2() = default;
         Ellipse2(const Pos& c, const Pos& u, const Pos& v) : c(c), u(u), v(v) {}
 
+        SKind type() const override { return SKind::Ellipse; }
         const char* kind() const override { return "ellipse"; }
         std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<Ellipse2>(*this); }
         Json data() const override { return Json{ { "c", c.toJson() }, { "u", u.toJson() }, { "v", v.toJson() } }; }
@@ -824,6 +853,7 @@ export namespace Geo {
         Pos startPoint() const { return ellipsePointAt(c, u, v, a0); }
         Pos endPoint() const { return ellipsePointAt(c, u, v, a0 + span()); }
 
+        SKind type() const override { return SKind::EllipseArc; }
         const char* kind() const override { return "ellipseArc"; }
         std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<EllipseArc2>(*this); }
         Json data() const override {
@@ -926,6 +956,7 @@ export namespace Geo {
 
         bool fullLoop() const { return std::fabs(std::fabs(a1 - a0) - TAU) < 1e-5f; }
 
+        SKind type() const override { return SKind::OffsetEllipse; }
         const char* kind() const override { return "offsetEllipse"; }
         std::unique_ptr<Stoicheion> clone() const override { return std::make_unique<OffsetEllipse2>(*this); }
         Json data() const override {
@@ -1004,7 +1035,8 @@ export namespace Geo {
         e->construction = j.value("construction", false);
         e->locked = j.value("locked", false);
         e->openAir = j.value("openAir", false);
-        e->group = j.value("group", std::string());
+        e->group = static_cast<DisplayGroup>(j.value("group", 0));
+        e->groupLevel = j.value("groupLevel", 0);
         return e;
     }
 
@@ -1536,19 +1568,6 @@ export namespace Geo {
 
         void clear() { entities.clear(); relations.clear(); }
         bool empty() const { return entities.empty() && relations.empty(); }
-
-        // The distinct group labels present, in first-appearance order (ungrouped
-        // entities, label "", are skipped). A layer's named groups are purely a
-        // projection of its stoicheia's own tags -- nothing is stored beside the
-        // entities, so groups can never fall out of sync with the geometry.
-        std::vector<std::string> groupLabels() const {
-            std::vector<std::string> out;
-            for (const auto& e : entities) {
-                if (!e || e->group.empty()) { continue; }
-                if (std::find(out.begin(), out.end(), e->group) == out.end()) { out.push_back(e->group); }
-            }
-            return out;
-        }
 
         // Resolve an entity by its stable id (linear for now; a cached id->pointer
         // map comes later).

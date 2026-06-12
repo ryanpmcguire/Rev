@@ -247,6 +247,7 @@ export namespace Sketch::Gui {
             new ViewToggle(this, app, &app->viewWinding,   "Winding");
             new ViewToggle(this, app, &app->viewDiscarded, "Discarded");
             new ViewToggle(this, app, &app->viewValid,     "Valid");
+            new ViewToggle(this, app, &app->viewToolpath,  "Toolpath");
         }
 
         void addTool(Sketch::App::SketchTool tool, Rev::Core::Resource iconResource) {

@@ -246,6 +246,7 @@
         "Sketch/source/Gui/TabView/TabView.ixx",
         "Sketch/source/Gui/Toolbar/Toolbar.ixx",
         "Sketch/source/Gui/ParamPanel/ParamPanel.ixx",
+        "Sketch/source/Gui/PreviewBar/PreviewBar.ixx",
         "Sketch/source/Gui/SketchView/SketchView.ixx",
         "Sketch/source/Gui/Gui.ixx",
         "Sketch/source/main.cpp",

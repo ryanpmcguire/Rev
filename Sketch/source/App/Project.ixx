@@ -4,6 +4,8 @@ module;
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include <functional>
+#include <unordered_set>
 #include <fstream>
 #include <filesystem>
 
@@ -94,7 +96,30 @@ export namespace Sketch::App {
         bool viewValid = true;        // production: the final valid chains
         bool viewWinding = false;     // debug: level colours + magenta + marks
         bool viewDiscarded = false;   // debug: include non-minimum fragments
+        bool viewToolpath = true;     // toolpath rules applied over the method's output
+        bool reverseToolpath = false; // the tool executes the whole path backwards
         int  iterations = 32;         // max offset generations per strategy run
+
+        // The TOOLPATH layer: one step per generated profile, with the stats and
+        // sanity verdicts a machinist (or a linking/ordering pass) needs. This
+        // judges what the toolpath DOES with the method's output -- the method's
+        // own results are never altered by it.
+        struct ToolpathStep {
+            size_t profile = 0;       // index into `profiles`
+            size_t chains = 0;
+            float area = 0.0f;        // signed area of the whole system at this step
+            float cleared = 0.0f;     // |area| removed since the previous step
+            float length = 0.0f;      // total cutting length
+            bool included = true;     // sanity verdict: negative systems are skipped
+        };
+        std::vector<ToolpathStep> toolpathSteps;
+
+        // The final TOOLPATH: the flattened, ordered, ACTUAL tool motion. The
+        // directions and handedness of these chains mean one thing only -- the
+        // direction the tool travels. They are NOT the input convention any more:
+        // reverse flips the chain order AND every chain's travel (Chain::reversed,
+        // the geometric reversal), exactly as the machine would run it.
+        std::vector<Chain> toolpath;
 
         // Create
         //--------------------------------------------------
@@ -215,6 +240,9 @@ export namespace Sketch::App {
             if (strategy == "hatch") { hatchStrategy(radius); }
             else                     { profileStrategy(radius); }
 
+            buildToolpathSteps();
+            buildToolpath();
+
             // Trace: the total signed area of every generation (a healthy inset
             // shrinks monotonically toward zero; a jump the wrong way fingers the
             // first bad generation).
@@ -239,6 +267,89 @@ export namespace Sketch::App {
             dirty = true;
         }
 
+        // Build the toolpath step list: per generation, the system's stats and the
+        // FINAL SANITY RULE -- after all the method's own judgments, a step whose
+        // total signed area is negative is not a machinable profile (the signature
+        // of an outside having grown past an inside without ever touching it:
+        // bullshit-tier input the method dutifully offsets but no tool should
+        // cut). The step is recorded, measured, and SKIPPED by the toolpath.
+        void buildToolpathSteps() {
+            toolpathSteps.clear();
+            if (profiles.empty()) { return; }
+            float prevArea = 0.0f;
+            for (const Chain& c : profiles.front().chains) { prevArea += c.signedArea(); }
+            for (size_t g = 1; g < profiles.size(); g++) {
+                ToolpathStep s;
+                s.profile = g;
+                s.chains = profiles[g].chains.size();
+                for (const Chain& c : profiles[g].chains) {
+                    s.area += c.signedArea();
+                    for (const auto& e : c.edges) { s.length += Chain::edgeLength(*e); }
+                }
+                s.cleared = std::fabs(prevArea) - std::fabs(s.area);
+                s.included = s.area >= 0.0f;
+                prevArea = s.area;
+                toolpathSteps.push_back(s);
+            }
+        }
+
+        // The flattened PLAYBACK list, extracted DEPTH-FIRST from the ancestral
+        // forest: once a chain splits, one child lineage is followed all the way
+        // to extinction before backing up -- just far enough to the nearest
+        // unaccounted sibling -- and continuing. So when an inner profile pinches
+        // into two independent islands, each island is finished COMPLETELY before
+        // the other begins. Children are found by parent reference alone
+        // (generation g+1 chains whose parent == this chain's id); siblings run
+        // in their profile order. Toolpath-skipped generations are traversed but
+        // not emitted; an orphan sweep appends anything whose lineage broke, in
+        // breadth-first order, so nothing is ever lost. Pointers into `profiles`:
+        // valid until the next strategy run.
+        std::vector<const Chain*> playbackChains() const {
+            std::vector<const Chain*> out;
+            if (profiles.size() < 2) { return out; }
+
+            auto included = [&](size_t g) {
+                return (g - 1 < toolpathSteps.size()) ? toolpathSteps[g - 1].included : true;
+            };
+
+            std::unordered_set<const Chain*> visited;
+
+            std::function<void(const Chain&, size_t)> visit = [&](const Chain& c, size_t g) {
+                visited.insert(&c);
+                if (included(g)) { out.push_back(&c); }
+                if (g + 1 >= profiles.size()) { return; }
+                for (const Chain& child : profiles[g + 1].chains) {
+                    if (child.parent == c.id) { visit(child, g + 1); }
+                }
+            };
+
+            for (const Chain& c : profiles[1].chains) { visit(c, 1); }
+
+            // Orphan sweep: lineage can break (an open chain rides one generation,
+            // a merged offspring's dominant ancestor may live elsewhere) -- emit
+            // whatever the walk missed, in plain generation order.
+            for (size_t g = 1; g < profiles.size(); g++) {
+                if (!included(g)) { continue; }
+                for (const Chain& c : profiles[g].chains) {
+                    if (!visited.count(&c)) { out.push_back(&c); }
+                }
+            }
+
+            return out;
+        }
+
+        // Build the final toolpath from the depth-first extraction: cloned out of
+        // the profiles (so it owns its geometry), then -- if reversed -- flipped
+        // in both order and travel. From here on, chain direction IS tool motion.
+        void buildToolpath() {
+            toolpath.clear();
+            for (const Chain* c : playbackChains()) { toolpath.push_back(c->clone()); }
+            if (reverseToolpath) {
+                std::reverse(toolpath.begin(), toolpath.end());
+                for (Chain& c : toolpath) { c = c.reversed(); }
+            }
+        }
+
         // DEBUG: the PREPARED profile zero, in yellow -- the drawn chains after
         // open-air preparation (open sides displaced outward, junctions healed
         // with linking segments). This is the exact seed the recursion consumes;
@@ -249,7 +360,7 @@ export namespace Sketch::App {
             for (const Chain& c : profiles.front().chains) {
                 for (const auto& e : c.edges) {
                     std::unique_ptr<Stoicheion> copy = e->clone();
-                    copy->group = "profile0";
+                    copy->group = DisplayGroup::Profile0;
                     result.add(std::move(copy));
                 }
             }
@@ -305,13 +416,19 @@ export namespace Sketch::App {
             crossingFragments.clear();
 
             // Every generated profile (1..n) -- the whole recursive series, each
-            // chain coloured by its exact signed area.
+            // chain coloured by its exact signed area. With the toolpath view on,
+            // steps the sanity rule skipped render as ghosts instead.
             for (size_t g = 1; g < profiles.size(); g++) {
+                bool skipped = viewToolpath
+                            && g - 1 < toolpathSteps.size()
+                            && !toolpathSteps[g - 1].included;
                 for (const Chain& m : profiles[g].chains) {
-                    const char* label = (m.signedArea() >= 0.0f) ? "valid/pos" : "valid/neg";
+                    DisplayGroup tag = skipped ? DisplayGroup::ToolpathSkip
+                                     : (m.signedArea() >= 0.0f) ? DisplayGroup::ValidPos
+                                                                : DisplayGroup::ValidNeg;
                     for (const auto& e : m.edges) {
                         std::unique_ptr<Stoicheion> copy = e->clone();
-                        copy->group = label;
+                        copy->group = tag;
                         result.add(std::move(copy));
                     }
                     crossingFragments.push_back(Chain::NumberedChain{ m.clone(), 0 });
@@ -400,11 +517,10 @@ export namespace Sketch::App {
                 for (Chain::NumberedChain& nc : frags) {
                     // Non-minimum (discarded) fragments only when asked for.
                     if (nc.number == minLevel || viewDiscarded) {
-                        std::string label = "crossing/" + std::to_string(nc.number)
-                                          + "/" + std::to_string(crossingFragments.size());
                         for (const auto& e : nc.chain.edges) {
                             std::unique_ptr<Stoicheion> copy = e->clone();
-                            copy->group = label;
+                            copy->group = DisplayGroup::Crossing;
+                            copy->groupLevel = nc.number;
                             result.add(std::move(copy));
                         }
                     }
@@ -414,7 +530,7 @@ export namespace Sketch::App {
                     for (const Chain& m : magenta) {
                         for (const auto& e : m.edges) {
                             std::unique_ptr<Stoicheion> copy = e->clone();
-                            copy->group = "minimum";
+                            copy->group = DisplayGroup::Minimum;
                             result.add(std::move(copy));
                         }
                     }
@@ -444,7 +560,7 @@ export namespace Sketch::App {
             }
             for (const Pos& p : crossings) {
                 std::unique_ptr<Point2> dot = std::make_unique<Point2>(p);
-                dot->group = "intersections";
+                dot->group = DisplayGroup::Intersections;
                 result.add(std::move(dot));
             }
 
@@ -454,7 +570,7 @@ export namespace Sketch::App {
             for (const Chain& c : offsetChains) {
                 if (c.edges.empty()) { continue; }
                 std::unique_ptr<Point2> dot = std::make_unique<Point2>(Chain::eStart(*c.edges.front()));
-                dot->group = "start";
+                dot->group = DisplayGroup::Start;
                 result.add(std::move(dot));
             }
         }

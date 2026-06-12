@@ -66,12 +66,21 @@ export namespace Geo {
         std::vector<std::unique_ptr<Stoicheion>> edges;   // oriented: travel is start -> end
         bool closed = false;
 
+        // Ancestry: every chain carries a unique id, and a reference to the chain
+        // it descended from (0 = a root, e.g. profile 0). Children reference
+        // parents -- never the other way (no child lists) -- so the ancestral
+        // tree is implicit in the chains themselves, and a later linking pass can
+        // walk profiles depth-first by following parents upward.
+        Id id = 0;
+        Id parent = 0;
+
         Chain() = default;
         Chain(Chain&&) = default;
         Chain& operator=(Chain&&) = default;
 
         Chain clone() const {
             Chain c; c.closed = closed;
+            c.id = id; c.parent = parent;
             for (const auto& e : edges) { c.edges.push_back(e->clone()); }
             return c;
         }
@@ -82,15 +91,16 @@ export namespace Geo {
         // -- never for reorienting the method's own outputs.
         Chain reversed() const {
             Chain r; r.closed = closed;
+            r.id = id; r.parent = parent;
             for (size_t i = edges.size(); i-- > 0; ) { r.edges.push_back(reversedEdge(*edges[i])); }
             return r;
         }
 
         // Type probes / accessors. The chain holds segments, arcs and full circles
         // (ellipses are tessellated to segments at build time).
-        static bool isArc(const Stoicheion& e)    { return std::string(e.kind()) == "arc"; }
-        static bool isCircle(const Stoicheion& e) { return std::string(e.kind()) == "circle"; }
-        static bool isOffEll(const Stoicheion& e) { return std::string(e.kind()) == "offsetEllipse"; }
+        static bool isArc(const Stoicheion& e)    { return e.type() == SKind::Arc; }
+        static bool isCircle(const Stoicheion& e) { return e.type() == SKind::Circle; }
+        static bool isOffEll(const Stoicheion& e) { return e.type() == SKind::OffsetEllipse; }
         static const Segment2* asSeg(const Stoicheion& e)  { return static_cast<const Segment2*>(&e); }
         static const Arc2*     asArc(const Stoicheion& e)  { return static_cast<const Arc2*>(&e); }
         static const Circle2*  asCirc(const Stoicheion& e) { return static_cast<const Circle2*>(&e); }
@@ -218,6 +228,7 @@ export namespace Geo {
             r->construction = e.construction;
             r->openAir = e.openAir;
             r->group = e.group;
+            r->groupLevel = e.groupLevel;
             return r;
         }
 
@@ -344,8 +355,8 @@ export namespace Geo {
 
             // Guard: a chain holding anything we don't offset passes through.
             for (const auto& e : edges) {
-                std::string k = e->kind();
-                if (k != "segment" && k != "arc" && k != "offsetEllipse") {
+                SKind t = e->type();
+                if (t != SKind::Segment && t != SKind::Arc && t != SKind::OffsetEllipse) {
                     for (const auto& src : edges) { result.edges.push_back(src->clone()); }
                     return result;
                 }
@@ -1132,18 +1143,24 @@ export namespace Geo {
 
             for (const auto& e : src) {
                 if (!e || e->locked || e->construction || e->isPoint()) { continue; }
-                std::string k = e->kind();
-                if (k == "circle") {                                       // prime closed curve: its own loop
-                    Chain c; c.closed = true; c.edges.push_back(e->clone()); out.push_back(std::move(c));
-                }
-                else if (k == "segment" || k == "arc") { pool.push_back(e->clone()); }
-                else if (k == "ellipse") {
-                    const Ellipse2* el = static_cast<const Ellipse2*>(e.get());
-                    ellipseToEdges(el->c, el->u, el->v, 0.0f, TAU);
-                }
-                else if (k == "ellipseArc") {
-                    const EllipseArc2* ea = static_cast<const EllipseArc2*>(e.get());
-                    ellipseToEdges(ea->c, ea->u, ea->v, ea->a0, ea->span());
+                switch (e->type()) {
+                    case SKind::Circle: {                                  // prime closed curve: its own loop
+                        Chain c; c.closed = true; c.edges.push_back(e->clone()); out.push_back(std::move(c));
+                        break;
+                    }
+                    case SKind::Segment:
+                    case SKind::Arc: { pool.push_back(e->clone()); break; }
+                    case SKind::Ellipse: {
+                        const Ellipse2* el = static_cast<const Ellipse2*>(e.get());
+                        ellipseToEdges(el->c, el->u, el->v, 0.0f, TAU);
+                        break;
+                    }
+                    case SKind::EllipseArc: {
+                        const EllipseArc2* ea = static_cast<const EllipseArc2*>(e.get());
+                        ellipseToEdges(ea->c, ea->u, ea->v, ea->a0, ea->span());
+                        break;
+                    }
+                    default: break;
                 }
             }
 
@@ -1152,6 +1169,10 @@ export namespace Geo {
                 if (c.edges.empty()) { break; }
                 out.push_back(std::move(c));
             }
+
+            // Every freshly built chain is a root of its own ancestral tree.
+            for (Chain& c : out) { c.id = newId(); c.parent = 0; }
+
             return out;
         }
     };
@@ -1217,6 +1238,8 @@ export namespace Geo {
         while (!pool.empty()) {
             Chain m = buildOne(pool, eps, false);   // oriented pieces: never reverse
             if (m.edges.empty()) { break; }
+            m.id = newId();
+            m.parent = id;                          // children of this source chain
             out.push_back(std::move(m));
         }
 
@@ -1381,7 +1404,10 @@ export namespace Geo {
                         };
                         bool leftIn  = totalWinding(mid + perpCCW(t) * reach) * s >= 1;
                         bool rightIn = totalWinding(mid - perpCCW(t) * reach) * s >= 1;
-                        if (leftIn != rightIn) { kept.push_back(std::move(piece)); }
+                        if (leftIn != rightIn) {
+                            piece->id = loops[a].id;   // provenance: which loop this piece came from
+                            kept.push_back(std::move(piece));
+                        }
                     }
                 }
             }
@@ -1390,9 +1416,26 @@ export namespace Geo {
             // Oriented frontier pieces: reversal is forbidden -- if ends don't
             // meet forward, the piece set is wrong and must FAIL VISIBLY (an open
             // remnant) rather than be silently flipped into a wrong-handed loop.
+            //
+            // Ancestry: each offspring takes a fresh id; its parent is the parent
+            // of its DOMINANT contributor (by length) -- contributors are
+            // same-generation intermediates, so this lands on the previous
+            // generation's chain, as the ancestral tree wants.
             while (!kept.empty()) {
                 Chain stitched = buildOne(kept, eps, false);
                 if (stitched.edges.empty()) { break; }
+
+                size_t dominant = mem.front(); float bestLen = -1.0f;
+                for (size_t a : mem) {
+                    float len = 0.0f;
+                    for (const auto& e : stitched.edges) {
+                        if (e->id == loops[a].id) { len += edgeLength(*e); }
+                    }
+                    if (len > bestLen) { bestLen = len; dominant = a; }
+                }
+                stitched.id = newId();
+                stitched.parent = loops[dominant].parent;
+
                 out.push_back(std::move(stitched));
             }
         }
