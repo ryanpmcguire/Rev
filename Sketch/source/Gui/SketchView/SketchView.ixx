@@ -176,6 +176,7 @@ export namespace Sketch::Gui {
         Sketch::App::Project* lastProject = nullptr;
         int lastViewOptions = -1;          // bitmask of the view-select options last built with
         float lastToolRadius = -1.0f;      // parameter-panel values last built with
+        float lastStepover = -1.0f;
         int lastIterations = -1;
         std::string lastStrategy;
 
@@ -1617,6 +1618,7 @@ export namespace Sketch::Gui {
                     app->activeProject->viewToolpath  = app->viewToolpath;
                     app->activeProject->reverseToolpath = app->toolReverse;
                     app->activeProject->climbMilling  = app->climbMilling;
+                    app->activeProject->stepover      = app->stepover;
                     app->activeProject->iterations    = app->iterations;
                     app->activeProject->runStrategy(app->strategy, app->toolRadius);
                 }
@@ -1855,6 +1857,7 @@ export namespace Sketch::Gui {
                             | (app->climbMilling  ? 64 : 0);
                 if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
                 if (app->toolRadius != lastToolRadius) { lastToolRadius = app->toolRadius; geometryDirty = true; }
+                if (app->stepover != lastStepover) { lastStepover = app->stepover; geometryDirty = true; }
                 if (app->iterations != lastIterations) { lastIterations = app->iterations; geometryDirty = true; }
                 if (app->strategy != lastStrategy) { lastStrategy = app->strategy; geometryDirty = true; }
             }

@@ -37,6 +37,7 @@ export namespace Sketch::Gui {
         Sketch::App::AppState* app = nullptr;
 
         Slider* radius = nullptr;
+        Slider* stepover = nullptr;
         Slider* iterations = nullptr;
         Dropdown* strategy = nullptr;
         Dropdown* direction = nullptr;
@@ -62,6 +63,14 @@ export namespace Sketch::Gui {
             rd.val = app ? app->toolRadius : 1.0f;
             radius = new Slider(this, rd);
             if (radius->labelText) { radius->labelText->setContent(std::string("Tool Radius: ")); }
+
+            // Stepover: ring advance as a fraction of the tool radius. Generation
+            // 1 always clears by exactly R; this governs every ring after.
+            Slider::SliderData so;
+            so.min = 0.1f; so.max = 2.0f; so.def = 1.0f;
+            so.val = app ? app->stepover : 1.0f;
+            stepover = new Slider(this, so);
+            if (stepover->labelText) { stepover->labelText->setContent(std::string("Stepover: ")); }
 
             // Iterations: the maximum number of offset generations per run.
             Slider::SliderData id;
@@ -139,6 +148,7 @@ export namespace Sketch::Gui {
         // app state on every style pass (drags refresh, so this tracks live).
         void computeStyle(Event& e) override {
             if (app && radius) { app->toolRadius = radius->data.val; }
+            if (app && stepover) { app->stepover = stepover->data.val; }
             if (app && iterations) { app->iterations = static_cast<int>(iterations->data.val + 0.5f); }
 
             // Refresh the toolpath step readout from the live run.

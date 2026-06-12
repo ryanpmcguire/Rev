@@ -101,6 +101,7 @@ export namespace Sketch::App {
         bool viewToolpath = true;     // toolpath rules applied over the method's output
         bool reverseToolpath = false; // chain ORDER reversed (execution sequence only)
         bool climbMilling = true;     // chain HANDEDNESS: climb keeps the method's travel, conventional flips it
+        float stepover = 1.0f;        // ring advance as a fraction of the tool radius
         int  iterations = 32;         // max offset generations per strategy run
 
         // The slice strategy's outputs, stored verbatim. The strategy (Geo.Strategy
@@ -204,6 +205,7 @@ export namespace Sketch::App {
             params.kind = (strategy == "hatch") ? Geo::StrategyKind::Hatch
                                                 : Geo::StrategyKind::Profile;
             params.toolRadius = radius;
+            params.stepover = stepover;
             params.maxGenerations = std::max(1, iterations);
             params.reverse = reverseToolpath;
             params.climb = climbMilling;

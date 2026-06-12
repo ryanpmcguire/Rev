@@ -53,6 +53,7 @@ export namespace Sketch::App {
         // names a MOCK strategy implemented in the sketch app, so strategies can
         // be exercised here before they integrate into the CAM app.
         float toolRadius = 1.0f;
+        float stepover = 1.0f;        // ring advance as a fraction of the tool radius (gen 1 is always exactly R)
         int   iterations = 32;        // max offset generations per run
         bool  toolReverse = false;    // execute the final toolpath backwards (chain ORDER only)
         bool  climbMilling = true;    // climb vs conventional: the HANDEDNESS of every toolpath chain

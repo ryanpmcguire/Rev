@@ -1288,6 +1288,12 @@ export namespace Geo {
     inline std::vector<Chain> Chain::offsetValid(float amount, bool trial, float eps) const {
         std::vector<Chain> out;
 
+        // CLOSED CHAINS ONLY: offsetting is a statement about a bounded region's
+        // boundary, and an open chain bounds nothing -- there is no such thing as
+        // offsetting one. (Open chains exist legitimately in RESULTS -- link
+        // segments -- but never enter the offsetting machinery.)
+        if (!closed) { return out; }
+
         // 1. blind offset, split at self-crossings, walk, fragment by level.
         Chain raw = offsetRaw(amount);
         std::vector<NumberedChain> frags = raw.fragmentByCrossingNumber(eps);
@@ -1560,6 +1566,7 @@ export namespace Geo {
             Profile next;
             std::vector<Chain> valid;
             for (const Chain& c : chains) {
+                if (!c.closed) { continue; }   // closed chains only: opens never offset
                 for (Chain& m : c.offsetValid(amount)) { valid.push_back(std::move(m)); }
             }
             next.chains = Chain::mitose(valid);

@@ -41,7 +41,10 @@ export namespace Geo {
 
         StrategyKind kind = StrategyKind::Profile;
 
-        float toolRadius = 1.0f;      // the offset step
+        float toolRadius = 1.0f;      // the boundary clearance: generation 1 offsets by exactly this
+        float stepover = 1.0f;        // generation advance as a FRACTION of the tool radius
+                                      // (gen 2+ offset by toolRadius * stepover; <= 2.0 for full
+                                      // coverage, typically 0.5 .. 1.0)
         int maxGenerations = 32;      // recursion cap (outsets grow forever)
 
         // Post-processing axes (independent):
@@ -111,6 +114,11 @@ export namespace Geo {
 
             result.clear();
 
+            // CLOSED CHAINS ONLY: offsetting has no concept of an open chain. Open
+            // chains in the seed are dropped at the door (the only open chains in
+            // a RESULT are the link segments the strategy itself weaves).
+            std::erase_if(seed.chains, [](const Chain& c) { return !c.closed; });
+
             // The strategy's own preparation: open-air edges pre-pushed into the
             // free region (full corner coverage; 1.333R sits clear of the
             // exact-tangency degeneracy). Toolpathy logic -- it belongs here, not
@@ -137,27 +145,19 @@ export namespace Geo {
         //--------------------------------------------------
 
         // The PROFILE strategy's generations: recursively offset until extinction
-        // (or the cap). Open chains ride along for one generation but do not seed
-        // further ones (an open chain's offset never terminates).
+        // (or the cap). Generation 1 offsets by EXACTLY one tool radius -- the
+        // boundary clearance pass -- and every generation after by
+        // toolRadius * stepover, the ring advance.
         void profileGenerations() {
 
             if (std::fabs(params.toolRadius) <= 1e-6f) { return; }
 
             const size_t cap = static_cast<size_t>(std::max(1, params.maxGenerations));
+            const float step = params.toolRadius * std::max(0.05f, params.stepover);
 
             while (result.profiles.size() <= cap) {
-                Profile next;
-                {
-                    Profile s;
-                    if (result.profiles.size() == 1) { s = result.profiles.back().clone(); }
-                    else {
-                        for (const Chain& c : result.profiles.back().chains) {
-                            if (c.closed) { s.chains.push_back(c.clone()); }
-                        }
-                    }
-                    if (s.empty()) { break; }
-                    next = s.offsetBy(params.toolRadius);
-                }
+                const float amount = (result.profiles.size() == 1) ? params.toolRadius : step;
+                Profile next = result.profiles.back().offsetBy(amount);
                 if (next.empty()) { break; }
                 result.profiles.push_back(std::move(next));
             }
