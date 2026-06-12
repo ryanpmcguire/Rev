@@ -12,6 +12,8 @@ export namespace Cam::Gui::Theme {
 
     using namespace Rev::Element;
 
+    using namespace Rev::Appearance;
+
     enum class Mode {
         Light,
         Dark

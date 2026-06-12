@@ -33,6 +33,7 @@ export namespace Cam::Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
+    using namespace Rev::Appearance;
 
     enum class PreviewMode {
         AbsoluteToolPath,    // standard view: part static, tool traces path in world space
@@ -44,11 +45,11 @@ export namespace Cam::Gui {
 
         Style Panel = {
             .layout = {
-                Axis::Vertical,
-                Align::Start,
-                Align::Start,
-                Wrap::False,
-                Position::Absolute
+                .direction = Axis::Vertical,
+                .horizontal = Align::Start,
+                .vertical = Align::Start,
+                .wrap = Wrap::False,
+                .position = Position::Absolute
             },
             .position = { .left = 0_px, .bottom = 0_px },
             .size = { .width = 100_pct },
@@ -63,8 +64,8 @@ export namespace Cam::Gui {
                 Wrap::False
             },
             .size = { .width = 100_pct, .height = 32_px },
-            .padding = { 12_px, 12_px, 4_px, 4_px },
-            .margin = { .bottom = 2_px }
+            .margin = { .bottom = 2_px },
+            .padding = { 12_px, 12_px, 4_px, 4_px }
         };
 
         Style TimeGroup = {
@@ -153,11 +154,11 @@ export namespace Cam::Gui {
 
         Style HitBackdrop = {
             .layout = {
-                Axis::Vertical,
-                Align::Start,
-                Align::Start,
-                Wrap::False,
-                Position::Absolute
+                .direction = Axis::Vertical,
+                .horizontal = Align::Start,
+                .vertical = Align::Start,
+                .wrap = Wrap::False,
+                .position = Position::Absolute
             },
             .position = { .left = 0_px, .bottom = 0_px },
             .size = { 100_pct, 100_pct }

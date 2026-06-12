@@ -56,6 +56,7 @@ export namespace Sketch::Gui {
         RelateEqual,
         RelateParallel,
         ToggleConstruction,
+        ToggleOpenAir,
         Inset,
     };
 
@@ -137,7 +138,8 @@ export namespace Sketch::Gui {
             { "re", SketchCommand::RelateEqual },
             { "rp", SketchCommand::RelateParallel },
             { "cc", SketchCommand::ToggleConstruction },
-            { "i",  SketchCommand::Inset },                // blind 1mm inset into a new layer
+            { "o",  SketchCommand::ToggleOpenAir },        // hovered/selected edge borders open air
+            { "i",  SketchCommand::Inset },                // toggle the live toolpath strategy
         };
 
         // Tool state machines (owned; selection mirrors app->activeTool).
@@ -207,6 +209,7 @@ export namespace Sketch::Gui {
                     case SketchCommand::RelateEqual:        changed = relateEqual();              break;
                     case SketchCommand::RelateParallel:     changed = relateParallelSegments();   break;
                     case SketchCommand::ToggleConstruction: changed = toggleConstructionCommand(); break;
+                    case SketchCommand::ToggleOpenAir:      changed = toggleOpenAirCommand();     break;
                     case SketchCommand::Inset:              changed = insetCommand();            break;
                 }
                 if (changed) {
@@ -693,10 +696,14 @@ export namespace Sketch::Gui {
 
             constexpr float EndpointScale = 4.5f;   // dot size relative to stroke width
 
+            Color airColor { 0.45f, 0.78f, 1.00f, 0.95f };   // open-air edges: sky blue
+
             for (const auto& e : g.entities) {
                 if (!e || e->locked) { continue; }
 
-                Color c = e->construction ? cons : (g.solved(*e) ? solvedColor : real);
+                Color c = e->construction ? cons
+                        : e->openAir ? airColor
+                        : (g.solved(*e) ? solvedColor : real);
                 appendEntity(dst, *e, c);
 
                 if (e->isPoint()) { continue; }   // a point entity already renders as its dot
@@ -1425,6 +1432,33 @@ export namespace Sketch::Gui {
             return true;
         }
 
+        // "o" -- mark the hovered (or selected) edge as bordering OPEN AIR: free
+        // space the tool may run off into. The profile strategy pre-pushes such
+        // edges outward so corners against the open region get fully covered.
+        bool toggleOpenAirCommand() {
+            if (!app || !app->activeProject) { return false; }
+            auto& g = app->activeProject->geometry;
+
+            if (hoverValid && hovered.index < g.entities.size()) {
+                auto& e = g.entities[hovered.index];
+                if (e && !e->locked) { e->openAir = !e->openAir; app->activeProject->dirty = true; return true; }
+                return false;
+            }
+
+            bool changed = false;
+            std::vector<size_t> done;
+            for (const EntityRef& r : selected) {
+                if (std::find(done.begin(), done.end(), r.index) != done.end()) { continue; }
+                done.push_back(r.index);
+                if (r.index < g.entities.size() && g.entities[r.index] && !g.entities[r.index]->locked) {
+                    g.entities[r.index]->openAir = !g.entities[r.index]->openAir;
+                    changed = true;
+                }
+            }
+            if (changed) { app->activeProject->dirty = true; }
+            return changed;
+        }
+
         // Toggle the construction flag on each selected entity (once per entity).
         bool toggleSelectedConstruction() {
 
@@ -1534,6 +1568,8 @@ export namespace Sketch::Gui {
                 // 0 = blue (the outside), -1 = green (one in), -2 = red (two in),
                 // deeper levels dim toward dark red.
                 auto groupColor = [&](const std::string& g) -> Color {
+                    // The prepared profile zero: the recursion's exact seed, yellow.
+                    if (g == "profile0")  { return Color{ 1.00f, 0.85f, 0.20f, 0.90f }; }
                     // Production labels: the valid offset chains, classified by
                     // exact signed area -- positive red, negative green. Full opacity.
                     if (g == "valid/pos") { return Color{ 0.95f, 0.30f, 0.25f, 1.00f }; }

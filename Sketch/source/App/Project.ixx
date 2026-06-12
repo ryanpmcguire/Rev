@@ -187,6 +187,23 @@ export namespace Sketch::App {
             profiles.clear();
             profiles.push_back(Profile::fromEntities(geometry.entities));
 
+            // Open-air pre-push (profile strategy): edges marked open-air are
+            // rigidly translated a SLIGHT distance into the free region BEFORE the
+            // recursion -- a toolpathy coverage margin, not a geometric operation.
+            // The tool sweeps one radius past its centreline, so any positive push
+            // guarantees the cut clears the original open boundary; the margin
+            // makes the corners against the open region come out fully covered.
+            if (strategy != "hatch") {
+                // EXPERIMENT: push by 1.333x the tool radius -- deliberately OFF the
+                // exact-tangency configuration (push == radius makes the first ring
+                // land exactly on lines/arcs it can only kiss). If the failure was
+                // exactness-induced degeneracy, this should behave; if it misbehaves
+                // identically, the bug is structural, not numerical.
+                for (Chain& c : profiles.front().chains) {
+                    c = c.withOpenAirPushed(radius * 1.333f);
+                }
+            }
+
             // Debug artifacts mirror the first step.
             offsetChains.clear();
             sourceChains.clear();
@@ -209,8 +226,10 @@ export namespace Sketch::App {
             }
 
             // Compose the selected views (debug first, so production fragments own
-            // crossingFragments when both are shown).
+            // crossingFragments when both are shown). The prepared profile zero
+            // draws beneath everything, in yellow.
             SketchGeometry result;
+            profileZeroView(result);
             if (viewWinding || viewDiscarded) { crossingMethod(result); addIntersectionMarks(result); }
             if (viewValid) { validMethod(result); }
 
@@ -218,6 +237,22 @@ export namespace Sketch::App {
             offsetLayers.clear();
             offsetLayers.push_back(std::move(result));
             dirty = true;
+        }
+
+        // DEBUG: the PREPARED profile zero, in yellow -- the drawn chains after
+        // open-air preparation (open sides displaced outward, junctions healed
+        // with linking segments). This is the exact seed the recursion consumes;
+        // if the yellow chain looks wrong, the bug is in preparation, not in the
+        // method.
+        void profileZeroView(SketchGeometry& result) {
+            if (profiles.empty()) { return; }
+            for (const Chain& c : profiles.front().chains) {
+                for (const auto& e : c.edges) {
+                    std::unique_ptr<Stoicheion> copy = e->clone();
+                    copy->group = "profile0";
+                    result.add(std::move(copy));
+                }
+            }
         }
 
         // The PROFILE strategy: recursively offset until extinction (or a sanity

@@ -45,6 +45,6 @@ project(RevRoot)
 
 add_subdirectory(Rev)
 add_subdirectory(Geometry)
-#add_subdirectory(CAM)
+add_subdirectory(CAM)
 #add_subdirectory(LayoutDiagnose)
-add_subdirectory(Sketch)
+#add_subdirectory(Sketch)

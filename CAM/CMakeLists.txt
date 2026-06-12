@@ -58,7 +58,7 @@ target_include_directories(CAMDemo PRIVATE
     ${OpenCASCADE_INCLUDE_DIR}
 )
 
-target_link_libraries(CAMDemo PRIVATE Rev ${OpenCASCADE_LIBRARIES})
+target_link_libraries(CAMDemo PRIVATE Rev Geometry ${OpenCASCADE_LIBRARIES})
 
 if(WIN32)
   set(CAM_APP_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest")

@@ -258,6 +258,12 @@ export namespace Geo {
         bool construction = false;   // reference geometry, not real output
         bool locked = false;         // datum (origin / axes): can't move or delete
 
+        // Open air: beyond this edge lies free space, not part material -- the
+        // tool may run off it. A profile strategy pre-pushes open-air edges
+        // outward before recursing, so corners against the open region are fully
+        // covered instead of left with rounded internal corners.
+        bool openAir = false;
+
         // Group label: which named group within its layer this stoicheion belongs
         // to (empty = ungrouped). Stamped at creation by whatever operation produced
         // the entity -- never derived downstream. A layer is one flat geometry whose
@@ -280,6 +286,7 @@ export namespace Geo {
             j["kind"] = kind();
             j["construction"] = construction;
             j["locked"] = locked;
+            if (openAir) { j["openAir"] = true; }
             if (!group.empty()) { j["group"] = group; }
             return j;
         }
@@ -996,6 +1003,7 @@ export namespace Geo {
         if (e->id == 0) { e->id = newId(); }
         e->construction = j.value("construction", false);
         e->locked = j.value("locked", false);
+        e->openAir = j.value("openAir", false);
         e->group = j.value("group", std::string());
         return e;
     }

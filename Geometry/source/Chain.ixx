@@ -76,6 +76,16 @@ export namespace Geo {
             return c;
         }
 
+        // This chain travelled the opposite way: edge order flipped, every edge
+        // reversed (flags preserved). For conditioning inputs whose winding is
+        // arbitrary (e.g. mesh sections) to the doctrine orientation at the door
+        // -- never for reorienting the method's own outputs.
+        Chain reversed() const {
+            Chain r; r.closed = closed;
+            for (size_t i = edges.size(); i-- > 0; ) { r.edges.push_back(reversedEdge(*edges[i])); }
+            return r;
+        }
+
         // Type probes / accessors. The chain holds segments, arcs and full circles
         // (ellipses are tessellated to segments at build time).
         static bool isArc(const Stoicheion& e)    { return std::string(e.kind()) == "arc"; }
@@ -190,15 +200,25 @@ export namespace Geo {
             return (s->b - s->a).normalized();
         }
 
-        // Reverse an edge's travel direction (so chain building can connect either end).
+        // Reverse an edge's travel direction (so chain building can connect either
+        // end). Reversal changes the GEOMETRY's orientation only -- every carried
+        // property (open-air, construction, group, id) survives the flip.
         static std::unique_ptr<Stoicheion> reversedEdge(const Stoicheion& e) {
-            if (isArc(e)) { const Arc2* a = asArc(e); return std::make_unique<Arc2>(a->c, a->b, a->a, a->d); }
-            if (isOffEll(e)) {
+            std::unique_ptr<Stoicheion> r;
+            if (isArc(e)) { const Arc2* a = asArc(e); r = std::make_unique<Arc2>(a->c, a->b, a->a, a->d); }
+            else if (isOffEll(e)) {
                 const OffsetEllipse2* o = asOff(e);   // travel is the parameter order: just swap
-                return std::make_unique<OffsetEllipse2>(o->c, o->u, o->v, o->d, o->a1, o->a0);
+                r = std::make_unique<OffsetEllipse2>(o->c, o->u, o->v, o->d, o->a1, o->a0);
             }
-            const Segment2* s = asSeg(e);
-            return std::make_unique<Segment2>(s->b, s->a);
+            else {
+                const Segment2* s = asSeg(e);
+                r = std::make_unique<Segment2>(s->b, s->a);
+            }
+            r->id = e.id;
+            r->construction = e.construction;
+            r->openAir = e.openAir;
+            r->group = e.group;
+            return r;
         }
 
         // Offset an edge to the LEFT of travel by `d`. A line stays a parallel line;
@@ -427,6 +447,7 @@ export namespace Geo {
 
             auto push = [&](Pos q) {
                 for (const Pos& o : out) { if ((o - q).pythag() < 1e-4f) { return; } }   // dedupe
+                if (!transversalAt(A, B, q)) { return; }                                 // kisses don't count
                 out.push_back(q);
             };
             auto acceptChord = [&](dPos a, dPos dvec, double len2, const std::vector<double>& roots,
@@ -482,8 +503,20 @@ export namespace Geo {
             });
         }
 
+        // A reported intersection only counts if the two curves actually EXCHANGE
+        // SIDES there. A tangential kiss does not: the crossing walk's delta is
+        // sign(t x t'), which at a tangency is pure float noise -- a coin flip
+        // injected into the accumulated numbers -- and the cut it forces creates
+        // pieces whose classification is inherently ambiguous. A kiss is not a
+        // crossing by the definition of what the walk counts, so it is rejected at
+        // detection, not adjudicated downstream.
+        static bool transversalAt(const Stoicheion& A, const Stoicheion& B, Pos q) {
+            Pos ta = travelDirAt(A, q), tb = travelDirAt(B, q);
+            return std::fabs(ta.cross(tb)) > 1e-3f;        // unit tangents: sin of the angle
+        }
+
         // Genuine crossing points of two edges (segments, arcs, full circles or
-        // offset ellipses), strictly inside both spans.
+        // offset ellipses), strictly inside both spans -- transversal only.
         static void edgeCross(const Stoicheion& A, const Stoicheion& B, std::vector<Pos>& out) {
             if (isOffEll(A) || isOffEll(B)) { offEllCross(A, B, out); return; }
             Pos ca, cb; float ra, rb, a0a, a0b, swa, swb; int cha, chb;
@@ -492,19 +525,31 @@ export namespace Geo {
             if (!aa && !bb) {
                 Pos p; if (!lineLineInf(eStart(A), eEnd(A), eStart(B), eEnd(B), p)) { return; }
                 float t, u;
-                if (onSeg(eStart(A), eEnd(A), p, t) && onSeg(eStart(B), eEnd(B), p, u)) { out.push_back(p); }
+                if (onSeg(eStart(A), eEnd(A), p, t) && onSeg(eStart(B), eEnd(B), p, u)
+                    && transversalAt(A, B, p)) { out.push_back(p); }
             }
             else if (!aa && bb) {
                 std::vector<Pos> cand; lineCircleInf(eStart(A), eEnd(A), cb, rb, cand);
-                for (Pos p : cand) { float t; if (onSeg(eStart(A), eEnd(A), p, t) && onSpan(cb, a0b, swb, p)) { out.push_back(p); } }
+                for (Pos p : cand) {
+                    float t;
+                    if (onSeg(eStart(A), eEnd(A), p, t) && onSpan(cb, a0b, swb, p)
+                        && transversalAt(A, B, p)) { out.push_back(p); }
+                }
             }
             else if (aa && !bb) {
                 std::vector<Pos> cand; lineCircleInf(eStart(B), eEnd(B), ca, ra, cand);
-                for (Pos p : cand) { float t; if (onSeg(eStart(B), eEnd(B), p, t) && onSpan(ca, a0a, swa, p)) { out.push_back(p); } }
+                for (Pos p : cand) {
+                    float t;
+                    if (onSeg(eStart(B), eEnd(B), p, t) && onSpan(ca, a0a, swa, p)
+                        && transversalAt(A, B, p)) { out.push_back(p); }
+                }
             }
             else {
                 std::vector<Pos> cand; circleCircle(ca, ra, cb, rb, cand);
-                for (Pos p : cand) { if (onSpan(ca, a0a, swa, p) && onSpan(cb, a0b, swb, p)) { out.push_back(p); } }
+                for (Pos p : cand) {
+                    if (onSpan(ca, a0a, swa, p) && onSpan(cb, a0b, swb, p)
+                        && transversalAt(A, B, p)) { out.push_back(p); }
+                }
             }
         }
 
@@ -952,6 +997,78 @@ export namespace Geo {
         // their material on the LEFT of travel (a CCW outer shrinking inward, a CW
         // island growing outward). Defined out of line, after NumberedChain.
         static std::vector<Chain> mitose(std::vector<Chain>& loops, float eps = 1e-3f);
+
+        // Rigidly TRANSLATE an edge by a vector -- no offsetting, no re-radiusing,
+        // every point moves identically. (Toolpathy logic, not geometric logic.)
+        static std::unique_ptr<Stoicheion> translatedEdge(const Stoicheion& e, Pos v) {
+            std::unique_ptr<Stoicheion> copy = e.clone();
+            if (isArc(*copy)) {
+                Arc2* a = static_cast<Arc2*>(copy.get());
+                a->c += v; a->a += v; a->b += v; a->d += v;
+            }
+            else if (isCircle(*copy)) {
+                Circle2* k = static_cast<Circle2*>(copy.get());
+                k->c += v; k->a += v; k->b += v;
+            }
+            else if (isOffEll(*copy)) {
+                static_cast<OffsetEllipse2*>(copy.get())->c += v;   // base centre carries the curve
+            }
+            else {
+                Segment2* s = static_cast<Segment2*>(copy.get());
+                s->a += v; s->b += v;
+            }
+            return copy;
+        }
+
+        // Open-air pre-push: every edge marked openAir is rigidly TRANSLATED
+        // `amount` to the right of its travel (with material on the left, right is
+        // the free air), and the gaps this opens to its neighbours are bridged with
+        // straight segments. Run on profile 0 BEFORE the recursion; nothing
+        // downstream treats these edges differently -- the chain is simply moved,
+        // then offset exactly as always. The slight push guarantees the tool's
+        // sweep clears the original open boundary with margin, fully covering the
+        // corners against the open region.
+        Chain withOpenAirPushed(float amount, float eps = 1e-4f) const {
+            Chain out;
+            out.closed = closed;
+            const size_t n = edges.size();
+            if (n == 0) { return out; }
+
+            bool any = false;
+            for (const auto& e : edges) { if (e->openAir) { any = true; break; } }
+            if (!any) { return clone(); }
+
+            // Translate open-air edges OUTWARD -- away from the chain's own
+            // enclosed interior, measured, not assumed: a closed chain's interior
+            // lies to the LEFT of travel iff its turning sign is positive, so
+            // outward is the left normal scaled by -turningSign. Wrong-signing
+            // this pushes the edge a full radius INTO the material, slicing the
+            // chain apart -- so the side must come from the chain, never from a
+            // convention about which way "right" is.
+            const float outwardSign = (closed && turningSign() < 0) ? 1.0f : -1.0f;
+            std::vector<std::unique_ptr<Stoicheion>> moved;
+            for (const auto& e : edges) {
+                if (!e->openAir) { moved.push_back(e->clone()); continue; }
+                Pos mid = edgeMidpoint(*e);
+                Pos t = travelDirAt(*e, mid);
+                Pos outward = perpCCW(t) * outwardSign;     // away from the interior
+                moved.push_back(translatedEdge(*e, outward * amount));
+            }
+
+            // Re-walk, bridging every gap a displacement opened.
+            for (size_t i = 0; i < n; i++) {
+                out.edges.push_back(std::move(moved[i]));
+                bool last = (i + 1 == n);
+                if (last && !closed) { break; }
+                const Stoicheion& cur = *out.edges.back();
+                const Stoicheion& nxt = last ? *out.edges.front() : *moved[(i + 1) % n];
+                Pos a = eEnd(cur), b = eStart(nxt);
+                if ((a - b).pythag() > eps) {
+                    out.edges.push_back(std::make_unique<Segment2>(a, b));
+                }
+            }
+            return out;
+        }
 
         // Building
         //--------------------------------------------------
