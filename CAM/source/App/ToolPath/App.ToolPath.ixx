@@ -19,7 +19,7 @@ import Rev.Core.Pos3;
 
 import Cam.App.Model;
 import Cam.App.Tool;
-import Cam.App.Slicer.Strategy.Slice.Segment2;
+import Geo.Strategy;
 
 import Cam.App.Slicer.Strategy.Strategy;
 import Cam.App.Slicer.Strategy.CutFrame;
@@ -30,7 +30,6 @@ import Cam.App.Slicer.Strategy.Strategies.Hatch;
 export namespace Cam::App {
 
     using namespace Rev::Core;
-    using Segment = Slicer::Strategy::Slice::Segment;
 
     struct ToolPathPoint {
         Pos3 position = {};
@@ -248,16 +247,27 @@ export namespace Cam::App {
             assignPointTimes();
         }
 
-        static void sampleSegmentUv(const Segment& segment, std::vector<Pos>& out, int samples = 24) {
+        // Sample one stoicheion in TRAVEL order (edgePointAt walks the edge's
+        // own direction, so arcs and exotic curves come out the way the tool
+        // actually moves).
+        static void sampleEdgeUv(const Geo::Stoicheion& edge, std::vector<Pos>& out, int samples = 24) {
 
-            if (segment.kind == Segment::Kind::Line) {
-                out.push_back(segment.start());
-                out.push_back(segment.end());
+            if (edge.type() == Geo::SKind::Segment) {
+                out.push_back(Geo::Chain::eStart(edge));
+                out.push_back(Geo::Chain::eEnd(edge));
                 return;
             }
 
             for (int i = 0; i <= samples; i++) {
-                out.push_back(segment.at(float(i) / float(samples)));
+                out.push_back(Geo::Chain::edgePointAt(edge, float(i) / float(samples)));
+            }
+        }
+
+        // A whole chain as a travel-ordered polyline.
+        static void sampleChainUv(const Geo::Chain& chain, std::vector<Pos>& out) {
+
+            for (const auto& e : chain.edges) {
+                sampleEdgeUv(*e, out);
             }
         }
 
@@ -324,13 +334,22 @@ export namespace Cam::App {
                     continue;
                 }
 
-                for (const Segment& segment : layer.segments) {
+                for (const Geo::Chain& chain : layer.chains) {
 
                     pts.clear();
-                    sampleSegmentUv(segment, pts);
+                    sampleChainUv(chain, pts);
 
                     if (pts.empty()) { continue; }
 
+                    // A RETRACT link is a tagged traversal, not a cut: the slice
+                    // strategy says "get to this link's end without cutting" --
+                    // the safe-Z machinery (retract, rapid, plunge) performs it.
+                    if (chain.link == Geo::LinkKind::Retract) {
+                        moveTo(pts.back(), layer.z);
+                        continue;
+                    }
+
+                    // Ordinary cuts and CUT links (tool stays down) cut through.
                     moveTo(pts.front(), layer.z);
 
                     for (size_t i = 1; i < pts.size(); i++) {
@@ -372,9 +391,11 @@ export namespace Cam::App {
                     addUv(uv);
                 }
 
-                for (const Segment& segment : layer.segments) {
-                    addUv(segment.start());
-                    addUv(segment.end());
+                for (const Geo::Chain& chain : layer.chains) {
+                    for (const auto& e : chain.edges) {
+                        addUv(Geo::Chain::eStart(*e));
+                        addUv(Geo::Chain::eEnd(*e));
+                    }
                 }
             }
 

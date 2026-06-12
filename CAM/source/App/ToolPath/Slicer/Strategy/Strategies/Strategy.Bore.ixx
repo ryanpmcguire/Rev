@@ -1,6 +1,7 @@
 module;
 
 #include <vector>
+#include <memory>
 #include <cmath>
 #include <cstddef>
 
@@ -19,13 +20,14 @@ export module Cam.App.Slicer.Strategy.Strategies.Bore;
 import Cam.App.Model;
 import Cam.App.Slicer.Strategy.Strategy;
 import Cam.App.Slicer.Strategy.Slice.Slice;
-import Cam.App.Slicer.Strategy.Slice.Profile;
 
 export namespace Cam::App::Slicer::Strategy::Strategies {
 
     using SliceLayer = Slice::Slice;
-    using SliceProfile = Slice::Profile;
 
+    // The BORE strategy: detection is OCC-native (coaxial cylindrical faces);
+    // the clearing itself is the shared Geo::SliceStrategy -- a bore is just a
+    // region cleared concentrically inward, with no keep-out and no open air.
     struct Bore : Strategy {
 
         static constexpr const char* name() { return "Bore"; }
@@ -106,19 +108,31 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
         void processSlice(SliceLayer& slice, const StrategyContext& ctx) {
 
             slice.resetProfiles();
-            slice.geometricProfile = SliceProfile(slice.source);
 
-            if (slice.geometricProfile.empty()) {
-                return;
-            }
+            if (slice.source.empty()) { return; }
 
-            slice.boundaryProfile =
-                slice.geometricProfile.inset(toolRadius(ctx));
+            const float radius = toolRadius(ctx);
 
-            slice.profiles.push_back(slice.geometricProfile);
-            slice.profiles.push_back(slice.boundaryProfile);
+            // Condition: doctrine orientation only. A bore's region is the
+            // hole's interior; there is no keep-out section and no open air.
+            Geo::Profile seed;
+            seed.chains = Geo::Chain::build(slice.source);
 
-            appendConcentricInsets(slice, ctx, slice.boundaryProfile);
+            orientByNesting(seed);
+
+            Geo::SliceParams params;
+            params.kind = Geo::StrategyKind::Profile;
+            params.toolRadius = radius;
+            params.stepover = (radius > 1e-6f) ? stepoverDistance(ctx) / radius : 1.0f;
+            params.maxGenerations = 256;
+            params.reverse = false;
+            params.climb = ctx.climbMilling;
+
+            Geo::SliceStrategy strategy(params);
+            strategy.ingest(std::move(seed));
+            strategy.run();
+
+            slice.result = std::move(strategy.result);
         }
 
         // Paths
@@ -130,16 +144,16 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
             for (const SliceLayer& slice : slices_) {
 
+                if (slice.result.toolpath.empty()) { continue; }
+
                 LayerPath layer;
                 layer.z = slice.z;
 
-                for (size_t i = 2; i < slice.profiles.size(); i++) {
-                    slice.profiles[i].appendSegments(layer.segments, ctx.climbMilling);
+                for (const Geo::Chain& c : slice.result.toolpath) {
+                    layer.chains.push_back(c.clone());
                 }
 
-                if (layer.segments.empty()) { continue; }
-
-                paths_.push_back(layer);
+                paths_.push_back(std::move(layer));
             }
         }
     };

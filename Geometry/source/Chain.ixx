@@ -338,6 +338,53 @@ export namespace Geo {
             out.push_back((mid + perp).f());
             if (h > 1e-12) { out.push_back((mid - perp).f()); }
         }
+        // Numerical hygiene for the blind offset, applied while CONSTRUCTING the
+        // raw curve, before the crossing walk ever sees it. Real STEP files
+        // routinely section into systems of PRACTICALLY TANGENT spans (a cylinder
+        // arriving as several mutually tangent arcs), and offsetting such seams
+        // must never manufacture degenerate join loops.
+        //
+        //   * fuseCloseTangencies: at a seam whose corner angle is nearly zero
+        //     (near-exact tangency), no join arc is constructed -- the two offset
+        //     endpoints are simply FUSED to their average (a sliver join loop
+        //     there is pure numerical poison, and the fused error is sub-micron
+        //     at real part scales).
+        //
+        //   * pruneSmallFeatures: an offset edge that has collapsed to (near)
+        //     nothing -- e.g. an arc of radius 0.5 inset by 0.5 -- is dropped,
+        //     and its neighbours join directly.
+        //
+        static constexpr bool fuseCloseTangencies = true;
+        static constexpr bool pruneSmallFeatures = true;
+        static constexpr float FuseSin = 1e-3f;        // sin of the seam angle below which we fuse
+        static constexpr float PruneLength = 1e-3f;    // edges shorter than this are degenerate
+
+        // Move an offset edge's travel endpoint (for fusing seams). An arc
+        // re-seats the endpoint on its own circle; an offset ellipse cannot (its
+        // endpoints are parameter-defined) and reports false.
+        static bool setEdgeStart(Stoicheion& e, Pos p) {
+            if (isArc(e)) {
+                Arc2* a = static_cast<Arc2*>(&e);
+                float r = a->radius();
+                if (r > 1e-9f) { a->a = a->c + (p - a->c).normalized() * r; }
+                return true;
+            }
+            if (isCircle(e) || isOffEll(e)) { return false; }
+            static_cast<Segment2*>(&e)->a = p;
+            return true;
+        }
+        static bool setEdgeEnd(Stoicheion& e, Pos p) {
+            if (isArc(e)) {
+                Arc2* a = static_cast<Arc2*>(&e);
+                float r = a->radius();
+                if (r > 1e-9f) { a->b = a->c + (p - a->c).normalized() * r; }
+                return true;
+            }
+            if (isCircle(e) || isOffEll(e)) { return false; }
+            static_cast<Segment2*>(&e)->b = p;
+            return true;
+        }
+
         // The *raw* offset, done BLINDLY: every edge slides to the LEFT of its own
         // travel direction by `amount` -- no winding test, no preferred side. The
         // chain's chirality alone decides what that means: a CCW loop's interior is
@@ -345,9 +392,6 @@ export namespace Geo {
         // right, so the very same operation offsets it outward. Inset vs outset is
         // emergent, never inferred. The result may self-intersect; those crossings
         // are the raw material for the chain extraction to come.
-        //
-        // Lines only for now (segments in, segments + join arcs out); arcs, circles
-        // and ellipses rejoin once the line case is settled.
         Chain offsetRaw(float amount) const {
             Chain result;
             if (edges.empty()) { return result; }
@@ -356,13 +400,17 @@ export namespace Geo {
             // A lone full circle is its own closed loop: no corners, just the blind
             // concentric left-offset (its own chirality decides inset vs outset).
             if (edges.size() == 1 && isCircle(*edges.front())) {
-                result.edges.push_back(offsetLeft(*edges.front(), amount));
+                std::unique_ptr<Stoicheion> o = offsetLeft(*edges.front(), amount);
+                if (pruneSmallFeatures && edgeLength(*o) < PruneLength) { return result; }   // extinct
+                result.edges.push_back(std::move(o));
                 return result;
             }
 
             // A lone full-span offset ellipse likewise: closed, no corners.
             if (edges.size() == 1 && isOffEll(*edges.front()) && asOff(*edges.front())->fullLoop()) {
-                result.edges.push_back(offsetLeft(*edges.front(), amount));
+                std::unique_ptr<Stoicheion> o = offsetLeft(*edges.front(), amount);
+                if (pruneSmallFeatures && edgeLength(*o) < PruneLength) { return result; }   // extinct
+                result.edges.push_back(std::move(o));
                 return result;
             }
 
@@ -376,10 +424,23 @@ export namespace Geo {
             }
 
             std::vector<std::unique_ptr<Stoicheion>> off;
+            std::vector<size_t> src;                   // off[i] came from edges[src[i]]
             off.reserve(edges.size());
-            for (const auto& e : edges) { off.push_back(offsetLeft(*e, amount)); }
+            src.reserve(edges.size());
+            for (size_t i = 0; i < edges.size(); i++) {
+                std::unique_ptr<Stoicheion> o = offsetLeft(*edges[i], amount);
+
+                // pruneSmallFeatures: an edge that collapsed to (near) nothing
+                // under the offset generates no geometry -- its neighbours will
+                // join directly across the hole it leaves.
+                if (pruneSmallFeatures && edgeLength(*o) < PruneLength) { continue; }
+
+                off.push_back(std::move(o));
+                src.push_back(i);
+            }
 
             const size_t n = off.size();
+            if (n == 0) { return result; }
             const size_t corners = closed ? n : (n > 0 ? n - 1 : 0);
 
             // The uniform construction: at EVERY corner insert the arc that *continues*
@@ -394,10 +455,31 @@ export namespace Geo {
             // mitre points -- the crossings the extraction step will cut at.
             std::vector<std::unique_ptr<Stoicheion>> joinArc(corners);
             for (size_t k = 0; k < corners; k++) {
-                Pos corner = eEnd(*edges[k]);                         // the original corner
+                Pos corner = eEnd(*edges[src[k]]);                    // the original corner
                 Pos endA = eEnd(*off[k]);
                 Pos startB = eStart(*off[(k + 1) % n]);
                 if ((endA - startB).pythag() < 1e-4f) { continue; }   // tangent-continuous: already joined
+
+                // fuseCloseTangencies: a seam whose corner angle is nearly zero
+                // (practically tangent spans, the signature of STEP-derived
+                // sections) gets NO join loop -- the offset endpoints are fused
+                // to their average. Where an endpoint cannot move (an offset
+                // ellipse), a straight micro-segment seals the seam instead.
+                if (fuseCloseTangencies) {
+                    Pos ta = eEndDir(*off[k]);
+                    Pos tb = eStartDir(*off[(k + 1) % n]);
+                    if (std::fabs(ta.cross(tb)) < FuseSin && ta.dot(tb) > 0.0f) {
+                        Pos mid = (endA + startB) * 0.5f;
+                        bool aOk = setEdgeEnd(*off[k], mid);
+                        bool bOk = setEdgeStart(*off[(k + 1) % n], mid);
+                        if (!aOk || !bOk) {
+                            joinArc[k] = std::make_unique<Segment2>(
+                                eEnd(*off[k]), eStart(*off[(k + 1) % n]));
+                        }
+                        continue;
+                    }
+                }
+
                 // All angle math in DOUBLE: a nearly-complete around-the-bend arc
                 // subtracts two nearly-equal angles, which float cannot survive.
                 dPos C(corner);

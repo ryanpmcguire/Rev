@@ -1,34 +1,44 @@
 module;
 
 #include <vector>
+#include <memory>
 
 export module Cam.App.Slicer.Strategy.Slice.Slice;
 
 import Rev.Core.Pos;
 
-import Cam.App.Slicer.Strategy.Slice.Segment2;
-import Cam.App.Slicer.Strategy.Slice.Profile;
+import Geo.Strategy;
 
 export namespace Cam::App::Slicer::Strategy::Slice {
 
     using namespace Rev::Core;
 
+    // One planar slice of the model. ALL of its 2D geometry is Geo stoicheia
+    // and chains: the OpenCASCADE section is converted once at ingestion
+    // (SliceSource) and nothing downstream ever represents it any other way.
     struct Slice {
 
         float z = 0.0f;
 
-        // Bounds of source segments in XY.
+        // Bounds of source edges in XY.
         Pos min = {};
         Pos max = {};
         bool valid = false;
 
-        // Raw section edges at this Z height.
-        std::vector<Segment> source;
+        // Raw section edges at this Z height, at face value (lines stay lines,
+        // arcs stay arcs, full circles stay circles).
+        std::vector<std::unique_ptr<Geo::Stoicheion>> source;
 
-        // Derived profiles used by strategies.
-        Profile geometricProfile;
-        Profile boundaryProfile;
-        std::vector<Profile> profiles;
+        // The slice strategy's complete result: display profiles per
+        // generation, per-step sanity verdicts, and the slice's FINAL toolpath
+        // -- ordered, link-tagged chains whose sequence and travel direction
+        // ARE the tool's motion at this Z (climb sense, execution order and
+        // entry points already resolved). This is what the 3D layer consumes.
+        Geo::SliceResult result;
+
+        Slice() = default;
+        Slice(Slice&&) = default;
+        Slice& operator=(Slice&&) = default;
 
         // State
         //--------------------------------------------------
@@ -44,10 +54,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         }
 
         void resetProfiles() {
-
-            geometricProfile.clear();
-            boundaryProfile.clear();
-            profiles.clear();
+            result.clear();
         }
 
         bool empty() const {
@@ -55,7 +62,7 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         }
 
         bool hasProfiles() const {
-            return !geometricProfile.empty() || !boundaryProfile.empty() || !profiles.empty();
+            return !result.profiles.empty() || !result.toolpath.empty();
         }
 
         // Bounds
@@ -76,43 +83,23 @@ export namespace Cam::App::Slicer::Strategy::Slice {
             max = Pos::max(max, p);
         }
 
-        void includeSegment(const Segment& s, int samples = 24) {
-            if (s.kind == Segment::Kind::Line) {
-                includePoint(s.start());
-                includePoint(s.end());
-                return;
-            }
+        void addEdge(std::unique_ptr<Geo::Stoicheion> e) {
 
-            if (samples < 1) { samples = 1; }
+            if (!e) { return; }
 
-            for (int i = 0; i <= samples; i++) {
-                includePoint(s.pointAt(float(i) / float(samples)));
-            }
-        }
+            std::vector<Pos> pts;
+            e->tessellate(pts);
 
-        void addSegment(const Segment& s) {
+            for (const Pos& p : pts) { includePoint(p); }
 
-            if (!s.valid()) { return; }
-
-            source.push_back(s);
-            includeSegment(s);
+            source.push_back(std::move(e));
         }
 
         void addLine(const Pos& a, const Pos& b) {
-            addSegment(Segment::Line(a, b));
-        }
 
-        void setSource(const std::vector<Segment>& segments) {
-            source.clear();
-            resetProfiles();
+            if ((b - a).pythag() <= 1e-6f) { return; }
 
-            min = {};
-            max = {};
-            valid = false;
-
-            for (const Segment& s : segments) {
-                addSegment(s);
-            }
+            addEdge(std::make_unique<Geo::Segment2>(a, b));
         }
     };
 }

@@ -1,6 +1,7 @@
 module;
 
 #include <vector>
+#include <memory>
 #include <cmath>
 
 #include <gp_Pln.hxx>
@@ -25,10 +26,10 @@ export module Cam.App.Slicer.Strategy.SliceSource;
 import Rev.Core.Pos;
 import Rev.Core.Pos3;
 
+import Geo.Strategy;
+
 import Cam.App.Model;
 import Cam.App.Slicer.Strategy.CutFrame;
-import Cam.App.Slicer.Strategy.Slice.Segment2;
-
 import Cam.App.Slicer.Strategy.Slice.Slice;
 
 export namespace Cam::App::Slicer::Strategy {
@@ -36,8 +37,12 @@ export namespace Cam::App::Slicer::Strategy {
     using namespace Rev::Core;
 
     using SliceLayer = Slice::Slice;
-    using SliceSegment = Slice::Segment;
 
+    // The OCC -> stoicheia frontier: the ONLY place a slice's 2D geometry is
+    // anything other than Geo stoicheia. Section edges convert at face value:
+    // lines stay lines, partial circles become one Arc2 (chirality in the
+    // through-point), full circles become a genuine Circle2 (chirality in the
+    // marker), and everything else tessellates into segment runs.
     struct SliceSource {
 
         // Conversion
@@ -78,29 +83,45 @@ export namespace Cam::App::Slicer::Strategy {
 
             if (std::abs(span) <= 1e-9) { return false; }
 
-            // Polar angle of the edge start in slice (u,v). OCCT curve parameters
-            // are not UV polar angles once the slice plane is re-oriented, but the
-            // parameter span still equals the true angular sweep along the circle.
-            float a0 = frame.uvAngle(center, pFirst);
-
-            Pos pMid = uvFromGp(curve.Value(first + span * 0.5), frame, depth);
+            // Orientation of the sweep in UV, probed at the QUARTER point -- never
+            // the midpoint: cross(r0, rMid) ~ sin(span/2), which is ZERO for a
+            // full circle (span = 2*pi), making the sign of the test pure float
+            // noise -- full circles came out with random directionality. The
+            // quarter point's cross ~ sin(span/4) is strictly positive for every
+            // span up to 4*pi, and maximal exactly at the full-circle case.
+            Pos pQuarter = uvFromGp(curve.Value(first + span * 0.25), frame, depth);
 
             Pos r0 = pFirst - center;
-            Pos rMid = pMid - center;
+            Pos rQ = pQuarter - center;
 
-            float cross = r0.x * rMid.y - r0.y * rMid.x;
+            float cross = r0.x * rQ.y - r0.y * rQ.x;
 
-            float sweep = static_cast<float>(span);
+            int chir = (cross >= 0.0f) ? 1 : -1;
 
-            if (cross < 0.0f) {
-                sweep = -sweep;
+            // A FULL CIRCLE (whole-turn sweep, start == end) is a genuine
+            // Circle2 -- chirality lives in the quarter marker.
+            if (std::abs(span) >= Geo::TAU - 1e-3) {
+
+                Pos marker = (chir > 0)
+                    ? center + Pos(-r0.y, r0.x)
+                    : center + Pos(r0.y, -r0.x);
+
+                slice.addEdge(std::make_unique<Geo::Circle2>(center, pFirst, marker));
+
+                return true;
             }
 
-            float aMid = a0 + sweep * 0.5f;
-            float a1 = a0 + sweep;
+            // A partial circle is a single Arc2: endpoints from the curve,
+            // chirality carried by the mid-sweep through-point.
+            Pos pLast = uvFromGp(curve.Value(last), frame, depth);
+            Pos pMid = uvFromGp(curve.Value(first + span * 0.5), frame, depth);
 
-            slice.addSegment(SliceSegment::Arc(center, radius, a0, aMid));
-            slice.addSegment(SliceSegment::Arc(center, radius, aMid, a1));
+            // Re-seat all three exactly on the circle so the arc is true.
+            Pos a = center + (pFirst - center).normalized() * radius;
+            Pos b = center + (pLast - center).normalized() * radius;
+            Pos d = center + (pMid - center).normalized() * radius;
+
+            slice.addEdge(std::make_unique<Geo::Arc2>(center, a, b, d));
 
             return true;
         }
@@ -220,7 +241,7 @@ export namespace Cam::App::Slicer::Strategy {
             }
 
             dbg(
-                "[SliceSource] depth=%.3f edges=%zu segments=%zu lines=%zu circles=%zu sampled=%zu",
+                "[SliceSource] depth=%.3f edges=%zu stoicheia=%zu lines=%zu circles=%zu sampled=%zu",
                 depth,
                 edges,
                 slice.source.size(),

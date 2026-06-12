@@ -30,9 +30,9 @@ export namespace Cam::Gui {
     namespace TabViewStyle {
 
         Style Self = {
-            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False, CrossAlign::True },
             .size = { .width = 100_pct },
-            .margin = { 4_px, 4_px, 0_px, 4_px },
+            //.margin = { 4_px, 4_px, 0_px, 4_px },
             .padding = { 8_px, 8_px, 0_px, 0_px }
         };
 
@@ -51,7 +51,7 @@ export namespace Cam::Gui {
 
         Style TabsHost = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
-            .size = { .height = 100_pct },
+            //.size = { .height = 100_pct },
             .margin = { .right = 8_px }
         };
 

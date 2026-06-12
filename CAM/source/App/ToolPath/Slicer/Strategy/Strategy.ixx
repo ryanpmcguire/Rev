@@ -1,8 +1,10 @@
 module;
 
 #include <vector>
+#include <memory>
 #include <cstddef>
 #include <cmath>
+#include <algorithm>
 
 #include <dbg.hpp>
 
@@ -12,14 +14,13 @@ import Rev.Core.Pos;
 import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
+export import Geo.Strategy;
+
 import Cam.App.Model;
 import Cam.App.Tool;
 
 import Cam.App.Slicer.Strategy.CutFrame;
 import Cam.App.Slicer.Strategy.Slice.Slice;
-import Cam.App.Slicer.Strategy.Slice.Segment2;
-import Cam.App.Slicer.Strategy.Slice.Chain;
-import Cam.App.Slicer.Strategy.Slice.Profile;
 import Cam.App.Slicer.Strategy.SliceSource;
 
 export namespace Cam::App::Slicer::Strategy {
@@ -27,14 +28,14 @@ export namespace Cam::App::Slicer::Strategy {
     using namespace Rev::Core;
 
     using SliceLayer = Slice::Slice;
-    using Segment = Slice::Segment;
-    using Chain = Slice::Chain;
-    using SliceProfile = Slice::Profile;
 
+    // One Z layer of tool motion: ordered, link-tagged Geo chains whose
+    // sequence and travel direction ARE the tool's motion (`chains`), or a
+    // pre-sampled polyline (`points`) for strategies that emit raw moves.
     struct LayerPath {
 
         float z = 0.0f;
-        std::vector<Segment> segments;
+        std::vector<Geo::Chain> chains;
         std::vector<Pos> points;
     };
 
@@ -54,6 +55,10 @@ export namespace Cam::App::Slicer::Strategy {
 
     // Base class for slice/profile/path generation.
     struct Strategy {
+
+        Strategy() = default;
+        Strategy(Strategy&&) = default;
+        Strategy& operator=(Strategy&&) = default;
 
         virtual ~Strategy() = default;
 
@@ -128,7 +133,7 @@ export namespace Cam::App::Slicer::Strategy {
                     continue;
                 }
 
-                strategy.slices_.push_back(slice);
+                strategy.slices_.push_back(std::move(slice));
             }
 
             strategy.buildPaths(ctx);
@@ -197,58 +202,90 @@ export namespace Cam::App::Slicer::Strategy {
             return distance;
         }
 
-        // Concentric clearing
+        // Conditioning (OCC section -> doctrine-oriented Geo chains)
         //--------------------------------------------------
 
-        // How many levels of self-intersection fracturing we allow before
-        // abandoning a region.  Kept small for now.
-        static constexpr int MaxSplitDepth = 2;
+        // Doctrine orientation: a mesh section's winding is arbitrary, so chains
+        // are conditioned AT THE DOOR -- nesting depth by exact winding around
+        // each chain's own extreme point; even depth = region boundary (CCW),
+        // odd depth = keep-island (CW). After this, the engine never reorients
+        // anything: handedness is the meaning.
+        static void orientByNesting(Geo::Profile& p) {
 
-        // Append concentric clearing rings for `start` to the slice.  Each ring
-        // (entry) is cleared independently and depth-first by Chain: it is
-        // offset toward the cut interior pass after pass, and whenever an offset
-        // self-intersects it fractures into the minimum set of simple loops, each
-        // of which is then cleared on its own before we back up to the next.
-        // Outer boundaries clear inward; holes are emitted once (region-aware
-        // hole clearing is deferred).
-        void appendConcentricInsets(
-            SliceLayer& slice,
-            const StrategyContext& ctx,
-            const SliceProfile& start
-        ) {
-            const float stepover = stepoverDistance(ctx);
-            const float minPassArea = stepover * stepover;
+            for (Geo::Chain& c : p.chains) {
 
-            for (const SliceProfile::Entry& entry : start.entries) {
+                if (!c.closed || c.edges.empty()) { continue; }
 
-                if (entry.open()) { continue; }
+                Pos probe = Geo::Chain::loopMaxXPoint(c);
+                int depth = 0;
 
-                std::vector<Chain> rings;
-
-                // The boundary ring itself is the first cleared pass.
-                rings.push_back(entry.chain);
-
-                if (entry.role != SliceProfile::ChainRole::Hole) {
-
-                    entry.chain.gatherConcentric(
-                        rings,
-                        stepover,
-                        minPassArea,
-                        /*interior*/ true,
-                        entry.chain.windingSign(),
-                        /*splitDepth*/ 0,
-                        MaxSplitDepth
-                    );
+                for (const Geo::Chain& other : p.chains) {
+                    if (&other == &c || !other.closed) { continue; }
+                    if (other.windingAround(probe) != 0) { depth += 1; }
                 }
 
-                for (const Chain& ring : rings) {
+                int desired = (depth % 2 == 0) ? 1 : -1;
+                if (c.turningSign() != desired) { c = c.reversed(); }
+            }
+        }
 
-                    SliceProfile profile;
-                    profile.push(ring, entry.role);
+        // True when an edge lies ALONG the keep-out section (majority of its
+        // samples within eps), not merely touching it at a corner.
+        static bool edgeCoincident(
+            const Geo::Stoicheion& e,
+            const std::vector<std::unique_ptr<Geo::Stoicheion>>& keepOut,
+            float eps,
+            int samples = 8
+        ) {
+            if (keepOut.empty()) { return false; }
 
-                    slice.profiles.push_back(profile);
+            int near = 0;
+
+            for (int i = 0; i <= samples; i++) {
+
+                Pos p = Geo::Chain::edgePointAt(e, float(i) / float(samples));
+
+                float best = 1e30f;
+                for (const auto& o : keepOut) { best = std::min(best, o->distanceTo(p)); }
+
+                if (best <= eps) { near += 1; }
+            }
+
+            return near * 2 >= (samples + 1);
+        }
+
+        // Mark the free-space edges of region boundaries open-air. A keep-island
+        // (CW) hugs keep-material all the way round, so it is never open-air --
+        // the engine grows it away from the island naturally.
+        static void markOpenAir(
+            Geo::Profile& p,
+            const std::vector<std::unique_ptr<Geo::Stoicheion>>& keepOut,
+            float nearEps = 1e-3f
+        ) {
+            for (Geo::Chain& c : p.chains) {
+
+                if (!c.closed || c.turningSign() <= 0) { continue; }   // outer (CCW) chains only
+
+                for (auto& e : c.edges) {
+                    if (!edgeCoincident(*e, keepOut, nearEps)) { e->openAir = true; }
                 }
             }
+        }
+
+        // Section the negative keep-out model at `z`, returning its raw edges
+        // in slice (u,v).  Empty when there is no negative model or it misses
+        // this height.
+        static std::vector<std::unique_ptr<Geo::Stoicheion>> keepOutSection(const StrategyContext& ctx, float z) {
+
+            if (!ctx.negative) { return {}; }
+
+            SliceLayer negSlice;
+
+            if (!SliceSource::build(*ctx.negative, ctx.frame, z, negSlice)) {
+                return {};
+            }
+
+            return std::move(negSlice.source);
         }
 
         // Output
