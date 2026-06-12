@@ -116,8 +116,11 @@ export namespace Rev::Element {
         }
 
         void computeStyle(Event& e) override {
-
-
+            if (placeholder && text) {
+                bool hasText = !text->content.get().empty();
+                placeholder->style->size.width = hasText ? Px(0) : Dist{};
+                placeholder->style->overflow   = hasText ? Overflow::Hide : Overflow::Show;
+            }
         }
     };
 };

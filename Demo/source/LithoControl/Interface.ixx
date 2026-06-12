@@ -569,6 +569,7 @@ export namespace LithoControl {
         std::atomic<int>  frameTotal { 0 };
         std::atomic<bool> abortFlag  { false };
         std::atomic<bool> estopped   { false };   // latched by E-STOP, cleared by RESET
+        std::atomic<bool> resetting  { false };   // true while sendReset thread is running
         std::atomic<bool> jobRunning { false };   // true while runStm32Job is executing
         std::thread       jobThread;
         HANDLE            jobThreadHandle = nullptr;  // for CancelSynchronousIo on E-STOP
@@ -671,6 +672,7 @@ export namespace LithoControl {
         Text*      posZLabel      = nullptr;
         std::atomic<bool> posUpdatePending { false };
         std::string pendingPosX, pendingPosY, pendingPosZ;
+        std::string cachedWCO = "0,0,0";   // last WCO seen from FluidNC ? response
         std::mutex  posMtx;
 
         // Status
@@ -690,6 +692,24 @@ export namespace LithoControl {
         // Job list scroll
         float jobListScrollY    = 0.0f;
         Box*  jobListContent    = nullptr;
+
+        // HDMI Passthrough
+        struct HdmiDisplay { std::string devName; std::string label; RECT rect; };
+        std::vector<HdmiDisplay> hdmiDisplays;
+        Checkbox*   hdmiPassthroughChk = nullptr;
+        Box*        hdmiDisplayRow     = nullptr;
+        Dropdown*   hdmiDisplayDrop    = nullptr;
+        HWND        hdmiHwnd           = nullptr;
+        std::thread hdmiWinThread;
+        std::atomic<bool> hdmiWinRunning { false };
+        std::mutex        hdmiFrameMtx;
+        std::vector<uint8_t> hdmiCurrentFrame;  // 28800-byte 1bpp; empty = blank
+        bool              hdmiIsBlank    = true;
+
+        bool hdmiPassthrough() const {
+            return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
+                && hdmiHwnd != nullptr;
+        }
 
         // Sidebar collapse + drag resize
         bool   sidebarCollapsed      = false;
@@ -818,6 +838,10 @@ export namespace LithoControl {
             Box* connBody = nullptr;
             makeSection(sidebarContent, "CONNECTION", connBody, false);
             buildConnectionPanel(connBody);
+
+            Box* dispBody = nullptr;
+            makeSection(sidebarContent, "DISPLAY OUTPUT", dispBody, false);
+            buildDisplayPanel(dispBody);
 
             Box* slicerBody = nullptr;
             makeSection(sidebarContent, "SLICER", slicerBody, false);
@@ -1021,6 +1045,200 @@ export namespace LithoControl {
             updatePlatformRows();
         }
 
+        // -- Display output panel ----------------------------------------------
+
+        void buildDisplayPanel(Box* body) {
+
+            hdmiPassthroughChk = new Checkbox(body, { .label = "HDMI Passthrough", .def = false });
+            hdmiPassthroughChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
+            hdmiPassthroughChk->label->style->text.size  = 11_px;
+
+            // Display selector row -- only visible when checkbox is on
+            hdmiDisplayRow = new Box(body);
+            hdmiDisplayRow->style->layout    = { Axis::Vertical, Align::Start, Align::Start };
+            hdmiDisplayRow->style->size.width = 100_pct;
+            hdmiDisplayRow->style->margin.top = 6_px;
+            hdmiDisplayRow->style->visibility = Visibility::Hidden;
+
+            Text* dispLbl = new Text(hdmiDisplayRow, "DISPLAY");
+            dispLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+            dispLbl->style->text.size     = 9_px;
+            dispLbl->style->margin.bottom = 4_px;
+
+            hdmiDisplayDrop = new Dropdown(hdmiDisplayRow, {
+                .options = {}, .placeholder = "Scan for displays...", .value = ""
+            });
+            hdmiDisplayDrop->label->style->visibility = Visibility::Hidden;
+
+            Box* btnRow = new Box(hdmiDisplayRow, { &Theme::RowH });
+            btnRow->style->margin.top = 4_px;
+            makeBtn(btnRow, "SCAN",     [this]() { scanDisplays(); });
+            makeBtn(btnRow, "640x360",  [this]() { setDisplayResolution(); });
+            makeBtn(btnRow, "OPEN",     [this]() { openHdmiWindow(); });
+            makeBtn(btnRow, "CLOSE",    [this]() { closeHdmiWindow(); });
+        }
+
+        void scanDisplays() {
+            hdmiDisplays.clear();
+            DISPLAY_DEVICEA dd{};
+            dd.cb = sizeof(dd);
+            std::vector<Dropdown::Option> opts;
+            for (DWORD i = 0; EnumDisplayDevicesA(nullptr, i, &dd, 0); ++i) {
+                if (!(dd.StateFlags & DISPLAY_DEVICE_ACTIVE)) continue;
+                DEVMODEA dm{};
+                dm.dmSize = sizeof(dm);
+                EnumDisplaySettingsA(dd.DeviceName, ENUM_CURRENT_SETTINGS, &dm);
+                RECT r{ (LONG)dm.dmPosition.x, (LONG)dm.dmPosition.y,
+                        (LONG)(dm.dmPosition.x + (LONG)dm.dmPelsWidth),
+                        (LONG)(dm.dmPosition.y + (LONG)dm.dmPelsHeight) };
+                bool primary = !!(dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE);
+                std::string lbl = std::string(dd.DeviceName) + "  " +
+                    std::to_string(dm.dmPelsWidth) + "x" + std::to_string(dm.dmPelsHeight) +
+                    (primary ? "  (primary)" : "");
+                hdmiDisplays.push_back({ std::string(dd.DeviceName), lbl, r });
+                opts.push_back({ lbl, std::string(dd.DeviceName) });
+                logQ.push("[DISP] " + lbl);
+            }
+            if (hdmiDisplayDrop) hdmiDisplayDrop->params.options = opts;
+        }
+
+        void setDisplayResolution() {
+            if (!hdmiDisplayDrop) return;
+            std::string dev = hdmiDisplayDrop->params.value;
+            if (dev.empty()) { logQ.push("[DISP] No display selected"); return; }
+            DEVMODEA dm{};
+            dm.dmSize       = sizeof(dm);
+            dm.dmPelsWidth  = 640;
+            dm.dmPelsHeight = 360;
+            dm.dmBitsPerPel = 32;
+            dm.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+            LONG r = ChangeDisplaySettingsExA(dev.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY, nullptr);
+            if (r == DISP_CHANGE_SUCCESSFUL)
+                logQ.push("[DISP] Set 640x360 OK on " + dev);
+            else
+                logQ.push("[DISP] Set resolution failed (" + std::to_string(r) + ")");
+        }
+
+        // ---- HDMI fullscreen window ------------------------------------------
+
+        static LRESULT CALLBACK HdmiWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+            static const UINT WM_LITHO_FRAME = WM_USER + 1;
+            if (msg == WM_CREATE) {
+                auto* cs = reinterpret_cast<CREATESTRUCTA*>(lp);
+                SetWindowLongPtrA(hwnd, GWLP_USERDATA, (LONG_PTR)cs->lpCreateParams);
+                return 0;
+            }
+            auto* self = reinterpret_cast<Interface*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
+            if (msg == WM_LITHO_FRAME || msg == WM_PAINT) {
+                PAINTSTRUCT ps;
+                HDC hdc = (msg == WM_PAINT) ? BeginPaint(hwnd, &ps) : GetDC(hwnd);
+                RECT rc; GetClientRect(hwnd, &rc);
+                int ww = rc.right, wh = rc.bottom;
+                // Build 32bpp pixel buffer from current 1bpp frame
+                static std::vector<uint32_t> px;
+                px.assign(640 * 360, 0xFF000000u);
+                if (self) {
+                    std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
+                    if (!self->hdmiCurrentFrame.empty()) {
+                        const auto& bmp = self->hdmiCurrentFrame;
+                        for (int i = 0; i < 640 * 360; i++) {
+                            uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
+                            px[i] = bit ? 0xFFFFFFFFu : 0xFF000000u;
+                        }
+                    }
+                }
+                BITMAPINFO bmi{};
+                bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
+                bmi.bmiHeader.biWidth       = 640;
+                bmi.bmiHeader.biHeight      = -360;
+                bmi.bmiHeader.biPlanes      = 1;
+                bmi.bmiHeader.biBitCount    = 32;
+                bmi.bmiHeader.biCompression = BI_RGB;
+                StretchDIBits(hdc, 0, 0, ww, wh, 0, 0, 640, 360,
+                              px.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+                if (msg == WM_PAINT) EndPaint(hwnd, &ps);
+                else ReleaseDC(hwnd, hdc);
+                return 0;
+            }
+            if (msg == WM_KEYDOWN && wp == VK_ESCAPE) {
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            if (msg == WM_DESTROY) {
+                if (self) self->hdmiWinRunning = false;
+                PostQuitMessage(0);
+                return 0;
+            }
+            return DefWindowProcA(hwnd, msg, wp, lp);
+        }
+
+        void openHdmiWindow() {
+            if (hdmiHwnd) { logQ.push("[DISP] Window already open"); return; }
+            if (!hdmiDisplayDrop || hdmiDisplayDrop->params.value.empty()) {
+                logQ.push("[DISP] Select a display first"); return;
+            }
+            std::string dev = hdmiDisplayDrop->params.value;
+            RECT monRect{};
+            for (auto& d : hdmiDisplays)
+                if (d.devName == dev) { monRect = d.rect; break; }
+
+            hdmiWinRunning = true;
+            hdmiWinThread = std::thread([this, monRect]() {
+                HINSTANCE hinst = GetModuleHandleA(nullptr);
+                WNDCLASSA wc{};
+                wc.lpfnWndProc   = HdmiWndProc;
+                wc.hInstance     = hinst;
+                wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+                wc.lpszClassName = "LithoHdmi";
+                RegisterClassA(&wc);
+
+                int x = monRect.left, y = monRect.top;
+                int w = monRect.right  - monRect.left;
+                int h = monRect.bottom - monRect.top;
+                hdmiHwnd = CreateWindowExA(
+                    WS_EX_TOPMOST, "LithoHdmi", "LithoControl Projector",
+                    WS_POPUP | WS_VISIBLE,
+                    x, y, w, h, nullptr, nullptr, hinst, this);
+
+                if (!hdmiHwnd) { hdmiWinRunning = false; logQ.push("[DISP] Window create failed"); return; }
+                logQ.push("[DISP] Projector window open (ESC to close)");
+
+                MSG msg;
+                while (GetMessageA(&msg, nullptr, 0, 0)) {
+                    TranslateMessage(&msg);
+                    DispatchMessageA(&msg);
+                }
+                hdmiHwnd = nullptr;
+                UnregisterClassA("LithoHdmi", hinst);
+                logQ.push("[DISP] Projector window closed");
+            });
+            hdmiWinThread.detach();
+        }
+
+        void closeHdmiWindow() {
+            if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_CLOSE, 0, 0);
+        }
+
+        void renderBitmapToHdmi(const std::vector<uint8_t>& bmp) {
+            {
+                std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+                hdmiCurrentFrame = bmp;
+                hdmiIsBlank = false;
+            }
+            if (hdmiHwnd)
+                PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+        }
+
+        void blankHdmi() {
+            {
+                std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+                hdmiCurrentFrame.clear();
+                hdmiIsBlank = true;
+            }
+            if (hdmiHwnd)
+                PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+        }
+
         // -- Slicer panel ------------------------------------------------------
 
         void buildSlicerPanel(Box* body) {
@@ -1171,7 +1389,7 @@ export namespace LithoControl {
                 if (!jobListBox->rect.contains(e.mouse.pos)) return;
                 jobListScrollY -= (e.mouse.wheel.y / 120.0f) * 40.0f;
                 if (jobListScrollY < 0.0f) jobListScrollY = 0.0f;
-                float maxScroll = jobListInner->rect.h - jobListBox->rect.h;
+                float maxScroll = measureSpread(jobListInner) - jobListBox->rect.h;
                 if (maxScroll < 0.0f) maxScroll = 0.0f;
                 if (jobListScrollY > maxScroll) jobListScrollY = maxScroll;
                 jobListInner->style->position.top = Px(-jobListScrollY);
@@ -1357,6 +1575,7 @@ export namespace LithoControl {
             runnerLogTxt = new Text(runnerLogBox, "", { &Theme::LogText });
             runnerLogTxt->style->layout.position = Position::Absolute;
             runnerLogTxt->style->size.width      = 100_pct;
+            runnerLogTxt->style->position.left   = 6_px;
             runnerLogTxt->selectable = true;
             runnerLogBox->onMouseWheel([this](Rev::Element::Event& e) {
                 // The absolute log text overflows this box's bounds, which marks the
@@ -1406,6 +1625,7 @@ export namespace LithoControl {
             gcodeLogTxt = new Text(gcodeLogBox, "", { &Theme::GcodeText });
             gcodeLogTxt->style->layout.position = Position::Absolute;
             gcodeLogTxt->style->size.width      = 100_pct;
+            gcodeLogTxt->style->position.left   = 6_px;
             gcodeLogTxt->selectable = true;
             gcodeLogBox->onMouseWheel([this](Rev::Element::Event& e) {
                 if (!gcodeLogBox->rect.contains(e.mouse.pos)) return;
@@ -1506,7 +1726,10 @@ export namespace LithoControl {
             std::string msg;
             bool runnerUpdated = false;
             while (logQ.pop(msg)) {
-                logLines.push_back(msg);
+                SYSTEMTIME lt{}; GetLocalTime(&lt);
+                char ts[12];
+                std::snprintf(ts, sizeof(ts), "%02d:%02d:%02d ", lt.wHour, lt.wMinute, lt.wSecond);
+                logLines.push_back(std::string(ts) + msg);
                 if (logLines.size() > MAX_LOG) logLines.pop_front();
                 runnerUpdated = true;
             }
@@ -1616,6 +1839,12 @@ export namespace LithoControl {
                 jobListScrollY = 0.0f;
                 if (jobListInner) jobListInner->style->position.top = Px(0);
                 jobListDirty = false;
+            }
+
+            // Show/hide the display selector row based on the passthrough checkbox
+            if (hdmiPassthroughChk && hdmiDisplayRow) {
+                hdmiDisplayRow->style->visibility = hdmiPassthroughChk->value.get()
+                    ? Visibility::Inherit : Visibility::Hidden;
             }
 
             Box::computeChildren(e);
@@ -2056,8 +2285,19 @@ export namespace LithoControl {
                 uint8_t checksum = 0;
                 for (uint8_t b : bitmap) checksum ^= b;
 
-                // Pattern upload + exposure as one atomic serial transaction.
-                {
+                // Expose via HDMI passthrough or STM32 serial
+                if (hdmiPassthrough()) {
+                    // Render frame to projector display, sleep expose duration, blank
+                    renderBitmapToHdmi(bitmap);
+                    int elapsed = 0;
+                    while (elapsed < exposeMs) {
+                        if (abortFlag) { blankHdmi(); return; }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                        elapsed += 10;
+                    }
+                    blankHdmi();
+                } else {
+                    // Pattern upload + exposure as one atomic serial transaction.
                     std::lock_guard<std::mutex> lk(serialMtx);
 
                     stmSerial->sendText("PATTERN\n");
@@ -2160,14 +2400,14 @@ export namespace LithoControl {
             estopped  = true;
             abortFlag = true;
 
-            // Abort any in-flight serial read so a job thread blocked waiting on a
-            // gantry response returns immediately -- the job loop then stops at once
-            // instead of waiting out the device's move timeout. The serial handle is
-            // synchronous, so the read must be cancelled on its OWNING thread via
-            // CancelSynchronousIo; PurgeComm/CancelIoEx only cover overlapped I/O.
+            // CancelSynchronousIo on the owning thread is the correct way to unblock
+            // a synchronous ReadFile. stmSerial->cancel() (PurgeComm RXABORT +
+            // CancelIoEx) is NOT called here because it queues a second
+            // ERROR_OPERATION_ABORTED completion on the handle, which then causes the
+            // first two ReadFile calls in sendReset (BLANK, $X) to fail immediately
+            // even after ClearCommError, leaving FluidNC locked.
             if (jobRunning && jobThreadHandle) CancelSynchronousIo(jobThreadHandle);
             if (HANDLE gh = (HANDLE)gantryThreadHandle.load()) CancelSynchronousIo(gh);
-            if (stmSerial) stmSerial->cancel();
 
             dispState = 3;          // computeStyle renders the E-STOP label
             jobState  = JobState::Idle;
@@ -2190,6 +2430,8 @@ export namespace LithoControl {
         }
 
         void sendReset() {
+            if (resetting.exchange(true)) return;  // ignore if already resetting
+
             logQ.push("-> RESET");
 
             // Clear the latched E-STOP and restore the status label.
@@ -2202,25 +2444,52 @@ export namespace LithoControl {
 
             std::thread([this]() {
                 if (platform == Platform::STM32 && stmSerial) {
-                    // Purge any stale bytes (partial responses from commands that were
-                    // cancelled by E-STOP). Without this, a queued "OK" response would
-                    // be consumed by the first stmSendWait in a subsequent jog/job,
-                    // making it return immediately before the gantry actually moves.
-                    if (stmSerial->handle != INVALID_HANDLE_VALUE)
-                        PurgeComm(stmSerial->handle, PURGE_RXCLEAR | PURGE_TXCLEAR);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    // Hold serialMtx for the ENTIRE reset sequence so no jog or job
+                    // thread can interleave commands between the individual sends.
+                    std::lock_guard<std::mutex> lk(serialMtx);
 
-                    // Use proper send-and-wait for each command so responses are
-                    // consumed here and don't pollute subsequent operations.
-                    stmSendWait("BLANK\n", "OK", 3000);
-                    // Give FluidNC time to finish its soft-reset sequence after 0x18
-                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                    stmSendWait("GANTRY $X\n", "OK", 5000);
-                    stmSendWait("GANTRY G90\n", "OK", 5000);
+                    // Close and reopen the COM port. The STLink USB VCP driver can
+                    // enter a state after E-STOP (0x18 soft-reset) where ReadFile
+                    // returns immediately with empty data even after ClearCommError.
+                    // Reopening the handle is the only reliable way to reset it.
+                    std::string portName = stmSerial->port;
+                    delete stmSerial;
+                    stmSerial = nullptr;
+
+                    // Give the STM32 USB VCP time to re-enumerate if it bounced,
+                    // and give FluidNC time to finish its soft-reset startup sequence.
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+                    stmSerial = new Rev::Serial(portName, 115200);
+                    if (!stmSerial->connected()) {
+                        logQ.push("[ERR] RESET: failed to reopen " + portName);
+                        delete stmSerial; stmSerial = nullptr;
+                        connFlag = false;
+                        resetting = false;
+                        return;
+                    }
+
+                    auto sendOne = [&](const std::string& cmd, int ms) -> bool {
+                        stmSerial->sendText(cmd);
+                        std::string r = stmSerial->readLine(ms);
+                        if (r != "OK") {
+                            logQ.push("[ERR] '" + cmd.substr(0, 20) + "' got: " + r);
+                            return false;
+                        }
+                        return true;
+                    };
+
+                    sendOne("BLANK\n", 3000);
+                    // $X timeout must exceed FluidNC's post-reset init time. The STM32
+                    // firmware loops up to 2 min waiting for FluidNC's "ok" — if the PC
+                    // times out first the deferred "OK" poisons the next command's read.
+                    sendOne("GANTRY $X\n", 15000);
+                    sendOne("GANTRY G90\n", 5000);
                     logQ.push("READY");
                 } else if (piClient) {
                     piClient->sendLine("RESET");
                 }
+                resetting = false;
             }).detach();
         }
 
@@ -2230,7 +2499,7 @@ export namespace LithoControl {
             logQ.push("-> SET_HOME");
             std::thread([this]() {
                 if (platform == Platform::STM32 && stmSerial) {
-                    if (stmSendWait("GANTRY G10 L20 P1 X0 Y0\n", "OK", 10000) &&
+                    if (stmSendWait("GANTRY G10 L20 P1 X0 Y0 Z0\n", "OK", 10000) &&
                         stmSendWait("GANTRY G28.1\n", "OK", 10000)) {
                         logQ.push("HOME_SET");
                         queryPosition();
@@ -2261,11 +2530,37 @@ export namespace LithoControl {
                         auto end = r.find_first_of("|>", p);
                         return r.substr(p, end == std::string::npos ? std::string::npos : end - p);
                     };
-                    std::string coords = extract("MPos");
-                    if (coords.empty()) coords = extract("WPos");
+                    // Prefer WPos (work coordinates) -- reflects G10/G92 offset.
+                    // If only MPos+WCO are reported, compute WPos = MPos - WCO.
+                    // FluidNC omits WCO from most ? responses (only when changed or every ~5
+                    // queries), so cache the last-seen WCO and reuse it when absent.
+                    std::string coords = extract("WPos");
+                    if (coords.empty()) {
+                        std::string mpos = extract("MPos");
+                        std::string wco  = extract("WCO");
+                        {
+                            std::lock_guard<std::mutex> wlk(posMtx);
+                            if (!wco.empty()) cachedWCO = wco;
+                            else              wco = cachedWCO;
+                        }
+                        if (!mpos.empty()) {
+                            float mx=0,my=0,mz=0, ox=0,oy=0,oz=0;
+                            sscanf(mpos.c_str(), "%f,%f,%f", &mx, &my, &mz);
+                            sscanf(wco.c_str(),  "%f,%f,%f", &ox, &oy, &oz);
+                            char tmp[64];
+                            std::snprintf(tmp, sizeof(tmp), "%f,%f,%f", mx-ox, my-oy, mz-oz);
+                            coords = tmp;
+                        }
+                    } else {
+                        // WPos reported directly; still update WCO cache if present
+                        std::string wco = extract("WCO");
+                        if (!wco.empty()) {
+                            std::lock_guard<std::mutex> wlk(posMtx);
+                            cachedWCO = wco;
+                        }
+                    }
                     if (coords.empty()) { logQ.push("[POS] " + r); return; }
 
-                    // coords = "x,y,z"
                     float x = 0, y = 0, z = 0;
                     sscanf(coords.c_str(), "%f,%f,%f", &x, &y, &z);
                     char buf[64];
