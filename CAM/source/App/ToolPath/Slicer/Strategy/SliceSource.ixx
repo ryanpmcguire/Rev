@@ -3,6 +3,8 @@ module;
 #include <vector>
 #include <memory>
 #include <cmath>
+#include <algorithm>
+#include <utility>
 
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
@@ -13,6 +15,7 @@ module;
 #include <TopoDS_Edge.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopAbs_ShapeEnum.hxx>
+#include <TopAbs_Orientation.hxx>
 
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepAdaptor_Curve.hxx>
@@ -63,13 +66,19 @@ export namespace Cam::App::Slicer::Strategy {
         // Analytic edges
         //--------------------------------------------------
 
-        static bool addOccLine(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
-            slice.addLine(uvFromGp(curve.Value(first), frame, depth), uvFromGp(curve.Value(last), frame, depth));
+        static bool addOccLine(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, bool reversed, const CutFrame& frame, float depth) {
+
+            Pos a = uvFromGp(curve.Value(first), frame, depth);
+            Pos b = uvFromGp(curve.Value(last), frame, depth);
+
+            if (reversed) { std::swap(a, b); }
+
+            slice.addLine(a, b);
 
             return true;
         }
 
-        static bool addOccCircle(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
+        static bool addOccCircle(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, bool reversed, const CutFrame& frame, float depth) {
             gp_Circ circle = curve.Circle();
 
             Pos center = uvFromGp(circle.Location(), frame, depth);
@@ -98,21 +107,37 @@ export namespace Cam::App::Slicer::Strategy {
 
             int chir = (cross >= 0.0f) ? 1 : -1;
 
-            // A FULL CIRCLE (whole-turn sweep, start == end) is a genuine
-            // Circle2 -- chirality lives in the quarter marker.
+            // A REVERSED topological edge is traced last -> first: the true
+            // travel runs the OPPOSITE way round to the curve's parameter.
+            if (reversed) { chir = -chir; }
+
+            // A FULL TURN (a true circle, or an arc that closes on itself) is
+            // handed off as TWO NEIGHBOURING HALF-ARCS, never a Circle2: the
+            // slicing hand-off downstream is blind to whole closed curves, but
+            // two arcs chain into an ordinary closed loop. Each half is traced
+            // a -> b through its own quarter point, so the travel direction
+            // (chir, already corrected for a REVERSED edge) lives entirely in
+            // the geometry.
             if (std::abs(span) >= Geo::TAU - 1e-3) {
 
-                Pos marker = (chir > 0)
-                    ? center + Pos(-r0.y, r0.x)
-                    : center + Pos(r0.y, -r0.x);
+                float ang0 = frame.uvAngle(center, pFirst);
+                float s = (chir > 0) ? 1.0f : -1.0f;
 
-                slice.addEdge(std::make_unique<Geo::Circle2>(center, pFirst, marker));
+                auto at = [&](float ang) {
+                    return center + Pos(std::cos(ang), std::sin(ang)) * radius;
+                };
+
+                Pos p0 = at(ang0);
+                Pos pHalf = at(ang0 + s * Geo::TAU * 0.5f);
+
+                slice.addEdge(std::make_unique<Geo::Arc2>(center, p0, pHalf, at(ang0 + s * Geo::TAU * 0.25f)));
+                slice.addEdge(std::make_unique<Geo::Arc2>(center, pHalf, p0, at(ang0 + s * Geo::TAU * 0.75f)));
 
                 return true;
             }
 
-            // A partial circle is a single Arc2: endpoints from the curve,
-            // chirality carried by the mid-sweep through-point.
+            // A partial circle is a single Arc2, ALWAYS traced a -> b through
+            // the mid-sweep point d: handedness lives in the geometry itself.
             Pos pLast = uvFromGp(curve.Value(last), frame, depth);
             Pos pMid = uvFromGp(curve.Value(first + span * 0.5), frame, depth);
 
@@ -121,20 +146,23 @@ export namespace Cam::App::Slicer::Strategy {
             Pos b = center + (pLast - center).normalized() * radius;
             Pos d = center + (pMid - center).normalized() * radius;
 
+            // Reversed travel: b -> a, still through the same mid-sweep d.
+            if (reversed) { std::swap(a, b); }
+
             slice.addEdge(std::make_unique<Geo::Arc2>(center, a, b, d));
 
             return true;
         }
 
-        static bool addAnalytic(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
+        static bool addAnalytic(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, bool reversed, const CutFrame& frame, float depth) {
             switch (curve.GetType()) {
 
                 case GeomAbs_Line: {
-                    return addOccLine(slice, curve, first, last, frame, depth);
+                    return addOccLine(slice, curve, first, last, reversed, frame, depth);
                 }
 
                 case GeomAbs_Circle: {
-                    return addOccCircle(slice, curve, first, last, frame, depth);
+                    return addOccCircle(slice, curve, first, last, reversed, frame, depth);
                 }
 
                 default: {
@@ -146,7 +174,7 @@ export namespace Cam::App::Slicer::Strategy {
         // Sampled edges
         //--------------------------------------------------
 
-        static void addSampled(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, const CutFrame& frame, float depth) {
+        static void addSampled(SliceLayer& slice, BRepAdaptor_Curve& curve, double first, double last, bool reversed, const CutFrame& frame, float depth) {
             std::vector<Pos> sampled;
 
             double lengthStep = 0.25;
@@ -168,6 +196,8 @@ export namespace Cam::App::Slicer::Strategy {
                     sampled.push_back(uvFromGp(curve.Value(u), frame, depth));
                 }
             }
+
+            if (reversed) { std::reverse(sampled.begin(), sampled.end()); }
 
             for (size_t i = 0; i + 1 < sampled.size(); i++) {
                 slice.addLine(sampled[i], sampled[i + 1]);
@@ -223,11 +253,16 @@ export namespace Cam::App::Slicer::Strategy {
 
                 if (last <= first) { continue; }
 
+                // A REVERSED topological edge travels its curve last -> first;
+                // ignoring this leaves edge directions arbitrary -- and a lone
+                // full circle never gets corrected by chain linking.
+                bool reversed = (edge.Orientation() == TopAbs_REVERSED);
+
                 size_t before = slice.source.size();
 
                 GeomAbs_CurveType type = curve.GetType();
 
-                if (addAnalytic(slice, curve, first, last, frame, depth)) {
+                if (addAnalytic(slice, curve, first, last, reversed, frame, depth)) {
 
                     size_t added = slice.source.size() - before;
 
@@ -235,7 +270,7 @@ export namespace Cam::App::Slicer::Strategy {
                     if (type == GeomAbs_Circle) { analyticCircles += added; }
                 }
                 else {
-                    addSampled(slice, curve, first, last, frame, depth);
+                    addSampled(slice, curve, first, last, reversed, frame, depth);
                     sampledSegments += slice.source.size() - before;
                 }
             }

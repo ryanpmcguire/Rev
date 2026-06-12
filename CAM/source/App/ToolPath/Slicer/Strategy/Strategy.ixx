@@ -205,11 +205,43 @@ export namespace Cam::App::Slicer::Strategy {
         // Conditioning (OCC section -> doctrine-oriented Geo chains)
         //--------------------------------------------------
 
-        // Doctrine orientation: a mesh section's winding is arbitrary, so chains
-        // are conditioned AT THE DOOR -- nesting depth by exact winding around
-        // each chain's own extreme point; even depth = region boundary (CCW),
-        // odd depth = keep-island (CW). After this, the engine never reorients
-        // anything: handedness is the meaning.
+        // A section edge's endpoints carry OCC's approximation slop, so a loop
+        // can come out of chain-building ALMOST closed. The slicer only ever
+        // accepts closed chains -- an almost-loop would silently vanish from
+        // the toolpath. Weld it: a gap within tolerance is bridged with a
+        // segment and the chain sealed.
+        static void weldClosed(Geo::Profile& p, float weldEps = 1e-2f) {
+
+            for (Geo::Chain& c : p.chains) {
+
+                if (c.closed || c.edges.empty()) { continue; }
+
+                Pos a = Geo::Chain::eEnd(*c.edges.back());
+                Pos b = Geo::Chain::eStart(*c.edges.front());
+
+                float gap = (b - a).pythag();
+
+                if (gap > weldEps) {
+                    dbg("[Strategy] OPEN chain survives conditioning: %zu edges, gap=%.4f", c.edges.size(), gap);
+                    continue;
+                }
+
+                if (gap > 1e-6f) {
+                    c.edges.push_back(std::make_unique<Geo::Segment2>(a, b));
+                }
+
+                c.closed = true;
+            }
+        }
+
+        // Doctrine orientation: a section's winding is arbitrary, so chains are
+        // conditioned AT THE DOOR. Containment is MEASURED -- exact winding of
+        // every other closed chain around this chain's own extreme point --
+        // and the law is absolute: a chain contained by nothing is an OUTER
+        // profile and must be true CCW (it bounds the region); a chain
+        // contained by anything is an INNER profile and must be true CW (it
+        // bounds kept material). After this the engine never reorients
+        // anything: handedness IS the meaning.
         static void orientByNesting(Geo::Profile& p) {
 
             for (Geo::Chain& c : p.chains) {
@@ -217,16 +249,43 @@ export namespace Cam::App::Slicer::Strategy {
                 if (!c.closed || c.edges.empty()) { continue; }
 
                 Pos probe = Geo::Chain::loopMaxXPoint(c);
-                int depth = 0;
+                bool contained = false;
 
                 for (const Geo::Chain& other : p.chains) {
                     if (&other == &c || !other.closed) { continue; }
-                    if (other.windingAround(probe) != 0) { depth += 1; }
+                    if (other.windingAround(probe) != 0) { contained = true; break; }
                 }
 
-                int desired = (depth % 2 == 0) ? 1 : -1;
-                if (c.turningSign() != desired) { c = c.reversed(); }
+                int desired = contained ? -1 : 1;
+                int sign = c.turningSign();
+
+                if (sign == 0) {
+                    dbg("[Strategy] chain with NO measurable turning: %zu edges -- left untouched", c.edges.size());
+                    continue;
+                }
+
+                if (sign != desired) { c = c.reversed(); }
             }
+        }
+
+        // The conditioning gate every strategy passes its seed through before
+        // the slicer sees it: weld almost-loops shut, enforce outer-CCW /
+        // inner-CW, and report the census so a bad hand-off is VISIBLE.
+        static void condition(Geo::Profile& p) {
+
+            weldClosed(p);
+            orientByNesting(p);
+
+            size_t ccw = 0, cw = 0, open = 0;
+
+            for (const Geo::Chain& c : p.chains) {
+                if (!c.closed) { open += 1; continue; }
+                int s = c.turningSign();
+                if (s > 0) { ccw += 1; }
+                if (s < 0) { cw += 1; }
+            }
+
+            dbg("[Strategy] conditioned: %zu chains (%zu CCW outer, %zu CW inner, %zu open)", p.chains.size(), ccw, cw, open);
         }
 
         // True when an edge lies ALONG the keep-out section (majority of its

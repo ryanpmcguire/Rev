@@ -50,7 +50,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             Geo::Profile seed;
             seed.chains = Geo::Chain::build(slice.source);
 
-            orientByNesting(seed);
+            condition(seed);
             markOpenAir(seed, keepOut);
 
             // ONE generation: the boundary pass at exactly the tool radius.

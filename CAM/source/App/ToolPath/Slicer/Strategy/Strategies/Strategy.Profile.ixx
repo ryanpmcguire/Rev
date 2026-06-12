@@ -62,7 +62,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             Geo::Profile seed;
             seed.chains = Geo::Chain::build(slice.source);
 
-            orientByNesting(seed);
+            condition(seed);
             markOpenAir(seed, keepOut);
 
             // 2. RUN the shared slice strategy. Generation 1 clears by exactly

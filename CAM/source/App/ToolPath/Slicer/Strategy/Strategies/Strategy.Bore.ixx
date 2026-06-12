@@ -118,7 +118,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             Geo::Profile seed;
             seed.chains = Geo::Chain::build(slice.source);
 
-            orientByNesting(seed);
+            condition(seed);
 
             Geo::SliceParams params;
             params.kind = Geo::StrategyKind::Profile;

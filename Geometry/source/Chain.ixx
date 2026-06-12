@@ -851,10 +851,16 @@ export namespace Geo {
             if (isOffEll(e)) { return asOff(e)->pointAt(0.5f); }
             return (eStart(e) + eEnd(e)) * 0.5f;
         }
-        // A point a fraction f in [0,1] along an edge's body.
+        // A point a fraction f in [0,1] along an edge's body, IN TRAVEL ORDER:
+        // f=0 is the travel start, f=1 the travel end. circularOf reports the
+        // CCW span regardless of travel, so a CW edge walks its span backwards
+        // -- from the span's far end down to a0.
         static Pos edgePointAt(const Stoicheion& e, float f) {
             Pos c; float r, a0, sweep; int chir;
-            if (circularOf(e, c, r, a0, sweep, chir)) { return c + Pos::fromAngle(a0 + sweep * f) * r; }
+            if (circularOf(e, c, r, a0, sweep, chir)) {
+                float start = (chir > 0) ? a0 : a0 + sweep;
+                return c + Pos::fromAngle(start + static_cast<float>(chir) * sweep * f) * r;
+            }
             if (isOffEll(e)) { return asOff(e)->pointAt(f); }
             return eStart(e) + (eEnd(e) - eStart(e)) * f;
         }
