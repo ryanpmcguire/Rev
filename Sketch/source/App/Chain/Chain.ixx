@@ -13,4 +13,5 @@ export namespace Sketch::App {
 
     using Geo::Chain;
     using Geo::Profile;
+    using Geo::LinkKind;
 }

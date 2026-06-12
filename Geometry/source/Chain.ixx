@@ -61,6 +61,16 @@ export namespace Geo {
     inline constexpr double dTAU = 6.283185307179586476925287;
     inline double dWrap(double a) { while (a < 0.0) { a += dTAU; } while (a >= dTAU) { a -= dTAU; } return a; }
 
+    // What a chain IS to the tool, beyond its geometry: a cutting move, or one
+    // of the two link kinds a strategy weaves between cutting chains. Semantic,
+    // not cosmetic -- the CAM app decides retract heights from it; the sketch
+    // app merely picks colours.
+    enum class LinkKind : std::uint8_t {
+        None,      // an ordinary cutting chain
+        Cut,       // cutting link: tool stays down, hops to the next concentric ring
+        Retract    // retract link: tool must fully retract before the next branch
+    };
+
     struct Chain {
 
         std::vector<std::unique_ptr<Stoicheion>> edges;   // oriented: travel is start -> end
@@ -74,13 +84,16 @@ export namespace Geo {
         Id id = 0;
         Id parent = 0;
 
+        // Link tag (toolpath semantics; LinkKind::None for cutting chains).
+        LinkKind link = LinkKind::None;
+
         Chain() = default;
         Chain(Chain&&) = default;
         Chain& operator=(Chain&&) = default;
 
         Chain clone() const {
             Chain c; c.closed = closed;
-            c.id = id; c.parent = parent;
+            c.id = id; c.parent = parent; c.link = link;
             for (const auto& e : edges) { c.edges.push_back(e->clone()); }
             return c;
         }
@@ -91,7 +104,7 @@ export namespace Geo {
         // -- never for reorienting the method's own outputs.
         Chain reversed() const {
             Chain r; r.closed = closed;
-            r.id = id; r.parent = parent;
+            r.id = id; r.parent = parent; r.link = link;
             for (size_t i = edges.size(); i-- > 0; ) { r.edges.push_back(reversedEdge(*edges[i])); }
             return r;
         }
@@ -1008,6 +1021,62 @@ export namespace Geo {
         // their material on the LEFT of travel (a CCW outer shrinking inward, a CW
         // island growing outward). Defined out of line, after NumberedChain.
         static std::vector<Chain> mitose(std::vector<Chain>& loops, float eps = 1e-3f);
+
+        // Start-point freedom: a closed loop is the same cycle wherever it is
+        // entered, so a strategy may re-seat where it BEGINS without touching
+        // travel or geometry (the edge holding the new start is split there;
+        // direction-preserving, like every split in this system).
+        //--------------------------------------------------
+
+        size_t longestEdgeIndex() const {
+            size_t best = 0; float bestLen = -1.0f;
+            for (size_t i = 0; i < edges.size(); i++) {
+                float len = edgeLength(*edges[i]);
+                if (len > bestLen) { bestLen = len; best = i; }
+            }
+            return best;
+        }
+
+        // The nearest point of this chain to `p` (and which edge holds it).
+        size_t nearestPoint(Pos p, Pos& out) const {
+            size_t best = 0; float bestDist = 1e30f;
+            out = edges.empty() ? p : eStart(*edges.front());
+            for (size_t i = 0; i < edges.size(); i++) {
+                Pos foot;
+                if (!edges[i]->footOnCurve(p, foot)) { foot = edgeMidpoint(*edges[i]); }
+                float d = (p - foot).pythag();
+                if (d < bestDist) { bestDist = d; best = i; out = foot; }
+            }
+            return best;
+        }
+
+        // This closed loop, entered at point `p` on edge `k`. Open chains and
+        // lone circles return unchanged (a circle's entry is its own marker).
+        Chain startedAt(size_t k, Pos p, float eps = 1e-4f) const {
+            if (!closed || edges.empty() || k >= edges.size()) { return clone(); }
+            if (isCircle(*edges[k])) { return clone(); }
+
+            const size_t n = edges.size();
+            Chain out;
+            out.closed = true;
+            out.id = id; out.parent = parent; out.link = link;
+
+            const Stoicheion& e = *edges[k];
+            if ((p - eStart(e)).pythag() <= eps) {            // already a vertex: rotate only
+                for (size_t i = 0; i < n; i++) { out.edges.push_back(edges[(k + i) % n]->clone()); }
+            }
+            else if ((p - eEnd(e)).pythag() <= eps) {         // the next vertex: rotate there
+                for (size_t i = 0; i < n; i++) { out.edges.push_back(edges[(k + 1 + i) % n]->clone()); }
+            }
+            else {                                            // mid-edge: split and wrap
+                std::unique_ptr<Stoicheion> first, second;
+                splitEdge(e, p, first, second);
+                out.edges.push_back(std::move(second));
+                for (size_t i = 1; i < n; i++) { out.edges.push_back(edges[(k + i) % n]->clone()); }
+                out.edges.push_back(std::move(first));
+            }
+            return out;
+        }
 
         // Rigidly TRANSLATE an edge by a vector -- no offsetting, no re-radiusing,
         // every point moves identically. (Toolpathy logic, not geometric logic.)

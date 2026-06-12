@@ -238,19 +238,81 @@ export namespace Geo {
         }
 
         // The final toolpath: pure post-processing on clones. Direction = chain
-        // ORDER only; milling = chain HANDEDNESS only. From here on, chain travel
-        // IS tool motion.
+        // ORDER only; milling = chain HANDEDNESS only. Then the LINKING pass
+        // weaves tagged connector chains between consecutive cutting chains:
+        //
+        //   * Cut link (LinkKind::Cut) -- the next chain is concentric kin of the
+        //     current one (parent/child in the ancestral tree): the tool stays
+        //     down and hops across. The next loop is re-seated to begin at its
+        //     point NEAREST the tool, keeping the flow of motion.
+        //
+        //   * Retract link (LinkKind::Retract) -- the next chain starts another
+        //     branch of ancestry: the tool must fully retract first. With the
+        //     start free, the next loop is re-seated to begin at the middle of
+        //     its longest edge (the most stable entry).
+        //
+        // Links carry no Z -- they are planar segments with a TAG; what retracting
+        // means in 3D is the consumer's business. From here on, chain travel IS
+        // tool motion.
         void buildToolpath() {
 
             result.toolpath.clear();
-            for (const Chain* c : flattenDepthFirst()) { result.toolpath.push_back(c->clone()); }
+
+            std::vector<Chain> run;
+            for (const Chain* c : flattenDepthFirst()) { run.push_back(c->clone()); }
 
             if (params.reverse) {
-                std::reverse(result.toolpath.begin(), result.toolpath.end());
+                std::reverse(run.begin(), run.end());
             }
 
             if (!params.climb) {
-                for (Chain& c : result.toolpath) { c = c.reversed(); }
+                for (Chain& c : run) { c = c.reversed(); }
+            }
+
+            Pos cursor;
+            bool haveCursor = false;
+            Id prevId = 0, prevParent = 0;
+
+            for (Chain& next : run) {
+
+                if (next.edges.empty()) { continue; }
+
+                // Kin in either direction (forward descends, reverse ascends).
+                const bool kin = haveCursor
+                              && (next.parent == prevId || prevParent == next.id);
+
+                // Re-seat the entry point of closed loops.
+                if (next.closed) {
+                    if (kin) {
+                        Pos entry;
+                        size_t k = next.nearestPoint(cursor, entry);
+                        next = next.startedAt(k, entry);
+                    }
+                    else {
+                        size_t k = next.longestEdgeIndex();
+                        next = next.startedAt(k, Chain::edgeMidpoint(*next.edges[k]));
+                    }
+                }
+
+                // Weave the tagged link from the tool's position to the entry.
+                if (haveCursor) {
+                    Pos entry = Chain::eStart(*next.edges.front());
+                    if ((entry - cursor).pythag() > 1e-4f) {
+                        Chain link;
+                        link.closed = false;
+                        link.id = newId();
+                        link.link = kin ? LinkKind::Cut : LinkKind::Retract;
+                        link.edges.push_back(std::make_unique<Segment2>(cursor, entry));
+                        result.toolpath.push_back(std::move(link));
+                    }
+                }
+
+                cursor = Chain::eEnd(*next.edges.back());
+                prevId = next.id;
+                prevParent = next.parent;
+                haveCursor = true;
+
+                result.toolpath.push_back(std::move(next));
             }
         }
     };

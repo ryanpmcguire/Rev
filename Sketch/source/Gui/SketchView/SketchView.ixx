@@ -1692,9 +1692,10 @@ export namespace Sketch::Gui {
                     }
                 }
 
-                // Toolpath playback overlay: the flattened chain list, pending in
-                // gray, achieved in red, with the tool circle at the playhead. The
-                // tool "magically" jumps between chain ends -- linking comes later.
+                // Toolpath playback overlay: cutting chains pending in gray and
+                // achieved in red; link chains in their tag colours (cut links
+                // orange, retract links pastel cyan -- dimmed until achieved);
+                // the tool circle at the playhead.
                 if (insetActive && previewBar) {
 
                     // The REAL toolpath: chain order and travel directions ARE the
@@ -1718,6 +1719,24 @@ export namespace Sketch::Gui {
                         const Color toolColor    { 1.00f, 0.80f, 0.30f, 1.00f };
                         const bool runArrows = app->viewArrows;
 
+                        // Links keep their tag colour either side of the playhead
+                        // -- dim while pending, full once achieved.
+                        using Sketch::App::LinkKind;
+                        auto chainColors = [&](const Sketch::App::Chain& c, Color& done, Color& pending) {
+                            if (c.link == LinkKind::Cut) {            // orange
+                                done    = Color{ 1.00f, 0.58f, 0.15f, 1.00f };
+                                pending = Color{ 1.00f, 0.58f, 0.15f, 0.40f };
+                            }
+                            else if (c.link == LinkKind::Retract) {   // pastel cyan
+                                done    = Color{ 0.55f, 0.95f, 0.95f, 1.00f };
+                                pending = Color{ 0.55f, 0.95f, 0.95f, 0.40f };
+                            }
+                            else {
+                                done = doneColor;
+                                pending = pendingColor;
+                            }
+                        };
+
                         Pos playhead;
                         bool playheadSet = false;
                         float acc = 0.0f;
@@ -1725,31 +1744,34 @@ export namespace Sketch::Gui {
                         for (size_t i = 0; i < run.size(); i++) {
                             const auto& chain = run[i];
 
+                            Color done, pending;
+                            chainColors(chain, done, pending);
+
                             if (acc + lens[i] <= target) {            // fully achieved
-                                for (const auto& e : chain.edges) { appendEntity(geometry, *e, doneColor, runArrows); }
+                                for (const auto& e : chain.edges) { appendEntity(geometry, *e, done, runArrows); }
                                 if (!chain.edges.empty()) {
                                     playhead = Sketch::App::Chain::eEnd(*chain.edges.back());
                                     playheadSet = true;
                                 }
                             }
                             else if (acc >= target) {                 // fully pending
-                                for (const auto& e : chain.edges) { appendEntity(geometry, *e, pendingColor, runArrows); }
+                                for (const auto& e : chain.edges) { appendEntity(geometry, *e, pending, runArrows); }
                             }
                             else {                                     // the live chain
                                 float within = target - acc;
                                 for (const auto& e : chain.edges) {
                                     float L = Sketch::App::Chain::edgeLength(*e);
                                     if (within >= L) {
-                                        appendEntity(geometry, *e, doneColor, runArrows);
+                                        appendEntity(geometry, *e, done, runArrows);
                                         within -= L;
                                     }
                                     else if (within > 0.0f) {
-                                        playhead = appendEntitySplit(geometry, *e, within, doneColor, pendingColor);
+                                        playhead = appendEntitySplit(geometry, *e, within, done, pending);
                                         playheadSet = true;
                                         within = 0.0f;
                                     }
                                     else {
-                                        appendEntity(geometry, *e, pendingColor, runArrows);
+                                        appendEntity(geometry, *e, pending, runArrows);
                                     }
                                 }
                             }
