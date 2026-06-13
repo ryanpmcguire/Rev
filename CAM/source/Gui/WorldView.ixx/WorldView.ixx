@@ -211,9 +211,16 @@ export namespace Cam::Gui {
                     if (view3d) { view3d->refresh(*shared->event); }
                 };
 
-            // Interface START button → stream the program (only in Execute mode).
-            Carvera::MachineLink::instance().onStartRequested = [this]() {
-                if (previewMode != PreviewMode::Execute) { return; }
+            // Interface START button → Air asks US for the program.  The world
+            // view only BUILDS typed operations from its previewed toolpaths;
+            // Air owns preflight, validation, and streaming.  Returning an
+            // empty list (wrong mode, no toolpaths, build aborted) makes Air
+            // refuse the start with a clear operator-facing reason.
+            Carvera::MachineLink::instance().operationProvider =
+                [this]() -> std::vector<Carvera::MachineLink::Operation> {
+
+                if (previewMode != PreviewMode::Execute) { return {}; }
+
                 // Reset monotonic-progress tracker so the first tick of the
                 // new run is not constrained by a previous execution.
                 executeTrackedState    = nullptr;
@@ -223,7 +230,8 @@ export namespace Cam::Gui {
                     previewTimeline.setElapsed(0.0);
                     if (previewBar) { previewBar->percent = 0.0f; }
                 }
-                streamExecuteProgram();
+
+                return buildExecuteOperations();
             };
 
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
@@ -281,8 +289,8 @@ export namespace Cam::Gui {
         ~WorldView() {
 
             executePoll.stop();
-            Carvera::MachineLink::instance().onTelemetry      = nullptr;
-            Carvera::MachineLink::instance().onStartRequested = nullptr;
+            Carvera::MachineLink::instance().onTelemetry       = nullptr;
+            Carvera::MachineLink::instance().operationProvider = nullptr;
 
             clearMaterialViews();
 
@@ -340,9 +348,12 @@ export namespace Cam::Gui {
                     syncPreviewSlider(e);
                 }
 
-                // EXECUTE: pressing play streams the program to the machine.
+                // EXECUTE: pressing play asks Air to start -- the SAME single
+                // pipeline as the interface START button (preflight -> ask the
+                // provider -> validate -> stream).  Play itself never streams;
+                // there is exactly ONE way a program reaches the machine.
                 if (previewMode == PreviewMode::Execute) {
-                    streamExecuteProgram();
+                    Carvera::MachineLink::instance().requestStart();
                 }
             };
 
@@ -1680,8 +1691,8 @@ export namespace Cam::Gui {
             // telemetry noise must not drive progress backward.
             // Allow up to 3 % backward tolerance (covers jitter at
             // slow feed rates where adjacent points are very close).
-            // A genuine new execution resets the tracker (see
-            // onStartRequested).
+            // A genuine new execution resets the tracker (see the
+            // operationProvider registration).
             // -------------------------------------------------------
             constexpr double kBackTolerance = 0.03;
 
@@ -1870,23 +1881,19 @@ export namespace Cam::Gui {
             return 0;
         }
 
-        // EXECUTE: build the machine program from the IK-solved path(s) of the
-        // previewed states and hand it to the (flow-controlled) machine link.
-        // Strictly gated: only ever sends when armed + connected.  Assumes the
-        // machine's work-coordinate zero matches the CAD frame (set up before
-        // the real run).
-        void streamExecuteProgram() {
+        // EXECUTE: build the typed-operation program from the IK-solved
+        // path(s) of the previewed states.  This is the CAM side of Air's
+        // operationProvider seam: it BUILDS, it never streams.  Arming,
+        // preflight, validation, and streaming are entirely Air's business.
+        // Assumes the machine's work-coordinate zero matches the CAD frame
+        // (Air's preflight verifies an origin was actually set this session).
+        std::vector<Carvera::MachineLink::Operation> buildExecuteOperations() {
 
             Carvera::MachineLink& link = Carvera::MachineLink::instance();
 
-            if (!link.isArmed()) {
-                dbg("[Execute] not armed/connected — refusing to stream");
-                return;
-            }
-
             Cam::App::Project* project = activeProject();
 
-            if (!project) { return; }
+            if (!project) { return {}; }
 
             // Everything streamed to the machine is expressed in the USER FRAME:
             // origin = user axisOrigin, axes = user X/Y/Z.  The begin-work
@@ -1977,7 +1984,13 @@ export namespace Cam::Gui {
                 const Cam::Machine::MachineToolPath solved =
                     Cam::Machine::IKSolver::solve(probePath, machineDef);
 
-                Op op = Op::probe(Carvera::MachineLink::kProbeToolSlot, "Probe");
+                // NoToolChange, NOT kProbeToolSlot: "M6 T0" was observed on the
+                // real machine to UNLOAD the spindle and rapid to the ATC area
+                // (see CarveraREADME.md, critical note).  Until the real probe
+                // selector is confirmed, a probe op runs with whatever is in
+                // the spindle -- the operator fits the wired probe by hand, and
+                // Air's spindle interlock keeps it from ever spinning.
+                Op op = Op::probe(Carvera::MachineLink::NoToolChange, "Probe");
 
                 // Points come in (standoff, through) pairs, one pair per target.
                 for (size_t k = 0; (2 * k + 1) < solved.points.size(); k++) {
@@ -2099,18 +2112,14 @@ export namespace Cam::Gui {
             }
 
             if (buildAborted) {
-                dbg("[Execute] operation build aborted — not streaming");
-                return;
+                dbg("[Execute] operation build aborted — returning no operations");
+                link.log("Execute: operation build aborted (unresolved tool); nothing to run.");
+                return {};
             }
 
-            if (ops.empty()) {
-                dbg("[Execute] no operations to stream");
-                return;
-            }
+            dbg("[Execute] built %zu operation(s) for Air", ops.size());
 
-            dbg("[Execute] streaming %zu operations to the machine", ops.size());
-
-            link.enqueueOperations(ops);
+            return ops;
         }
 
         void syncAllMaterialViews() {

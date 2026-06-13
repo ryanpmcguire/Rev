@@ -284,16 +284,55 @@ These are emitted *by the machine* during an ATC cycle and echoed back in
 the output stream.  We don't send them from the host; we just see them
 flow past in the log.
 
+## Start flow / separation of concerns (the "operation by operation" model)
+
+One direction, one owner per concern:
+
+```
+GUI (ArmSection START)            -- asks:    Air::requestStart()
+Air                               -- owns:    preflight -> provider -> validate -> stream
+CAM (WorldView::buildExecuteOperations)
+                                  -- builds:  typed Operations (cut/probe) on demand
+```
+
+- The CAM view registers `Air::operationProvider` (a builder, set/cleared
+  across WorldView's lifetime).  It NEVER streams; it returns a
+  `std::vector<Operation>` (empty = nothing to run).
+- `Air::requestStart()` is the single start pipeline: `preflightStart()`
+  (connected, armed, no tool change, not Alarm/Hold, not executing, **work
+  origin set this session**), then asks the provider, then
+  `validateOperations()`, then `enqueueOperations()` (which validates again
+  -- defence in depth).  Every refusal carries the exact operator-facing
+  reason.
+- `validateOperations` refuses any program containing a non-finite
+  coordinate / feed / rpm or an invalid tool slot.  A NaN that reaches the
+  controller formats as "nan", is rejected, and ALARMS instantly with
+  nothing in the log -- this validator is what turns "the machine alarms for
+  no reason" into a named, fixable refusal.
+- The work-origin preflight exists for the same reason: the program is in
+  WCS relative to the begin-work point; executing against a stale/unset WCS
+  is the other classic instant-alarm/crash.
+- Probe operations are built with `NoToolChange` (-1): until the real probe
+  selector is confirmed (see the critical `M6 T0` note above), the operator
+  fits the wired probe by hand and the program never issues an M6 for it.
+  KNOWN GAP: with a hand-fitted probe the loaded-slot still reports the
+  previous cutter, so the spindle interlock is NOT latched during the probe
+  op -- the op itself never commands M3 (buildSteps only spins for Cut ops),
+  but resolving the probe selector remains the real fix.
+- The legacy `Air::onStartRequested` callback is GONE; `onTelemetry` (the
+  high-rate display push) is the only remaining single-callback hook.
+
 ## Coordinate conventions in our code
 
 - All telemetry (`livePosition`, `currentConfirmed`) reports **MPos**.
 - `goTo(x, y, z, a)` emits `G53 G0` -- absolute machine.
 - `jog(dx, dy, dz)` / `jogA(deg)` / `jogRel(dx, dy, dz, da, f)` all emit
   `$J=G91` (relative).  Sidesteps WCS issues.
-- The WorldView's program builder is in WCS -- `WorldView::streamExecuteProgram`
-  computes `machineX/Y/Z` as `inFrame - beginWorkInFrame` and emits absolute
-  WCS coordinates with `G90`.  This is correct because the WCS origin
-  matches the begin-work point after the operator's `Set Origin`.
+- The WorldView's program builder is in WCS -- `WorldView::buildExecuteOperations`
+  computes `machineX/Y/Z` as `inFrame - beginWorkInFrame` and the waypoints are
+  emitted as absolute WCS coordinates with `G90`.  This is correct because the
+  WCS origin matches the begin-work point after the operator's `Set Origin` --
+  which `Air::preflightStart` now REQUIRES before any execution.
 
 ## Tools / refs
 

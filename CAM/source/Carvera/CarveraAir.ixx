@@ -228,11 +228,10 @@ export namespace Carvera {
         void onToolChangeComplete(const std::function<void(ToolChangeEvent&)>& f) { tcCompleteDispatcher.listen(&Air::toolChangeCompleteEvent, f); }
         void onStart         (const std::function<void(StartEvent&)>&      f) { startDispatcher.listen(&Air::startEvent, f); }
 
-        // Legacy single-callback hooks retained for the CAM world view, which
-        // sets and clears them across its own lifetime.  Air fires BOTH these
-        // and the dispatcher events.
+        // Legacy single-callback hook retained for the CAM world view's
+        // high-rate display refresh (set and cleared across its lifetime).
+        // Air fires BOTH this and the telemetry dispatcher event.
         std::function<void(float, float, float, float)> onTelemetry;   // live position push
-        std::function<void()>                           onStartRequested;
 
         // ============================================================
         // Connection
@@ -766,6 +765,11 @@ export namespace Carvera {
             if (machineState_ == "Alarm")  { return OperationResult::failure("Machine is in Alarm. Press Unlock or Reset first."); }
             if (machineState_ == "Hold")   { return OperationResult::failure("Machine is in Hold. Resume or Reset first."); }
             if (executing.load())          { return OperationResult::failure("A program is already executing."); }
+            // The program is expressed in the work coordinate system, relative
+            // to the begin-work origin.  Executing against a stale or unset
+            // WCS sends the tool to coordinates that mean NOTHING on this
+            // setup -- the classic "instant alarm / crash for no reason".
+            if (!originValid.load())       { return OperationResult::failure("Work origin not set this session. Jog to the part zero and press Set Origin before executing -- the program's coordinates are relative to it."); }
             return OperationResult::success();
         }
 
@@ -879,11 +883,87 @@ export namespace Carvera {
             }
         };
 
-        // Hand Air a queue of typed operations.  Requires arming.  Translates to
-        // the Step pipeline and streams under the usual flow control.
+        // THE PROGRAM PROVIDER -- the single seam between the planning world
+        // (the CAM app) and the machine.  Whoever owns the current execute
+        // context registers a provider that BUILDS the typed operations on
+        // demand; it never streams anything itself.  When the operator hits
+        // START, Air preflights, asks the provider for the program, VALIDATES
+        // it, and streams it -- one direction, one owner for every concern:
+        //
+        //   GUI      asks (requestStart) and reflects events.  Nothing else.
+        //   CAM      builds operations (geometry -> typed Operations).  Nothing else.
+        //   Air      preflights, validates, translates, streams, and owns all
+        //            dangerous policy (spindle, tool changes, probing, safety).
+        //
+        // Returning an empty list means "nothing to run right now" (wrong
+        // mode, no toolpaths, build aborted) -- Air refuses with a clear
+        // reason instead of silently doing nothing.
+        std::function<std::vector<Operation>()> operationProvider;
+
+        // Validate a program before ANY byte reaches the controller.  A single
+        // malformed number (a NaN/Inf escaping an upstream geometry bug)
+        // formats as "nan" in G-code -- the controller rejects the line and
+        // ALARMS instantly, with nothing in the log to say why.  Refusing
+        // here turns "the machine alarms for no reason" into a precise
+        // operator-facing message naming the offending operation.
+        static OperationResult validateOperations(const std::vector<Operation>& ops) {
+
+            auto finite = [](double v) { return std::isfinite(v); };
+
+            for (size_t i = 0; i < ops.size(); i++) {
+
+                const Operation& op = ops[i];
+                const char* kind = (op.kind == Operation::Kind::Probe) ? "Probe" : "Cut";
+
+                if (op.toolSlot != NoToolChange && op.toolSlot != kProbeToolSlot &&
+                    (op.toolSlot < 1 || op.toolSlot > 6)) {
+                    return OperationResult::failure(std::format(
+                        "Operation {} ({}): invalid tool slot T{}.", i + 1, kind, op.toolSlot));
+                }
+
+                if (!finite(op.rpm) || op.rpm < 0.0) {
+                    return OperationResult::failure(std::format(
+                        "Operation {} ({}): invalid spindle RPM {}.", i + 1, kind, op.rpm));
+                }
+
+                for (const Path& path : op.paths) {
+
+                    if (!finite(path.feed) || path.feed < 0.0) {
+                        return OperationResult::failure(std::format(
+                            "Operation {} ({}): invalid feed rate {}.", i + 1, kind, path.feed));
+                    }
+
+                    if ((path.kind == Path::Kind::Cut || path.kind == Path::Kind::Intersect) &&
+                        path.feed <= 0.0) {
+                        return OperationResult::failure(std::format(
+                            "Operation {} ({}): a cutting/probing path has no feed rate.",
+                            i + 1, kind));
+                    }
+
+                    for (const Waypoint& w : path.points) {
+                        if (!finite(w.x) || !finite(w.y) || !finite(w.z) || !finite(w.a)) {
+                            return OperationResult::failure(std::format(
+                                "Operation {} ({}, T{}): non-finite coordinate "
+                                "(X{} Y{} Z{} A{}) -- refusing to stream.",
+                                i + 1, kind, op.toolSlot, w.x, w.y, w.z, w.a));
+                        }
+                    }
+                }
+            }
+
+            return OperationResult::success();
+        }
+
+        // Hand Air a queue of typed operations.  Requires arming; the program
+        // is validated before a single byte goes out.  Translates to the Step
+        // pipeline and streams under the usual flow control.
         bool enqueueOperations(const std::vector<Operation>& ops) {
             if (!isArmed()) {
                 dbg("[Air] enqueueOperations refused (not armed); %zu ops", ops.size());
+                return false;
+            }
+            if (auto r = validateOperations(ops); !r.ok) {
+                pushLog(std::format("Program refused: {}", r.reason));
                 return false;
             }
             const std::vector<Step> program = buildSteps(ops);
@@ -936,24 +1016,47 @@ export namespace Carvera {
             tcFinishIdleFrames_ = 0;
         }
 
-        // START button: stop if running, else preflight + stream the program
-        // the CAM view builds in response to onStartRequested / the start
-        // event.  Returns the preflight result so the GUI can show the exact
-        // refusal reason instead of a generic "didn't work".
+        // START button: stop if running, else run the whole start pipeline
+        // here, in one place and one direction: preflight -> ask the
+        // registered provider for the program -> validate -> stream.  The GUI
+        // never streams; the CAM view never streams; Air does.  Returns the
+        // exact refusal reason so the GUI shows precisely what to fix instead
+        // of a generic "didn't work".
         OperationResult requestStart() {
+
             if (isExecuting()) { stop(); return OperationResult::success(); }
+
             if (auto r = preflightStart(); !r.ok) {
                 pushLog(std::format("[start] refused: {}", r.reason));
                 return r;
             }
-            if (onStartRequested) {
-                onStartRequested();
-                pushLog("Execution started.");
-            }
-            else {
-                pushLog("No execute mode active in the CAM view.");
+
+            if (!operationProvider) {
+                pushLog("[start] refused: no operation provider registered.");
                 return OperationResult::failure("No execute mode active in the CAM view.");
             }
+
+            const std::vector<Operation> ops = operationProvider();
+
+            if (ops.empty()) {
+                pushLog("[start] refused: the CAM view produced no operations.");
+                return OperationResult::failure(
+                    "Nothing to run: the CAM view produced no operations "
+                    "(check execute mode and that a toolpath is computed).");
+            }
+
+            if (auto r = validateOperations(ops); !r.ok) {
+                pushLog(std::format("[start] refused: {}", r.reason));
+                return r;
+            }
+
+            if (!enqueueOperations(ops)) {
+                return OperationResult::failure("Failed to enqueue the program.");
+            }
+
+            pushLog(std::format("Execution started ({} operation{}).",
+                                ops.size(), ops.size() == 1 ? "" : "s"));
+
             StartEvent e{};
             startDispatcher.tell(&Air::startEvent, e);
             return OperationResult::success();
