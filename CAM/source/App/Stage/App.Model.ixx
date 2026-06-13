@@ -56,8 +56,11 @@ module;
 
 #include <GeomAbs_SurfaceType.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Cylinder.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -891,6 +894,19 @@ export namespace Cam::App {
                 static_cast<float>(dir.Y()),
                 static_cast<float>(dir.Z())
             };
+        }
+
+        // Diameter of a cylindrical face (e.g. a round hole), or 0 if the face
+        // is not a cylinder.  Used to read a thread hole's major diameter.
+        double faceCylinderDiameter(size_t faceId) const {
+
+            if (faceId >= faces.size()) { return 0.0; }
+
+            BRepAdaptor_Surface surf(faces[faceId]);
+
+            if (surf.GetType() != GeomAbs_Cylinder) { return 0.0; }
+
+            return surf.Cylinder().Radius() * 2.0;
         }
 
         Rev::Core::Pos3 facePoint(size_t faceId) const {
@@ -1909,6 +1925,151 @@ export namespace Cam::App {
             }
             catch (...) {
                 logEvent(format("[Extrude #%zu] unknown exception", operationSerial));
+                return false;
+            }
+        }
+
+        // Thread-mill prep: reduce a cylindrical hole to its PRE-THREAD bore by
+        // fusing an annular collar into it.  We deliberately do NOT model the
+        // thread geometry (it is uniform and defined entirely by the callout);
+        // we leave the solid that exists AFTER the pre-thread bore is drilled
+        // but BEFORE the thread is milled.  So the resulting hole equals
+        // preBoreDiameter -- a plain bore a later drilling step can address --
+        // and the thread itself is cut by the Thread Mill toolpath from the
+        // callout.  The selected face must be the (major-diameter) cylindrical
+        // hole as drawn.
+        bool threadMillInfill(size_t holeFaceId, double preBoreDiameter) {
+            operationSerial++;
+
+            if (shape.IsNull()) {
+                logEvent(format("[ThreadMill #%zu] failed: shape is null", operationSerial));
+                return false;
+            }
+
+            if (holeFaceId >= faces.size()) {
+                logEvent(format(
+                    "[ThreadMill #%zu] failed: stale hole face id=%zu faceCount=%zu",
+                    operationSerial, holeFaceId, faces.size()
+                ));
+                return false;
+            }
+
+            const TopoDS_Face& face = faces[holeFaceId];
+
+            if (face.IsNull()) {
+                logEvent(format("[ThreadMill #%zu] failed: hole face is null", operationSerial));
+                return false;
+            }
+
+            BRepAdaptor_Surface surf(face);
+
+            if (surf.GetType() != GeomAbs_Cylinder) {
+                logEvent(format("[ThreadMill #%zu] failed: selected face is not cylindrical", operationSerial));
+                return false;
+            }
+
+            const gp_Cylinder cyl = surf.Cylinder();
+            const double holeRadius    = cyl.Radius();
+            const double preBoreRadius = preBoreDiameter * 0.5;
+
+            if (preBoreRadius <= 1e-6 || preBoreRadius >= holeRadius - 1e-6) {
+                logEvent(format(
+                    "[ThreadMill #%zu] failed: pre-bore dia %.4f must be > 0 and smaller than the hole dia %.4f",
+                    operationSerial, preBoreDiameter, holeRadius * 2.0
+                ));
+                return false;
+            }
+
+            // The hole's axial extent: a cylinder's V parameter runs along its
+            // axis from the cylinder's Location.
+            const double vFirst = surf.FirstVParameter();
+            const double vLast  = surf.LastVParameter();
+            const double height = std::fabs(vLast - vFirst);
+
+            if (height <= 1e-6) {
+                logEvent(format("[ThreadMill #%zu] failed: degenerate hole height", operationSerial));
+                return false;
+            }
+
+            const gp_Ax3 pos     = cyl.Position();
+            const gp_Dir axisDir = pos.Direction();
+            const gp_Pnt base    = pos.Location().Translated(gp_Vec(axisDir) * std::min(vFirst, vLast));
+            const gp_Ax2 ax(base, axisDir);
+
+            try {
+                // The collar: a tube from the pre-bore radius out to just past
+                // the hole wall, so its outer face merges into the existing
+                // wall on fusion (the tiny overlap keeps the boolean robust
+                // without ever reaching the part's outer surface).
+                const double eps = 1e-3;
+
+                TopoDS_Shape outer = BRepPrimAPI_MakeCylinder(ax, holeRadius + eps, height).Shape();
+                TopoDS_Shape inner = BRepPrimAPI_MakeCylinder(ax, preBoreRadius, height).Shape();
+
+                BRepAlgoAPI_Cut cut(outer, inner);
+                cut.Build();
+
+                if (!cut.IsDone()) {
+                    logEvent(format("[ThreadMill #%zu] failed: collar cut IsDone=false", operationSerial));
+                    return false;
+                }
+
+                TopoDS_Shape collar = cut.Shape();
+
+                if (collar.IsNull()) {
+                    logEvent(format("[ThreadMill #%zu] failed: null collar", operationSerial));
+                    return false;
+                }
+
+                TopoDS_Shape accum = ensureSolid(shape);
+
+                BRepAlgoAPI_Fuse fuse(accum, collar);
+                fuse.Build();
+
+                if (!fuse.IsDone()) {
+                    logEvent(format("[ThreadMill #%zu] failed: fuse IsDone=false", operationSerial));
+                    return false;
+                }
+
+                TopoDS_Shape result = fuse.Shape();
+
+                if (result.IsNull()) {
+                    logEvent(format("[ThreadMill #%zu] failed: null fused result", operationSerial));
+                    return false;
+                }
+
+                TopoDS_Shape chosen = result;
+
+                try {
+                    ShapeUpgrade_UnifySameDomain unifier(result, true, true, true);
+                    unifier.Build();
+                    TopoDS_Shape unified = unifier.Shape();
+                    if (!unified.IsNull() && isShapeValid(unified)) { chosen = unified; }
+                }
+                catch (const Standard_Failure&) {}
+
+                chosen = ensureSolid(chosen);
+
+                if (!isShapeValid(chosen)) {
+                    logEvent(format("[ThreadMill #%zu] failed: invalid result after unify", operationSerial));
+                    return false;
+                }
+
+                adoptShape(chosen, true, format("ThreadMill #%zu", operationSerial));
+
+                logEvent(format(
+                    "[ThreadMill #%zu] succeeded: hole dia %.4f -> pre-bore dia %.4f over %.4f mm",
+                    operationSerial, holeRadius * 2.0, preBoreDiameter, height
+                ));
+
+                return true;
+            }
+            catch (const Standard_Failure& failure) {
+                logEvent(format("[ThreadMill #%zu] exception: %s", operationSerial, safeFailureMessage(failure)));
+                return false;
+            }
+            catch (...) {
+                logEvent(format("[ThreadMill #%zu] unknown exception", operationSerial));
                 return false;
             }
         }

@@ -9,6 +9,7 @@ import Rev.Element.Event;
 import Rev.Element.Box;
 import Rev.Element.NumberInput;
 import Rev.Element.Checkbox;
+import Rev.Element.Dropdown;
 
 import Cam.App.Stage;
 import Cam.App.ToolPath;
@@ -26,6 +27,7 @@ export namespace Cam::Gui {
 
         NumberInput* stepoverInput = nullptr;
         Checkbox* climbCheckbox = nullptr;
+        Dropdown* ringOrderDropdown = nullptr;
 
         HatchToolpathView(Element* parent) : ToolpathStrategyView(parent) {
 
@@ -33,6 +35,9 @@ export namespace Cam::Gui {
 
             Box* row = new Box(this, { &ToolpathViewStyle::Row }, "HatchStepoverRow");
             stepoverInput = makeNumberInput(row, "Stepover (% dia.)", "25");
+
+            Box* orderRow = new Box(this, { &ToolpathViewStyle::Row }, "HatchRingOrderRow");
+            ringOrderDropdown = makeRingOrderDropdown(orderRow);
 
             Box* checkRow = new Box(this, { &ToolpathViewStyle::CheckRow }, "HatchClimbRow");
             climbCheckbox = makeClimbCheckbox(checkRow);
@@ -47,15 +52,19 @@ export namespace Cam::Gui {
             const Cam::App::ToolPath& tp = state->toolPath;
             if (stepoverInput)  { stepoverInput->setValue(tp.stepover * 100.0); }
             if (climbCheckbox)  { climbCheckbox->value = tp.climbMilling; }
+            if (ringOrderDropdown) {
+                ringOrderDropdown->params.value = tp.insideOut ? "inside_out" : "outside_in";
+            }
         }
 
-        void readExtras(Event& e, double& stepover, bool& climb) override {
+        void readExtras(Event& e, double& stepover, bool& climb, bool& insideOut) override {
             if (stepoverInput) {
                 stepoverInput->commit(e);
                 const double pct = stepoverInput->valueOr(stepover * 100.0);
                 if (pct > 0.0) { stepover = pct / 100.0; }
             }
             if (climbCheckbox) { climb = climbCheckbox->value; }
+            if (ringOrderDropdown) { insideOut = (ringOrderDropdown->params.value != "outside_in"); }
         }
     };
 }

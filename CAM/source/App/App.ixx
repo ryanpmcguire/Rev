@@ -809,6 +809,13 @@ export namespace Cam::App {
             return activeProject->beginExtrudeFromSelection();
         }
 
+        bool beginThreadMill() {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->beginThreadMillFromSelection();
+        }
+
         bool commitWorkingStage() {
 
             if (!activeProject) { return false; }
@@ -839,7 +846,8 @@ export namespace Cam::App {
             double feedRate,
             double rapidSpeedMmPerSec,
             bool climbMilling,
-            float retractHeight
+            float retractHeight,
+            bool insideOut
         ) {
 
             if (!activeProject || !stage || toolName.empty() || stepover <= 0.0) {
@@ -859,6 +867,7 @@ export namespace Cam::App {
             stage->toolPath.rapidSpeedMmPerSec = rapidSpeedMmPerSec;
             stage->toolPath.climbMilling = climbMilling;
             stage->toolPath.retractHeight = retractHeight;
+            stage->toolPath.insideOut = insideOut;
 
             if (stage->hasDelta) {
                 stage->computeToolPath(activeProject->toolLibrary, activeProject->selectedToolName);

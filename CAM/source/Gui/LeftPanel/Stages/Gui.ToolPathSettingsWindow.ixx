@@ -87,6 +87,7 @@ export namespace Cam::Gui {
             bool climbMilling = true;
             double rapidSpeedMmPerSec = 0.0;
             double retractHeight = 0.0;
+            bool insideOut = true;
         };
 
         Cam::App::AppState* app = nullptr;
@@ -100,6 +101,7 @@ export namespace Cam::Gui {
         Dropdown* strategyDropdown = nullptr;
         Dropdown* toolDropdown = nullptr;
         Dropdown* cutDirectionDropdown = nullptr;
+        Dropdown* ringOrderDropdown = nullptr;
         NumberInput* stepDownInput = nullptr;
         NumberInput* stepoverInput = nullptr;
         NumberInput* feedRateInput = nullptr;
@@ -387,6 +389,25 @@ export namespace Cam::Gui {
                 refresh(e);
             };
 
+            ringOrderDropdown = new Dropdown(
+                feedRow,
+                {
+                    .label = "Ring order",
+                    .options = {
+                        { "Inside out", "inside_out" },
+                        { "Outside in", "outside_in" }
+                    },
+                    .placeholder = "Ring order",
+                    .value = toolPath.insideOut ? "inside_out" : "outside_in"
+                },
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            ringOrderDropdown->onChange = [this](Event& e) {
+                updateApplyButtonAppearance(e);
+                refresh(e);
+            };
+
             hookLiveNumberEdit(feedRateInput);
 
             new Text(
@@ -518,7 +539,8 @@ export namespace Cam::Gui {
                 .feedRate = toolPath.feedRate,
                 .climbMilling = toolPath.climbMilling,
                 .rapidSpeedMmPerSec = toolPath.rapidSpeedMmPerSec,
-                .retractHeight = double(toolPath.retractHeight)
+                .retractHeight = double(toolPath.retractHeight),
+                .insideOut = toolPath.insideOut
             };
         }
 
@@ -535,6 +557,7 @@ export namespace Cam::Gui {
             out.strategy = strategyDropdown->params.value;
             out.toolName = toolDropdown->params.value;
             out.climbMilling = cutDirectionDropdown->params.value != "conventional";
+            out.insideOut = ringOrderDropdown->params.value != "outside_in";
 
             if (!stepDownInput->tryGetValue(out.stepDown)) { return false; }
             if (!stepoverInput->tryGetValue(out.stepoverPercent)) { return false; }
@@ -561,7 +584,8 @@ export namespace Cam::Gui {
                 !nearlyEqual(current.feedRate, savedFields.feedRate) ||
                 current.climbMilling != savedFields.climbMilling ||
                 !nearlyEqual(current.rapidSpeedMmPerSec, savedFields.rapidSpeedMmPerSec) ||
-                !nearlyEqual(current.retractHeight, savedFields.retractHeight)
+                !nearlyEqual(current.retractHeight, savedFields.retractHeight) ||
+                current.insideOut != savedFields.insideOut
             );
         }
 
@@ -660,6 +684,7 @@ export namespace Cam::Gui {
 
             const std::string strategy = strategyDropdown->params.value;
             const bool climbMilling = cutDirectionDropdown->params.value != "conventional";
+            const bool insideOut = ringOrderDropdown->params.value != "outside_in";
 
             if (!app->saveToolPathSettings(
                 state,
@@ -670,7 +695,8 @@ export namespace Cam::Gui {
                 feedRate,
                 rapidSpeed,
                 climbMilling,
-                static_cast<float>(retractHeight)
+                static_cast<float>(retractHeight),
+                insideOut
             )) {
                 dbg("[ToolPathSettings] Failed to save toolpath settings");
                 return false;

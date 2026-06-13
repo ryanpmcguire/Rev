@@ -10,6 +10,7 @@ module;
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include <format>
@@ -381,6 +382,7 @@ export namespace Carvera {
         void jog(float dx, float dy, float dz) {
             if (!connected() || !confValid) { return; }
             intentX += dx; intentY += dy; intentZ += dz;
+            beginJogLead();
             std::string cmd = "$J=G91";
             if (dx != 0.0f) cmd += std::format(" X{:.3f}", dx);
             if (dy != 0.0f) cmd += std::format(" Y{:.3f}", dy);
@@ -392,6 +394,7 @@ export namespace Carvera {
         void jogA(float degrees) {
             if (!connected() || !confValid) { return; }
             intentA += degrees;
+            beginJogLead();
             rawSend(std::format("$J=G91 A{:.3f} F{}\n", degrees, jogFeedRateA));
         }
 
@@ -423,10 +426,11 @@ export namespace Carvera {
             cmd += std::format(" F{}\n", feedMmMin);
             rawSend(cmd);
 
-            // Nudge intent so the chase display leads in the right direction.
+            // Nudge intent so the display leads in the right direction.
             if (confValid) {
                 intentX += dx; intentY += dy;
                 intentZ += dz; intentA += da;
+                beginJogLead();
             }
         }
 
@@ -450,6 +454,7 @@ export namespace Carvera {
             }
             sendLine(std::format("G53 G0 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}\n", x, y, z, a));
             intentX = x; intentY = y; intentZ = z; intentA = a;
+            beginJogLead();
         }
 
         void home()   { if (requireConnected()) { sendLine("$H\n"); pushLog("Homing..."); } }
@@ -895,10 +900,14 @@ export namespace Carvera {
         //   Air      preflights, validates, translates, streams, and owns all
         //            dangerous policy (spindle, tool changes, probing, safety).
         //
-        // Returning an empty list means "nothing to run right now" (wrong
-        // mode, no toolpaths, build aborted) -- Air refuses with a clear
-        // reason instead of silently doing nothing.
-        std::function<std::vector<Operation>()> operationProvider;
+        // Air pulls operations ONE AT A TIME by index: it streams operation N
+        // fully, then asks for N+1.  This is what lets the CAM side build each
+        // operation just-in-time against the latest world model -- so a probe
+        // that just ran (updating the part-pose correction) is reflected in the
+        // very next operation.  Air does NOT know an operation is a probe, a
+        // re-probe, or a cut; it just keeps asking until the provider returns
+        // nullopt ("no operation at this index" = the program is complete).
+        std::function<std::optional<Operation>(size_t)> operationProvider;
 
         // Validate a program before ANY byte reaches the controller.  A single
         // malformed number (a NaN/Inf escaping an upstream geometry bug)
@@ -1000,6 +1009,8 @@ export namespace Carvera {
             resetFlow();
             executing.store(false);
             exec_             = Exec::Idle;
+            probeBarrier_     = false;
+            activeOpIndex_    = 0;
             setActivity(Activity::Idle);
             haveLast_         = false;
             haveReturn_       = false;
@@ -1036,26 +1047,30 @@ export namespace Carvera {
                 return OperationResult::failure("No execute mode active in the CAM view.");
             }
 
-            const std::vector<Operation> ops = operationProvider();
+            // Pull the FIRST operation.  The rest are pulled one at a time as
+            // each completes (see advanceToNextOperationLocked), so each is built
+            // against the latest world model.
+            const std::optional<Operation> first = operationProvider(0);
 
-            if (ops.empty()) {
+            if (!first.has_value()) {
                 pushLog("[start] refused: the CAM view produced no operations.");
                 return OperationResult::failure(
                     "Nothing to run: the CAM view produced no operations "
                     "(check execute mode and that a toolpath is computed).");
             }
 
-            if (auto r = validateOperations(ops); !r.ok) {
+            if (auto r = validateOperations({ *first }); !r.ok) {
                 pushLog(std::format("[start] refused: {}", r.reason));
                 return r;
             }
 
-            if (!enqueueOperations(ops)) {
+            activeOpIndex_ = 0;
+
+            if (!enqueueOperations({ *first })) {
                 return OperationResult::failure("Failed to enqueue the program.");
             }
 
-            pushLog(std::format("Execution started ({} operation{}).",
-                                ops.size(), ops.size() == 1 ? "" : "s"));
+            pushLog("Execution started.");
 
             StartEvent e{};
             startDispatcher.tell(&Air::startEvent, e);
@@ -1174,15 +1189,45 @@ export namespace Carvera {
         float confX = 0, confY = 0, confZ = 0, confA = 0;
         bool  confValid = false;
 
-        // -- Intent / display chase ---------------------------------
+        // -- Intent / display estimator -----------------------------
+        //
+        // The displayed position is a TIME-BASED ESTIMATE, never a snap:
+        //
+        //   * Each confirmed telemetry frame updates a per-axis VELOCITY
+        //     estimate (blended across frames to reject single-frame noise).
+        //   * Between frames the confirmed position is DEAD-RECKONED forward
+        //     along that velocity (capped, so a stale frame can't run away).
+        //   * The displayed position relaxes toward that estimate through an
+        //     exponential time constant -- so it is always smooth, always
+        //     converging to ground truth, and never teleports.
+        //
+        // The jog INTENT survives only as a short LEAD: for a brief window
+        // after a jog/goTo command the display heads for the commanded target
+        // (instant operator feedback); after the window it follows the
+        // machine estimate again.
 
         float intentX = 0, intentY = 0, intentZ = 0, intentA = 0;
         float dispX = 0, dispY = 0, dispZ = 0, dispA = 0;
         bool  dispReady = false;
         Clock::time_point lastFrameTime = Clock::now();
 
-        static constexpr float ChaseSpeedLinear  = 0.040f;  // mm/ms
-        static constexpr float ChaseSpeedAngular = 0.120f;  // deg/ms
+        // Velocity estimate (units per ms) from consecutive confirmed frames.
+        float velX = 0, velY = 0, velZ = 0, velA = 0;
+        float lastConfX_ = 0, lastConfY_ = 0, lastConfZ_ = 0, lastConfA_ = 0;
+        Clock::time_point confAt_ = Clock::now();
+        bool  haveConfSample_ = false;
+
+        // Jog lead window: until this instant, the display heads for the jog
+        // intent instead of the machine estimate.
+        Clock::time_point jogLeadUntil_ = Clock::now();
+
+        static constexpr float TauLinearMs    = 70.0f;    // display smoothing time constant
+        static constexpr float TauAngularMs   = 70.0f;
+        static constexpr float PredictCapMs   = 150.0f;   // max dead-reckoning horizon
+        static constexpr float VelBlend       = 0.5f;     // per-frame velocity blend factor
+        static constexpr float MaxVelLinear   = 0.20f;    // mm/ms sanity clamp (12 m/min)
+        static constexpr float MaxVelAngular  = 0.36f;    // deg/ms sanity clamp
+        static constexpr int   JogLeadMs      = 400;
 
         // -- Telemetry mirror (atomic, read by the CAM view) --------
 
@@ -1219,6 +1264,16 @@ export namespace Carvera {
         // G38.2 is deferred until the tool change completes (tcComplete) so it
         // is never injected into an in-flight ATC cycle.  Main-thread only.
         bool probePending_ = false;
+
+        // Set when a G38.2 has been sent and we are waiting for its [PRB] + ok.
+        // While true the streaming pump sends nothing else, so the probe move is
+        // never blended with the move that follows it.  Main-thread (pump) only.
+        bool probeBarrier_ = false;
+
+        // Index of the operation currently being streamed.  Air pulls operations
+        // one at a time from operationProvider(activeOpIndex_); when one finishes
+        // it advances and pulls the next.  Main-thread (pump/requestStart) only.
+        size_t activeOpIndex_ = 0;
 
         // -- Program execution (action queue) + ATC gate -----------
 
@@ -1804,34 +1859,90 @@ export namespace Carvera {
 
             if (!statusInFlight) { sendStatus(); }
 
-            if (!confValid) { dispReady = false; return; }
+            if (!confValid) { dispReady = false; haveConfSample_ = false; return; }
 
             if (!dispReady) {
-                dispX = intentX = confX;
-                dispY = intentY = confY;
-                dispZ = intentZ = confZ;
-                dispA = intentA = confA;
+                dispX = intentX = lastConfX_ = confX;
+                dispY = intentY = lastConfY_ = confY;
+                dispZ = intentZ = lastConfZ_ = confZ;
+                dispA = intentA = lastConfA_ = confA;
+                velX = velY = velZ = velA = 0.0f;
+                confAt_ = now;
+                haveConfSample_ = true;
                 dispReady = true;
                 publishLivePosition();
                 return;
             }
 
+            // A fresh confirmed frame updates the VELOCITY estimate -- it never
+            // snaps the display.  Velocity is blended across frames; a stale or
+            // first sample contributes zero.
             if (freshFrame) {
-                dispX = confX; dispY = confY; dispZ = confZ; dispA = confA;
 
-                const bool nowQuiet = (machineState_     == "Idle" || machineState_     == "Alarm");
-                const bool wasQuiet = (lastMachineState_ == "Idle" || lastMachineState_ == "Alarm");
-                if (nowQuiet && !wasQuiet) {
-                    intentX = confX; intentY = confY; intentZ = confZ; intentA = confA;
+                const float dtc = std::chrono::duration<float, std::milli>(now - confAt_).count();
+
+                if (haveConfSample_ && dtc > 1.0f && dtc < 500.0f) {
+                    auto blendVel = [&](float& v, float to, float from, float cap) {
+                        float nv = (to - from) / dtc;
+                        nv = std::clamp(nv, -cap, cap);
+                        v += (nv - v) * VelBlend;
+                    };
+                    blendVel(velX, confX, lastConfX_, MaxVelLinear);
+                    blendVel(velY, confY, lastConfY_, MaxVelLinear);
+                    blendVel(velZ, confZ, lastConfZ_, MaxVelLinear);
+                    blendVel(velA, confA, lastConfA_, MaxVelAngular);
                 }
+                else {
+                    velX = velY = velZ = velA = 0.0f;
+                }
+
+                lastConfX_ = confX; lastConfY_ = confY;
+                lastConfZ_ = confZ; lastConfA_ = confA;
+                confAt_ = now;
+                haveConfSample_ = true;
             }
 
             if (!machineState_.empty()) { lastMachineState_ = machineState_; }
 
-            stepToward(dispX, intentX, ChaseSpeedLinear  * dtMs);
-            stepToward(dispY, intentY, ChaseSpeedLinear  * dtMs);
-            stepToward(dispZ, intentZ, ChaseSpeedLinear  * dtMs);
-            stepToward(dispA, intentA, ChaseSpeedAngular * dtMs);
+            // A quiet machine is not moving: kill the velocity estimate and
+            // re-anchor the jog intent so nothing creeps.
+            const bool quiet = (machineState_ == "Idle" ||
+                                machineState_ == "Alarm" ||
+                                machineState_ == "Hold");
+            if (quiet) {
+                velX = velY = velZ = velA = 0.0f;
+                intentX = confX; intentY = confY; intentZ = confZ; intentA = confA;
+            }
+
+            // Dead-reckon the confirmed position forward along the estimated
+            // velocity, capped so a missing frame can't run the estimate away.
+            const float age = std::chrono::duration<float, std::milli>(now - confAt_).count();
+            const float horizon = std::min(age, PredictCapMs);
+
+            float estX = confX + velX * horizon;
+            float estY = confY + velY * horizon;
+            float estZ = confZ + velZ * horizon;
+            float estA = confA + velA * horizon;
+
+            // Jog lead: for a short window after a jog command, head for the
+            // commanded target for instant feedback; otherwise follow the
+            // machine estimate.
+            const bool lead = (now < jogLeadUntil_) && !quiet;
+
+            const float tX = lead ? intentX : estX;
+            const float tY = lead ? intentY : estY;
+            const float tZ = lead ? intentZ : estZ;
+            const float tA = lead ? intentA : estA;
+
+            // Exponential relaxation toward the target: a true time constant,
+            // frame-rate independent, and incapable of teleporting.
+            const float aLin = 1.0f - std::exp(-dtMs / TauLinearMs);
+            const float aAng = 1.0f - std::exp(-dtMs / TauAngularMs);
+
+            dispX += (tX - dispX) * aLin;
+            dispY += (tY - dispY) * aLin;
+            dispZ += (tZ - dispZ) * aLin;
+            dispA += (tA - dispA) * aAng;
 
             publishLivePosition();
         }
@@ -1850,10 +1961,11 @@ export namespace Carvera {
             telemetryDispatcher.tell(&Air::telemetryEvent, e);
         }
 
-        static void stepToward(float& cur, float target, float maxStep) {
-            float diff = target - cur;
-            if (std::abs(diff) <= maxStep) { cur = target; return; }
-            cur += (diff > 0 ? maxStep : -maxStep);
+        // Open the jog-lead window: for the next JogLeadMs the display heads
+        // for the commanded intent (instant operator feedback) before falling
+        // back to the telemetry estimate.
+        void beginJogLead() {
+            jogLeadUntil_ = Clock::now() + std::chrono::milliseconds(JogLeadMs);
         }
 
         // -- Tool-change gate + lifecycle events --------------------
@@ -2137,6 +2249,43 @@ export namespace Carvera {
 
         // Load a Step program into the queue and start streaming.  Shared by
         // enqueueProgram and enqueueOperations (arming already checked).
+        // Called from pump() with queueMutex HELD.  Pull the next operation from
+        // the provider -- built fresh, so it reflects any probe correction just
+        // computed -- validate it, and load its steps directly into the queue.
+        // Returns true if a next operation was loaded; false when the program is
+        // complete (provider returned nullopt) or the next operation failed
+        // validation (program stops).  Must NOT call enqueueStepsInternal: that
+        // re-locks the non-recursive queueMutex and would throw.
+        bool advanceToNextOperationLocked() {
+
+            if (!operationProvider) { return false; }
+
+            activeOpIndex_++;
+            std::optional<Operation> next = operationProvider(activeOpIndex_);
+            if (!next.has_value()) { return false; }
+
+            if (auto r = validateOperations({ *next }); !r.ok) {
+                pushLog(std::format("Program stopped before operation {}: {}",
+                                    activeOpIndex_ + 1, r.reason));
+                return false;
+            }
+
+            const std::vector<Step> program = buildSteps({ *next });
+
+            steps_.assign(program.begin(), program.end());
+            clearanceZ_       = computeClearance(program);
+            haveLast_         = false;
+            haveReturn_       = false;
+            returnMotionSeen_ = false;
+            returnWaitFrames_ = 0;
+            resetFlow();
+            exec_ = steps_.empty() ? Exec::Idle : Exec::Streaming;
+
+            dbg("[Air] exec: advanced to operation %zu (%zu steps)",
+                activeOpIndex_, program.size());
+            return !steps_.empty();
+        }
+
         bool enqueueStepsInternal(const std::vector<Step>& program) {
             {
                 std::lock_guard<std::mutex> lock(queueMutex);
@@ -2185,6 +2334,11 @@ export namespace Carvera {
 
                 bool spindleOn = false;
 
+                // Track the last commanded ABSOLUTE position so a probe can be
+                // emitted as a RELATIVE move from it (the standoff).
+                double lastX = 0, lastY = 0, lastZ = 0, lastA = 0;
+                bool   havePos = false;
+
                 for (const Path& path : op.paths) {
 
                     // Spin up just before the first cut move of a cut op -- but
@@ -2204,10 +2358,31 @@ export namespace Carvera {
                             case Path::Kind::Cut:
                                 program.push_back(Step::moveTo(w.x, w.y, w.z, w.a, path.feed));
                                 break;
-                            case Path::Kind::Intersect:
-                                program.push_back(Step::probeTo(w.x, w.y, w.z, w.a, path.feed));
+                            case Path::Kind::Intersect: {
+                                // A probe is a RELATIVE plunge from where the tool
+                                // already is (the standoff) along the approach,
+                                // until contact: position is set absolutely by the
+                                // preceding Travel, then G91 G38.2 by the delta,
+                                // then restore G90.  Relative semantics make the
+                                // move correct regardless of WHEN it is sent --
+                                // the controller anchors it to wherever it is when
+                                // it runs it -- so no position confirmation or
+                                // timing delay is ever needed, only in-order
+                                // execution.  (Absolute G38.2 was driving the
+                                // probe along the target VECTOR instead of toward
+                                // the target point.)
+                                const double dx = havePos ? w.x - lastX : 0.0;
+                                const double dy = havePos ? w.y - lastY : 0.0;
+                                const double dz = havePos ? w.z - lastZ : 0.0;
+                                const double da = havePos ? w.a - lastA : 0.0;
+                                program.push_back(Step::raw_("G91\n"));
+                                program.push_back(Step::probeTo(dx, dy, dz, da, path.feed));
+                                program.push_back(Step::raw_("G90\n"));
                                 break;
+                            }
                         }
+                        lastX = w.x; lastY = w.y; lastZ = w.z; lastA = w.a;
+                        havePos = true;
                     }
                 }
 
@@ -2242,9 +2417,11 @@ export namespace Carvera {
                 case Step::Kind::Spindle:
                     return s.rpm > 0.0 ? std::format("M3 S{:.0f}\n", s.rpm) : std::string("M5\n");
                 case Step::Kind::Probe:
-                    // G38.2: probe toward the target; the machine decelerates and
-                    // stops itself on contact, prints [PRB:...] (-> ProbeEvent),
-                    // then "ok" -- so normal flow control waits for completion.
+                    // G38.2: probe a RELATIVE delta (x/y/z are the move FROM the
+                    // standoff along the approach -- buildSteps emits this between
+                    // a G91 and a G90).  The machine decelerates and stops itself
+                    // on contact, prints [PRB:...] (-> ProbeEvent), then "ok", so
+                    // normal flow control waits for completion.
                     return std::format("G38.2 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f} F{:.1f}\n",
                                        s.x, s.y, s.z, s.a, s.feed > 0.0 ? s.feed : 100.0);
                 case Step::Kind::Dwell:
@@ -2322,6 +2499,18 @@ export namespace Carvera {
 
                     while (inFlight < MaxInFlight && !steps_.empty()) {
 
+                        // A probe (G38.2) must run completely alone: nothing may
+                        // be queued behind it until its [PRB] + ok have returned
+                        // (inFlight back to 0).  Without this barrier the pump
+                        // would send the NEXT travel/probe while the G38.2 is
+                        // still in flight, and the controller would blend the two
+                        // moves -- the probe drives off toward the next point
+                        // instead of straight along the approach.
+                        if (probeBarrier_) {
+                            if (inFlight > 0) { break; }
+                            probeBarrier_ = false;
+                        }
+
                         Step& s = steps_.front();
 
                         // Note: a runtime narration line; log it and move on (it
@@ -2337,11 +2526,36 @@ export namespace Carvera {
                         // (break after) so its [PRB] + ok are unambiguous before
                         // any following move is queued.
                         if (s.kind == Step::Kind::Probe) {
+                            // Drain first so the probe is the only thing in the
+                            // buffer and its [PRB] reply is unambiguous.  This is
+                            // flow control (counting acks), NOT position
+                            // telemetry: the probe is a RELATIVE move (G91 G38.2
+                            // by a delta, emitted with its own G91/G90 bracket in
+                            // buildSteps), so it is correct wherever the body is
+                            // when the controller executes it -- the standoff it
+                            // was sequenced behind.  No arrival confirmation and
+                            // no timing delay are needed; in-order execution is
+                            // the guarantee.
                             if (inFlight > 0) { break; }
+
+                            const std::string g = gcodeForStep(s);
+
+                            // Diagnostic: the exact relative G38.2 sent + where
+                            // the body is right now (for the log narrative).
+                            float lx = 0, ly = 0, lz = 0, la = 0;
+                            telemetry(lx, ly, lz, la);
+                            std::string line = g;
+                            if (!line.empty() && line.back() == '\n') { line.pop_back(); }
+                            pushLog(std::format(
+                                "Probe: -> \"{}\" (relative) | machine now "
+                                "(X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}).",
+                                line, lx, ly, lz, la));
+
                             setActivity(Activity::Probing);
-                            client->send(gcodeForStep(s));
+                            client->send(g);
                             steps_.pop_front();
                             inFlight++;
+                            probeBarrier_ = true;   // nothing else until [PRB]+ok
                             break;
                         }
 
@@ -2410,6 +2624,12 @@ export namespace Carvera {
                     }
 
                     if (steps_.empty() && inFlight == 0) {
+                        // This operation finished.  Pull the next one (built fresh
+                        // against the latest world model) and keep streaming.  If
+                        // there is none, the program is complete.
+                        if (advanceToNextOperationLocked()) {
+                            break;
+                        }
                         dbg("[Air] exec: Streaming -> Idle (program complete)");
                         exec_ = Exec::Idle;
                         executing.store(false);

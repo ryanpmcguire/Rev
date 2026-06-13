@@ -57,6 +57,21 @@ export namespace Cam::App::Slicer::Strategy {
         float stepover = 0.25f;
         bool climbMilling = true;
 
+        // Ring order within a slice: true = INSIDE OUT (cut the innermost ring
+        // first, work outward); false = OUTSIDE IN.  Forwarded to the slice
+        // strategy's params.reverse, which reverses chain ORDER only (links are
+        // re-woven, climb handedness untouched).
+        bool insideOut = true;
+
+        // Thread-mill callout + options (only the ThreadMill strategy reads
+        // these).  A thread is defined entirely by its callout, so these drive
+        // the helix directly.
+        float threadMajorDiameter = 2.0f;
+        float threadPitch = 0.4f;
+        bool  threadInternal = true;
+        int   threadPasses = 1;
+        bool  threadUpCut = true;
+
         CutFrame frame = CutFrame::fromAxis({ 0.0f, 0.0f, 1.0f });
     };
 

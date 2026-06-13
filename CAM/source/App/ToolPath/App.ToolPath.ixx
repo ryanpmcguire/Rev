@@ -27,6 +27,7 @@ import Cam.App.Slicer.Strategy.CutFrame;
 import Cam.App.Slicer.Strategy.Strategies.Bore;
 import Cam.App.Slicer.Strategy.Strategies.Profile;
 import Cam.App.Slicer.Strategy.Strategies.Hatch;
+import Cam.App.Slicer.Strategy.Strategies.ThreadMill;
 
 export namespace Cam::App {
 
@@ -51,8 +52,9 @@ export namespace Cam::App {
         using Bore = Slicer::Strategy::Strategies::Bore;
         using Profile = Slicer::Strategy::Strategies::Profile;
         using Hatch = Slicer::Strategy::Strategies::Hatch;
+        using ThreadMill = Slicer::Strategy::Strategies::ThreadMill;
 
-        using StrategyInstance = std::variant<Bore, Profile, Hatch>;
+        using StrategyInstance = std::variant<Bore, Profile, Hatch, ThreadMill>;
 
         // Settings
         std::string toolName = "";
@@ -64,6 +66,19 @@ export namespace Cam::App {
         double stepover = 0.25;
         double rapidSpeedMmPerSec = 10.0;
         bool climbMilling = true;
+
+        // Ring order: true = INSIDE OUT (innermost ring first), false = OUTSIDE
+        // IN.  Forwarded to the slice strategy's reverse flag.
+        bool insideOut = true;
+
+        // Thread milling callout + options (used only by the ThreadMill
+        // strategy).  Seeded from the ThreadMillOperation when the stage is
+        // created; edited in the thread-mill settings view.
+        double threadMajorDiameter = 2.0;   // nominal thread major diameter (mm)
+        double threadPitch = 0.4;           // thread pitch (mm/rev)
+        bool   threadInternal = true;       // internal (tapped hole) vs external
+        int    threadPasses = 1;            // radial passes (1 = single-pass)
+        bool   threadUpCut = true;          // true = bottom-up, false = top-down
 
         // Cached from the tool used at last compute (for preview geometry).
         double toolDiameter = 0.0;
@@ -251,12 +266,15 @@ export namespace Cam::App {
             }
         }
 
-        // Generation appends in reverse execution order; flip for display and preview.
-        void reversePointsForForwardDisplay() {
+        // Points are built in true forward execution order, so finalizing is
+        // just (re)assigning the time stamps -- no reversal.  (The strategy
+        // layers are consumed back-to-front in buildPointsFromStrategy, which
+        // is where the bottom-up slice storage is turned into top-down cutting
+        // order; intra-chain travel direction is never touched.)
+        void finalizePoints() {
 
             if (points.size() < 2) { return; }
 
-            std::reverse(points.begin(), points.end());
             assignPointTimes();
         }
 
@@ -335,7 +353,17 @@ export namespace Cam::App {
 
             std::vector<Pos> pts;
 
-            for (const Slicer::Strategy::LayerPath& layer : strategyImpl.paths()) {
+            // The strategy stores its layers in REVERSE execution order (slices
+            // bottom-up; bores floor-first).  Consume them back-to-front so the
+            // points come out in true forward execution order WITHOUT reversing
+            // anything inside a chain -- each chain's travel direction (its
+            // climb sense, chosen entry, and link ends) is preserved exactly as
+            // the slicer resolved it.
+            const std::vector<Slicer::Strategy::LayerPath>& layers = strategyImpl.paths();
+
+            for (size_t li = layers.size(); li-- > 0; ) {
+
+                const Slicer::Strategy::LayerPath& layer = layers[li];
 
                 if (!layer.points.empty()) {
 
@@ -531,21 +559,27 @@ export namespace Cam::App {
 
             if (points.empty()) { return; }
 
-            // Toolpath points are stored in reverse execution order: the
-            // stored BACK executes first, the stored FRONT executes last.
+            // Points are in true forward execution order: FRONT executes first,
+            // BACK executes last.
 
-            // Approach: straight down onto the first executed point.
+            // Approach: arrive on the safe plane directly above the first cut
+            // point, then plunge straight in.  Prepended so it runs first.
             {
-                const Pos3 first = points.back().position;
+                const Pos3 first = points.front().position;
                 const Pos uv = frame.worldToUv(first, frame.dotFromOrigin(first));
 
-                addWorldPoint(frame.uvToWorld(uv, safeDepth), true, false);
+                points.insert(
+                    points.begin(),
+                    makePoint(frame.uvToWorld(uv, safeDepth), true, false)
+                );
             }
 
-            // Retract: away from the wall at depth (profile only), then
-            // straight up.
+            // Retract: at the last cut point, step slightly away from the wall
+            // at depth (profile only, along the source distance-field gradient
+            // so the lift never drags up the finished surface), then lift
+            // straight up to the safe plane.  Appended so it runs last.
             {
-                const Pos3 last = points.front().position;
+                const Pos3 last = points.back().position;
                 const float lastDepth = frame.dotFromOrigin(last);
 
                 Pos uv = frame.worldToUv(last, lastDepth);
@@ -562,21 +596,12 @@ export namespace Cam::App {
 
                         if (away.pythag() > 0.5f && nudge > 0.0f) {
                             uv += away * nudge;
-
-                            // The sidestep itself, at cutting depth (stored
-                            // after the top point so it executes BEFORE it).
-                            points.insert(
-                                points.begin(),
-                                makePoint(frame.uvToWorld(uv, lastDepth), false, false)
-                            );
+                            addWorldPoint(frame.uvToWorld(uv, lastDepth), false, false);
                         }
                     }
                 }
 
-                points.insert(
-                    points.begin(),
-                    makePoint(frame.uvToWorld(uv, safeDepth), true, false)
-                );
+                addWorldPoint(frame.uvToWorld(uv, safeDepth), true, false);
             }
         }
 
@@ -650,11 +675,18 @@ export namespace Cam::App {
                 .stepDown = static_cast<float>(stepDown),
                 .stepover = static_cast<float>(stepover),
                 .climbMilling = climbMilling,
+                .insideOut = insideOut,
+                .threadMajorDiameter = static_cast<float>(threadMajorDiameter),
+                .threadPitch = static_cast<float>(threadPitch),
+                .threadInternal = threadInternal,
+                .threadPasses = threadPasses,
+                .threadUpCut = threadUpCut,
                 .frame = frame
             };
 
             if (strategy == Bore::name()) { strategyInstance = Bore {}; }
             else if (strategy == Profile::name()) { strategyInstance = Profile {}; }
+            else if (strategy == ThreadMill::name()) { strategyInstance = ThreadMill {}; }
             else {
                 strategy = Hatch::name();
                 strategyInstance = Hatch {};
@@ -677,7 +709,7 @@ export namespace Cam::App {
                 addApproachRetractLinks(frame, strategyImpl, safeDepth);
             }
 
-            reversePointsForForwardDisplay();
+            finalizePoints();
 
             Pos3 axisAnchor = {};
 
@@ -746,8 +778,8 @@ export namespace Cam::App {
         //
         // Falls back to straight-line when the endpoints are on the axis or
         // the tool directions are already parallel (no rotation needed).
-        bool link(const ToolPath& next, const Pos3& pivot, const Pos3& rotaryAxis) {
-            return linkPoints(next, &pivot, &rotaryAxis);
+        bool link(const ToolPath& next, const Pos3& pivot, const Pos3& rotaryAxis, float safeRadius = 0.0f) {
+            return linkPoints(next, &pivot, &rotaryAxis, safeRadius);
         }
 
     private:
@@ -755,7 +787,8 @@ export namespace Cam::App {
         bool linkPoints(
             const ToolPath& next,
             const Pos3* pivot,
-            const Pos3* rotaryAxis
+            const Pos3* rotaryAxis,
+            float safeRadius = 0.0f
         ) {
             if (points.empty() || next.points.empty()) { return false; }
 
@@ -819,8 +852,27 @@ export namespace Cam::App {
 
                 if (useArc) {
                     const float axial    = fromAxial  + (toAxial  - fromAxial)  * alpha;
-                    const float radius   = fromRadius + (toRadius - fromRadius) * alpha;
                     const float angle    = totalAngle * alpha;
+
+                    // Base radius lerps between the two endpoints, but the part
+                    // sweeps between them: a wide prism's CORNERS reach much
+                    // farther from the rotary axis than its faces, so an arc at
+                    // face radius clips through.  Bulge the swept radius out to
+                    // safeRadius (the part's clearance radius about the axis)
+                    // across the interior of the sweep, easing smoothly back to
+                    // the exact endpoints so the motion stays elegant -- never
+                    // a sudden radial jump.
+                    float radius = fromRadius + (toRadius - fromRadius) * alpha;
+
+                    if (safeRadius > radius) {
+                        constexpr float ease = 0.15f;   // ramp fraction at each end
+                        float w = 1.0f;
+                        if (alpha < ease)            { w = alpha / ease; }
+                        else if (alpha > 1.0f - ease){ w = (1.0f - alpha) / ease; }
+                        w = w * w * (3.0f - 2.0f * w);   // smoothstep
+                        radius += (safeRadius - radius) * w;
+                    }
+
                     const Pos3 radialDir = u * std::cos(angle) + v * std::sin(angle);
                     pos = *pivot + A * axial + radialDir * radius;
 
@@ -860,7 +912,7 @@ export namespace Cam::App {
             dbg(
                 "[ToolPath] Link (%s) %d steps:"
                 " (%.1f,%.1f,%.1f)->(%.1f,%.1f,%.1f)"
-                " angle=%.1f° dist=%.1fmm",
+                " angle=%.1f deg dist=%.1fmm",
                 useArc ? "arc" : "line",
                 LinkSteps,
                 fromPt.position.x, fromPt.position.y, fromPt.position.z,
@@ -877,7 +929,7 @@ export namespace Cam::App {
         // Preview sampling
         //--------------------------------------------------
 
-        // Points are in forward execution order (see reversePointsForForwardDisplay).
+        // Points are in forward execution order (see finalizePoints).
         bool sampleAtTime(double previewTimeSeconds, ToolPathPoint& out) const {
 
             if (points.empty()) { return false; }
@@ -956,7 +1008,6 @@ export namespace Cam::App {
             const double previewTime = totalDuration * std::clamp(previewProgress, 0.0, 1.0);
 
             Color cutColor = { 1.0f, 0.0f, 1.0f, 1.0f };           // cutting: magenta
-            Color rapidColor = { 0.6f, 0.0f, 1.0f, 0.35f };
             Color linkColor = { 0.25f, 0.85f, 1.0f, 1.0f };        // retract/rapid links: cyan
             Color cutLinkColor = { 1.0f, 0.58f, 0.15f, 1.0f };     // tool-down linking steps: orange
             Color uncoloredColor = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -965,21 +1016,21 @@ export namespace Cam::App {
                 const Pos3& a = points[i].position;
                 const Pos3& b = points[i + 1].position;
 
-                const bool isLink = !points[i].cutting || !points[i + 1].cutting;
-                // Points are displayed in flipped storage order, so the marked
-                // endpoint of a linking move can land on either side of the
-                // step: either endpoint tagged makes it a linking step.
-                const bool isCutLink = points[i].link || points[i + 1].link;
+                // Each point is tagged (by cutTo/moveTo) with the move that
+                // ARRIVES at it.  Points are now in true forward execution
+                // order (no list-wide reversal), so a segment's identity is its
+                // DESTINATION's tag.
+                const ToolPathPoint& dst = points[i + 1];
 
-                Color baseColor = isLink
-                    ? linkColor
-                    : isCutLink
-                        ? cutLinkColor
-                        : (points[i + 1].rapid ? rapidColor : cutColor);
+                Color baseColor =
+                    !dst.cutting ? linkColor       // a reposition: retract / rapid / plunge / approach
+                  :  dst.link    ? cutLinkColor    // a tool-down LINK between passes
+                  :                cutColor;        // a genuine cutting move
 
+                // A segment is "reached" once the tool arrives at its END.
                 const bool colored = (
                     previewProgress >= 1.0 - 1e-9 ||
-                    points[i + 1].t <= previewTime + 1e-9
+                    dst.t <= previewTime + 1e-9
                 );
 
                 Color color = colored ? baseColor : uncoloredColor;

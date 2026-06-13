@@ -19,7 +19,8 @@ export namespace Cam::App {
         Import,         // root seed: geometry imported from a STEP file
         Defeature,      // remove selected feature(s)
         ExtendFeature,  // extend selected face(s) outward
-        Extrude         // extrude a profile face up to an end face
+        Extrude,        // extrude a profile face up to an end face
+        ThreadMill      // reduce a hole to its pre-thread bore; thread cut by the toolpath
     };
 
     // A named, editable single-face reference exposed by an operation. The GUI
@@ -237,6 +238,79 @@ export namespace Cam::App {
         }
     };
 
+    // Reduce a selected cylindrical hole to its PRE-THREAD bore, leaving the
+    // thread itself to the Thread Mill toolpath strategy (the geometry is never
+    // modeled -- a thread is fully described by its callout).  The hole as
+    // drawn is the thread's major-diameter cylinder; this fills it inward to
+    // `preBoreDiameter` so a later step can drill that plain bore.
+    //
+    //   majorDiameter / pitch  -- the thread callout the toolpath cuts.
+    //   preBoreDiameter        -- the bore left for the mill (and drilled
+    //                             later); defaults to the 60-degree minor
+    //                             diameter (major - 1.0825 * pitch), overridable.
+    struct ThreadMillOperation : Operation {
+        int holeFace = -1;
+        double majorDiameter = 2.0;     // M2 default
+        double pitch = 0.4;
+        double preBoreDiameter = 1.6;
+        bool internal = true;           // internal (tapped hole) vs external thread
+
+        OperationType type() const override { return OperationType::ThreadMill; }
+        const char* typeName() const override { return "ThreadMill"; }
+        std::string displayName() const override { return "Thread Mill"; }
+
+        // The 60-degree thread minor diameter for a callout -- a sensible
+        // default pre-bore when the user hasn't dialed one in.
+        static double minorDiameter(double major, double p) {
+            return major - 1.0825 * p;
+        }
+
+        std::vector<FaceSlot> faceSlots() override {
+            return { { "Thread hole", &holeFace } };
+        }
+
+        bool ready() const override {
+            return holeFace >= 0 && preBoreDiameter > 0.0 && preBoreDiameter < majorDiameter;
+        }
+
+        bool apply(Model& model) override {
+            if (!ready()) { return false; }
+            return model.threadMillInfill(
+                static_cast<std::size_t>(holeFace),
+                preBoreDiameter
+            );
+        }
+
+        Json getState() const override {
+            Json json = Operation::getState();
+            json["holeFace"] = holeFace;
+            json["majorDiameter"] = majorDiameter;
+            json["pitch"] = pitch;
+            json["preBoreDiameter"] = preBoreDiameter;
+            json["internal"] = internal;
+            return json;
+        }
+
+        void setState(const Json& json) override {
+            Operation::setState(json);
+            if (json.contains("holeFace") && json["holeFace"].is_number_integer()) {
+                holeFace = json["holeFace"].get<int>();
+            }
+            if (json.contains("majorDiameter") && json["majorDiameter"].is_number()) {
+                majorDiameter = json["majorDiameter"].get<double>();
+            }
+            if (json.contains("pitch") && json["pitch"].is_number()) {
+                pitch = json["pitch"].get<double>();
+            }
+            if (json.contains("preBoreDiameter") && json["preBoreDiameter"].is_number()) {
+                preBoreDiameter = json["preBoreDiameter"].get<double>();
+            }
+            if (json.contains("internal") && json["internal"].is_boolean()) {
+                internal = json["internal"].get<bool>();
+            }
+        }
+    };
+
     // Factory: reconstruct an operation from its serialized form. Unknown or
     // missing types fall back to a plain Import (no-op) operation, since the
     // stage's resulting model is already baked into its own serialized geometry.
@@ -253,6 +327,7 @@ export namespace Cam::App {
         if (type == "Defeature") { op = new DefeatureOperation(); }
         else if (type == "ExtendFeature") { op = new ExtendFeatureOperation(); }
         else if (type == "Extrude") { op = new ExtrudeOperation(); }
+        else if (type == "ThreadMill") { op = new ThreadMillOperation(); }
         else { op = new ImportOperation(); }
 
         op->setState(json);

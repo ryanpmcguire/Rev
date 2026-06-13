@@ -59,7 +59,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             params.toolRadius = radius;
             params.stepover = 1.0f;
             params.maxGenerations = 1;
-            params.reverse = false;
+            params.reverse = ctx.insideOut;
             params.climb = ctx.climbMilling;
 
             Geo::SliceStrategy strategy(params);

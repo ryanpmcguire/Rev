@@ -446,6 +446,7 @@ export namespace Cam::App {
                     { "rapidSpeedMmPerSec", stage->toolPath.rapidSpeedMmPerSec },
                     { "climbMilling", stage->toolPath.climbMilling },
                     { "retractHeight", stage->toolPath.retractHeight },
+                    { "insideOut", stage->toolPath.insideOut },
                     { "sliceAxis", Json::array({
                         stage->toolPath.sliceAxis.x,
                         stage->toolPath.sliceAxis.y,
@@ -646,6 +647,10 @@ export namespace Cam::App {
                             stage->toolPath.retractHeight = static_cast<float>(
                                 toolPathJson["retractHeight"].get<double>()
                             );
+                        }
+
+                        if (toolPathJson.contains("insideOut") && toolPathJson["insideOut"].is_boolean()) {
+                            stage->toolPath.insideOut = toolPathJson["insideOut"].get<bool>();
                         }
 
                         if (toolPathJson.contains("sliceAxis") && toolPathJson["sliceAxis"].is_array() && toolPathJson["sliceAxis"].size() >= 3) {
@@ -1733,6 +1738,70 @@ export namespace Cam::App {
         // Begin an extrude on the working stage: the profile is the currently
         // selected face; the end face is left unset and auto-activated so the
         // next ctrl+click defines it.
+        // ISO metric coarse pitch for a nominal diameter (mm).  A small table
+        // for the common sizes, with a gentle fallback for anything else; the
+        // user dials in the exact callout afterward.
+        static double coarsePitchFor(double majorDiameter) {
+            struct Row { double d; double p; };
+            static const Row table[] = {
+                { 1.6, 0.35 }, { 2.0, 0.40 }, { 2.5, 0.45 }, { 3.0, 0.50 },
+                { 4.0, 0.70 }, { 5.0, 0.80 }, { 6.0, 1.00 }, { 8.0, 1.25 },
+                { 10.0, 1.50 }, { 12.0, 1.75 }, { 16.0, 2.00 }, { 20.0, 2.50 }
+            };
+            double best = table[0].p;
+            double bestErr = 1e30;
+            for (const Row& r : table) {
+                const double err = std::fabs(r.d - majorDiameter);
+                if (err < bestErr) { bestErr = err; best = r.p; }
+            }
+            return best;
+        }
+
+        // Begin a thread-mill operation on the selected cylindrical hole: shrink
+        // the hole to its pre-thread bore (the operation's apply) and auto-select
+        // the Thread Mill toolpath strategy, seeded with the callout read from
+        // the hole.  The user refines pitch / pre-bore in the operation + the
+        // thread-mill settings view.
+        bool beginThreadMillFromSelection() {
+
+            if (!workingStage || !workingStage->parent) { return false; }
+
+            const auto& sel = workingStage->model.selectedFaceIds;
+            if (sel.empty()) { return false; }
+
+            const int hole = static_cast<int>(*sel.begin());
+
+            const double major = workingStage->model.faceCylinderDiameter(static_cast<size_t>(hole));
+            if (major <= 1e-6) {
+                dbg("[ThreadMill] selected face is not a cylindrical hole");
+                return false;
+            }
+
+            ThreadMillOperation* op = new ThreadMillOperation();
+            op->holeFace = hole;
+            op->majorDiameter = major;
+            op->pitch = coarsePitchFor(major);
+            op->preBoreDiameter = ThreadMillOperation::minorDiameter(major, op->pitch);
+            op->referencedFaces = { static_cast<size_t>(hole) };
+
+            delete workingStage->operation;
+            workingStage->operation = op;
+            workingStage->highlightedOperationFaces = op->referencedFaces;
+
+            // Auto-select the Thread Mill toolpath strategy and seed its callout.
+            workingStage->toolPath.strategy = "ThreadMill";
+            workingStage->toolPath.strategyAuto = false;
+            workingStage->toolPath.threadMajorDiameter = op->majorDiameter;
+            workingStage->toolPath.threadPitch = op->pitch;
+            workingStage->toolPath.threadInternal = op->internal;
+
+            selectComponent(workingStage, 2 /* Operation */);
+            recomputeOperation(workingStage);
+
+            dirty = true;
+            return true;
+        }
+
         bool beginExtrudeFromSelection() {
 
             if (!workingStage || !workingStage->parent) { return false; }

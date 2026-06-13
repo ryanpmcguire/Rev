@@ -4,9 +4,12 @@ module;
 #include <cstddef>
 #include <cmath>
 #include <string>
+#include <format>
 #include <vector>
 #include <functional>
 #include <map>
+#include <memory>
+#include <optional>
 #include <cstdio>
 
 #include <dbg.hpp>
@@ -67,6 +70,7 @@ export namespace Cam::Gui {
         Defeature,
         ExtendFeature,
         ExtrudeFeature,
+        ThreadMill,
         AddTab,
         CenterOrigin,
         DefineAxisX,
@@ -129,12 +133,54 @@ export namespace Cam::Gui {
         std::map<Cam::App::Stage*, Cam::Machine::MachineToolPath> machineToolPaths;
         bool machineToolPathsDirty = true;
 
+        // --- Probe result collection -------------------------------------
+        // A probe op streams its G38.2 moves in target order, one at a time, so
+        // the k-th [PRB:...] reply matches the k-th entry recorded here at build
+        // time.  As replies arrive we back-transform the machine contact into
+        // the CAD frame; once all of a stage's entries are filled we fit a
+        // ProbeResult and store it on that stage.  Everywhere else the stored
+        // result is applied unconditionally (identity by default), so an
+        // un-probed stage is simply an uncorrected one — no branch.
+        struct ProbeSessionEntry {
+            Cam::App::Stage* stage = nullptr;
+            Rev::Core::Pos3  nominalCad{};   // target.point (CAD frame)
+            Rev::Core::Pos3  normalCad{};    // unit outward normal (CAD frame)
+            bool             filled = false;
+            Rev::Core::Pos3  measuredCad{};  // contact, back-transformed to CAD
+            bool             triggered = false;
+        };
+        std::vector<ProbeSessionEntry> probeSession_;
+        size_t probeFillIndex_ = 0;
+
+        // How many times each stage's probe operation is run back-to-back.  >1
+        // re-probes to confirm/refine the fitted pose: after the first probe the
+        // correction is applied, so the part is physically re-oriented before the
+        // next probe, which then measures more accurately.  Air is unaware it is
+        // the "same" probe -- it just runs each operation the provider hands it.
+        static constexpr int kProbeRepeatCount = 2;
+
+        // Frame captured at the build that produced the current probeSession_,
+        // used to map a machine-WCS contact back into the CAD frame.  Stored as
+        // components (not a UserFrame) because UserFrame is declared later in
+        // this class; toWorld(f) = origin + X*f.x + Y*f.y + Z*f.z.
+        Rev::Core::Pos3 probeFrameOrigin_{};
+        Rev::Core::Pos3 probeFrameX_{ 1, 0, 0 };
+        Rev::Core::Pos3 probeFrameY_{ 0, 1, 0 };
+        Rev::Core::Pos3 probeFrameZ_{ 0, 0, 1 };
+        Rev::Core::Pos3 probeBeginWorkInFrame_{};
+
+        // Liveness guard for the dispatcher-registered onProbe listener.  The
+        // Dispatcher has no removal, and this view IS destructible, so the
+        // captured lambda checks this flag (a weak_ptr) before touching `this`.
+        std::shared_ptr<bool> probeAlive_ = std::make_shared<bool>(true);
+
         std::function<void(Event&)> onStateChanged;
 
         GestureTracker<WorldViewCommand> gestures = {
             { "df", WorldViewCommand::Defeature },
             { "ef", WorldViewCommand::ExtendFeature },
             { "exf", WorldViewCommand::ExtrudeFeature },
+            { "tm", WorldViewCommand::ThreadMill },
             { "co", WorldViewCommand::CenterOrigin },
             { "ax", WorldViewCommand::DefineAxisX },
             { "ay", WorldViewCommand::DefineAxisY },
@@ -211,27 +257,60 @@ export namespace Cam::Gui {
                     if (view3d) { view3d->refresh(*shared->event); }
                 };
 
-            // Interface START button → Air asks US for the program.  The world
-            // view only BUILDS typed operations from its previewed toolpaths;
-            // Air owns preflight, validation, and streaming.  Returning an
-            // empty list (wrong mode, no toolpaths, build aborted) makes Air
-            // refuse the start with a clear operator-facing reason.
+            // Probe contacts flow back here: Air streams the G38.2 moves and
+            // emits a ProbeEvent (machine-WCS contact) per touch.  CAM owns the
+            // frame math, so it is CAM — not Air — that turns those contacts
+            // into a fitted ProbeResult.  Guarded by probeAlive_ since the
+            // dispatcher never unregisters and this view can be destroyed.
+            {
+                std::weak_ptr<bool> alive = probeAlive_;
+                Carvera::MachineLink::instance().onProbe(
+                    [this, alive](Carvera::MachineLink::ProbeEvent& e) {
+                        if (alive.expired()) { return; }
+                        handleProbeContact(e);
+                    });
+            }
+
+            // Interface START button → Air asks US for the program, ONE
+            // operation at a time, by index.  Air streams op N fully, then asks
+            // for op N+1 -- so each operation is built JUST IN TIME with the
+            // latest world model.  A probe that just ran has updated the part
+            // pose correction, so the next operation (the second probe, or the
+            // cut) is built already corrected: the part rotates right after the
+            // probe, as a consequence of re-resolving, not a special case.
+            // Returning nullopt means "no operation at this index" -- i.e. the
+            // program is complete (or nothing to run at index 0).
             Carvera::MachineLink::instance().operationProvider =
-                [this]() -> std::vector<Carvera::MachineLink::Operation> {
+                [this](size_t index) -> std::optional<Carvera::MachineLink::Operation> {
 
-                if (previewMode != PreviewMode::Execute) { return {}; }
+                if (previewMode != PreviewMode::Execute) { return std::nullopt; }
 
-                // Reset monotonic-progress tracker so the first tick of the
-                // new run is not constrained by a previous execution.
-                executeTrackedState    = nullptr;
-                executeTrackedProgress = 0.0;
-                rebuildPreviewTimelineIfNeeded();
-                if (previewTimeline.atEnd()) {
-                    previewTimeline.setElapsed(0.0);
-                    if (previewBar) { previewBar->percent = 0.0f; }
+                if (index == 0) {
+                    // Reset monotonic-progress tracker at the start of a run.
+                    executeTrackedState    = nullptr;
+                    executeTrackedProgress = 0.0;
+
+                    // Clear each probe-bearing stage's correction so this run's
+                    // probes establish it from scratch (identity), then ACCUMULATE
+                    // via composition.  Without this, re-running would compose
+                    // onto the previous run's correction and double-correct.
+                    if (Cam::App::Project* project = activeProject()) {
+                        for (Cam::App::Stage* s : project->stages) {
+                            if (s && s->probe.enabled) { s->probe.clearResult(); }
+                        }
+                    }
+
+                    rebuildPreviewTimelineIfNeeded();
+                    if (previewTimeline.atEnd()) {
+                        previewTimeline.setElapsed(0.0);
+                        if (previewBar) { previewBar->percent = 0.0f; }
+                    }
                 }
 
-                return buildExecuteOperations();
+                std::vector<Carvera::MachineLink::Operation> v =
+                    buildExecuteOperations(static_cast<long>(index));
+                if (v.empty()) { return std::nullopt; }
+                return std::move(v.front());
             };
 
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
@@ -250,6 +329,11 @@ export namespace Cam::Gui {
 
                     case WorldViewCommand::ExtrudeFeature: {
                         extrudeFeature(e);
+                        break;
+                    }
+
+                    case WorldViewCommand::ThreadMill: {
+                        threadMillFeature(e);
                         break;
                     }
 
@@ -414,9 +498,59 @@ export namespace Cam::Gui {
             machineToolPathsDirty = true;
         }
 
+        // Build a stage's probe operation as a timed, CAD-space ToolPath so the
+        // scrub timeline can animate it.  Per target: rapid to the standoff, slow
+        // plunge to the EXPECTED contact (correction applied -- where we believe
+        // the surface is), then rapid retract back to the standoff.  Empty when
+        // the stage has no probe.  finalizePoints() stamps the times (the slow
+        // plunge takes real scrub time at the probe feed; rapids are fast).
+        void rebuildProbePreviewPath(Cam::App::Stage* state) {
+
+            if (!state) { return; }
+
+            state->probePreviewPath.clear();
+
+            if (!state->probe.enabled || state->probe.targets.empty()) { return; }
+
+            const Cam::App::ProbeResult& correction = state->probe.result;
+            state->probePreviewPath.feedRate = 100.0;   // probe plunge feed (mm/min)
+
+            auto add = [&](const Rev::Core::Pos3& pos, const Rev::Core::Pos3& dir,
+                           bool rapid, bool cutting) {
+                state->probePreviewPath.addWorldPoint(pos, rapid, cutting);
+                state->probePreviewPath.points.back().toolDirection = dir;
+            };
+
+            for (const Cam::App::ProbeTarget& t : state->probe.targets) {
+
+                const float nlen = t.normal.pythag();
+                if (nlen < 1e-4f) { continue; }
+                const Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
+
+                const Rev::Core::Pos3 standoff =
+                    correction.apply(t.point + n * static_cast<float>(t.standoff));
+                const Rev::Core::Pos3 contact = correction.apply(t.point);
+                const Rev::Core::Pos3 dir     = correction.applyDirection(n);
+
+                add(standoff, dir, /*rapid*/true,  /*cutting*/false);   // approach
+                add(contact,  dir, /*rapid*/false, /*cutting*/true);    // slow plunge
+                add(standoff, dir, /*rapid*/true,  /*cutting*/false);   // retract
+            }
+
+            state->probePreviewPath.finalizePoints();
+        }
+
         void rebuildPreviewTimelineIfNeeded() {
 
             if (!previewTimelineDirty) { return; }
+
+            // Refresh each stage's probe-preview path so the timeline picks up its
+            // duration (and the latest correction) when it rebuilds below.
+            if (Cam::App::Project* project = activeProject()) {
+                for (Cam::App::Stage* state : project->stages) {
+                    rebuildProbePreviewPath(state);
+                }
+            }
 
             const bool hadTimeline = !previewTimeline.segments.empty();
             const double savedElapsed = previewTimeline.elapsedSeconds;
@@ -1047,12 +1181,31 @@ export namespace Cam::Gui {
                 dir = frame.Z;   // tool axis is the user's +Z
                 haveTip = true;
             }
-            else if (target.state && target.state->hasToolPath) {
+            else if (target.state &&
+                     (target.state->hasToolPath || !target.state->probePreviewPath.empty())) {
 
-                // Otherwise: the computed preview sample.
+                // Otherwise: the computed preview sample.  The stage's timeline
+                // covers its probe THEN its cut, so split the combined progress:
+                // sample the probe-preview path while in the probe window, the
+                // cut path after.
                 Cam::App::ToolPathPoint sample = {};
 
-                if (target.state->toolPath.sampleAtProgress(target.progress, sample)) {
+                const double probeDur = target.state->probePreviewPath.durationSeconds();
+                const double cutDur   = target.state->toolPath.durationSeconds();
+                const double elapsed  = target.progress * (probeDur + cutDur);
+
+                bool sampled = false;
+                if (probeDur > 1e-9 && elapsed < probeDur) {
+                    sampled = target.state->probePreviewPath.sampleAtTime(elapsed, sample);
+                }
+                else if (cutDur > 1e-9) {
+                    sampled = target.state->toolPath.sampleAtTime(elapsed - probeDur, sample);
+                }
+                else if (probeDur > 1e-9) {
+                    sampled = target.state->probePreviewPath.sampleAtTime(elapsed, sample);
+                }
+
+                if (sampled) {
                     tip = sample.position;
                     dir = sample.toolDirection;
                     haveTip = true;
@@ -1475,6 +1628,124 @@ export namespace Cam::Gui {
             return Cam::Machine::MachineDefinition::ThreePlusOne(pivot, rotaryAxis);
         }
 
+        // A probe touched the part.  Air reports the contact in MACHINE-WCS;
+        // map it back into the CAD frame, fill the next pending session entry,
+        // and — once every entry for a stage is in — fit and store that stage's
+        // ProbeResult.  From then on getMachineToolPath() applies it.
+        void handleProbeContact(Carvera::MachineLink::ProbeEvent& e) {
+
+            if (probeFillIndex_ >= probeSession_.size()) {
+                dbg("[Probe] contact with no pending session entry - ignoring");
+                return;
+            }
+
+            ProbeSessionEntry& entry = probeSession_[probeFillIndex_++];
+
+            // [PRB:x,y,z] is the ABSOLUTE MACHINE position at contact, not WCS.
+            // Convert to WCS by subtracting the machine work origin (the absolute
+            // position where WCS = 0 = the begin-work point), then invert the
+            // forward map toMachine() did: wcs = frame.toFrame(cad) -
+            // beginWorkInFrame, so frame.toFrame(cad) = wcs + beginWorkInFrame
+            // and cad = frame.toWorld(that).  The probe targets here face the
+            // tool (rotaryAngle 0), so there is no part rotation to undo.
+            // TODO: for tilted probes, un-rotate by the probe pose's rotation.
+            float omx = 0, omy = 0, omz = 0, ocx = 0, ocy = 0, ocz = 0;
+            Carvera::MachineLink::instance().workOrigin(omx, omy, omz, ocx, ocy, ocz);
+
+            const Rev::Core::Pos3 wcs{ e.x - omx, e.y - omy, e.z - omz };
+
+            const Rev::Core::Pos3 inFrame{
+                wcs.x + probeBeginWorkInFrame_.x,
+                wcs.y + probeBeginWorkInFrame_.y,
+                wcs.z + probeBeginWorkInFrame_.z
+            };
+            const Rev::Core::Pos3 cad =
+                probeFrameOrigin_
+                + probeFrameX_ * inFrame.x
+                + probeFrameY_ * inFrame.y
+                + probeFrameZ_ * inFrame.z;
+
+            entry.filled      = true;
+            entry.measuredCad = cad;
+            entry.triggered   = e.triggered;
+
+            dbg("[Probe] contact %zu/%zu: machineAbs(%.3f,%.3f,%.3f) trig=%d "
+                "-> wcs(%.3f,%.3f,%.3f) -> cad(%.3f,%.3f,%.3f) nominal(%.3f,%.3f,%.3f)",
+                probeFillIndex_, probeSession_.size(),
+                e.x, e.y, e.z, e.triggered ? 1 : 0,
+                wcs.x, wcs.y, wcs.z,
+                cad.x, cad.y, cad.z,
+                entry.nominalCad.x, entry.nominalCad.y, entry.nominalCad.z);
+
+            // Fit this stage's correction once all of ITS entries are filled
+            // (the last contact of a stage is the final entry, or the one before
+            // the next stage's first entry).
+            Cam::App::Stage* stage = entry.stage;
+            const bool stageComplete =
+                (probeFillIndex_ >= probeSession_.size()) ||
+                (probeSession_[probeFillIndex_].stage != stage);
+            if (!stageComplete) { return; }
+
+            std::vector<Rev::Core::Pos3> nominal, measured, normal;
+            bool allTriggered = true;
+            for (const ProbeSessionEntry& s : probeSession_) {
+                if (s.stage != stage || !s.filled) { continue; }
+                nominal.push_back(s.nominalCad);
+                measured.push_back(s.measuredCad);
+                normal.push_back(s.normalCad);
+                allTriggered = allTriggered && s.triggered;
+            }
+
+            if (nominal.empty()) { return; }
+
+            if (!allTriggered) {
+                Carvera::MachineLink::instance().log(
+                    "Probe: a touch did not trigger - correction NOT applied "
+                    "(re-run the probe).");
+                dbg("[Probe] stage fit skipped: not all contacts triggered");
+                return;
+            }
+
+            // Constrain the fit to what THIS machine can do: a rotation about its
+            // rotary axis (model frame) + a uniform normal offset.  Without this
+            // the unconstrained 3D tilt is unreachable and the IK rejects every
+            // point (285 invalid -> 0 operations -> the program stalls).
+            const Cam::Machine::MachineDefinition def = buildMachineDefinition(stage);
+            Rev::Core::Pos3 rotaryAxis{};
+            if (!def.part.dof.freeRotations.empty()) {
+                rotaryAxis = def.part.dof.freeRotations.front();
+            }
+
+            // COMPOSE, don't replace.  This op probed with the current correction
+            // already applied (the part was presented rotated), so the fit is the
+            // RESIDUAL relative to that pose -- which is ~identity once the part
+            // presents square.  Total = old o residual keeps the accumulated
+            // correction instead of discarding it (which would rotate the part
+            // back to flat for the cut).  Run-start clears it, so this accumulates
+            // only within a run, not across runs.
+            const Cam::App::ProbeResult oldCorrection = stage->probe.result;
+            const Cam::App::ProbeResult residual =
+                Cam::App::ProbeResult::fit(nominal, measured, normal, rotaryAxis);
+            stage->probe.result = oldCorrection.composedWith(residual);
+
+            const Cam::App::ProbeResult& r = stage->probe.result;
+            // Rotation magnitude from the trace: angle = acos((tr(R) - 1) / 2).
+            const double trace = r.r[0] + r.r[4] + r.r[8];
+            const double cosA  = std::clamp((trace - 1.0) * 0.5, -1.0, 1.0);
+            const double tiltDeg = std::acos(cosA) * 57.29577951308232;
+            Carvera::MachineLink::instance().log(std::format(
+                "Probe: fitted correction from {} point(s) - "
+                "t=({:.3f},{:.3f},{:.3f}) tilt={:.2f} deg rms={:.4f} mm.{}",
+                nominal.size(), r.t.x, r.t.y, r.t.z, tiltDeg, r.rmsError,
+                nominal.size() < 3 ? " (translation-only; <3 points)" : ""));
+
+            // The correction changed; force a re-solve so cuts (and the preview)
+            // pick it up, and rebuild the probe-preview path + timeline so a
+            // post-run scrub shows the corrected probe motion.
+            machineToolPathsDirty = true;
+            previewTimelineDirty  = true;
+        }
+
         // Return a reference to the solved MachineToolPath for a given state,
         // solving it on-demand if not yet cached or if the cache is dirty.
         Cam::Machine::MachineToolPath const* getMachineToolPath(
@@ -1491,9 +1762,30 @@ export namespace Cam::Gui {
 
             if (it == machineToolPaths.end()) {
 
+                // Apply the stage's probe correction to the toolpath BEFORE the
+                // IK solve.  Positions shift and tool directions rotate by the
+                // fitted (R,t); the solver then produces whatever rotary swing
+                // those directions require — so a corrected part pose rotates the
+                // chuck as a mathematical consequence, never an explicit command.
+                // The default ProbeResult is the identity, so an un-probed stage
+                // solves exactly as before (no branch, no special case).
+                const Cam::App::ProbeResult& correction = state->probe.result;
+
+                // ToolPath is non-copyable (it owns strategy objects), and the IK
+                // solver only reads `.points`, so build a points-only corrected
+                // path rather than copying the whole toolpath.
+                Cam::App::ToolPath corrected;
+                corrected.points.reserve(state->toolPath.points.size());
+                for (const Cam::App::ToolPathPoint& pt : state->toolPath.points) {
+                    Cam::App::ToolPathPoint c = pt;
+                    c.position      = correction.apply(pt.position);
+                    c.toolDirection = correction.applyDirection(pt.toolDirection);
+                    corrected.points.push_back(c);
+                }
+
                 Cam::Machine::MachineToolPath solved =
                     Cam::Machine::IKSolver::solve(
-                        state->toolPath,
+                        corrected,
                         buildMachineDefinition(state)
                     );
 
@@ -1887,7 +2179,13 @@ export namespace Cam::Gui {
         // preflight, validation, and streaming are entirely Air's business.
         // Assumes the machine's work-coordinate zero matches the CAD frame
         // (Air's preflight verifies an origin was actually set this session).
-        std::vector<Carvera::MachineLink::Operation> buildExecuteOperations() {
+        // Build the typed operations for execution.  When onlyOpIndex >= 0, build
+        // and return ONLY the operation at that index (the op-by-op provider path,
+        // so each op picks up the latest probe correction); when < 0, build the
+        // whole list (legacy/diagnostic).  The operation order is, per stage in
+        // forward-machining order: probe op(s) (repeated kProbeRepeatCount times),
+        // then the cut op.
+        std::vector<Carvera::MachineLink::Operation> buildExecuteOperations(long onlyOpIndex = -1) {
 
             Carvera::MachineLink& link = Carvera::MachineLink::instance();
 
@@ -1901,6 +2199,12 @@ export namespace Cam::Gui {
             const UserFrame frame = currentUserFrame(project);
             const Rev::Core::Pos3 cadBeginWork = beginWorkOrigin(project, frame);
             const Rev::Core::Pos3 beginWorkInFrame = frame.toFrame(cadBeginWork);
+
+            // The probe-collection session is reset PER probe operation (in the
+            // commit lambda below), not once per run: Air streams ops one at a
+            // time, so each probe op's [PRB] replies must attribute to its own
+            // targets.  The frame used to back-transform contacts is captured at
+            // the same point.
 
             // We hand Air a queue of high-level intents, NOT flat G-code.  Air
             // owns tool-change orchestration (spindle-down, M6, wait for the
@@ -1953,6 +2257,23 @@ export namespace Cam::Gui {
                 // from the material, so the solver orients the feature to the tool.
                 Cam::App::ToolPath probePath;
 
+                // The probe is a toolhead moving through space like any other, so
+                // it is subject to the SAME correction the cuts are: approach
+                // where the part is now believed to be (identity by default, or a
+                // prior probe's fit).  apply()/applyDirection() are rigid, so a
+                // corrected standoff equals correction.apply() of the raw one and
+                // the corrected normal equals applyDirection() of the raw normal.
+                // keptTargets stays RAW: the fit compares raw-nominal vs. the true
+                // contact, re-deriving the ABSOLUTE correction without double-
+                // counting the one we approached with.
+                const Cam::App::ProbeResult& correction = state->probe.result;
+
+                // Nominal point + unit normal for each target that survives the
+                // zero-normal skip, in the SAME order they enter probePath — so
+                // solved pair k corresponds to keptTargets[k].
+                struct KeptTarget { Rev::Core::Pos3 point; Rev::Core::Pos3 normal; };
+                std::vector<KeptTarget> keptTargets;
+
                 for (const Cam::App::ProbeTarget& t : state->probe.targets) {
 
                     const float nlen = t.normal.pythag();
@@ -1962,16 +2283,17 @@ export namespace Cam::Gui {
                         continue;
                     }
                     const Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
+                    keptTargets.push_back({ t.point, n });
 
                     Cam::App::ToolPathPoint a;   // standoff (outside surface, +normal)
-                    a.position      = t.point + n * static_cast<float>(t.standoff);
-                    a.toolDirection = n;
+                    a.position      = correction.apply(t.point + n * static_cast<float>(t.standoff));
+                    a.toolDirection = correction.applyDirection(n);
                     a.rapid = true;  a.cutting = false;
                     probePath.points.push_back(a);
 
                     Cam::App::ToolPathPoint b;   // through the point (-normal, overtravel)
-                    b.position      = t.point - n * static_cast<float>(t.overtravel);
-                    b.toolDirection = n;
+                    b.position      = correction.apply(t.point - n * static_cast<float>(t.overtravel));
+                    b.toolDirection = correction.applyDirection(n);
                     b.rapid = false; b.cutting = false;
                     probePath.points.push_back(b);
                 }
@@ -1984,13 +2306,15 @@ export namespace Cam::Gui {
                 const Cam::Machine::MachineToolPath solved =
                     Cam::Machine::IKSolver::solve(probePath, machineDef);
 
-                // NoToolChange, NOT kProbeToolSlot: "M6 T0" was observed on the
-                // real machine to UNLOAD the spindle and rapid to the ATC area
-                // (see CarveraREADME.md, critical note).  Until the real probe
-                // selector is confirmed, a probe op runs with whatever is in
-                // the spindle -- the operator fits the wired probe by hand, and
-                // Air's spindle interlock keeps it from ever spinning.
-                Op op = Op::probe(Carvera::MachineLink::NoToolChange, "Probe");
+                // A probe operation ALWAYS task-switches to the wired probe
+                // first: kProbeToolSlot (slot 0).  Air orchestrates the M6 like
+                // any tool change and its spindle interlock latches as soon as
+                // the probe is loaded (isProbeSlot(0)), so the probe can never
+                // spin.  Only the wired probe is supported for now; arbitrary
+                // probe selectors can be threaded through this slot later.
+                // (Historical note: M6 T0 was once seen to UNLOAD the spindle --
+                // if that recurs, this slot is where to fix the selector.)
+                Op op = Op::probe(Carvera::MachineLink::kProbeToolSlot, "Wired probe");
 
                 // Points come in (standoff, through) pairs, one pair per target.
                 for (size_t k = 0; (2 * k + 1) < solved.points.size(); k++) {
@@ -2004,7 +2328,7 @@ export namespace Cam::Gui {
                     // the position is still correct, so don't skip.
                     if (hasRotary && (!sPose.valid() || !tPose.valid())) {
                         dbg("[Probe] target %zu unreachable on this machine's rotary "
-                            "axis (IK invalid) — skipping", k);
+                            "axis (IK invalid) - skipping", k);
                         continue;
                     }
 
@@ -2023,6 +2347,27 @@ export namespace Cam::Gui {
                     Pth inter = Pth::intersect(100.0);   // slow probe feed (mm/min)
                     inter.points.push_back(throughM);
                     op.paths.push_back(inter);
+
+                    // RETRACT before any lateral motion.  After contact the probe
+                    // is at/below the surface; rapiding straight to the next
+                    // standoff from there would drag the stylus across the part.
+                    // So lift back along the approach to THIS standoff first --
+                    // exactly how linking lifts to clearance before repositioning
+                    // between cut moves.  The next target's travel then happens at
+                    // standoff height, clear of the surface.
+                    Pth retract = Pth::travel();
+                    retract.points.push_back(standoffM);
+                    op.paths.push_back(retract);
+
+                    // Record this target so the matching [PRB] reply (the moves
+                    // stream in this order) can be back-transformed and fitted.
+                    if (k < keptTargets.size()) {
+                        ProbeSessionEntry entry;
+                        entry.stage      = state;
+                        entry.nominalCad = keptTargets[k].point;
+                        entry.normalCad  = keptTargets[k].normal;
+                        probeSession_.push_back(entry);
+                    }
                 }
 
                 if (op.paths.empty()) { return; }   // nothing probeable
@@ -2044,7 +2389,7 @@ export namespace Cam::Gui {
                 const int slot = toolNumber(toolName);
 
                 if (toolName.empty() || slot <= 0) {
-                    dbg("[Execute] cut tool '%s' unresolved (slot %d) — aborting",
+                    dbg("[Execute] cut tool '%s' unresolved (slot %d) - aborting",
                         toolName.c_str(), slot);
                     buildAborted = true;
                     return;
@@ -2084,9 +2429,49 @@ export namespace Cam::Gui {
                 if (!op.paths.empty()) { ops.push_back(std::move(op)); }
             };
 
+            auto stageHasProbe = [](Cam::App::Stage* s) {
+                return s && s->probe.enabled && !s->probe.targets.empty();
+            };
+
+            // Operations are addressed by a stable index.  We always advance the
+            // cursor for every operation that EXISTS in the plan, but only build
+            // (commit) the one matching onlyOpIndex (or all, when < 0).  This is
+            // what lets Air pull ops one at a time and have each built fresh.
+            long opCursor = 0;
+
+            auto commitProbe = [&](Cam::App::Stage* state) {
+                if (onlyOpIndex < 0 || opCursor == onlyOpIndex) {
+                    // Reset the probe session for THIS op so its [PRB] replies
+                    // attribute to its own targets, and capture the frame for the
+                    // contact back-transform.
+                    probeSession_.clear();
+                    probeFillIndex_        = 0;
+                    probeFrameOrigin_      = frame.origin;
+                    probeFrameX_           = frame.X;
+                    probeFrameY_           = frame.Y;
+                    probeFrameZ_           = frame.Z;
+                    probeBeginWorkInFrame_ = beginWorkInFrame;
+                    appendProbeOp(state);
+                }
+                opCursor++;
+            };
+
+            auto commitCut = [&](Cam::App::Stage* state) {
+                if (onlyOpIndex < 0 || opCursor == onlyOpIndex) {
+                    appendCutOp(state);
+                }
+                opCursor++;
+            };
+
+            // Per stage, in forward-machining order: the probe op(s) -- repeated
+            // kProbeRepeatCount times so a re-probe confirms/refines the pose --
+            // then the cut op.
             auto appendState = [&](Cam::App::Stage* state) {
-                appendProbeOp(state);   // locate the part first, if this stage probes
-                appendCutOp(state);
+                if (!state) { return; }
+                if (stageHasProbe(state)) {
+                    for (int r = 0; r < kProbeRepeatCount; r++) { commitProbe(state); }
+                }
+                if (state->hasToolPath) { commitCut(state); }
             };
 
             const std::vector<Cam::App::Stage*> sequence =
@@ -2112,7 +2497,7 @@ export namespace Cam::Gui {
             }
 
             if (buildAborted) {
-                dbg("[Execute] operation build aborted — returning no operations");
+                dbg("[Execute] operation build aborted - returning no operations");
                 link.log("Execute: operation build aborted (unresolved tool); nothing to run.");
                 return {};
             }
@@ -2585,7 +2970,26 @@ export namespace Cam::Gui {
 
             sync(e);
 
-            dbg("extrude feature started — ctrl+click a face to set the end plane");
+            dbg("extrude feature started - ctrl+click a face to set the end plane");
+
+            notifyStateChanged(e);
+
+            return true;
+        }
+
+        // Thread-mill the selected cylindrical hole: shrink it to its pre-thread
+        // bore and auto-select the Thread Mill toolpath strategy (the operation
+        // seeds the callout from the hole; the user refines it in the tree).
+        bool threadMillFeature(Event& e) {
+
+            if (!app || !app->beginThreadMill()) {
+                dbg("thread mill failed: select a cylindrical hole face first");
+                return false;
+            }
+
+            sync(e);
+
+            dbg("thread mill started on selected hole");
 
             notifyStateChanged(e);
 

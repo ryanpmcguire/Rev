@@ -132,7 +132,11 @@ export namespace Cam::Gui {
 
                 project->ensureToolPathComputed(state);
 
-                const double duration = state->toolPath.durationSeconds();
+                // The stage's scrub time covers its probe operation (if any) then
+                // its cut, so the tool animates probe-then-cut under one slider.
+                const double duration =
+                    state->probePreviewPath.durationSeconds() +
+                    state->toolPath.durationSeconds();
 
                 segments.push_back({
                     .state = state,

@@ -137,6 +137,30 @@ export namespace Cam::Gui {
             return box;
         }
 
+        // Ring order dropdown: "Inside out" (innermost ring first) vs
+        // "Outside in".  Stored as the toolpath's insideOut bool, forwarded to
+        // the slice strategy's reverse flag.
+        Dropdown* makeRingOrderDropdown(Element* parent) {
+
+            Dropdown* dd = new Dropdown(
+                parent,
+                {
+                    .label = "Ring order",
+                    .options = {
+                        { "Inside out", "inside_out" },
+                        { "Outside in", "outside_in" }
+                    },
+                    .placeholder = "Ring order",
+                    .value = "inside_out"
+                },
+                { &ToolpathViewStyle::Field }
+            );
+
+            dd->onChange = [this](Event& e) { commit(e); };
+
+            return dd;
+        }
+
         std::vector<Dropdown::Item> toolOptions() const {
 
             std::vector<Dropdown::Item> items;
@@ -178,7 +202,7 @@ export namespace Cam::Gui {
         // Subclass hooks: load/read the strategy-specific controls. Defaults keep
         // the existing toolpath values (so non-exposed settings aren't clobbered).
         virtual void populateExtras() {}
-        virtual void readExtras(Event& e, double& stepover, bool& climb) {}
+        virtual void readExtras(Event& e, double& stepover, bool& climb, bool& insideOut) {}
 
         // Read the form and save + recompute the toolpath.
         void commit(Event& e) {
@@ -197,16 +221,17 @@ export namespace Cam::Gui {
                 ? retractHeightInput->valueOr(double(tp.retractHeight))
                 : double(tp.retractHeight);
 
-            double stepover = tp.stepover;     // kept unless a strategy exposes it
-            bool   climb    = tp.climbMilling; // kept unless a strategy exposes it
-            readExtras(e, stepover, climb);
+            double stepover  = tp.stepover;     // kept unless a strategy exposes it
+            bool   climb     = tp.climbMilling; // kept unless a strategy exposes it
+            bool   insideOut = tp.insideOut;    // kept unless a strategy exposes it
+            readExtras(e, stepover, climb, insideOut);
 
             if (tool.empty() || stepover <= 0.0) { return; }
 
             if (!app->saveToolPathSettings(
                 state, strategyName(), tool,
                 stepDown, stepover, feedRate,
-                tp.rapidSpeedMmPerSec, climb, static_cast<float>(retract)
+                tp.rapidSpeedMmPerSec, climb, static_cast<float>(retract), insideOut
             )) {
                 return;
             }

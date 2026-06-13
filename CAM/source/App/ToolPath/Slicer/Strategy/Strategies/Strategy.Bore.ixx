@@ -230,16 +230,18 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                         paths_.push_back(std::move(floor));
                     }
 
-                    // The helix turns, bottom -> top in storage. Each layer
-                    // ramps from its own slice depth (stored start = exit of
-                    // the executed descent) up to the slice above -- the top
-                    // turn ramps to the surface itself.
+                    // The helix turns, bottom -> top in storage; the point
+                    // builder consumes layers back-to-front, so the TOP turn
+                    // executes first and the spiral descends.  Each turn ramps
+                    // DOWN from the slice above it (the surface for the top
+                    // turn) to its own slice depth -- so z is the upper depth
+                    // (revolution start) and zTo the lower (revolution end).
                     for (size_t s = 0; s < slices_.size(); s++) {
 
                         LayerPath turn;
                         turn.helical = true;
-                        turn.z = slices_[s].z;
-                        turn.zTo = (s + 1 < slices_.size()) ? slices_[s + 1].z : surface;
+                        turn.z = (s + 1 < slices_.size()) ? slices_[s + 1].z : surface;
+                        turn.zTo = slices_[s].z;
 
                         turn.chains.push_back(seated(slices_[s].result.profiles[g].chains[j]));
 

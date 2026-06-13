@@ -10,6 +10,8 @@ module;
 export module Cam.App.Stage;
 
 import Rev.OS.File;
+import Rev.Core.Pos3;
+import Rev.Core.Vertex3;
 
 import Cam.App.Model;
 import Cam.App.Operation;
@@ -111,6 +113,13 @@ export namespace Cam::App {
         ProbeSpec probe;
 
         bool hasProbe() const { return probe.enabled; }
+
+        // Preview-only: the probe operation's motion (rapid-to-standoff, slow
+        // plunge-to-expected-contact, retract) as a timed CAD-space path, so the
+        // scrub timeline animates the probe exactly like the cut.  Rebuilt by the
+        // world view (it knows the correction); empty when the stage has no
+        // probe.  NOT used for execution (Air builds probe moves itself).
+        ToolPath probePreviewPath;
 
         // Construction
         //--------------------------------------------------
@@ -361,11 +370,43 @@ export namespace Cam::App {
                 return toolPath.link(
                     nextStage->toolPath,
                     model.axisOrigin,
-                    model.axisXDirection
+                    model.axisXDirection,
+                    safeArcRadius()
                 );
             }
 
             return toolPath.link(nextStage->toolPath);
+        }
+
+        // The clearance radius for a 4th-axis link arc: the farthest any part
+        // point reaches from the rotary axis (a wide prism's corners reach far
+        // past its faces), plus a solid-but-modest margin so the tool clears
+        // the part as it is flipped.  The arc bulges out to this radius.
+        float safeArcRadius() const {
+
+            Rev::Core::Pos3 axis = model.axisXDirection;
+            const float al = axis.pythag();
+            if (al < 1e-6f) { return 0.0f; }
+            axis = axis / al;
+
+            const Rev::Core::Pos3 origin = model.axisOrigin;
+
+            float maxPerp = 0.0f;
+            for (const Rev::Core::Vertex3& vtx : model.render.triangles) {
+                const Rev::Core::Pos3 v = vtx;
+                const Rev::Core::Pos3 rel = v - origin;
+                const float axial = rel.dot(axis);
+                const float perp = (rel - axis * axial).pythag();
+                if (perp > maxPerp) { maxPerp = perp; }
+            }
+
+            // A nice solid margin, not extreme: the configured retract
+            // clearance plus the tool's own radius (so the cutter body, not
+            // just the tip, clears the part).
+            const float margin =
+                toolPath.retractHeight + static_cast<float>(toolPath.toolDiameter) * 0.5f;
+
+            return maxPerp + margin;
         }
 
         bool needsToolPathComputation() const {

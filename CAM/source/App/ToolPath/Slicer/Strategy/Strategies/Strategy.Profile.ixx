@@ -72,7 +72,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             params.toolRadius = radius;
             params.stepover = (radius > 1e-6f) ? stepoverDistance(ctx) / radius : 1.0f;
             params.maxGenerations = 256;
-            params.reverse = false;
+            params.reverse = ctx.insideOut;   // reverse plan = innermost ring first = inside-out
             params.climb = ctx.climbMilling;
 
             Geo::SliceStrategy strategy(params);

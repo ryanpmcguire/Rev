@@ -500,7 +500,7 @@ export namespace Cam::App {
                 createDefaultTools();
 
                 dbg(
-                    "[ToolLibrary] No tools in %s — creating defaults",
+                    "[ToolLibrary] No tools in %s - creating defaults",
                     folderPath.c_str()
                 );
 

@@ -44,9 +44,11 @@ export namespace Cam::Gui::World {
         View3d::Actor* pickActor = nullptr;
         View3d::Actor* axisPickMarkerActor = nullptr;
         View3d::Actor* probeMarkerActor = nullptr;
+        View3d::Actor* probePlanActor = nullptr;
 
         std::vector<Rev::Core::Vertex3> axisPickMarkers;
         std::vector<Rev::Core::Vertex3> probeMarkers;
+        std::vector<Rev::Core::Vertex3> probePlan;
 
         static constexpr size_t NoAxisPickHover = static_cast<size_t>(-1);
         size_t axisPickHoveredCandidate = NoAxisPickHover;
@@ -102,6 +104,7 @@ export namespace Cam::Gui::World {
             createPickActor();
             createAxisPickMarkerActor();
             createProbeMarkerActor();
+            createProbePlanActor();
 
             toolPath.create(canvas);
         }
@@ -116,6 +119,7 @@ export namespace Cam::Gui::World {
             delete pickActor;
             delete axisPickMarkerActor;
             delete probeMarkerActor;
+            delete probePlanActor;
 
             toolPath.destroy();
 
@@ -125,6 +129,7 @@ export namespace Cam::Gui::World {
             pickActor = nullptr;
             axisPickMarkerActor = nullptr;
             probeMarkerActor = nullptr;
+            probePlanActor = nullptr;
 
             canvas = nullptr;
             state = nullptr;
@@ -146,6 +151,7 @@ export namespace Cam::Gui::World {
             view->addActor(deltaActor);
             view->addActor(axisPickMarkerActor);
             view->addActor(probeMarkerActor);
+            view->addActor(probePlanActor);
             view->addActor(pickActor);
 
             attached = true;
@@ -160,6 +166,7 @@ export namespace Cam::Gui::World {
             if (deltaActor) { view->removeActor(deltaActor); }
             if (axisPickMarkerActor) { view->removeActor(axisPickMarkerActor); }
             if (probeMarkerActor) { view->removeActor(probeMarkerActor); }
+            if (probePlanActor) { view->removeActor(probePlanActor); }
             if (pickActor) { view->removeActor(pickActor); }
             if (toolPath.actor) { view->removeActor(toolPath.actor); }
 
@@ -287,6 +294,29 @@ export namespace Cam::Gui::World {
             });
 
             probeMarkerActor->lines->color = {
+                0.62f,
+                0.40f,
+                0.85f,
+                1.0f
+            };
+        }
+
+        void createProbePlanActor() {
+
+            probePlanActor = new View3d::Actor();
+
+            probePlanActor->visible = false;
+            probePlanActor->selectable = false;
+            probePlanActor->ownsLines = true;
+            probePlanActor->includeInFit = false;
+
+            probePlanActor->lines = new Rev::Primitives::Lines3d(canvas, {
+                .lines = &probePlan
+            });
+
+            // Per-vertex colour carries the rapid/plunge distinction; this is a
+            // neutral fallback.
+            probePlanActor->lines->color = {
                 0.62f,
                 0.40f,
                 0.85f,
@@ -557,9 +587,107 @@ export namespace Cam::Gui::World {
             syncModel();
             syncDelta();
             syncPick();
-            syncToolPath(toolPathPreviewProgress);
+            // The combined progress covers the probe operation THEN the cut, so
+            // the cut lines only begin colouring once the probe window is past.
+            syncToolPath(cutProgressFromCombined(toolPathPreviewProgress));
             syncAxisPickMarkers();
             syncProbeMarkers();
+            syncProbePlan();
+        }
+
+        // Split the stage's combined (probe + cut) scrub progress into the cut's
+        // own 0..1 progress: 0 throughout the probe window, ramping over the cut.
+        double cutProgressFromCombined(double progress) const {
+            if (!state) { return progress; }
+            const double probeDur = state->probePreviewPath.durationSeconds();
+            const double cutDur   = state->toolPath.durationSeconds();
+            if (cutDur   <= 1e-9) { return 1.0; }
+            if (probeDur <= 1e-9) { return progress; }
+            const double elapsed = progress * (probeDur + cutDur);
+            return std::clamp((elapsed - probeDur) / cutDur, 0.0, 1.0);
+        }
+
+        // Draw the machine's PROBE PLAN: the actual motion it will make to probe
+        // each target, assuming the part is exactly where we currently believe it
+        // is (the stored probe correction, identity when un-probed, is applied to
+        // both the standoff and the expected contact).  Per target: a rapid leg
+        // (from the previous target's expected contact to this standoff) and a
+        // plunge leg (from the standoff down the approach normal to the expected
+        // contact point).  The plunge STOPS at the expected contact -- the
+        // overtravel beyond it is the strictly-automatic "until it touches"
+        // continuation whose true endpoint isn't known at preview time, so it is
+        // intentionally not drawn.  Rapid legs are faint blue; plunge legs violet.
+        void syncProbePlan() {
+
+            if (!probePlanActor || !probePlanActor->lines) { return; }
+
+            probePlan.clear();
+
+            const bool show =
+                state &&
+                state->visible.probe &&
+                state->probe.enabled &&
+                !state->probe.targets.empty();
+
+            if (!show) {
+                probePlanActor->visible = false;
+                probePlanActor->lines->dirty = true;
+                return;
+            }
+
+            const Cam::App::ProbeResult& correction = state->probe.result;
+
+            const Rev::Core::Color rapidColor  = { 0.45f, 0.60f, 0.92f, 0.55f };
+            const Rev::Core::Color plungeColor = { 0.66f, 0.42f, 0.92f, 0.95f };
+            // Prospective overtravel: the region the probe will keep driving
+            // through IF it hasn't touched yet, up to the "no contact" fail point.
+            const Rev::Core::Color prospectColor = { 0.55f, 0.55f, 0.58f, 0.45f };
+
+            bool            havePrev = false;
+            Rev::Core::Pos3 prevStandoff{};
+
+            for (const Cam::App::ProbeTarget& t : state->probe.targets) {
+
+                const float nlen = t.normal.pythag();
+                if (nlen < 1e-4f) { continue; }
+                const Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
+
+                // Where we believe the part is: correction applied to the nominal
+                // standoff and contact (identity by default).
+                const Rev::Core::Pos3 standoff =
+                    correction.apply(t.point + n * static_cast<float>(t.standoff));
+                const Rev::Core::Pos3 contact = correction.apply(t.point);
+                // The "no contact" fail point: how far past the expected contact
+                // the probe will keep driving before giving up (overtravel).
+                const Rev::Core::Pos3 failAt =
+                    correction.apply(t.point - n * static_cast<float>(t.overtravel));
+
+                // Rapid leg: from the PREVIOUS standoff to this standoff -- a
+                // lateral move at standoff height, because the machine retracts
+                // to the standoff after each plunge (it never slides across the
+                // surface).  The retract itself retraces the plunge line.
+                if (havePrev) {
+                    probePlan.push_back({ prevStandoff.x, prevStandoff.y, prevStandoff.z, rapidColor });
+                    probePlan.push_back({ standoff.x,     standoff.y,     standoff.z,     rapidColor });
+                }
+
+                // Plunge leg: standoff -> expected contact (where we believe the
+                // surface is, so the machine stops here on a normal probe).
+                probePlan.push_back({ standoff.x, standoff.y, standoff.z, plungeColor });
+                probePlan.push_back({ contact.x,  contact.y,  contact.z,  plungeColor });
+
+                // Prospective overtravel: expected contact -> fail point, grey.
+                // The probe only travels here if it hasn't touched yet; reaching
+                // the end is the "no contact" failure.
+                probePlan.push_back({ contact.x, contact.y, contact.z, prospectColor });
+                probePlan.push_back({ failAt.x,  failAt.y,  failAt.z,  prospectColor });
+
+                prevStandoff = standoff;
+                havePrev = true;
+            }
+
+            probePlanActor->visible = !probePlan.empty();
+            probePlanActor->lines->dirty = true;
         }
 
         // Draw the probe targets as violet crosses, each with a short stick along
