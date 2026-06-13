@@ -239,17 +239,24 @@ export namespace Geo {
 
         // The final toolpath: pure post-processing on clones. Direction = chain
         // ORDER only; milling = chain HANDEDNESS only. Then the LINKING pass
-        // weaves tagged connector chains between consecutive cutting chains:
+        // weaves tagged connector chains between consecutive cutting chains.
         //
-        //   * Cut link (LinkKind::Cut) -- the next chain is concentric kin of the
-        //     current one (parent/child in the ancestral tree): the tool stays
-        //     down and hops across. The next loop is re-seated to begin at its
-        //     point NEAREST the tool, keeping the flow of motion.
+        // Whether the tool may stay down for a hop is MEASURED, never assumed
+        // (ancestry proved nothing: a parent's other children can lie anywhere).
+        // A cut link requires BOTH:
         //
-        //   * Retract link (LinkKind::Retract) -- the next chain starts another
-        //     branch of ancestry: the tool must fully retract first. With the
-        //     start free, the next loop is re-seated to begin at the middle of
-        //     its longest edge (the most stable entry).
+        //   * REACH -- a circle of one tool radius at the tool's position must
+        //     intersect the next chain: the hop distance to the nearest entry
+        //     is at most ONE TOOL RADIUS. That is the whole budget.
+        //
+        //   * CLEARANCE -- the straight (x, y) hop must not cross ANY of the
+        //     source geometry (the prepared seed). Crossing the source means
+        //     cutting through a wall; that hop must retract instead.
+        //
+        // Cut link: the next loop is re-seated to begin at its point NEAREST
+        // the tool, keeping the flow of motion. Retract link: with the start
+        // free, the next loop is re-seated to the middle of its longest edge
+        // (the most stable entry).
         //
         // Links carry no Z -- they are planar segments with a TAG; what retracting
         // means in 3D is the consumer's business. From here on, chain travel IS
@@ -269,26 +276,52 @@ export namespace Geo {
                 for (Chain& c : run) { c = c.reversed(); }
             }
 
+            // Does the straight hop a -> b cross any source chain geometry?
+            auto crossesSource = [&](Pos a, Pos b) -> bool {
+
+                if ((b - a).pythag() <= 1e-4f) { return false; }
+                if (result.profiles.empty()) { return false; }
+
+                Segment2 hop(a, b);
+
+                for (const Chain& c : result.profiles.front().chains) {
+                    for (const auto& e : c.edges) {
+                        std::vector<Pos> hits;
+                        Chain::edgeCross(hop, *e, hits);
+                        if (!hits.empty()) { return true; }
+                    }
+                }
+
+                return false;
+            };
+
             Pos cursor;
             bool haveCursor = false;
-            Id prevId = 0, prevParent = 0;
 
             for (Chain& next : run) {
 
                 if (next.edges.empty()) { continue; }
 
-                // Kin in either direction (forward descends, reverse ascends).
-                const bool kin = haveCursor
-                              && (next.parent == prevId || prevParent == next.id);
+                // Decide the link kind by measurement, and re-seat the entry.
+                bool cutLink = false;
 
-                // Re-seat the entry point of closed loops.
                 if (next.closed) {
-                    if (kin) {
+
+                    if (haveCursor) {
+
                         Pos entry;
                         size_t k = next.nearestPoint(cursor, entry);
-                        next = next.startedAt(k, entry);
+
+                        const bool reachable =
+                            (entry - cursor).pythag() <= params.toolRadius + 1e-4f;
+
+                        if (reachable && !crossesSource(cursor, entry)) {
+                            cutLink = true;
+                            next = next.startedAt(k, entry);
+                        }
                     }
-                    else {
+
+                    if (!cutLink) {
                         size_t k = next.longestEdgeIndex();
                         next = next.startedAt(k, Chain::edgeMidpoint(*next.edges[k]));
                     }
@@ -301,15 +334,13 @@ export namespace Geo {
                         Chain link;
                         link.closed = false;
                         link.id = newId();
-                        link.link = kin ? LinkKind::Cut : LinkKind::Retract;
+                        link.link = cutLink ? LinkKind::Cut : LinkKind::Retract;
                         link.edges.push_back(std::make_unique<Segment2>(cursor, entry));
                         result.toolpath.push_back(std::move(link));
                     }
                 }
 
                 cursor = Chain::eEnd(*next.edges.back());
-                prevId = next.id;
-                prevParent = next.parent;
                 haveCursor = true;
 
                 result.toolpath.push_back(std::move(next));

@@ -445,7 +445,7 @@ export namespace Cam::App {
                     { "feedRate", stage->toolPath.feedRate },
                     { "rapidSpeedMmPerSec", stage->toolPath.rapidSpeedMmPerSec },
                     { "climbMilling", stage->toolPath.climbMilling },
-                    { "linkRetractDistance", stage->toolPath.linkRetractDistance },
+                    { "retractHeight", stage->toolPath.retractHeight },
                     { "sliceAxis", Json::array({
                         stage->toolPath.sliceAxis.x,
                         stage->toolPath.sliceAxis.y,
@@ -642,9 +642,9 @@ export namespace Cam::App {
                             stage->toolPath.climbMilling = toolPathJson["climbMilling"].get<bool>();
                         }
 
-                        if (toolPathJson.contains("linkRetractDistance") && toolPathJson["linkRetractDistance"].is_number()) {
-                            stage->toolPath.linkRetractDistance = static_cast<float>(
-                                toolPathJson["linkRetractDistance"].get<double>()
+                        if (toolPathJson.contains("retractHeight") && toolPathJson["retractHeight"].is_number()) {
+                            stage->toolPath.retractHeight = static_cast<float>(
+                                toolPathJson["retractHeight"].get<double>()
                             );
                         }
 

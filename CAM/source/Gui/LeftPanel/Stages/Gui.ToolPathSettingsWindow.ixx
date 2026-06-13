@@ -86,7 +86,7 @@ export namespace Cam::Gui {
             double feedRate = 0.0;
             bool climbMilling = true;
             double rapidSpeedMmPerSec = 0.0;
-            double linkRetract = 0.0;
+            double retractHeight = 0.0;
         };
 
         Cam::App::AppState* app = nullptr;
@@ -104,7 +104,7 @@ export namespace Cam::Gui {
         NumberInput* stepoverInput = nullptr;
         NumberInput* feedRateInput = nullptr;
         NumberInput* rapidSpeedInput = nullptr;
-        NumberInput* linkRetractInput = nullptr;
+        NumberInput* retractHeightInput = nullptr;
         Button* applyButton = nullptr;
 
         std::function<void(Event&)> onSaved;
@@ -408,15 +408,15 @@ export namespace Cam::Gui {
             rapidSpeedParams.allowEmpty = false;
             rapidSpeedParams.maxDecimalPlaces = 4;
 
-            NumberInput::Params linkRetractParams;
-            linkRetractParams.label = "Link retract (mm)";
-            linkRetractParams.placeholder = "10";
-            linkRetractParams.maxLength = 32;
-            linkRetractParams.selectAllOnFocus = true;
-            linkRetractParams.allowNegative = false;
-            linkRetractParams.allowDecimal = true;
-            linkRetractParams.allowEmpty = false;
-            linkRetractParams.maxDecimalPlaces = 4;
+            NumberInput::Params retractHeightParams;
+            retractHeightParams.label = "Retract height (mm)";
+            retractHeightParams.placeholder = "2";
+            retractHeightParams.maxLength = 32;
+            retractHeightParams.selectAllOnFocus = true;
+            retractHeightParams.allowNegative = false;
+            retractHeightParams.allowDecimal = true;
+            retractHeightParams.allowEmpty = false;
+            retractHeightParams.maxDecimalPlaces = 4;
 
             Box* rapidRow = settingsRow("RapidRow");
 
@@ -426,20 +426,20 @@ export namespace Cam::Gui {
                 { &ToolPathSettingsLayout::RowField }
             );
 
-            linkRetractInput = new NumberInput(
+            retractHeightInput = new NumberInput(
                 rapidRow,
-                linkRetractParams,
+                retractHeightParams,
                 { &ToolPathSettingsLayout::RowField }
             );
 
             hookLiveNumberEdit(rapidSpeedInput);
-            hookLiveNumberEdit(linkRetractInput);
+            hookLiveNumberEdit(retractHeightInput);
 
             stepDownInput->setValue(toolPath.stepDown);
             stepoverInput->setValue(toolPath.stepover * 100.0);
             feedRateInput->setValue(toolPath.feedRate);
             rapidSpeedInput->setValue(toolPath.rapidSpeedMmPerSec);
-            linkRetractInput->setValue(double(toolPath.linkRetractDistance));
+            retractHeightInput->setValue(double(toolPath.retractHeight));
 
             Box* footer = new Box(
                 root,
@@ -518,7 +518,7 @@ export namespace Cam::Gui {
                 .feedRate = toolPath.feedRate,
                 .climbMilling = toolPath.climbMilling,
                 .rapidSpeedMmPerSec = toolPath.rapidSpeedMmPerSec,
-                .linkRetract = double(toolPath.linkRetractDistance)
+                .retractHeight = double(toolPath.retractHeight)
             };
         }
 
@@ -529,7 +529,7 @@ export namespace Cam::Gui {
                 stepoverInput->commit(e);
                 feedRateInput->commit(e);
                 rapidSpeedInput->commit(e);
-                linkRetractInput->commit(e);
+                retractHeightInput->commit(e);
             }
 
             out.strategy = strategyDropdown->params.value;
@@ -540,7 +540,7 @@ export namespace Cam::Gui {
             if (!stepoverInput->tryGetValue(out.stepoverPercent)) { return false; }
             if (!feedRateInput->tryGetValue(out.feedRate)) { return false; }
             if (!rapidSpeedInput->tryGetValue(out.rapidSpeedMmPerSec)) { return false; }
-            if (!linkRetractInput->tryGetValue(out.linkRetract)) { return false; }
+            if (!retractHeightInput->tryGetValue(out.retractHeight)) { return false; }
 
             return true;
         }
@@ -561,7 +561,7 @@ export namespace Cam::Gui {
                 !nearlyEqual(current.feedRate, savedFields.feedRate) ||
                 current.climbMilling != savedFields.climbMilling ||
                 !nearlyEqual(current.rapidSpeedMmPerSec, savedFields.rapidSpeedMmPerSec) ||
-                !nearlyEqual(current.linkRetract, savedFields.linkRetract)
+                !nearlyEqual(current.retractHeight, savedFields.retractHeight)
             );
         }
 
@@ -625,13 +625,13 @@ export namespace Cam::Gui {
             stepoverInput->commit(e);
             feedRateInput->commit(e);
             rapidSpeedInput->commit(e);
-            linkRetractInput->commit(e);
+            retractHeightInput->commit(e);
 
             double stepDown = 0.0;
             double stepoverPercent = 0.0;
             double feedRate = 0.0;
             double rapidSpeed = 0.0;
-            double linkRetract = 0.0;
+            double retractHeight = 0.0;
 
             if (!stepDownInput->tryGetValue(stepDown) || stepDown <= 0.0) {
                 dbg("[ToolPathSettings] Invalid stepdown");
@@ -653,8 +653,8 @@ export namespace Cam::Gui {
                 return false;
             }
 
-            if (!linkRetractInput->tryGetValue(linkRetract) || linkRetract <= 0.0) {
-                dbg("[ToolPathSettings] Invalid link retract height");
+            if (!retractHeightInput->tryGetValue(retractHeight) || retractHeight <= 0.0) {
+                dbg("[ToolPathSettings] Invalid retract height");
                 return false;
             }
 
@@ -670,7 +670,7 @@ export namespace Cam::Gui {
                 feedRate,
                 rapidSpeed,
                 climbMilling,
-                static_cast<float>(linkRetract)
+                static_cast<float>(retractHeight)
             )) {
                 dbg("[ToolPathSettings] Failed to save toolpath settings");
                 return false;

@@ -65,6 +65,7 @@ export namespace Cam::Gui {
         Dropdown* toolDropdown = nullptr;
         NumberInput* stepDownInput = nullptr;
         NumberInput* feedRateInput = nullptr;
+        NumberInput* retractHeightInput = nullptr;
 
         std::function<void(Event&)> onChanged;
 
@@ -93,6 +94,12 @@ export namespace Cam::Gui {
 
             stepDownInput = makeNumberInput(machiningRow, "Stepdown (mm)", "0.5");
             feedRateInput = makeNumberInput(machiningRow, "Feed rate (mm/min)", "250");
+
+            // Retract height applies to EVERY strategy: the clearance plane
+            // for retracts/rapids, measured above the feature's top surface.
+            Box* retractRow = new Box(this, { &ToolpathViewStyle::Row }, "ToolpathRetractRow");
+
+            retractHeightInput = makeNumberInput(retractRow, "Retract height (mm)", "2");
         }
 
         // A number input that recomputes the toolpath when Enter is pressed in it
@@ -163,6 +170,7 @@ export namespace Cam::Gui {
             }
             if (stepDownInput) { stepDownInput->setValue(tp.stepDown); }
             if (feedRateInput) { feedRateInput->setValue(tp.feedRate); }
+            if (retractHeightInput) { retractHeightInput->setValue(double(tp.retractHeight)); }
 
             populateExtras();
         }
@@ -178,12 +186,16 @@ export namespace Cam::Gui {
 
             if (stepDownInput) { stepDownInput->commit(e); }
             if (feedRateInput) { feedRateInput->commit(e); }
+            if (retractHeightInput) { retractHeightInput->commit(e); }
 
             const Cam::App::ToolPath& tp = state->toolPath;
 
             const std::string tool = toolDropdown ? toolDropdown->params.value : tp.toolName;
             const double stepDown  = stepDownInput ? stepDownInput->valueOr(tp.stepDown) : tp.stepDown;
             const double feedRate  = feedRateInput ? feedRateInput->valueOr(tp.feedRate) : tp.feedRate;
+            const double retract   = retractHeightInput
+                ? retractHeightInput->valueOr(double(tp.retractHeight))
+                : double(tp.retractHeight);
 
             double stepover = tp.stepover;     // kept unless a strategy exposes it
             bool   climb    = tp.climbMilling; // kept unless a strategy exposes it
@@ -194,7 +206,7 @@ export namespace Cam::Gui {
             if (!app->saveToolPathSettings(
                 state, strategyName(), tool,
                 stepDown, stepover, feedRate,
-                tp.rapidSpeedMmPerSec, climb, tp.linkRetractDistance
+                tp.rapidSpeedMmPerSec, climb, static_cast<float>(retract)
             )) {
                 return;
             }

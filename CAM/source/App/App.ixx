@@ -839,7 +839,7 @@ export namespace Cam::App {
             double feedRate,
             double rapidSpeedMmPerSec,
             bool climbMilling,
-            float linkRetractDistance
+            float retractHeight
         ) {
 
             if (!activeProject || !stage || toolName.empty() || stepover <= 0.0) {
@@ -858,7 +858,7 @@ export namespace Cam::App {
             stage->toolPath.feedRate = feedRate;
             stage->toolPath.rapidSpeedMmPerSec = rapidSpeedMmPerSec;
             stage->toolPath.climbMilling = climbMilling;
-            stage->toolPath.linkRetractDistance = linkRetractDistance;
+            stage->toolPath.retractHeight = retractHeight;
 
             if (stage->hasDelta) {
                 stage->computeToolPath(activeProject->toolLibrary, activeProject->selectedToolName);

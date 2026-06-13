@@ -1138,16 +1138,32 @@ export namespace Geo {
             return best;
         }
 
-        // This closed loop, entered at point `p` on edge `k`. Open chains and
-        // lone circles return unchanged (a circle's entry is its own marker).
+        // This closed loop, entered at point `p` on edge `k`. Open chains
+        // return unchanged. A lone circle re-seats by BECOMING two half-arcs
+        // entered at `p` -- the same cycle, same travel, chirality inherited.
         Chain startedAt(size_t k, Pos p, float eps = 1e-4f) const {
             if (!closed || edges.empty() || k >= edges.size()) { return clone(); }
-            if (isCircle(*edges[k])) { return clone(); }
 
             const size_t n = edges.size();
             Chain out;
             out.closed = true;
             out.id = id; out.parent = parent; out.link = link;
+
+            if (isCircle(*edges[k])) {
+                Pos c; float r, a0, sweep; int chir;
+                if (!circularOf(*edges[k], c, r, a0, sweep, chir)) { return clone(); }
+                dPos C(c);
+                dPos u = (dPos(p) - C).unit();
+                Pos a = (C + u * r).f();
+                Pos b = (C - u * r).f();
+                auto quarter = [&](double side) {
+                    dPos q(-u.y * chir * side, u.x * chir * side);   // +-90 deg, travel side
+                    return (C + q * r).f();
+                };
+                out.edges.push_back(std::make_unique<Arc2>(c, a, b, quarter(1.0)));
+                out.edges.push_back(std::make_unique<Arc2>(c, b, a, quarter(-1.0)));
+                return out;
+            }
 
             const Stoicheion& e = *edges[k];
             if ((p - eStart(e)).pythag() <= eps) {            // already a vertex: rotate only

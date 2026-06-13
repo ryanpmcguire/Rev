@@ -37,6 +37,13 @@ export namespace Cam::App::Slicer::Strategy {
         float z = 0.0f;
         std::vector<Geo::Chain> chains;
         std::vector<Pos> points;
+
+        // HELICAL layer: depth ramps linearly (by arc length) from `z` at the
+        // chain's start to `zTo` at its end, instead of staying flat at `z`.
+        // One revolution of a ring chain with a stepdown between z and zTo is
+        // one turn of a helix.
+        bool helical = false;
+        float zTo = 0.0f;
     };
 
     // Inputs shared by every strategy run.
@@ -113,9 +120,26 @@ export namespace Cam::App::Slicer::Strategy {
 
             if (dz <= 0.0f) { dz = 1.0f; }
 
+            // Slice depths are computed FROM THE SURFACE: stepdowns are
+            // measured from the TOP of the delta volume (in slice-plane
+            // depth), stepping down by dz -- and one FINAL slice lands exactly
+            // on the bottom-most depth. Never the reverse: aligning steps to
+            // the bottom would put the first cut at an arbitrary distance
+            // below the surface.
+            std::vector<float> depths;
+
+            for (float depth = maxDepth - dz; depth > minDepth + 1e-4f; depth -= dz) {
+                depths.push_back(depth);
+            }
+
+            depths.push_back(minDepth);
+
+            // The pipeline stores slices bottom-up (display flips to forward).
+            std::reverse(depths.begin(), depths.end());
+
             size_t attempted = 0;
 
-            for (float depth = minDepth; depth <= maxDepth + 1e-4f; depth += dz) {
+            for (float depth : depths) {
                 attempted += 1;
 
                 SliceLayer slice;

@@ -7,6 +7,7 @@ module;
 #include <cstddef>
 #include <cmath>
 #include <algorithm>
+#include <memory>
 
 #include <dbg.hpp>
 
@@ -38,6 +39,10 @@ export namespace Cam::App {
         double t = 0.0; // seconds from path start
         bool rapid = false;
         bool cutting = true;
+
+        // A LINKING step: the tool is down and cutting, but the move exists to
+        // travel between passes (a Cut-tagged link chain), not to clear stock.
+        bool link = false;
     };
 
     // Computed tool motion for one material state.
@@ -77,7 +82,13 @@ export namespace Cam::App {
         bool computed = false;
         size_t linkedPointCount = 0;
 
-        float linkRetractDistance = 10.0f;
+        // Clearance for every retract / rapid / link: this many mm ABOVE the
+        // feature's top surface (the delta volume's highest point along the
+        // slice axis). Applies to ALL toolpath strategies.
+        float retractHeight = 2.0f;
+
+        // Top of the feature in slice-frame depth, captured at compute().
+        float featureTopDepth = 0.0f;
 
         // State
         //--------------------------------------------------
@@ -153,9 +164,10 @@ export namespace Cam::App {
         void addWorldPoint(
             const Pos3& position,
             bool rapid = false,
-            bool cutting = true
+            bool cutting = true,
+            bool link = false
         ) {
-            points.push_back(makePoint(position, rapid, cutting));
+            points.push_back(makePoint(position, rapid, cutting, link));
         }
 
         void addPoint(
@@ -163,9 +175,10 @@ export namespace Cam::App {
             float depth,
             const Slicer::Strategy::CutFrame& frame,
             bool rapid = false,
-            bool cutting = true
+            bool cutting = true,
+            bool link = false
         ) {
-            addWorldPoint(frame.uvToWorld(uv, depth), rapid, cutting);
+            addWorldPoint(frame.uvToWorld(uv, depth), rapid, cutting, link);
         }
 
         double durationSeconds() const {
@@ -315,8 +328,9 @@ export namespace Cam::App {
                 place(uv, depth, true, false);           // plunge to the start
             };
 
-            auto cutTo = [&](const Pos& uv, float depth) {
+            auto cutTo = [&](const Pos& uv, float depth, bool link = false) {
                 place(uv, depth, false, true);
+                points.back().link = link;
             };
 
             std::vector<Pos> pts;
@@ -349,11 +363,41 @@ export namespace Cam::App {
                         continue;
                     }
 
-                    // Ordinary cuts and CUT links (tool stays down) cut through.
+                    // Ordinary cuts and CUT links (tool stays down) cut through;
+                    // the link tag rides on every point so the viewers can show
+                    // linking steps distinctly.
+                    const bool isCutLink = (chain.link == Geo::LinkKind::Cut);
+
+                    // A HELICAL layer ramps depth linearly by arc length from
+                    // layer.z at the chain's start to layer.zTo at its end.
+                    if (layer.helical) {
+
+                        float total = 0.0f;
+                        std::vector<float> cum(pts.size(), 0.0f);
+
+                        for (size_t i = 1; i < pts.size(); i++) {
+                            total += pts[i - 1].distanceTo(pts[i]);
+                            cum[i] = total;
+                        }
+
+                        auto depthAt = [&](size_t i) {
+                            const float f = (total > 1e-6f) ? cum[i] / total : 1.0f;
+                            return layer.z + (layer.zTo - layer.z) * f;
+                        };
+
+                        moveTo(pts.front(), layer.z);
+
+                        for (size_t i = 1; i < pts.size(); i++) {
+                            cutTo(pts[i], depthAt(i), isCutLink);
+                        }
+
+                        continue;
+                    }
+
                     moveTo(pts.front(), layer.z);
 
                     for (size_t i = 1; i < pts.size(); i++) {
-                        cutTo(pts[i], layer.z);
+                        cutTo(pts[i], layer.z, isCutLink);
                     }
                 }
             }
@@ -408,16 +452,15 @@ export namespace Cam::App {
             return true;
         }
 
-        Pos3 linkSafePoint(
+        // The safe clearance plane in slice-frame depth: retractHeight above
+        // the FEATURE TOP -- the highest material of the delta volume -- never
+        // relative to any anchor layer.
+        float safePlaneDepth(
             const Slicer::Strategy::CutFrame& frame,
-            const Pos3& anchor,
             const Model* referenceModel
         ) const {
 
-            const float anchorDepth = frame.dotFromOrigin(anchor);
-            const Pos anchorUv = frame.worldToUv(anchor, anchorDepth);
-
-            float safeDepth = anchorDepth + linkRetractDistance;
+            float safeDepth = featureTopDepth + retractHeight;
 
             if (
                 hasSliceFace() &&
@@ -427,28 +470,114 @@ export namespace Cam::App {
                 const Pos3 faceRef = referenceModel->facePoint(sliceFaceId);
                 const float faceDepth = frame.dotFromOrigin(faceRef);
 
-                safeDepth = faceDepth + linkRetractDistance;
+                safeDepth = std::max(safeDepth, faceDepth + retractHeight);
             }
 
-            return frame.uvToWorld(anchorUv, safeDepth);
+            return safeDepth;
         }
 
-        void addApproachRetractLinks(
-            const Pos3& axisAnchor,
+        Pos3 linkSafePoint(
             const Slicer::Strategy::CutFrame& frame,
+            const Pos3& anchor,
             const Model* referenceModel
+        ) const {
+
+            const float anchorDepth = frame.dotFromOrigin(anchor);
+            const Pos anchorUv = frame.worldToUv(anchor, anchorDepth);
+
+            return frame.uvToWorld(anchorUv, safePlaneDepth(frame, referenceModel));
+        }
+
+        // Unit direction AWAY from the source geometry at `p`: the gradient of
+        // the source's distance field, by central differences.
+        static Pos awayFromWall(
+            const std::vector<std::unique_ptr<Geo::Stoicheion>>& source,
+            Pos p
+        ) {
+            auto sdf = [&](Pos q) {
+                float best = 1e30f;
+                for (const auto& e : source) {
+                    if (e) { best = std::min(best, e->distanceTo(q)); }
+                }
+                return best;
+            };
+
+            const float h = 1e-2f;
+
+            Pos g = {
+                (sdf({ p.x + h, p.y }) - sdf({ p.x - h, p.y })) / (2.0f * h),
+                (sdf({ p.x, p.y + h }) - sdf({ p.x, p.y - h })) / (2.0f * h)
+            };
+
+            const float len = g.pythag();
+
+            if (len <= 1e-6f) { return {}; }
+
+            return g / len;
+        }
+
+        // The operation's entry and exit are VERTICAL. The first point of the
+        // toolpath sits DIRECTLY ABOVE the first point of interest (never a
+        // diagonal from some anchor); the final point sits directly above the
+        // tool's last position -- which, for the PROFILE strategy, is first
+        // stepped slightly away from the wall (along the gradient of the last
+        // slice's source distance field) so the retract never drags up the
+        // finished surface.
+        void addApproachRetractLinks(
+            const Slicer::Strategy::CutFrame& frame,
+            const Slicer::Strategy::Strategy& strategyImpl,
+            float safeDepth
         ) {
 
             if (points.empty()) { return; }
 
-            const Pos3 offset = linkSafePoint(frame, axisAnchor, referenceModel);
+            // Toolpath points are stored in reverse execution order: the
+            // stored BACK executes first, the stored FRONT executes last.
 
-            // Toolpath points are stored in reverse execution order.
-            // Retract: axis offset -> first stored point (last real-life step).
-            points.insert(points.begin(), makePoint(offset, true, false));
+            // Approach: straight down onto the first executed point.
+            {
+                const Pos3 first = points.back().position;
+                const Pos uv = frame.worldToUv(first, frame.dotFromOrigin(first));
 
-            // Approach: last stored point (first real-life step) -> axis offset.
-            addWorldPoint(offset, true, false);
+                addWorldPoint(frame.uvToWorld(uv, safeDepth), true, false);
+            }
+
+            // Retract: away from the wall at depth (profile only), then
+            // straight up.
+            {
+                const Pos3 last = points.front().position;
+                const float lastDepth = frame.dotFromOrigin(last);
+
+                Pos uv = frame.worldToUv(last, lastDepth);
+
+                if (strategy == Profile::name()) {
+
+                    const auto& slices = strategyImpl.slices();
+
+                    // The last executed slice is the bottom-most (stored first).
+                    if (!slices.empty()) {
+
+                        const Pos away = awayFromWall(slices.front().source, uv);
+                        const float nudge = static_cast<float>(toolDiameter) * 0.25f;
+
+                        if (away.pythag() > 0.5f && nudge > 0.0f) {
+                            uv += away * nudge;
+
+                            // The sidestep itself, at cutting depth (stored
+                            // after the top point so it executes BEFORE it).
+                            points.insert(
+                                points.begin(),
+                                makePoint(frame.uvToWorld(uv, lastDepth), false, false)
+                            );
+                        }
+                    }
+                }
+
+                points.insert(
+                    points.begin(),
+                    makePoint(frame.uvToWorld(uv, safeDepth), true, false)
+                );
+            }
         }
 
         void buildAxisDebugLine(
@@ -501,6 +630,19 @@ export namespace Cam::App {
 
             const Slicer::Strategy::CutFrame frame = cutFrame();
 
+            // The feature's top surface in slice-frame depth: the reference
+            // every retract measures from.
+            featureTopDepth = 0.0f;
+            {
+                Pos3 bMin, bMax;
+
+                if (Slicer::Strategy::Strategy::boundsFromModel(toCarve, bMin, bMax)) {
+                    float lo = 0.0f, hi = 0.0f;
+                    frame.depthRange(bMin, bMax, lo, hi);
+                    featureTopDepth = hi;
+                }
+            }
+
             Slicer::Strategy::StrategyContext ctx {
                 .positive = &toCarve,
                 .negative = &toAvoid,
@@ -525,27 +667,21 @@ export namespace Cam::App {
             const Slicer::Strategy::Strategy& strategyImpl =
                 *strategyResult();
 
-            Pos3 axisAnchor = {};
-            const bool hasAxisAnchor = computeAxisAnchor(strategyImpl, frame, axisAnchor);
-
-            // Safe plane for in-path retracts: the same clearance height the
-            // approach/retract links use.
-            float safeDepth = 0.0f;
-
-            if (hasAxisAnchor) {
-                const Pos3 safeWorld = linkSafePoint(frame, axisAnchor, &toAvoid);
-                safeDepth = frame.dotFromOrigin(safeWorld);
-            }
+            // Safe plane for every retract: the same clearance height the
+            // approach/exit use.
+            const float safeDepth = safePlaneDepth(frame, &toAvoid);
 
             buildPointsFromStrategy(strategyImpl, frame, safeDepth);
 
-            if (hasAxisAnchor && !points.empty()) {
-                addApproachRetractLinks(axisAnchor, frame, &toAvoid);
+            if (!points.empty()) {
+                addApproachRetractLinks(frame, strategyImpl, safeDepth);
             }
 
             reversePointsForForwardDisplay();
 
-            if (hasAxisAnchor) {
+            Pos3 axisAnchor = {};
+
+            if (computeAxisAnchor(strategyImpl, frame, axisAnchor)) {
                 buildAxisDebugLine(frame, axisAnchor, &toAvoid);
             }
 
@@ -558,7 +694,7 @@ export namespace Cam::App {
                 points.size(),
                 axis.size(),
                 points.empty() ? 0.0 : points.back().t,
-                hasAxisAnchor && points.size() >= 2
+                points.size() >= 2
                     ? points[1].position.distanceTo(points[0].position)
                     : 0.0f,
                 int(computed)
@@ -819,9 +955,10 @@ export namespace Cam::App {
             const double totalDuration = durationSeconds();
             const double previewTime = totalDuration * std::clamp(previewProgress, 0.0, 1.0);
 
-            Color cutColor = { 1.0f, 0.0f, 1.0f, 1.0f };
+            Color cutColor = { 1.0f, 0.0f, 1.0f, 1.0f };           // cutting: magenta
             Color rapidColor = { 0.6f, 0.0f, 1.0f, 0.35f };
-            Color linkColor = { 0.25f, 0.85f, 1.0f, 1.0f };
+            Color linkColor = { 0.25f, 0.85f, 1.0f, 1.0f };        // retract/rapid links: cyan
+            Color cutLinkColor = { 1.0f, 0.58f, 0.15f, 1.0f };     // tool-down linking steps: orange
             Color uncoloredColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 
             for (size_t i = 0; i + 1 < points.size(); i++) {
@@ -829,10 +966,16 @@ export namespace Cam::App {
                 const Pos3& b = points[i + 1].position;
 
                 const bool isLink = !points[i].cutting || !points[i + 1].cutting;
+                // Points are displayed in flipped storage order, so the marked
+                // endpoint of a linking move can land on either side of the
+                // step: either endpoint tagged makes it a linking step.
+                const bool isCutLink = points[i].link || points[i + 1].link;
 
                 Color baseColor = isLink
                     ? linkColor
-                    : (points[i + 1].rapid ? rapidColor : cutColor);
+                    : isCutLink
+                        ? cutLinkColor
+                        : (points[i + 1].rapid ? rapidColor : cutColor);
 
                 const bool colored = (
                     previewProgress >= 1.0 - 1e-9 ||
@@ -877,7 +1020,8 @@ export namespace Cam::App {
         ToolPathPoint makePoint(
             const Pos3& position,
             bool rapid = false,
-            bool cutting = true
+            bool cutting = true,
+            bool link = false
         ) const {
 
             return {
@@ -886,7 +1030,8 @@ export namespace Cam::App {
                 .spindleSpeed = 0.0,
                 .t = 0.0,
                 .rapid = rapid,
-                .cutting = cutting
+                .cutting = cutting,
+                .link = link
             };
         }
 
