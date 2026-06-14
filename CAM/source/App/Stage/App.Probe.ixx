@@ -83,13 +83,26 @@ export namespace Cam::App {
     struct ProbeResult {
 
         bool   valid = false;
+
+        // The ACHIEVABLE correction: what the MACHINE is driven with -- a rotation
+        // about its single rotary axis plus translation, the part of the true pose
+        // it can physically make.  apply()/applyDirection() use this, so the cut
+        // and probe-tool pipeline naturally only ever command achievable motion.
         double r[9]  = { 1, 0, 0,  0, 1, 0,  0, 0, 1 };
         Pos3   t{};
+
+        // The TRUE rigid fit of the model to the measured points (full 3-DOF
+        // rotation).  This is the honest measured pose -- the part's actual
+        // orientation, including any tilt the single rotary axis CANNOT correct.
+        // Kept for the record + the view; never sent to the machine.
+        double rTrue[9] = { 1, 0, 0,  0, 1, 0,  0, 0, 1 };
+        Pos3   tTrue{};
+
         double rmsError = 0.0;
 
         void reset() { *this = ProbeResult(); }
 
-        // Apply the correction to a CAD-frame point.
+        // Apply the ACHIEVABLE correction to a CAD-frame point (driven to machine).
         Pos3 apply(const Pos3& p) const {
             return {
                 float(r[0] * p.x + r[1] * p.y + r[2] * p.z + t.x),
@@ -98,12 +111,9 @@ export namespace Cam::App {
             };
         }
 
-        // Apply the correction to a CAD-frame DIRECTION: rotation only, no
-        // translation (directions don't translate).  This is what lets a probe
-        // correction reorient the tool axis *before* the IK solve, so the rotary
-        // axis swings to compensate as a natural consequence of the geometry
-        // rather than an explicit "rotate the chuck" command.  Identity R (the
-        // un-probed default) returns the direction unchanged.
+        // Apply the ACHIEVABLE correction to a CAD-frame DIRECTION: rotation only.
+        // This reorients tool axes before the IK solve so the rotary axis swings
+        // to compensate as a consequence of the geometry.  Identity by default.
         Pos3 applyDirection(const Pos3& d) const {
             return {
                 float(r[0] * d.x + r[1] * d.y + r[2] * d.z),
@@ -112,32 +122,14 @@ export namespace Cam::App {
             };
         }
 
-        // Compose: returns (this o inner) -- apply `inner` first, then `this`:
-        //   result.apply(p) == this.apply(inner.apply(p))
-        //   R = this.R * inner.R ;  t = this.R * inner.t + this.t
-        // Used to ACCUMULATE probe corrections: a re-probe of an already-corrected
-        // part measures only the RESIDUAL (it presents nearly square), so the new
-        // total = oldCorrection.composedWith(residual).  Replacing instead of
-        // composing would discard the prior correction the moment the part
-        // converges (residual -> identity) and rotate it back.
-        ProbeResult composedWith(const ProbeResult& inner) const {
-            ProbeResult out;
-            for (int row = 0; row < 3; row++) {
-                for (int col = 0; col < 3; col++) {
-                    out.r[row * 3 + col] =
-                        r[row * 3 + 0] * inner.r[0 * 3 + col] +
-                        r[row * 3 + 1] * inner.r[1 * 3 + col] +
-                        r[row * 3 + 2] * inner.r[2 * 3 + col];
-                }
-            }
-            out.t = Pos3{
-                float(r[0] * inner.t.x + r[1] * inner.t.y + r[2] * inner.t.z + t.x),
-                float(r[3] * inner.t.x + r[4] * inner.t.y + r[5] * inner.t.z + t.y),
-                float(r[6] * inner.t.x + r[7] * inner.t.y + r[8] * inner.t.z + t.z)
+        // Apply the TRUE rigid fit (for the view -- shows the real measured pose,
+        // including off-rotary-axis tilt the machine can't make).
+        Pos3 applyTrue(const Pos3& p) const {
+            return {
+                float(rTrue[0] * p.x + rTrue[1] * p.y + rTrue[2] * p.z + tTrue.x),
+                float(rTrue[3] * p.x + rTrue[4] * p.y + rTrue[5] * p.z + tTrue.y),
+                float(rTrue[6] * p.x + rTrue[7] * p.y + rTrue[8] * p.z + tTrue.z)
             };
-            out.valid    = valid || inner.valid;
-            out.rmsError = inner.rmsError;   // report the latest residual
-            return out;
         }
 
         // Fit a frame correction (nominal CAD -> measured part pose) from probed
@@ -149,15 +141,21 @@ export namespace Cam::App {
         //    touch only learns displacement ALONG its approach (a Z-style
         //    touch-off); lateral position is unobserved, so we project the delta
         //    onto the normal and translate by that.  R stays identity.
-        //  * >= 3     -> fit the part's tilt + a uniform offset, but CONSTRAINED
-        //    to what the machine can actually do: a rotation about its rotary
-        //    axis `rotaryAxis` plus a uniform offset along the surface normal.
-        //    Any tilt the rotary axis cannot reach is intentionally left as
-        //    residual -- no real part is perfectly flat or perfectly mounted, so
-        //    we correct what we can and accept the rest (it shows up in rmsError).
-        //    If `rotaryAxis` is zero (3-axis machine, no rotary), the rotation is
-        //    skipped and only the uniform offset is applied.
-        //  * == 2     -> centroid translation only (under-determined for tilt).
+        //  * >= 3     -> FIT THE MODEL TO THE FACE (a rigid registration), and
+        //    record BOTH:
+        //      - rTrue/tTrue: the TRUE rigid fit -- the minimum-arc rotation that
+        //        maps the model's face normal onto the measured one, about the
+        //        axis the data dictates (NOT a coordinate axis), translated by
+        //        t = cM - R*cN (map the probed centroid onto the measured one).
+        //        Because the probe touches at nominal X/Y, cM shares cN's X/Y, so
+        //        this introduces NO lateral shift -- only height + tilt, which is
+        //        all we measured.
+        //      - r/t: the DRIVEN fit -- the same alignment but using only the one
+        //        rotation the machine has (`rotaryAxis`).  apply() uses this, so
+        //        the cut commands only achievable motion; the off-axis remainder
+        //        is accepted residual (rmsError reflects the true-fit quality).
+        //    rotaryAxis zero (3-axis, no rotary) -> driven rotation is identity.
+        //  * == 2     -> uniform offset along the average normal (no lateral).
         static ProbeResult fit(
             const std::vector<Pos3>& nominal,
             const std::vector<Pos3>& measured,
@@ -175,6 +173,7 @@ export namespace Cam::App {
                 if (len > 1e-6f) { nrm = nrm * (1.0f / len); }
                 const float along = delta.dot(nrm);
                 out.t        = nrm * along;
+                out.tTrue    = out.t;   // pure translation: true == achievable
                 out.valid    = true;
                 out.rmsError = 0.0;
                 return out;
@@ -231,59 +230,87 @@ export namespace Cam::App {
                         const float n1len = n1.pythag();
                         n1 = (n1len > 1e-6f) ? n1 * (1.0f / n1len) : n0;
 
-                        // CONSTRAIN the rotation to the machine's rotary axis: the
-                        // angle ABOUT `rotaryAxis` that best swings the nominal
-                        // surface normal n0 toward the measured n1.  Tilt the axis
-                        // can't reach is left as residual.  (Rotation about A
-                        // preserves dot(D, A), so an A-only correction keeps every
-                        // toolpath direction IK-reachable -- which is exactly why
-                        // an unconstrained 3D rotation made all points invalid.)
-                        double R[9] = { 1, 0, 0,  0, 1, 0,  0, 0, 1 };
-
-                        Pos3 A = rotaryAxis;
-                        const float Alen = A.pythag();
-                        if (Alen > 1e-6f) {
-                            A = A * (1.0f / Alen);
-
-                            // In-plane (perpendicular to A) parts of n0 and n1.
-                            Pos3 n0p = n0 - A * n0.dot(A);
-                            Pos3 n1p = n1 - A * n1.dot(A);
-                            const float l0 = n0p.pythag();
-                            const float l1 = n1p.pythag();
-
-                            if (l0 > 1e-5f && l1 > 1e-5f) {
-                                n0p = n0p * (1.0f / l0);
-                                n1p = n1p * (1.0f / l1);
-                                const double cs = double(n0p.dot(n1p));
-                                const double sn = double(A.dot(n0p.cross(n1p)));
-                                const double th = std::atan2(sn, cs);   // about A: n0 -> n1
-
-                                const double ca = std::cos(th), sa = std::sin(th), ta = 1.0 - ca;
-                                const double ax = A.x, ay = A.y, az = A.z;
-                                R[0] = ta*ax*ax + ca;    R[1] = ta*ax*ay - sa*az; R[2] = ta*ax*az + sa*ay;
-                                R[3] = ta*ax*ay + sa*az; R[4] = ta*ay*ay + ca;    R[5] = ta*ay*az - sa*ax;
-                                R[6] = ta*ax*az - sa*ay; R[7] = ta*ay*az + sa*ax; R[8] = ta*az*az + ca;
+                        // ---- TRUE rigid fit: rotate the model's face normal n0
+                        // onto the measured normal n1 by the MINIMUM-ARC rotation.
+                        // The axis is whatever the face tilt dictates (NOT a
+                        // coordinate axis); this is fitting the model to the face.
+                        double Rt[9] = { 1, 0, 0,  0, 1, 0,  0, 0, 1 };
+                        {
+                            const Pos3 v = n0.cross(n1);
+                            const double c = double(n0.dot(n1));
+                            if (c > 1.0 - 1e-7) {
+                                // already aligned: identity
+                            }
+                            else if (c < -1.0 + 1e-7) {
+                                // 180 deg about u (any axis perpendicular to n0)
+                                Rt[0]=2*u.x*u.x-1; Rt[1]=2*u.x*u.y;   Rt[2]=2*u.x*u.z;
+                                Rt[3]=2*u.x*u.y;   Rt[4]=2*u.y*u.y-1; Rt[5]=2*u.y*u.z;
+                                Rt[6]=2*u.x*u.z;   Rt[7]=2*u.y*u.z;   Rt[8]=2*u.z*u.z-1;
+                            }
+                            else {
+                                const double s = 1.0 / (1.0 + c);
+                                const double vx=v.x, vy=v.y, vz=v.z;
+                                Rt[0]=1+s*(-vy*vy-vz*vz); Rt[1]=-vz+s*(vx*vy);      Rt[2]= vy+s*(vx*vz);
+                                Rt[3]= vz+s*(vx*vy);      Rt[4]=1+s*(-vx*vx-vz*vz); Rt[5]=-vx+s*(vy*vz);
+                                Rt[6]=-vy+s*(vx*vz);      Rt[7]= vx+s*(vy*vz);      Rt[8]=1+s*(-vx*vx-vy*vy);
                             }
                         }
 
-                        for (int i = 0; i < 9; i++) { out.r[i] = R[i]; }
+                        // ---- ACHIEVABLE fit: the rotation ABOUT the machine's one
+                        // rotary axis that best makes that same alignment -- the
+                        // part of the true tilt the machine can physically produce.
+                        // (Rotation about the axis keeps every toolpath direction
+                        // IK-reachable; the off-axis remainder is accepted residual.)
+                        double Ra[9] = { 1, 0, 0,  0, 1, 0,  0, 0, 1 };
+                        {
+                            Pos3 A = rotaryAxis;
+                            const float Alen = A.pythag();
+                            if (Alen > 1e-6f) {
+                                A = A * (1.0f / Alen);
+                                Pos3 n0p = n0 - A * n0.dot(A);
+                                Pos3 n1p = n1 - A * n1.dot(A);
+                                const float l0 = n0p.pythag();
+                                const float l1 = n1p.pythag();
+                                if (l0 > 1e-5f && l1 > 1e-5f) {
+                                    n0p = n0p * (1.0f / l0);
+                                    n1p = n1p * (1.0f / l1);
+                                    const double th = std::atan2(
+                                        double(A.dot(n0p.cross(n1p))), double(n0p.dot(n1p)));
+                                    const double ca = std::cos(th), sa = std::sin(th), ta = 1.0 - ca;
+                                    const double ax = A.x, ay = A.y, az = A.z;
+                                    Ra[0]=ta*ax*ax+ca;    Ra[1]=ta*ax*ay-sa*az; Ra[2]=ta*ax*az+sa*ay;
+                                    Ra[3]=ta*ax*ay+sa*az; Ra[4]=ta*ay*ay+ca;    Ra[5]=ta*ay*az-sa*ax;
+                                    Ra[6]=ta*ax*az-sa*ay; Ra[7]=ta*ay*az+sa*ax; Ra[8]=ta*az*az+ca;
+                                }
+                            }
+                        }
 
-                        // Uniform offset ALONG the surface normal only (a single
-                        // touch-off shift).  In-plane translation is not something
-                        // a rotary axis + a normal touch-off can fix, so it is not
-                        // applied.
-                        const Pos3 RcN{
-                            float(R[0]*cN.x + R[1]*cN.y + R[2]*cN.z),
-                            float(R[3]*cN.x + R[4]*cN.y + R[5]*cN.z),
-                            float(R[6]*cN.x + R[7]*cN.y + R[8]*cN.z)
+                        // PROPER model-fit translation: map the probed centroid to
+                        // the MEASURED centroid (t = cM - R*cN).  Because the probe
+                        // touches at the nominal X/Y, cM shares cN's X/Y, so this
+                        // does NOT move the part laterally -- only height + angle,
+                        // which is all we measured.  (The earlier "offset along the
+                        // tilted normal" had X/Y components and dragged the part
+                        // sideways -- that was the spurious shift.)
+                        auto mapCN = [&](const double* M) -> Pos3 {
+                            return Pos3{
+                                float(M[0]*cN.x + M[1]*cN.y + M[2]*cN.z),
+                                float(M[3]*cN.x + M[4]*cN.y + M[5]*cN.z),
+                                float(M[6]*cN.x + M[7]*cN.y + M[8]*cN.z)
+                            };
                         };
-                        const Pos3 tFull = cM - RcN;
-                        out.t     = n0 * tFull.dot(n0);
+
+                        for (int i = 0; i < 9; i++) { out.r[i] = Ra[i]; out.rTrue[i] = Rt[i]; }
+                        out.t     = cM - mapCN(Ra);
+                        out.tTrue = cM - mapCN(Rt);
                         out.valid = true;
 
+                        // rms = quality of the TRUE fit (how well the model lines
+                        // up with the measured face); the residual that survives
+                        // the achievable fit is the part the machine can't make.
                         double sse = 0.0;
                         for (size_t i = 0; i < n; i++) {
-                            const Pos3 e = measured[i] - out.apply(nominal[i]);
+                            const Pos3 e = measured[i] - out.applyTrue(nominal[i]);
                             sse += double(e.x)*e.x + double(e.y)*e.y + double(e.z)*e.z;
                         }
                         out.rmsError = std::sqrt(sse / double(n));
@@ -294,8 +321,17 @@ export namespace Cam::App {
                 // translation-only fit below.
             }
 
-            // n == 2, or a degenerate n >= 3: translation only (centroid delta).
-            out.t     = cM - cN;
+            // n == 2, or a degenerate n >= 3: uniform offset ALONG THE NORMAL only.
+            // We never measured lateral position, so the correction must not shift
+            // the part in X/Y -- project the centroid delta onto the average
+            // surface normal and translate by that alone.
+            Pos3 n0avg{};
+            for (size_t i = 0; i < n && i < normal.size(); i++) { n0avg = n0avg + normal[i]; }
+            const float n0avgLen = n0avg.pythag();
+            n0avg = (n0avgLen > 1e-6f) ? n0avg * (1.0f / n0avgLen) : Pos3{ 0, 0, 1 };
+
+            out.t     = n0avg * (cM - cN).dot(n0avg);
+            out.tTrue = out.t;   // pure translation: true == achievable
             out.valid = true;
 
             double sse = 0.0;
@@ -350,7 +386,11 @@ export namespace Cam::App {
             j["enabled"] = enabled;
             j["targets"] = Json::array();
             for (const ProbeTarget& t : targets) { j["targets"].push_back(t.getState()); }
-            j["result"]  = result.getState();
+            // The fitted `result` is a PER-RUN MEASUREMENT, not design intent, and
+            // is intentionally NOT serialized.  Persisting it would auto-apply a
+            // stale correction from a previous session to a part that may have
+            // been re-mounted -- exactly the cross-run compounding that drove the
+            // machine to a wrong pose.  A loaded project always starts un-probed.
             return j;
         }
 
@@ -366,7 +406,8 @@ export namespace Cam::App {
                     targets.push_back(t);
                 }
             }
-            if (j.contains("result") && j["result"].is_object()) { result.setState(j["result"]); }
+            // `result` deliberately not loaded -- see getState().  Always
+            // starts at identity (reset above).
         }
     };
 }

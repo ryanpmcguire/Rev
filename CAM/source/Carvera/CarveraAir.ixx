@@ -489,17 +489,24 @@ export namespace Carvera {
             pushLog("Program stopped.");
         }
 
-        // Zero the active work coordinate system at the current position and
-        // capture the machine origin for the CAM view's coordinate mapping.
+        // "Set work origin" LOCATES THE PART in absolute machine space -- it does
+        // NOT redefine the controller's zero.  We capture the current machine
+        // position as where the part's origin actually is, then ZERO THE WCS
+        // OFFSET (G10 L2, not L20) so `G90` coordinates ARE absolute machine
+        // values.  The host then transforms every part-space point (toolpaths,
+        // probe points) into absolute machine coordinates itself and emits them
+        // absolutely -- nothing is ever interpreted relative to a controller-side
+        // offset.  captureMachineOrigin records the part placement the host uses.
         void setWorkOrigin() {
             if (!connected() || !confValid) {
                 pushLog("Connect and wait for position before setting origin.");
                 return;
             }
-            sendLine("G10 L20 P1 X0 Y0 Z0 A0\n");
             captureMachineOrigin(confX, confY, confZ, confA);
+            sendLine("G10 L2 P1 X0 Y0 Z0 A0\n");   // WCS offset = 0 => G90 == machine absolute
             pushLog(std::format(
-                "Work origin set at current position (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}).",
+                "Part origin located at machine (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}); "
+                "WCS zeroed to machine -- all program moves are now absolute.",
                 confX, confY, confZ, confA));
         }
 

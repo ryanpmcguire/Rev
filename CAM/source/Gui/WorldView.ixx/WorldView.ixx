@@ -152,12 +152,15 @@ export namespace Cam::Gui {
         std::vector<ProbeSessionEntry> probeSession_;
         size_t probeFillIndex_ = 0;
 
-        // How many times each stage's probe operation is run back-to-back.  >1
-        // re-probes to confirm/refine the fitted pose: after the first probe the
-        // correction is applied, so the part is physically re-oriented before the
-        // next probe, which then measures more accurately.  Air is unaware it is
-        // the "same" probe -- it just runs each operation the provider hands it.
-        static constexpr int kProbeRepeatCount = 2;
+        // How many times each stage's probe operation runs.  ONE: the probe is
+        // never driven by the fitted correction (it always measures the part at
+        // its fixed mounted pose), so a single pass is the complete absolute
+        // measurement -- re-probing would only re-measure the same thing.
+        // Iterative re-probe (which physically re-orients the part between passes)
+        // is intentionally NOT done until the pose math is rigorously verified:
+        // rotating the fragile probe by a not-yet-trusted correction is what
+        // broke probes.  See CarveraREADME.md probing notes.
+        static constexpr int kProbeRepeatCount = 1;
 
         // Frame captured at the build that produced the current probeSession_,
         // used to map a machine-WCS contact back into the CAD frame.  Stored as
@@ -512,7 +515,8 @@ export namespace Cam::Gui {
 
             if (!state->probe.enabled || state->probe.targets.empty()) { return; }
 
-            const Cam::App::ProbeResult& correction = state->probe.result;
+            // The probe always moves to fixed NOMINAL positions (never driven by
+            // the correction), so the preview shows exactly that.
             state->probePreviewPath.feedRate = 100.0;   // probe plunge feed (mm/min)
 
             auto add = [&](const Rev::Core::Pos3& pos, const Rev::Core::Pos3& dir,
@@ -527,10 +531,9 @@ export namespace Cam::Gui {
                 if (nlen < 1e-4f) { continue; }
                 const Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
 
-                const Rev::Core::Pos3 standoff =
-                    correction.apply(t.point + n * static_cast<float>(t.standoff));
-                const Rev::Core::Pos3 contact = correction.apply(t.point);
-                const Rev::Core::Pos3 dir     = correction.applyDirection(n);
+                const Rev::Core::Pos3 standoff = t.point + n * static_cast<float>(t.standoff);
+                const Rev::Core::Pos3 contact  = t.point;
+                const Rev::Core::Pos3 dir      = n;
 
                 add(standoff, dir, /*rapid*/true,  /*cutting*/false);   // approach
                 add(contact,  dir, /*rapid*/false, /*cutting*/true);    // slow plunge
@@ -1706,37 +1709,40 @@ export namespace Cam::Gui {
                 return;
             }
 
-            // Constrain the fit to what THIS machine can do: a rotation about its
-            // rotary axis (model frame) + a uniform normal offset.  Without this
-            // the unconstrained 3D tilt is unreachable and the IK rejects every
-            // point (285 invalid -> 0 operations -> the program stalls).
+            // Fit the MODEL to the measured face: a true rigid registration (the
+            // honest pose, any axis) plus the DRIVEN part the single rotary axis
+            // can make.  fit() needs the rotary axis (model frame) to compute the
+            // achievable rotation; the cut applies only that achievable part so
+            // the IK never rejects points, and the off-axis remainder is residual.
             const Cam::Machine::MachineDefinition def = buildMachineDefinition(stage);
             Rev::Core::Pos3 rotaryAxis{};
             if (!def.part.dof.freeRotations.empty()) {
                 rotaryAxis = def.part.dof.freeRotations.front();
             }
 
-            // COMPOSE, don't replace.  This op probed with the current correction
-            // already applied (the part was presented rotated), so the fit is the
-            // RESIDUAL relative to that pose -- which is ~identity once the part
-            // presents square.  Total = old o residual keeps the accumulated
-            // correction instead of discarding it (which would rotate the part
-            // back to flat for the cut).  Run-start clears it, so this accumulates
-            // only within a run, not across runs.
-            const Cam::App::ProbeResult oldCorrection = stage->probe.result;
-            const Cam::App::ProbeResult residual =
+            // REPLACE (not compose).  The probe always measures the part at its
+            // fixed mounted pose (it is never driven by a prior correction), so
+            // every fit is an independent ABSOLUTE measurement -- there is nothing
+            // to accumulate, and composing would double-count.  This is what makes
+            // the correction stable instead of compounding into a bizarre tilt.
+            stage->probe.result =
                 Cam::App::ProbeResult::fit(nominal, measured, normal, rotaryAxis);
-            stage->probe.result = oldCorrection.composedWith(residual);
 
             const Cam::App::ProbeResult& r = stage->probe.result;
-            // Rotation magnitude from the trace: angle = acos((tr(R) - 1) / 2).
-            const double trace = r.r[0] + r.r[4] + r.r[8];
-            const double cosA  = std::clamp((trace - 1.0) * 0.5, -1.0, 1.0);
-            const double tiltDeg = std::acos(cosA) * 57.29577951308232;
+            // Tilt magnitudes from each rotation's trace: angle = acos((tr-1)/2).
+            // "true" = the measured face tilt; "driven" = the part the rotary axis
+            // can make.  Their difference is the off-axis residual the machine
+            // cannot correct (accepted).
+            auto tiltOf = [](const double* m) {
+                const double tr = m[0] + m[4] + m[8];
+                return std::acos(std::clamp((tr - 1.0) * 0.5, -1.0, 1.0)) * 57.29577951308232;
+            };
             Carvera::MachineLink::instance().log(std::format(
-                "Probe: fitted correction from {} point(s) - "
-                "t=({:.3f},{:.3f},{:.3f}) tilt={:.2f} deg rms={:.4f} mm.{}",
-                nominal.size(), r.t.x, r.t.y, r.t.z, tiltDeg, r.rmsError,
+                "Probe: fitted from {} point(s) - true tilt={:.2f} deg, "
+                "driven (rotary) tilt={:.2f} deg, t=({:.3f},{:.3f},{:.3f}) "
+                "rms={:.4f} mm.{}",
+                nominal.size(), tiltOf(r.rTrue), tiltOf(r.r),
+                r.t.x, r.t.y, r.t.z, r.rmsError,
                 nominal.size() < 3 ? " (translation-only; <3 points)" : ""));
 
             // The correction changed; force a re-solve so cuts (and the preview)
@@ -1869,20 +1875,17 @@ export namespace Cam::Gui {
                 rotaryPivot = def.part.defaultPose.position;
             }
 
-            // Use WPos A (work-coordinate A) directly.
+            // Part-relative rotary angle = MPos A − machineOriginA.
             //
-            // We stream G-code as "G90 A {rotaryAngle × 180/π}", so the
-            // machine's WCS A position IS the IK rotaryAngle in degrees.
-            // Reading WPos A bypasses all MPos/origin-offset arithmetic and
-            // is immune to whatever the operator's machine A-home happens to be.
-            //
-            // Fall back to (MPos A − machineOriginA) when WPos has not yet
-            // been received (first frame after connect).
+            // We now drive the machine in ABSOLUTE coordinates (the WCS offset is
+            // zeroed, so WPos == MPos and is NOT part-relative).  The part's
+            // rotation relative to its mounted/nominal pose is therefore the
+            // absolute A minus the A captured at "set work origin" (the mount
+            // angle).  This is correct regardless of the machine's A-home and does
+            // not depend on any controller-side offset.
             constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
 
-            const float angleRad = link.wcsAValid_()
-                ? link.getWcsA() * kDegToRad
-                : (ta - link.machineOriginA()) * kDegToRad;
+            const float angleRad = (ta - link.machineOriginA()) * kDegToRad;
 
             Cam::Machine::Pose::axisAngleMatrix(
                 rotaryAxis, angleRad, rotaryPivot, out
@@ -2054,6 +2057,11 @@ export namespace Cam::Gui {
                 if (v->modelActor)       { v->modelActor->setWorldTransform(M); }
                 if (v->deltaActor)       { v->deltaActor->setWorldTransform(M); }
                 if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(M); }
+                // Probe markers + plan are points ON the part, so they must ride
+                // the same part pose -- otherwise they float at nominal while the
+                // part rotates (the "probe points don't move with the part" bug).
+                if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(M); }
+                if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(M); }
             }
 
             // In Execute mode the tool preview sits in absolute CAD/world space
@@ -2225,16 +2233,31 @@ export namespace Cam::Gui {
             std::vector<Op> ops;
             bool buildAborted = false;
 
-            // CAD world -> user frame -> machine.  The user frame IS the machine
-            // frame: machine X/Y/Z = the user-defined X/Y/Z directions (set by
-            // the "co"/"ax" gestures), with the begin-work point as the origin.
+            // Where the PART'S ORIGIN actually is in absolute machine space,
+            // captured at "set work origin".  Every coordinate we emit is
+            // ABSOLUTE machine = this origin + the part-space offset.  (The WCS
+            // offset is zeroed on the controller, so G90 == machine absolute.)
+            float omx = 0, omy = 0, omz = 0, ocx = 0, ocy = 0, ocz = 0;
+            const bool haveOrigin = link.workOrigin(omx, omy, omz, ocx, ocy, ocz);
+            const double omA = link.machineOriginA();
+
+            if (!haveOrigin) {
+                dbg("[Execute] no work origin set - cannot emit absolute coords; aborting");
+                link.log("Execute: work origin not set; nothing to run.");
+                return {};
+            }
+
+            // part space -> ABSOLUTE MACHINE.  The user frame defines the part's
+            // axes (the "co"/"ax" gestures) with the begin-work point as the
+            // part origin; we express the point relative to that, then add the
+            // part-origin's machine location so the machine is driven absolutely.
             auto toMachine = [&](const Rev::Core::Pos3& cad, double aDeg) -> Wp {
                 const Rev::Core::Pos3 inFrame = frame.toFrame(cad);
                 return Wp{
-                    inFrame.x - beginWorkInFrame.x,
-                    inFrame.y - beginWorkInFrame.y,
-                    inFrame.z - beginWorkInFrame.z,
-                    aDeg
+                    (inFrame.x - beginWorkInFrame.x) + omx,
+                    (inFrame.y - beginWorkInFrame.y) + omy,
+                    (inFrame.z - beginWorkInFrame.z) + omz,
+                    aDeg + omA
                 };
             };
 
@@ -2257,20 +2280,15 @@ export namespace Cam::Gui {
                 // from the material, so the solver orients the feature to the tool.
                 Cam::App::ToolPath probePath;
 
-                // The probe is a toolhead moving through space like any other, so
-                // it is subject to the SAME correction the cuts are: approach
-                // where the part is now believed to be (identity by default, or a
-                // prior probe's fit).  apply()/applyDirection() are rigid, so a
-                // corrected standoff equals correction.apply() of the raw one and
-                // the corrected normal equals applyDirection() of the raw normal.
-                // keptTargets stays RAW: the fit compares raw-nominal vs. the true
-                // contact, re-deriving the ABSOLUTE correction without double-
-                // counting the one we approached with.
-                const Cam::App::ProbeResult& correction = state->probe.result;
-
-                // Nominal point + unit normal for each target that survives the
-                // zero-normal skip, in the SAME order they enter probePath — so
-                // solved pair k corresponds to keptTargets[k].
+                // SAFETY INVARIANT: the probe is NEVER driven by a fitted
+                // correction.  It only ever moves to fixed, origin-referenced
+                // nominal positions, so the fragile probe can never be rotated
+                // into a bizarre orientation by an accumulating/incorrect
+                // correction.  Each probe is therefore a clean ABSOLUTE
+                // measurement of the part at its mounted pose; the fit is taken
+                // raw-nominal vs. true-contact and REPLACES (no composition, no
+                // compounding).  The correction is applied to the CUT and the
+                // view -- never to the probe.
                 struct KeptTarget { Rev::Core::Pos3 point; Rev::Core::Pos3 normal; };
                 std::vector<KeptTarget> keptTargets;
 
@@ -2286,14 +2304,14 @@ export namespace Cam::Gui {
                     keptTargets.push_back({ t.point, n });
 
                     Cam::App::ToolPathPoint a;   // standoff (outside surface, +normal)
-                    a.position      = correction.apply(t.point + n * static_cast<float>(t.standoff));
-                    a.toolDirection = correction.applyDirection(n);
+                    a.position      = t.point + n * static_cast<float>(t.standoff);
+                    a.toolDirection = n;
                     a.rapid = true;  a.cutting = false;
                     probePath.points.push_back(a);
 
                     Cam::App::ToolPathPoint b;   // through the point (-normal, overtravel)
-                    b.position      = correction.apply(t.point - n * static_cast<float>(t.overtravel));
-                    b.toolDirection = correction.applyDirection(n);
+                    b.position      = t.point - n * static_cast<float>(t.overtravel);
+                    b.toolDirection = n;
                     b.rapid = false; b.cutting = false;
                     probePath.points.push_back(b);
                 }

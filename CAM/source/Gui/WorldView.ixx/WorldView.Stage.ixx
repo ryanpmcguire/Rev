@@ -635,8 +635,10 @@ export namespace Cam::Gui::World {
                 return;
             }
 
-            const Cam::App::ProbeResult& correction = state->probe.result;
-
+            // The probe moves to fixed NOMINAL positions (it is never driven by
+            // the correction), so the plan is drawn at the nominal geometry.  The
+            // part's measured orientation is shown by the part pose itself (the
+            // world transform), which the markers ride along with.
             const Rev::Core::Color rapidColor  = { 0.45f, 0.60f, 0.92f, 0.55f };
             const Rev::Core::Color plungeColor = { 0.66f, 0.42f, 0.92f, 0.95f };
             // Prospective overtravel: the region the probe will keep driving
@@ -652,15 +654,11 @@ export namespace Cam::Gui::World {
                 if (nlen < 1e-4f) { continue; }
                 const Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
 
-                // Where we believe the part is: correction applied to the nominal
-                // standoff and contact (identity by default).
-                const Rev::Core::Pos3 standoff =
-                    correction.apply(t.point + n * static_cast<float>(t.standoff));
-                const Rev::Core::Pos3 contact = correction.apply(t.point);
+                const Rev::Core::Pos3 standoff = t.point + n * static_cast<float>(t.standoff);
+                const Rev::Core::Pos3 contact  = t.point;
                 // The "no contact" fail point: how far past the expected contact
                 // the probe will keep driving before giving up (overtravel).
-                const Rev::Core::Pos3 failAt =
-                    correction.apply(t.point - n * static_cast<float>(t.overtravel));
+                const Rev::Core::Pos3 failAt = t.point - n * static_cast<float>(t.overtravel);
 
                 // Rapid leg: from the PREVIOUS standoff to this standoff -- a
                 // lateral move at standoff height, because the machine retracts
