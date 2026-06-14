@@ -60,7 +60,8 @@ export namespace Sketch::App {
         bool  leadIn = false;         // weave lead-in/out chains around retract steps
         float leadInset = 0.25f;      // the lead's "safe offset" inset, fraction of tool radius
         float cuttingDepth = 4.0f;    // depth the lead ramp descends (model units)
-        float plungeSlope = 23.0f;    // lead ramp angle off horizontal (deg); shallower = longer
+        float plungeSlope = 23.0f;    // lead-in ramp angle off horizontal (deg); shallower = longer
+        float retractSlope = 75.0f;   // lead-out ramp angle (deg); steep -- it climbs, not plunges
         std::string strategy = "profile";
 
         // Select a tool, toggling it off if it was already active.

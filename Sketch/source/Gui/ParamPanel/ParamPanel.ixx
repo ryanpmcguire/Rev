@@ -42,6 +42,7 @@ export namespace Sketch::Gui {
         Slider* leadInset = nullptr;
         Slider* cuttingDepth = nullptr;
         Slider* plungeSlope = nullptr;
+        Slider* retractSlope = nullptr;
         Dropdown* strategy = nullptr;
         Dropdown* direction = nullptr;
         Dropdown* milling = nullptr;
@@ -181,6 +182,14 @@ export namespace Sketch::Gui {
             plungeSlope = new Slider(this, ps);
             if (plungeSlope->labelText) { plungeSlope->labelText->setContent(std::string("Plunge Slope: ")); }
 
+            // Lead-OUT climbs out rather than plunging, so it runs a steeper, shorter
+            // ramp -- its own angle, typically 70-80 degrees.
+            Slider::SliderData rs;
+            rs.min = 1.0f; rs.max = 89.0f; rs.def = 75.0f;
+            rs.val = app ? app->retractSlope : 75.0f;
+            retractSlope = new Slider(this, rs);
+            if (retractSlope->labelText) { retractSlope->labelText->setContent(std::string("Retract Slope: ")); }
+
             // Toolpath step readout: one row per generated profile, with the stats
             // a linking / ordering pass will eventually consume.
             areaHeader = new Text(this, "Toolpath steps", { &ParamPanelStyle::AreaHeader });
@@ -198,6 +207,7 @@ export namespace Sketch::Gui {
             if (app && leadInset) { app->leadInset = leadInset->data.val; }
             if (app && cuttingDepth) { app->cuttingDepth = cuttingDepth->data.val; }
             if (app && plungeSlope) { app->plungeSlope = plungeSlope->data.val; }
+            if (app && retractSlope) { app->retractSlope = retractSlope->data.val; }
 
             // Refresh the toolpath step readout from the live run.
             if (app && app->activeProject) {

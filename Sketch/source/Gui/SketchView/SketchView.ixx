@@ -181,6 +181,7 @@ export namespace Sketch::Gui {
         float lastLeadInset = -1.0f;
         float lastCuttingDepth = -1.0f;
         float lastPlungeSlope = -1.0f;
+        float lastRetractSlope = -1.0f;
         std::string lastStrategy;
 
         SketchView(Element* parent, StyleList styles = {}) : Box(parent, styles, "SketchView") {
@@ -1625,6 +1626,7 @@ export namespace Sketch::Gui {
                     app->activeProject->leadInset     = app->leadInset;
                     app->activeProject->cuttingDepth  = app->cuttingDepth;
                     app->activeProject->plungeSlope   = app->plungeSlope;
+                    app->activeProject->retractSlope  = app->retractSlope;
                     app->activeProject->stepover      = app->stepover;
                     app->activeProject->iterations    = app->iterations;
                     app->activeProject->runStrategy(app->strategy, app->toolRadius);
@@ -1874,6 +1876,7 @@ export namespace Sketch::Gui {
                 if (app->leadInset != lastLeadInset) { lastLeadInset = app->leadInset; geometryDirty = true; }
                 if (app->cuttingDepth != lastCuttingDepth) { lastCuttingDepth = app->cuttingDepth; geometryDirty = true; }
                 if (app->plungeSlope != lastPlungeSlope) { lastPlungeSlope = app->plungeSlope; geometryDirty = true; }
+                if (app->retractSlope != lastRetractSlope) { lastRetractSlope = app->retractSlope; geometryDirty = true; }
                 if (app->strategy != lastStrategy) { lastStrategy = app->strategy; geometryDirty = true; }
             }
 

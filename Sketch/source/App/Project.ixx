@@ -104,7 +104,8 @@ export namespace Sketch::App {
         bool leadIn = false;          // weave lead-in/out chains around retract steps
         float leadInset = 0.25f;      // the lead's "safe offset" inset, fraction of tool radius
         float cuttingDepth = 4.0f;    // depth the lead ramp descends (model units)
-        float plungeSlope = 23.0f;    // lead ramp angle off horizontal (deg); shallower = longer
+        float plungeSlope = 23.0f;    // lead-in ramp angle off horizontal (deg); shallower = longer
+        float retractSlope = 75.0f;   // lead-out ramp angle (deg); steep -- it climbs, not plunges
         float stepover = 1.0f;        // ring advance as a fraction of the tool radius
         int  iterations = 32;         // max offset generations per strategy run
 
@@ -217,6 +218,7 @@ export namespace Sketch::App {
             params.leadInset = leadInset;
             params.cuttingDepth = cuttingDepth;
             params.plungeSlope = plungeSlope;
+            params.retractSlope = retractSlope;
 
             Geo::SliceResult sliced =
                 Geo::runSliceStrategy(Profile::fromEntities(geometry.entities), params);
