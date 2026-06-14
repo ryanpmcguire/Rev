@@ -147,17 +147,28 @@ def _collect_symbols(tu, rel: str) -> list[list[str]]:
 
 
 def qualify_text(text: str, name_to_target: dict[str, str]) -> str:
-    """Rewrite each *unqualified* use of a collision name to `Target::name`.
-    Skips members/qualified uses (`x.name`, `a::name`, `p->name`) and the
-    name's own definition (`struct name`, `namespace name`)."""
+    """Rewrite each *unqualified* USE of a collision name to `Target::name`.
+
+    Skips contexts where the name is being defined/used as a plain identifier
+    rather than referenced as a type:
+      * qualified/member uses: `a::name`, `x.name`, `p->name`
+      * its own definition: `struct/class/enum/union/namespace name`
+      * alias / using-declaration: `using name = ...`
+      * enum bodies: `enum class K { name, ... }` (enumerators)
+    """
     if not name_to_target:
         return text
     masked = _mask(text)
+    # Char ranges inside an enum body -- never qualify enumerators there.
+    enum_ranges = []
+    for em in re.finditer(r"\benum\b(?:\s+(?:class|struct))?(?:\s+\w+)?(?:\s*:[^{;]+)?\s*\{", masked):
+        enum_ranges.append((em.start(), _match_brace(masked, em.end() - 1)))
     edits = []
     for name, target in name_to_target.items():
-        pat = re.compile(r"\b" + re.escape(name) + r"\b")
-        for m in pat.finditer(masked):
+        for m in re.finditer(r"\b" + re.escape(name) + r"\b", masked):
             s = m.start()
+            if any(a <= s <= b for a, b in enum_ranges):
+                continue
             j = s - 1
             while j >= 0 and text[j] in " \t":
                 j -= 1
@@ -166,7 +177,7 @@ def qualify_text(text: str, name_to_target: dict[str, str]) -> str:
             k = j
             while k >= 0 and (text[k].isalnum() or text[k] == "_"):
                 k -= 1
-            if text[k + 1:j + 1] in ("struct", "class", "enum", "union", "namespace"):
+            if text[k + 1:j + 1] in ("struct", "class", "enum", "union", "namespace", "using"):
                 continue
             edits.append((s, m.end(), f"{target}::{name}"))
     return _apply_edits(text, edits)
@@ -343,8 +354,7 @@ def _expand_file_macro(text: str, src_dir: Path | None = None,
     return _apply_edits(text, edits), res_paths
 
 
-_UNLEAK = ["interface"]  # windows.h macro that clobbers identifiers; NOT far/near
-                         # (those are structural -- windows.h's own FD_ZERO uses FAR)
+_UNLEAK = ["interface"]  # windows.h macro that always clobbers identifiers
 
 
 def _inject_unleak(text: str) -> str:
@@ -358,8 +368,18 @@ def _inject_unleak(text: str) -> str:
             last_inc = idx
     if last_inc < 0:
         return text
+    unleak = list(_UNLEAK)
+    # `near`/`far`: empty windows.h macros that clobber those identifiers (a
+    # common variable name). Only safe to undef in a TU that does not itself
+    # rely on the uppercase FAR/NEAR -- e.g. winsock's FD_ZERO expands FAR->far.
+    # So undef them per file: only when this TU uses near/far as identifiers and
+    # never references FAR/NEAR/FD_* macros.
+    if re.search(r"\b(?:FAR|NEAR|FD_ZERO|FD_SET|FD_CLR|FD_ISSET)\b", text) is None:
+        for m in ("near", "far"):
+            if re.search(r"\b" + m + r"\b", text):
+                unleak.append(m)
     block = []
-    for macro in _UNLEAK:
+    for macro in unleak:
         block += [f"#ifdef {macro}", f"#undef {macro}", "#endif"]
     block.append("// [clever] un-leaked windows.h identifier macros")
     lines[last_inc + 1:last_inc + 1] = block

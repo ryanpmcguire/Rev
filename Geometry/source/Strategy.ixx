@@ -48,6 +48,12 @@ export namespace Geo {
                                       // coverage, typically 0.5 .. 1.0)
         int maxGenerations = 32;      // recursion cap (outsets grow forever)
 
+        // Finishing pass: a single thin inset taken right after the boundary
+        // clearance ring, so the ladder runs 1*R -> finishWidth*R -> stepover*R...
+        // -- leaving a very thin pass that a consumer can finish at its own feed.
+        bool  finishPass = true;      // insert the thin finishing generation
+        float finishWidth = 0.1f;     // its inset, as a FRACTION of the tool radius
+
         // Post-processing axes (independent):
         bool reverse = false;         // chain ORDER: execute the path backwards
         bool climb = true;            // chain HANDEDNESS: climb keeps the method's
@@ -165,19 +171,35 @@ export namespace Geo {
 
         // The PROFILE strategy's generations: recursively offset until extinction
         // (or the cap). Generation 1 offsets by EXACTLY one tool radius -- the
-        // boundary clearance pass -- and every generation after by
-        // toolRadius * stepover, the ring advance.
+        // boundary clearance pass. When a finishing pass is asked for, generation 2
+        // is a single THIN inset (finishWidth * R), tagged Finish; every generation
+        // after that advances by toolRadius * stepover, the ring advance.
         void profileGenerations() {
 
             if (std::fabs(params.toolRadius) <= 1e-6f) { return; }
 
             const size_t cap = static_cast<size_t>(std::max(1, params.maxGenerations));
             const float step = params.toolRadius * std::max(0.05f, params.stepover);
+            const float finish = params.toolRadius * std::max(0.01f, params.finishWidth);
 
             while (result.profiles.size() <= cap) {
-                const float amount = (result.profiles.size() == 1) ? params.toolRadius : step;
+
+                const size_t n = result.profiles.size();   // profiles so far (seed = 1)
+
+                float amount = step;
+                bool finishingGen = false;
+                if (n == 1) {
+                    amount = params.toolRadius;            // boundary clearance ring
+                }
+                else if (n == 2 && params.finishPass) {
+                    amount = finish; finishingGen = true;  // the thin finishing pass
+                }
+
                 Profile next = result.profiles.back().offsetBy(amount);
                 if (next.empty()) { break; }
+                if (finishingGen) {
+                    for (Chain& c : next.chains) { c.link = LinkKind::Finish; }
+                }
                 result.profiles.push_back(std::move(next));
             }
         }
@@ -418,7 +440,7 @@ export namespace Geo {
             // helix. Tessellated to segments: a varying blend of a curve is not a curve.
             auto morph = [&](const Chain& seated, const Chain* other,
                              float run, bool seamAtEnd) -> Chain {
-                Chain lead; lead.closed = false; lead.id = newId(); lead.link = LinkKind::Lead;
+                Chain lead; lead.closed = false; lead.id = newId();   // kind set by the caller
                 auto base = portion(seated, run, /*head=*/!seamAtEnd);
                 float total = 0.0f;
                 for (const auto& e : base) { total += Chain::edgeLength(*e); }
@@ -479,11 +501,13 @@ export namespace Geo {
                 std::optional<Chain> inner, outer; Pos oPt; size_t oK;
                 if (!leadCurves(target, entry, inner, outer, oPt, oK)) {
                     Chain lead = morph(target, nullptr, run, /*seamAtEnd=*/true);   // in-place helix
+                    lead.link = LinkKind::LeadIn;
                     startOut = lead.edges.empty() ? entry : Chain::eStart(*lead.edges.front());
                     return lead;
                 }
                 Chain Oseated = outer->startedAt(oK, oPt);             // land here, nearest the cut
                 Chain lead = morph(Oseated, &*inner, run, /*seamAtEnd=*/true);
+                lead.link = LinkKind::LeadIn;
 
                 Pos seamPt = lead.edges.empty() ? oPt : Chain::eEnd(*lead.edges.back());
                 if ((entry - seamPt).pythag() > 1e-4f) {              // close the residual O->cut gap
@@ -500,13 +524,14 @@ export namespace Geo {
                 std::optional<Chain> inner, outer; Pos oPt; size_t oK;
                 if (!leadCurves(source, exitPt, inner, outer, oPt, oK)) {
                     Chain lead = morph(source, nullptr, run, /*seamAtEnd=*/false);
+                    lead.link = LinkKind::LeadOut;
                     endOut = lead.edges.empty() ? exitPt : Chain::eEnd(*lead.edges.back());
                     return lead;
                 }
                 Chain Oseated = outer->startedAt(oK, oPt);
                 Chain body = morph(Oseated, &*inner, run, /*seamAtEnd=*/false);
 
-                Chain lead; lead.closed = false; lead.id = newId(); lead.link = LinkKind::Lead;
+                Chain lead; lead.closed = false; lead.id = newId(); lead.link = LinkKind::LeadOut;
                 if ((oPt - exitPt).pythag() > 1e-4f) {                // close the residual cut->O gap
                     lead.edges.push_back(std::make_unique<Segment2>(exitPt, oPt));
                 }

@@ -119,9 +119,11 @@ class XBuilder(Builder):
     # to restore the module-world behaviour. Applied to both the parse and the
     # classic compile.
     # NOMINMAX: drop windows.h's max/min macros (clobber std::max/min).
-    # WIN32_LEAN_AND_MEAN: stop windows.h pulling winsock1, which redefines
-    # sockaddr etc. and clashes with the winsock2 the code includes directly.
-    _LEAK_GUARD = ["-DNOMINMAX", "-DWIN32_LEAN_AND_MEAN"]
+    # (WIN32_LEAN_AND_MEAN is deliberately NOT set globally: it strips the OLE /
+    # shell pieces of windows.h that CAM's GUI needs -- LPMSG, DLGPROC, etc.
+    # The winsock1-vs-winsock2 clash it guarded against is confined to Rev's
+    # socket TUs, which include <winsock2.h> before any windows.h themselves.)
+    _LEAK_GUARD = ["-DNOMINMAX"]
 
     def _base_flags(self, t: dict) -> list[str]:
         return super()._base_flags(t) + self._LEAK_GUARD
@@ -293,6 +295,20 @@ class XBuilder(Builder):
                 return True
         return False
 
+    # Module imports are opaque BMIs, so in module-world no single TU ever saw
+    # both <winsock2.h> (Rev's sockets) and the OLE/shell half of <windows.h>
+    # (OpenCASCADE pulls shlobj/ole2 transitively). Transpiling flattens every
+    # imported module's global-fragment includes into one TU, resurfacing the
+    # classic winsock ordering clash. Force <winsock2.h> in first, before any
+    # header in the TU: that establishes winsock2 (no winsock1 redefinitions)
+    # AND pulls the full windows.h (so LPMSG/DLGPROC exist for later ole2.h).
+    # commctrl.h likewise: windows.h does not include it, but shlobj/shobjidl
+    # (propagated into consumers via File.win.hpp) need HIMAGELIST/TBBUTTON from
+    # it. In module-world each module's global fragment arranged this ordering;
+    # flattening loses it, so we restore a small curated prelude here.
+    _FORCE_INC = ["-include", "winsock2.h", "-include", "windows.h",
+                  "-include", "commctrl.h"]
+
     def _compile_classic(self, rel: str, flags_sig: str, total: int = 0) -> bool:
         t = self.target_of[rel]
         cpp = self.cpp_of.get(rel)
@@ -301,7 +317,8 @@ class XBuilder(Builder):
         obj = self._obj(rel)
         obj.parent.mkdir(parents=True, exist_ok=True)
         dep = Path(str(obj) + ".d")
-        cmd = [self.cxx, *self._base_flags(t), "-x", "c++", "-MMD", "-MF", str(dep),
+        cmd = [self.cxx, *self._base_flags(t), *self._FORCE_INC,
+               "-x", "c++", "-MMD", "-MF", str(dep),
                "-c", str(cpp), "-o", str(obj)]
         self._tick(total, f"CXX {t['name']}/{Path(rel).name}")
         if self.verbose:
@@ -332,14 +349,16 @@ class XBuilder(Builder):
         flags_sig = {t["name"]: self._flags_sig(t) for t in self.manifest["targets"]}
 
         # Decide which objects are actually dirty (content + header propagation).
-        todo = [r for r in self.rels if self._obj_dirty(r, flags_sig[self.target_of[r]["name"]])]
+        def fsig(r: str) -> str:
+            return flags_sig[self.target_of[r]["name"]] + "|" + "".join(self._FORCE_INC)
+        todo = [r for r in self.rels if self._obj_dirty(r, fsig(r))]
         # Carry forward cache for objects we are NOT rebuilding.
         for r in self.rels:
             if r not in todo and r in self.prev["objs"]:
                 self.cur["objs"][r] = self.prev["objs"][r]
         print(f"[2/3] Compiling: {len(todo)} dirty, {len(self.rels) - len(todo)} cached (-j{self.jobs})...")
         results = self._run_pool(
-            todo, lambda r: self._compile_classic(r, flags_sig[self.target_of[r]["name"]], len(todo)))
+            todo, lambda r: self._compile_classic(r, fsig(r), len(todo)))
         if not all(results):
             self._save_cache()
             return False

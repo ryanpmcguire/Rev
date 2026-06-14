@@ -358,6 +358,24 @@ export namespace Cam::App {
                 points.back().link = link;
             };
 
+            // A cutting RAMP: cut along the polyline while depth interpolates linearly
+            // by arc length from zA at the first point to zB at the last. This is how a
+            // lead's 2D run becomes a 3D slope -- the descent (lead-in) or climb
+            // (lead-out). Executed at cutting feed, never rapid.
+            auto rampCut = [&](const std::vector<Pos>& pp, float zA, float zB) {
+                if (pp.size() < 2) { return; }
+                float total = 0.0f;
+                std::vector<float> cum(pp.size(), 0.0f);
+                for (size_t i = 1; i < pp.size(); i++) {
+                    total += pp[i - 1].distanceTo(pp[i]);
+                    cum[i] = total;
+                }
+                for (size_t i = 1; i < pp.size(); i++) {
+                    const float f = (total > 1e-6f) ? cum[i] / total : 1.0f;
+                    cutTo(pp[i], zA + (zB - zA) * f);
+                }
+            };
+
             std::vector<Pos> pts;
 
             // The strategy stores its layers in REVERSE execution order (slices
@@ -383,18 +401,47 @@ export namespace Cam::App {
                     continue;
                 }
 
-                for (const Geo::Chain& chain : layer.chains) {
+                const float stepZ = static_cast<float>(stepDown);   // this pass's depth of cut
+
+                for (size_t ci = 0; ci < layer.chains.size(); ci++) {
+
+                    const Geo::Chain& chain = layer.chains[ci];
 
                     pts.clear();
                     sampleChainUv(chain, pts);
 
                     if (pts.empty()) { continue; }
 
-                    // A RETRACT link is a tagged traversal, not a cut: the slice
-                    // strategy says "get to this link's end without cutting" --
-                    // the safe-Z machinery (retract, rapid, plunge) performs it.
+                    // The cut sits at layer.z; one stepdown shallower is layer.z + stepZ
+                    // (depth increases UPWARD, away from the material) -- where a lead
+                    // begins / ends its ramp.
+                    const float zCut = layer.z;
+                    const float zTop = layer.z + stepZ;
+
+                    // A RETRACT link is a tagged traversal, not a cut: get to its end
+                    // without cutting via the safe-Z machinery. When it feeds a lead-in,
+                    // stop ONE STEPDOWN HIGH so the lead-in does the final descent.
                     if (chain.link == Geo::LinkKind::Retract) {
-                        moveTo(pts.back(), layer.z);
+                        const bool feedsLeadIn = (ci + 1 < layer.chains.size())
+                            && (layer.chains[ci + 1].link == Geo::LinkKind::LeadIn);
+                        moveTo(pts.back(), feedsLeadIn ? zTop : zCut);
+                        continue;
+                    }
+
+                    // LEAD-IN: a cutting ramp DOWN from the elevated start onto the cut.
+                    // The retract before it already delivered the tool to the start at
+                    // zTop (or, for the very first entry, moveTo reaches it now).
+                    if (chain.link == Geo::LinkKind::LeadIn) {
+                        moveTo(pts.front(), zTop);
+                        rampCut(pts, zTop, zCut);
+                        continue;
+                    }
+
+                    // LEAD-OUT: a cutting ramp UP off the cut, climbing one stepdown so
+                    // the following retract lifts from clear air, not the cut wall.
+                    if (chain.link == Geo::LinkKind::LeadOut) {
+                        moveTo(pts.front(), zCut);
+                        rampCut(pts, zCut, zTop);
                         continue;
                     }
 

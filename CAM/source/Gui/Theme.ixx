@@ -26,7 +26,7 @@ export namespace Cam::Gui::Theme {
         sColor background;
 
         sColor panelSurface;
-        Color panelBorder;
+        sColor panelBorder;
         sColor panelShadow;
 
         sColor rowSurface;

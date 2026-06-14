@@ -25,9 +25,11 @@
         "GLEW_STATIC",
         "PLATFORM_OPENGL",
         "PROJECT_ROOT=\"C:/Users/Ryan/Desktop/Ryan/Rev\"",
+        "UNICODE",
         "_DEBUG",
         "_DLL",
-        "_MT"
+        "_MT",
+        "_UNICODE"
       ],
       "compile_flags": [
         "-O0",
@@ -125,9 +127,11 @@
         "DEBUG",
         "GLEW_STATIC",
         "PLATFORM_OPENGL",
+        "UNICODE",
         "_DEBUG",
         "_DLL",
-        "_MT"
+        "_MT",
+        "_UNICODE"
       ],
       "compile_flags": [
         "-O0",

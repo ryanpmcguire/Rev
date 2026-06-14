@@ -69,8 +69,13 @@ export namespace Geo {
         None,      // an ordinary cutting chain
         Cut,       // cutting link: tool stays down, hops to the next concentric ring
         Retract,   // retract link: tool must fully retract before the next branch
-        Lead       // lead-in: a line that eases into a cutting chain's entry at an
-                   // angle, woven AFTER the rapid/cut link and BEFORE the cut
+        LeadIn,    // lead-in: a ramp that eases ONTO a cut, woven after the retract
+                   // link and before the cut (the consumer descends it into the cut)
+        LeadOut,   // lead-out: the mirror, easing OFF the cut before the retract lifts
+                   // (the consumer climbs it back out of the cut)
+        Finish     // a CUTTING chain like None, but flagged as the thin finishing pass
+                   // (a small inset taken just after the boundary-clearance ring) so a
+                   // consumer can give it its own feed / speed
     };
 
     struct Chain {

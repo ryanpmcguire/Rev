@@ -43,9 +43,11 @@ export namespace Sketch::Gui {
         Slider* cuttingDepth = nullptr;
         Slider* plungeSlope = nullptr;
         Slider* retractSlope = nullptr;
+        Slider* finishWidth = nullptr;
         Dropdown* strategy = nullptr;
         Dropdown* direction = nullptr;
         Dropdown* milling = nullptr;
+        Dropdown* finishPass = nullptr;
         Dropdown* leadIn = nullptr;
 
         // The per-iteration signed-area readout: a fixed pool of rows, filled
@@ -141,6 +143,32 @@ export namespace Sketch::Gui {
                 refresh(e);
             };
 
+            // Finishing pass: a thin extra ring taken right after the boundary
+            // clearance pass (the ladder becomes 1*R -> finishWidth*R -> stepover),
+            // leaving a fine finishing pass the consumer can run on its own feed.
+            Dropdown::Params fp;
+            fp.label = "Finishing";
+            fp.options = {
+                { "On",  "on" },
+                { "Off", "off" }
+            };
+            fp.placeholder = "On";
+            fp.value = (app && !app->finishPass) ? "off" : "on";
+            finishPass = new Dropdown(this, fp);
+
+            finishPass->onChange = [this](Event& e) {
+                if (this->app && this->finishPass) {
+                    this->app->finishPass = (this->finishPass->params.value != "off");
+                }
+                refresh(e);
+            };
+
+            Slider::SliderData fw;
+            fw.min = 0.02f; fw.max = 0.5f; fw.def = 0.1f;
+            fw.val = app ? app->finishWidth : 0.1f;
+            finishWidth = new Slider(this, fw);
+            if (finishWidth->labelText) { finishWidth->labelText->setContent(std::string("Finish Width: ")); }
+
             // Lead-in/out: engagement moves woven around retract steps. The toggle
             // enables them; the inset (a fraction of the tool radius) is the "safe
             // offset" the lead rides inside the cut as it approaches / departs.
@@ -204,6 +232,7 @@ export namespace Sketch::Gui {
             if (app && radius) { app->toolRadius = radius->data.val; }
             if (app && stepover) { app->stepover = stepover->data.val; }
             if (app && iterations) { app->iterations = static_cast<int>(iterations->data.val + 0.5f); }
+            if (app && finishWidth) { app->finishWidth = finishWidth->data.val; }
             if (app && leadInset) { app->leadInset = leadInset->data.val; }
             if (app && cuttingDepth) { app->cuttingDepth = cuttingDepth->data.val; }
             if (app && plungeSlope) { app->plungeSlope = plungeSlope->data.val; }

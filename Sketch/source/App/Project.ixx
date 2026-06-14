@@ -101,6 +101,8 @@ export namespace Sketch::App {
         bool viewToolpath = true;     // toolpath rules applied over the method's output
         bool reverseToolpath = false; // chain ORDER reversed (execution sequence only)
         bool climbMilling = true;     // chain HANDEDNESS: climb keeps the method's travel, conventional flips it
+        bool finishPass = true;       // insert the thin finishing generation
+        float finishWidth = 0.1f;     // the finishing pass inset, fraction of tool radius
         bool leadIn = false;          // weave lead-in/out chains around retract steps
         float leadInset = 0.25f;      // the lead's "safe offset" inset, fraction of tool radius
         float cuttingDepth = 4.0f;    // depth the lead ramp descends (model units)
@@ -214,6 +216,8 @@ export namespace Sketch::App {
             params.maxGenerations = std::max(1, iterations);
             params.reverse = reverseToolpath;
             params.climb = climbMilling;
+            params.finishPass = finishPass;
+            params.finishWidth = finishWidth;
             params.lead = leadIn;
             params.leadInset = leadInset;
             params.cuttingDepth = cuttingDepth;

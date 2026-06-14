@@ -178,6 +178,7 @@ export namespace Sketch::Gui {
         float lastToolRadius = -1.0f;      // parameter-panel values last built with
         float lastStepover = -1.0f;
         int lastIterations = -1;
+        float lastFinishWidth = -1.0f;
         float lastLeadInset = -1.0f;
         float lastCuttingDepth = -1.0f;
         float lastPlungeSlope = -1.0f;
@@ -1622,6 +1623,8 @@ export namespace Sketch::Gui {
                     app->activeProject->viewToolpath  = app->viewToolpath;
                     app->activeProject->reverseToolpath = app->toolReverse;
                     app->activeProject->climbMilling  = app->climbMilling;
+                    app->activeProject->finishPass    = app->finishPass;
+                    app->activeProject->finishWidth   = app->finishWidth;
                     app->activeProject->leadIn        = app->leadIn;
                     app->activeProject->leadInset     = app->leadInset;
                     app->activeProject->cuttingDepth  = app->cuttingDepth;
@@ -1742,9 +1745,13 @@ export namespace Sketch::Gui {
                                 done    = Color{ 0.55f, 0.95f, 0.95f, 1.00f };
                                 pending = Color{ 0.55f, 0.95f, 0.95f, 0.40f };
                             }
-                            else if (c.link == LinkKind::Lead) {      // magenta
+                            else if (c.link == LinkKind::LeadIn || c.link == LinkKind::LeadOut) {  // magenta
                                 done    = Color{ 1.00f, 0.20f, 0.90f, 1.00f };
                                 pending = Color{ 1.00f, 0.20f, 0.90f, 0.40f };
+                            }
+                            else if (c.link == LinkKind::Finish) {   // gold: the thin finishing pass
+                                done    = Color{ 1.00f, 0.84f, 0.20f, 1.00f };
+                                pending = Color{ 1.00f, 0.84f, 0.20f, 0.40f };
                             }
                             else {
                                 done = doneColor;
@@ -1868,11 +1875,13 @@ export namespace Sketch::Gui {
                             | (app->viewToolpath  ? 16 : 0)
                             | (app->toolReverse   ? 32 : 0)
                             | (app->climbMilling  ? 64 : 0)
-                            | (app->leadIn        ? 128 : 0);
+                            | (app->leadIn        ? 128 : 0)
+                            | (app->finishPass    ? 256 : 0);
                 if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
                 if (app->toolRadius != lastToolRadius) { lastToolRadius = app->toolRadius; geometryDirty = true; }
                 if (app->stepover != lastStepover) { lastStepover = app->stepover; geometryDirty = true; }
                 if (app->iterations != lastIterations) { lastIterations = app->iterations; geometryDirty = true; }
+                if (app->finishWidth != lastFinishWidth) { lastFinishWidth = app->finishWidth; geometryDirty = true; }
                 if (app->leadInset != lastLeadInset) { lastLeadInset = app->leadInset; geometryDirty = true; }
                 if (app->cuttingDepth != lastCuttingDepth) { lastCuttingDepth = app->cuttingDepth; geometryDirty = true; }
                 if (app->plungeSlope != lastPlungeSlope) { lastPlungeSlope = app->plungeSlope; geometryDirty = true; }

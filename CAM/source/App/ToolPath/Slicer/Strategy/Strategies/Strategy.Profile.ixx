@@ -75,6 +75,14 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             params.reverse = ctx.insideOut;   // reverse plan = innermost ring first = inside-out
             params.climb = ctx.climbMilling;
 
+            // Lead-in / lead-out: ease onto and off every retract with a ramp. The
+            // ramp covers exactly this pass's depth of cut (the stepdown between
+            // slices) at a 30 degree plunge -- the CAM app reads back the lead chains
+            // and descends / climbs them over that depth.
+            params.lead = true;
+            params.cuttingDepth = ctx.stepDown;
+            params.plungeSlope = 30.0f;
+
             Geo::SliceStrategy strategy(params);
             strategy.ingest(std::move(seed));
             strategy.run();
