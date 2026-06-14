@@ -18,12 +18,14 @@ import Cam.App.ToolPath;
 import Cam.App.Slicer.Strategy.Strategies.Bore;
 import Cam.App.Slicer.Strategy.Strategies.Profile;
 import Cam.App.Slicer.Strategy.Strategies.Hatch;
+import Cam.App.Slicer.Strategy.Strategies.ThreadMill;
 
 import Cam.Gui.Theme;
 import Cam.Gui.ToolpathStrategyView;
 import Cam.Gui.ProfileToolpathView;
 import Cam.Gui.HatchToolpathView;
 import Cam.Gui.BoreToolpathView;
+import Cam.Gui.ThreadMillToolpathView;
 
 export namespace Cam::Gui {
 
@@ -86,9 +88,10 @@ export namespace Cam::Gui {
                 {
                     .label = "Strategy",
                     .options = {
-                        { "Hatch",   Cam::App::Slicer::Strategy::Strategies::Hatch::name() },
-                        { "Profile", Cam::App::Slicer::Strategy::Strategies::Profile::name() },
-                        { "Bore",    Cam::App::Slicer::Strategy::Strategies::Bore::name() }
+                        { "Hatch",       Cam::App::Slicer::Strategy::Strategies::Hatch::name() },
+                        { "Profile",     Cam::App::Slicer::Strategy::Strategies::Profile::name() },
+                        { "Bore",        Cam::App::Slicer::Strategy::Strategies::Bore::name() },
+                        { "Thread Mill", Cam::App::Slicer::Strategy::Strategies::ThreadMill::name() }
                     },
                     .placeholder = "Strategy",
                     .value = ""
@@ -107,8 +110,9 @@ export namespace Cam::Gui {
 
             using namespace Cam::App::Slicer::Strategy::Strategies;
 
-            if (strategy == Profile::name()) { return new ProfileToolpathView(parent); }
-            if (strategy == Bore::name())    { return new BoreToolpathView(parent); }
+            if (strategy == Profile::name())    { return new ProfileToolpathView(parent); }
+            if (strategy == Bore::name())       { return new BoreToolpathView(parent); }
+            if (strategy == ThreadMill::name()) { return new ThreadMillToolpathView(parent); }
             return new HatchToolpathView(parent);   // default
         }
 

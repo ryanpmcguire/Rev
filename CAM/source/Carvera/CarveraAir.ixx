@@ -532,10 +532,11 @@ export namespace Carvera {
             if (loadedSlot.load() == kProbeToolSlot) {
                 return OperationResult::success();   // already loaded -> nothing to do
             }
-            // SAFETY: engage the interlock + force the spindle off/disarmed
-            // before the probe can possibly be in the spindle.
+            // SAFETY: engage the interlock before the probe can be in the spindle.
+            // We do NOT force-disarm: arming is the user's intent and the interlock
+            // (not the armed flag) is what guarantees the spindle never spins --
+            // any M3/M4 is refused while inhibited, armed or not.
             setSpindleInhibited(true, "probe tool change requested");
-            setSpindleArmed(false);
             return changeTool(kProbeToolSlot);
         }
 
@@ -611,13 +612,21 @@ export namespace Carvera {
         void toggleArm() { if (isArmed()) { disarm(); } else { arm(); } }
 
         void setSpindleArmed(bool value) {
-            if (value && spindleInhibited_.load()) {
-                pushLog("Refused: cannot arm the spindle while a probe / "
-                        "spindle-inhibited tool is loaded.");
-                return;
-            }
+            // Arming is a USER intent control -- always allowed.  Arming with a
+            // probe loaded does NOT spin anything: the hard interlock lives at the
+            // point of motion, where any M3/M4 is refused while inhibited
+            // (spindleGuardBlocks / the pump's commandsSpindleOn check).  So the
+            // operator may freely arm; the machine simply never turns the spindle
+            // on while a probe / spindle-inhibited tool is loaded.
             spindleArmed.store(value);
-            pushLog(value ? "SPINDLE ARMED." : "Spindle disarmed.");
+            if (value && spindleInhibited_.load()) {
+                pushLog("SPINDLE ARMED (held off: a probe / spindle-inhibited "
+                        "tool is loaded -- M3/M4 will be refused until a cutter "
+                        "is loaded).");
+            }
+            else {
+                pushLog(value ? "SPINDLE ARMED." : "Spindle disarmed.");
+            }
             emitArm();
         }
 

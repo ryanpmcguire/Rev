@@ -111,18 +111,22 @@ export namespace Carvera::Gui {
             }
 
             // -- SPINDLE ARM toggle --
-            // While the spindle interlock is engaged (probe / spindle-disabled
-            // tool loaded) the spindle can't be armed at all -- show LOCKED.
+            // Arming is a USER control: it is ALWAYS available, even with a probe
+            // loaded.  The interlock guarantees the spindle never actually spins
+            // while inhibited (M3/M4 refused), so when the user has armed AND a
+            // probe is loaded we show "ARMED (HELD)" -- armed by intent, held off
+            // by the machine -- rather than pretending the control is disabled.
             if (spindleBtn && spindleLabel) {
                 const bool inhibited    = a.isSpindleInhibited();
                 const bool spindleArmed = a.isSpindleArmed();
-                const int  spindleState = inhibited ? 2 : (spindleArmed ? 1 : 0);
+                const int  spindleState = (spindleArmed ? 1 : 0) | (inhibited ? 2 : 0);
                 if (!lastSpindleValid_ || spindleState != lastSpindleApplied_) {
                     spindleBtn->styles.remove(&Style::ArmedBanner);
-                    if (spindleArmed && !inhibited) { spindleBtn->styles.add(&Style::ArmedBanner); }
-                    spindleLabel->content = inhibited    ? "SPINDLE LOCKED"
-                                          : spindleArmed ? "SPINDLE ARMED"
-                                                         : "SPINDLE ARM";
+                    if (spindleArmed) { spindleBtn->styles.add(&Style::ArmedBanner); }
+                    spindleLabel->content =
+                          (spindleArmed && inhibited) ? "SPINDLE ARMED (HELD)"
+                        :  spindleArmed               ? "SPINDLE ARMED"
+                                                      : "SPINDLE ARM";
                     lastSpindleApplied_ = spindleState;
                     lastSpindleValid_   = true;
                 }

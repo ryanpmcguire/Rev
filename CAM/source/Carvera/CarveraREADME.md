@@ -243,16 +243,21 @@ single source of truth for "is the spindle allowed to start right now":
   and conservatively whenever the loaded tool is unknown (slot 0 on a fresh
   connect).  It follows `recordLoadedTool`, so swapping a real cutter back in
   releases it automatically.
-- `requestProbeTool()` engages the latch and forces `M5` + spindle-disarm
-  **before** the `M6` so the spindle is provably off before the probe is in.
+- `requestProbeTool()` engages the latch and forces `M5` **before** the `M6` so
+  the spindle is provably off before the probe is in.  It does NOT force-disarm:
+  the interlock (not the armed flag) is what guarantees safety.
 - Every outgoing line passes `spindleGuardBlocks()` (via `rawSend`/`sendLine`)
   and the program stream passes the same check in `pump()`.  Any `M3`/`M4`
   while inhibited is **refused** (`commandsSpindleOn` matches M3/M4/M03/M04 but
   not M5/M30): the line is dropped, an `M5` is forced out, a `SafetyEvent`
-  (`onSafety`) fires, and the running program is stopped.  `setSpindleArmed`
-  also refuses to arm while inhibited.
-- The GUI reflects it: the ArmSection spindle button reads **"SPINDLE LOCKED"**
-  and `onSafety` surfaces violations.
+  (`onSafety`) fires, and the running program is stopped.
+- **Arming is a USER control, never blocked.** `setSpindleArmed(true)` is always
+  allowed, probe loaded or not -- arming is intent, not motion.  The interlock at
+  the point of motion (above) is the single guarantee the spindle never spins.
+  This decouples "the user armed the spindle" from "the machine may spin it now".
+- The GUI reflects it: the ArmSection spindle button shows **"SPINDLE ARMED
+  (HELD)"** when armed with a probe loaded (armed by intent, held off by the
+  interlock); `onSafety` surfaces any refused spin attempt.
 
 If you add any new code path that emits G-code to the controller, it MUST go
 through `rawSend`/`sendLine` (or the guarded `pump` site) -- do not call

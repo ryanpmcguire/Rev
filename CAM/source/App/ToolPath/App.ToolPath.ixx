@@ -57,7 +57,14 @@ export namespace Cam::App {
         using StrategyInstance = std::variant<Bore, Profile, Hatch, ThreadMill>;
 
         // Settings
+        //
+        // toolName is the ROUGH tool -- the single tool every operation uses for
+        // bulk material removal.  fineToolName is the optional FINISH tool, used
+        // only by strategies that distinguish dimensionally-critical passes
+        // (currently just Thread Mill).  Empty fineToolName = no separate finish
+        // tool; the rough tool does everything.
         std::string toolName = "";
+        std::string fineToolName = "";
         std::string strategy = Hatch::name();
         bool strategyAuto = true;
 

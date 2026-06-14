@@ -438,6 +438,7 @@ export namespace Cam::App {
 
                 stageJson["toolPath"] = {
                     { "toolName", stage->toolPath.toolName },
+                    { "fineToolName", stage->toolPath.fineToolName },
                     { "strategy", stage->toolPath.strategy },
                     { "strategyAuto", stage->toolPath.strategyAuto },
                     { "stepDown", stage->toolPath.stepDown },
@@ -447,6 +448,11 @@ export namespace Cam::App {
                     { "climbMilling", stage->toolPath.climbMilling },
                     { "retractHeight", stage->toolPath.retractHeight },
                     { "insideOut", stage->toolPath.insideOut },
+                    { "threadMajorDiameter", stage->toolPath.threadMajorDiameter },
+                    { "threadPitch", stage->toolPath.threadPitch },
+                    { "threadInternal", stage->toolPath.threadInternal },
+                    { "threadPasses", stage->toolPath.threadPasses },
+                    { "threadUpCut", stage->toolPath.threadUpCut },
                     { "sliceAxis", Json::array({
                         stage->toolPath.sliceAxis.x,
                         stage->toolPath.sliceAxis.y,
@@ -605,6 +611,10 @@ export namespace Cam::App {
                             stage->toolPath.toolName = toolPathJson["toolName"].get<std::string>();
                         }
 
+                        if (toolPathJson.contains("fineToolName") && toolPathJson["fineToolName"].is_string()) {
+                            stage->toolPath.fineToolName = toolPathJson["fineToolName"].get<std::string>();
+                        }
+
                         if (toolPathJson.contains("hasToolPath") && toolPathJson["hasToolPath"].is_boolean()) {
                             stage->hasToolPath = toolPathJson["hasToolPath"].get<bool>();
                         }
@@ -647,6 +657,22 @@ export namespace Cam::App {
                             stage->toolPath.retractHeight = static_cast<float>(
                                 toolPathJson["retractHeight"].get<double>()
                             );
+                        }
+
+                        if (toolPathJson.contains("threadMajorDiameter") && toolPathJson["threadMajorDiameter"].is_number()) {
+                            stage->toolPath.threadMajorDiameter = toolPathJson["threadMajorDiameter"].get<double>();
+                        }
+                        if (toolPathJson.contains("threadPitch") && toolPathJson["threadPitch"].is_number()) {
+                            stage->toolPath.threadPitch = toolPathJson["threadPitch"].get<double>();
+                        }
+                        if (toolPathJson.contains("threadInternal") && toolPathJson["threadInternal"].is_boolean()) {
+                            stage->toolPath.threadInternal = toolPathJson["threadInternal"].get<bool>();
+                        }
+                        if (toolPathJson.contains("threadPasses") && toolPathJson["threadPasses"].is_number_integer()) {
+                            stage->toolPath.threadPasses = toolPathJson["threadPasses"].get<int>();
+                        }
+                        if (toolPathJson.contains("threadUpCut") && toolPathJson["threadUpCut"].is_boolean()) {
+                            stage->toolPath.threadUpCut = toolPathJson["threadUpCut"].get<bool>();
                         }
 
                         if (toolPathJson.contains("insideOut") && toolPathJson["insideOut"].is_boolean()) {
