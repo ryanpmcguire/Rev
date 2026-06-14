@@ -48,6 +48,7 @@ export namespace Sketch::Gui {
         Dropdown* direction = nullptr;
         Dropdown* milling = nullptr;
         Dropdown* finishPass = nullptr;
+        Dropdown* emitOuter = nullptr;
         Dropdown* leadIn = nullptr;
 
         // The per-iteration signed-area readout: a fixed pool of rows, filled
@@ -168,6 +169,26 @@ export namespace Sketch::Gui {
             fw.val = app ? app->finishWidth : 0.1f;
             finishWidth = new Slider(this, fw);
             if (finishWidth->labelText) { finishWidth->labelText->setContent(std::string("Finish Width: ")); }
+
+            // Emit outer: when off, the outer wall ring is generated but not emitted
+            // / linked / led -- exactly what a roughing slice does when it defers the
+            // wall to a global finishing pass.
+            Dropdown::Params eo;
+            eo.label = "Emit outer";
+            eo.options = {
+                { "On",  "on" },
+                { "Off", "off" }
+            };
+            eo.placeholder = "On";
+            eo.value = (app && !app->emitOuter) ? "off" : "on";
+            emitOuter = new Dropdown(this, eo);
+
+            emitOuter->onChange = [this](Event& e) {
+                if (this->app && this->emitOuter) {
+                    this->app->emitOuter = (this->emitOuter->params.value != "off");
+                }
+                refresh(e);
+            };
 
             // Lead-in/out: engagement moves woven around retract steps. The toggle
             // enables them; the inset (a fraction of the tool radius) is the "safe

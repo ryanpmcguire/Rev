@@ -82,7 +82,8 @@ export namespace Cam::App {
         // boundary clearance ring (ladder = 1*R -> finishWidth*R -> stepover),
         // leaving a fine pass.  Forwarded to the slice strategy's finish params.
         bool   finishPass = true;
-        double finishWidth = 0.1;   // its inset as a fraction of the tool radius
+        double finishWidth = 0.1;     // its inset as a fraction of the tool radius
+        double finishStepdown = 0.25; // final floor stepdown for the global finishing pass
 
         // Thread milling callout + options (used only by the ThreadMill
         // strategy).  Seeded from the ThreadMillOperation when the stage is
@@ -738,6 +739,7 @@ export namespace Cam::App {
                 .insideOut = insideOut,
                 .finishPass = finishPass,
                 .finishWidth = static_cast<float>(finishWidth),
+                .finishStepdown = static_cast<float>(finishStepdown),
                 .threadMajorDiameter = static_cast<float>(threadMajorDiameter),
                 .threadPitch = static_cast<float>(threadPitch),
                 .threadInternal = threadInternal,

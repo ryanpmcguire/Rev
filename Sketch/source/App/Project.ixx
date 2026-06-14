@@ -103,6 +103,7 @@ export namespace Sketch::App {
         bool climbMilling = true;     // chain HANDEDNESS: climb keeps the method's travel, conventional flips it
         bool finishPass = true;       // insert the thin finishing generation
         float finishWidth = 0.1f;     // the finishing pass inset, fraction of tool radius
+        bool emitOuter = true;        // emit the outer wall ring (off = defer it)
         bool leadIn = false;          // weave lead-in/out chains around retract steps
         float leadInset = 0.25f;      // the lead's "safe offset" inset, fraction of tool radius
         float cuttingDepth = 4.0f;    // depth the lead ramp descends (model units)
@@ -218,6 +219,7 @@ export namespace Sketch::App {
             params.climb = climbMilling;
             params.finishPass = finishPass;
             params.finishWidth = finishWidth;
+            params.emitOuter = emitOuter;
             params.lead = leadIn;
             params.leadInset = leadInset;
             params.cuttingDepth = cuttingDepth;

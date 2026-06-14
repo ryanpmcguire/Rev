@@ -463,6 +463,7 @@ export namespace Cam::App {
                     { "insideOut", stage->toolPath.insideOut },
                     { "finishPass", stage->toolPath.finishPass },
                     { "finishWidth", stage->toolPath.finishWidth },
+                    { "finishStepdown", stage->toolPath.finishStepdown },
                     { "threadMajorDiameter", stage->toolPath.threadMajorDiameter },
                     { "threadPitch", stage->toolPath.threadPitch },
                     { "threadInternal", stage->toolPath.threadInternal },
@@ -704,6 +705,9 @@ export namespace Cam::App {
                         }
                         if (toolPathJson.contains("finishWidth") && toolPathJson["finishWidth"].is_number()) {
                             stage->toolPath.finishWidth = toolPathJson["finishWidth"].get<double>();
+                        }
+                        if (toolPathJson.contains("finishStepdown") && toolPathJson["finishStepdown"].is_number()) {
+                            stage->toolPath.finishStepdown = toolPathJson["finishStepdown"].get<double>();
                         }
 
                         if (toolPathJson.contains("sliceAxis") && toolPathJson["sliceAxis"].is_array() && toolPathJson["sliceAxis"].size() >= 3) {

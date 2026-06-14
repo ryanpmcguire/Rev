@@ -1625,6 +1625,7 @@ export namespace Sketch::Gui {
                     app->activeProject->climbMilling  = app->climbMilling;
                     app->activeProject->finishPass    = app->finishPass;
                     app->activeProject->finishWidth   = app->finishWidth;
+                    app->activeProject->emitOuter     = app->emitOuter;
                     app->activeProject->leadIn        = app->leadIn;
                     app->activeProject->leadInset     = app->leadInset;
                     app->activeProject->cuttingDepth  = app->cuttingDepth;
@@ -1876,7 +1877,8 @@ export namespace Sketch::Gui {
                             | (app->toolReverse   ? 32 : 0)
                             | (app->climbMilling  ? 64 : 0)
                             | (app->leadIn        ? 128 : 0)
-                            | (app->finishPass    ? 256 : 0);
+                            | (app->finishPass    ? 256 : 0)
+                            | (app->emitOuter     ? 512 : 0);
                 if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
                 if (app->toolRadius != lastToolRadius) { lastToolRadius = app->toolRadius; geometryDirty = true; }
                 if (app->stepover != lastStepover) { lastStepover = app->stepover; geometryDirty = true; }

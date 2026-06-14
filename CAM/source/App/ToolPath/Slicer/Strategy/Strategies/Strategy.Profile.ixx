@@ -87,6 +87,10 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             params.finishPass = ctx.finishPass;
             params.finishWidth = ctx.finishWidth;
 
+            // Global finishing: roughing slices DEFER the outer wall profile (it is
+            // generated but not emitted/linked/led); the finishing slice emits it.
+            params.emitOuter = slice.emitOuter;
+
             Geo::SliceStrategy strategy(params);
             strategy.ingest(std::move(seed));
             strategy.run();

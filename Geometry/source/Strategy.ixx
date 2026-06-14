@@ -54,6 +54,12 @@ export namespace Geo {
         bool  finishPass = true;      // insert the thin finishing generation
         float finishWidth = 0.1f;     // its inset, as a FRACTION of the tool radius
 
+        // Emit the OUTER profile (generation 1, the wall-touching ring)? When off,
+        // it is generated but NOT emitted/linked/led -- the wall is deferred to a
+        // later finishing pass that runs with this on. (Used by the CAM operation's
+        // global finishing scheme; per-slice runs leave it on.)
+        bool  emitOuter = true;
+
         // Post-processing axes (independent):
         bool reverse = false;         // chain ORDER: execute the path backwards
         bool climb = true;            // chain HANDEDNESS: climb keeps the method's
@@ -246,6 +252,13 @@ export namespace Geo {
         // enough to the nearest unaccounted sibling. Skipped generations are
         // traversed but not emitted; an orphan sweep appends anything whose
         // lineage broke.
+        //
+        // The OUTER profile (generation 1, the boundary-clearance ring whose tool
+        // touches the part wall) is EMITTED only when emitOuter is set. With it
+        // off, generation 1 is still traversed (its children must be reached) but
+        // never emitted -- so the wall is left untouched and nothing links or leads
+        // to it. A caller (e.g. a roughing slice) defers the wall to a later
+        // finishing pass that runs with emitOuter on.
         std::vector<const Chain*> flattenDepthFirst() const {
 
             std::vector<const Chain*> out;
@@ -255,11 +268,17 @@ export namespace Geo {
                 return (g - 1 < result.steps.size()) ? result.steps[g - 1].included : true;
             };
 
+            // Emittable: a valid generation that is not the deferred outer ring.
+            auto emit = [&](size_t g) {
+                if (!params.emitOuter && g == 1) { return false; }
+                return included(g);
+            };
+
             std::unordered_set<const Chain*> visited;
 
             std::function<void(const Chain&, size_t)> visit = [&](const Chain& c, size_t g) {
                 visited.insert(&c);
-                if (included(g)) { out.push_back(&c); }
+                if (emit(g)) { out.push_back(&c); }
                 if (g + 1 >= result.profiles.size()) { return; }
                 for (const Chain& child : result.profiles[g + 1].chains) {
                     if (child.parent == c.id) { visit(child, g + 1); }
@@ -269,7 +288,7 @@ export namespace Geo {
             for (const Chain& c : result.profiles[1].chains) { visit(c, 1); }
 
             for (size_t g = 1; g < result.profiles.size(); g++) {
-                if (!included(g)) { continue; }
+                if (!emit(g)) { continue; }
                 for (const Chain& c : result.profiles[g].chains) {
                     if (!visited.count(&c)) { out.push_back(&c); }
                 }

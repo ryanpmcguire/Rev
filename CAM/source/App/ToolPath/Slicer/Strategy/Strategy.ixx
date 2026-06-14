@@ -5,6 +5,8 @@ module;
 #include <cstddef>
 #include <cmath>
 #include <algorithm>
+#include <string>
+#include <utility>
 
 #include <dbg.hpp>
 
@@ -67,6 +69,11 @@ export namespace Cam::App::Slicer::Strategy {
         // clearance pass. Forwarded to Geo::SliceParams::finishPass / finishWidth.
         bool  finishPass = true;
         float finishWidth = 0.1f;
+
+        // Global finishing scheme (profile): the wall (outer profile) is deferred
+        // across all roughing slices and cut in ONE final finishing slice, which
+        // also takes a thin floor stepdown. This is that final floor stepdown.
+        float finishStepdown = 0.25f;
 
         // Thread-mill callout + options (only the ThreadMill strategy reads
         // these).  A thread is defined entirely by its callout, so these drive
@@ -140,30 +147,49 @@ export namespace Cam::App::Slicer::Strategy {
 
             if (dz <= 0.0f) { dz = 1.0f; }
 
+            // GLOBAL FINISHING (profile only): the wall is deferred across every
+            // roughing slice and cut once, in a final finishing slice that also
+            // takes a thin floor stepdown. So the roughing floor is held back by
+            // finishStepdown, every roughing slice emits all BUT the outer profile,
+            // and one finishing slice at the true bottom emits everything.
+            const bool finishing =
+                ctx.finishPass && (std::string(S::name()) == std::string("Profile"));
+            const float floorHold =
+                finishing ? std::max(0.0f, ctx.finishStepdown) : 0.0f;
+            const float roughBottom = minDepth + floorHold;
+
             // Slice depths are computed FROM THE SURFACE: stepdowns are
             // measured from the TOP of the delta volume (in slice-plane
             // depth), stepping down by dz -- and one FINAL slice lands exactly
-            // on the bottom-most depth. Never the reverse: aligning steps to
-            // the bottom would put the first cut at an arbitrary distance
-            // below the surface.
-            std::vector<float> depths;
+            // on the bottom-most (rough) depth. Each carries whether it emits the
+            // outer wall profile.
+            std::vector<std::pair<float, bool>> depths;   // (depth, emitOuter)
 
-            for (float depth = maxDepth - dz; depth > minDepth + 1e-4f; depth -= dz) {
-                depths.push_back(depth);
+            for (float depth = maxDepth - dz; depth > roughBottom + 1e-4f; depth -= dz) {
+                depths.push_back({ depth, !finishing });   // roughing: defer the wall
             }
 
-            depths.push_back(minDepth);
+            if (roughBottom > minDepth + 1e-4f || !finishing) {
+                depths.push_back({ roughBottom, !finishing });
+            }
+
+            // The finishing slice: at the true bottom, emitting the full path
+            // including the deferred wall (and shaving the held-back floor).
+            if (finishing) {
+                depths.push_back({ minDepth, true });
+            }
 
             // The pipeline stores slices bottom-up (display flips to forward).
             std::reverse(depths.begin(), depths.end());
 
             size_t attempted = 0;
 
-            for (float depth : depths) {
+            for (const auto& [depth, emitOuter] : depths) {
                 attempted += 1;
 
                 SliceLayer slice;
                 slice.z = depth;
+                slice.emitOuter = emitOuter;
 
                 if (!SliceSource::build(*ctx.positive, ctx.frame, depth, slice)) {
                     dbg("[%s] depth=%.3f: no slice source", S::name(), depth);
