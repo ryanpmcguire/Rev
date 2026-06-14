@@ -83,6 +83,10 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             params.cuttingDepth = ctx.stepDown;
             params.plungeSlope = 30.0f;
 
+            // Finishing pass: a thin ring just after the boundary clearance pass.
+            params.finishPass = ctx.finishPass;
+            params.finishWidth = ctx.finishWidth;
+
             Geo::SliceStrategy strategy(params);
             strategy.ingest(std::move(seed));
             strategy.run();

@@ -78,6 +78,12 @@ export namespace Cam::App {
         // IN.  Forwarded to the slice strategy's reverse flag.
         bool insideOut = true;
 
+        // Finishing pass (profile): a thin extra ring taken right after the
+        // boundary clearance ring (ladder = 1*R -> finishWidth*R -> stepover),
+        // leaving a fine pass.  Forwarded to the slice strategy's finish params.
+        bool   finishPass = true;
+        double finishWidth = 0.1;   // its inset as a fraction of the tool radius
+
         // Thread milling callout + options (used only by the ThreadMill
         // strategy).  Seeded from the ThreadMillOperation when the stage is
         // created; edited in the thread-mill settings view.
@@ -730,6 +736,8 @@ export namespace Cam::App {
                 .stepover = static_cast<float>(stepover),
                 .climbMilling = climbMilling,
                 .insideOut = insideOut,
+                .finishPass = finishPass,
+                .finishWidth = static_cast<float>(finishWidth),
                 .threadMajorDiameter = static_cast<float>(threadMajorDiameter),
                 .threadPitch = static_cast<float>(threadPitch),
                 .threadInternal = threadInternal,

@@ -508,6 +508,10 @@ export namespace Carvera {
                 "Part origin located at machine (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}); "
                 "WCS zeroed to machine -- all program moves are now absolute.",
                 confX, confY, confZ, confA));
+
+            // The part has been re-referenced; any prior probe correction is now
+            // stale.  Announce so the CAM view can clear it.
+            if (onWorkOriginSet) { onWorkOriginSet(); }
         }
 
         // ============================================================
@@ -924,6 +928,12 @@ export namespace Carvera {
         // re-probe, or a cut; it just keeps asking until the provider returns
         // nullopt ("no operation at this index" = the program is complete).
         std::function<std::optional<Operation>(size_t)> operationProvider;
+
+        // Fired when the operator re-locates the part with "Set Origin".  The CAM
+        // view uses this to clear the persistent probe correction (the part has
+        // been re-referenced, so any prior measured pose is stale).  Air itself
+        // owns no probe-correction state -- it just announces the event.
+        std::function<void()> onWorkOriginSet;
 
         // Validate a program before ANY byte reaches the controller.  A single
         // malformed number (a NaN/Inf escaping an upstream geometry bug)

@@ -293,15 +293,11 @@ export namespace Cam::Gui {
                     executeTrackedState    = nullptr;
                     executeTrackedProgress = 0.0;
 
-                    // Clear each probe-bearing stage's correction so this run's
-                    // probes establish it from scratch (identity), then ACCUMULATE
-                    // via composition.  Without this, re-running would compose
-                    // onto the previous run's correction and double-correct.
-                    if (Cam::App::Project* project = activeProject()) {
-                        for (Cam::App::Stage* s : project->stages) {
-                            if (s && s->probe.enabled) { s->probe.clearResult(); }
-                        }
-                    }
+                    // NOTE: the probe correction is deliberately NOT cleared here.
+                    // It is a part property that persists across runs and steps; it
+                    // is cleared only when the operator re-locates the part with
+                    // "Set Origin" (see onWorkOriginSet).  A re-probe REPLACES it
+                    // (absolute measurement), so re-running never double-corrects.
 
                     rebuildPreviewTimelineIfNeeded();
                     if (previewTimeline.atEnd()) {
@@ -314,6 +310,18 @@ export namespace Cam::Gui {
                     buildExecuteOperations(static_cast<long>(index));
                 if (v.empty()) { return std::nullopt; }
                 return std::move(v.front());
+            };
+
+            // "Set Origin" re-references the part, so the persistent probe
+            // correction is now stale -- clear it (and re-solve / rebuild so the
+            // view and any subsequent cut go back to nominal until the next probe).
+            Carvera::MachineLink::instance().onWorkOriginSet = [this]() {
+                if (Cam::App::Project* project = activeProject()) {
+                    project->probeCorrection.reset();
+                    project->dirty = true;
+                }
+                machineToolPathsDirty = true;
+                previewTimelineDirty  = true;
             };
 
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
@@ -378,6 +386,7 @@ export namespace Cam::Gui {
             executePoll.stop();
             Carvera::MachineLink::instance().onTelemetry       = nullptr;
             Carvera::MachineLink::instance().operationProvider = nullptr;
+            Carvera::MachineLink::instance().onWorkOriginSet   = nullptr;
 
             clearMaterialViews();
 
@@ -1719,15 +1728,19 @@ export namespace Cam::Gui {
                 rotaryAxis = def.part.dof.freeRotations.front();
             }
 
-            // REPLACE (not compose).  The probe always measures the part at its
-            // fixed mounted pose (it is never driven by a prior correction), so
-            // every fit is an independent ABSOLUTE measurement -- there is nothing
-            // to accumulate, and composing would double-count.  This is what makes
-            // the correction stable instead of compounding into a bizarre tilt.
-            stage->probe.result =
-                Cam::App::ProbeResult::fit(nominal, measured, normal, rotaryAxis);
+            // Store the fit as the PROJECT-WIDE correction (a part property that
+            // applies to every step), REPLACING any prior value.  The probe always
+            // measures the part at its fixed mounted pose (never driven by a prior
+            // correction), so every fit is an independent ABSOLUTE measurement --
+            // nothing to accumulate.  It persists until "Set Origin" clears it.
+            Cam::App::Project* project = activeProject();
+            if (!project) { return; }
 
-            const Cam::App::ProbeResult& r = stage->probe.result;
+            project->probeCorrection =
+                Cam::App::ProbeResult::fit(nominal, measured, normal, rotaryAxis);
+            project->dirty = true;
+
+            const Cam::App::ProbeResult& r = project->probeCorrection;
             // Tilt magnitudes from each rotation's trace: angle = acos((tr-1)/2).
             // "true" = the measured face tilt; "driven" = the part the rotary axis
             // can make.  Their difference is the off-axis residual the machine
@@ -1767,14 +1780,18 @@ export namespace Cam::Gui {
 
             if (it == machineToolPaths.end()) {
 
-                // Apply the stage's probe correction to the toolpath BEFORE the
-                // IK solve.  Positions shift and tool directions rotate by the
-                // fitted (R,t); the solver then produces whatever rotary swing
-                // those directions require — so a corrected part pose rotates the
-                // chuck as a mathematical consequence, never an explicit command.
-                // The default ProbeResult is the identity, so an un-probed stage
-                // solves exactly as before (no branch, no special case).
-                const Cam::App::ProbeResult& correction = state->probe.result;
+                // Apply the PROJECT-WIDE probe correction to the toolpath BEFORE
+                // the IK solve.  Positions shift and tool directions rotate by the
+                // fitted (R,t) (the achievable, rotary-axis part); the solver then
+                // produces whatever rotary swing those directions require -- so a
+                // corrected part pose rotates the chuck as a consequence of the
+                // geometry.  The correction is GLOBAL (a part property), so EVERY
+                // stage's cut is corrected by the one probe; the default identity
+                // means an un-probed project solves exactly as before.
+                static const Cam::App::ProbeResult kIdentityCorrection;
+                Cam::App::Project* corrProject = activeProject();
+                const Cam::App::ProbeResult& correction =
+                    corrProject ? corrProject->probeCorrection : kIdentityCorrection;
 
                 // ToolPath is non-copyable (it owns strategy objects), and the IK
                 // solver only reads `.points`, so build a points-only corrected
@@ -2025,40 +2042,17 @@ export namespace Cam::Gui {
             }
         }
 
-        // Build the 4x4 (column-major) of a stage's TRUE probe pose -- the honest
-        // measured rigid transform (rTrue/tTrue).  Identity when the stage has no
-        // valid probe result.  This is how "the system's idea of where the part
-        // actually is" gets reflected in the view: the part mesh (and its probe
-        // markers/plan) are displayed at this measured pose.
-        static void probeTrueMatrix(Cam::App::Stage* s, float out[16]) {
-            Cam::Machine::Pose::identityMatrix(out);
-            if (!s || !s->probe.result.valid) { return; }
-            const Cam::App::ProbeResult& r = s->probe.result;
-            // column-major out[col*4+row] from row-major rTrue[row*3+col].
-            out[0]  = float(r.rTrue[0]); out[1]  = float(r.rTrue[3]); out[2]  = float(r.rTrue[6]);
-            out[4]  = float(r.rTrue[1]); out[5]  = float(r.rTrue[4]); out[6]  = float(r.rTrue[7]);
-            out[8]  = float(r.rTrue[2]); out[9]  = float(r.rTrue[5]); out[10] = float(r.rTrue[8]);
-            out[12] = r.tTrue.x;         out[13] = r.tTrue.y;         out[14] = r.tTrue.z;
-        }
-
-        // out = a * b  (both column-major 4x4).
-        static void mul4(const float a[16], const float b[16], float out[16]) {
-            for (int col = 0; col < 4; col++) {
-                for (int row = 0; row < 4; row++) {
-                    float s = 0.0f;
-                    for (int k = 0; k < 4; k++) { s += a[k * 4 + row] * b[col * 4 + k]; }
-                    out[col * 4 + row] = s;
-                }
-            }
-        }
-
         // Set one world matrix on every actor that belongs to the physical
         // workpiece (all material views' meshes + toolpaths) and on the shared
-        // tool preview.  In absolute mode this is identity; in machine mode it
-        // is the current part pose.  In execute mode it is the live A-axis pose.
-        // Each part is additionally placed at its MEASURED pose (the true probe
-        // fit) so the view reflects where the part actually is right after a
-        // probe: displayed = (chuck/part pose) * (measured pose).
+        // tool preview.  In absolute mode this is identity; in machine mode it is
+        // the current part pose; in execute mode it is the live A-axis pose.
+        //
+        // The probe correction is NOT composed in here: in execute mode the tool
+        // preview comes from live telemetry in the nominal frame, so moving the
+        // part mesh by the correction would desync the two (the tool appears to
+        // plunge into / float above the part).  The part's CORRECTED ROTATION is
+        // already visible via the live A axis (the chuck physically swings), which
+        // this matrix tracks; the residual (off-axis tilt) is reported, not drawn.
         //
         // NOTE: in Execute mode the tool preview actor is NOT transformed here —
         // its position comes from telemetry (already in CAD/world space) and is
@@ -2082,34 +2076,19 @@ export namespace Cam::Gui {
 
                 if (!v) { continue; }
 
-                // Compose this part's measured pose: Mv = M * trueProbePose.  Only
-                // in a machine view (sim/execute) -- the plain design view stays
-                // nominal.  Un-probed stages get identity, so Mv == M.
-                float Mv[16];
-                if (transformed) {
-                    float C[16];
-                    probeTrueMatrix(v->state, C);
-                    mul4(M, C, Mv);
-                }
-                else {
-                    for (int i = 0; i < 16; i++) { Mv[i] = M[i]; }
-                }
-
-                if (v->partActor)        { v->partActor->setWorldTransform(Mv); }
-                if (v->modelActor)       { v->modelActor->setWorldTransform(Mv); }
-                if (v->deltaActor)       { v->deltaActor->setWorldTransform(Mv); }
-                if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(Mv); }
-                // Probe markers + plan are points ON the part, so they ride the
-                // same measured pose -- otherwise they float at nominal while the
-                // part sits crooked (the "probe points don't move with the part").
-                if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(Mv); }
-                if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(Mv); }
+                if (v->partActor)        { v->partActor->setWorldTransform(M); }
+                if (v->modelActor)       { v->modelActor->setWorldTransform(M); }
+                if (v->deltaActor)       { v->deltaActor->setWorldTransform(M); }
+                if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(M); }
+                // Probe markers + plan ride the same part pose so they move with
+                // the part as the chuck swings.
+                if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(M); }
+                if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(M); }
             }
 
             // In Execute mode the tool preview sits in absolute CAD/world space
             // (telemetry is already converted); applying the part rotation to it
-            // would double-transform its position.  The tool is NOT on the part,
-            // so it never gets the measured-pose correction.
+            // would double-transform its position.
             if (previewMode != PreviewMode::Execute) {
                 if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
                 if (spindlePreviewActor) { spindlePreviewActor->setWorldTransform(M); }

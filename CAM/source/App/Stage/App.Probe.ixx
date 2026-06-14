@@ -345,9 +345,12 @@ export namespace Cam::App {
 
         Json getState() const {
             Json j;
-            j["valid"] = valid;
-            j["r"]     = Json::array({ r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8] });
-            j["t"]     = Json::array({ t.x, t.y, t.z });
+            j["valid"]    = valid;
+            j["r"]        = Json::array({ r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8] });
+            j["t"]        = Json::array({ t.x, t.y, t.z });
+            j["rTrue"]    = Json::array({ rTrue[0], rTrue[1], rTrue[2], rTrue[3], rTrue[4],
+                                          rTrue[5], rTrue[6], rTrue[7], rTrue[8] });
+            j["tTrue"]    = Json::array({ tTrue.x, tTrue.y, tTrue.z });
             j["rmsError"] = rmsError;
             return j;
         }
@@ -361,6 +364,14 @@ export namespace Cam::App {
                 t.x = j["t"][0].get<float>();
                 t.y = j["t"][1].get<float>();
                 t.z = j["t"][2].get<float>();
+            }
+            if (j.contains("rTrue") && j["rTrue"].is_array() && j["rTrue"].size() >= 9) {
+                for (int i = 0; i < 9; i++) { rTrue[i] = j["rTrue"][i].get<double>(); }
+            }
+            if (j.contains("tTrue") && j["tTrue"].is_array() && j["tTrue"].size() >= 3) {
+                tTrue.x = j["tTrue"][0].get<float>();
+                tTrue.y = j["tTrue"][1].get<float>();
+                tTrue.z = j["tTrue"][2].get<float>();
             }
             if (j.contains("rmsError") && j["rmsError"].is_number()) { rmsError = j["rmsError"].get<double>(); }
         }

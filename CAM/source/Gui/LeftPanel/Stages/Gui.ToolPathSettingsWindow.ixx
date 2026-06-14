@@ -88,6 +88,8 @@ export namespace Cam::Gui {
             double rapidSpeedMmPerSec = 0.0;
             double retractHeight = 0.0;
             bool insideOut = true;
+            bool finishPass = true;
+            double finishWidth = 0.1;
         };
 
         Cam::App::AppState* app = nullptr;
@@ -102,6 +104,8 @@ export namespace Cam::Gui {
         Dropdown* toolDropdown = nullptr;
         Dropdown* cutDirectionDropdown = nullptr;
         Dropdown* ringOrderDropdown = nullptr;
+        Dropdown* finishPassDropdown = nullptr;
+        NumberInput* finishWidthInput = nullptr;
         NumberInput* stepDownInput = nullptr;
         NumberInput* stepoverInput = nullptr;
         NumberInput* feedRateInput = nullptr;
@@ -410,6 +414,47 @@ export namespace Cam::Gui {
 
             hookLiveNumberEdit(feedRateInput);
 
+            // Finishing pass: a thin extra ring just after the boundary clearance
+            // pass (profile only); its width is a fraction of the tool radius.
+            Box* finishRow = settingsRow("FinishRow");
+
+            finishPassDropdown = new Dropdown(
+                finishRow,
+                {
+                    .label = "Finishing pass",
+                    .options = {
+                        { "On",  "on" },
+                        { "Off", "off" }
+                    },
+                    .placeholder = "Finishing pass",
+                    .value = toolPath.finishPass ? "on" : "off"
+                },
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            finishPassDropdown->onChange = [this](Event& e) {
+                updateApplyButtonAppearance(e);
+                refresh(e);
+            };
+
+            NumberInput::Params finishWidthParams;
+            finishWidthParams.label = "Finish width (xR)";
+            finishWidthParams.placeholder = "0.1";
+            finishWidthParams.maxLength = 32;
+            finishWidthParams.selectAllOnFocus = true;
+            finishWidthParams.allowNegative = false;
+            finishWidthParams.allowDecimal = true;
+            finishWidthParams.allowEmpty = false;
+            finishWidthParams.maxDecimalPlaces = 4;
+
+            finishWidthInput = new NumberInput(
+                finishRow,
+                finishWidthParams,
+                { &ToolPathSettingsLayout::RowField }
+            );
+
+            hookLiveNumberEdit(finishWidthInput);
+
             new Text(
                 body,
                 "RAPID MOTION",
@@ -461,6 +506,7 @@ export namespace Cam::Gui {
             feedRateInput->setValue(toolPath.feedRate);
             rapidSpeedInput->setValue(toolPath.rapidSpeedMmPerSec);
             retractHeightInput->setValue(double(toolPath.retractHeight));
+            finishWidthInput->setValue(toolPath.finishWidth);
 
             Box* footer = new Box(
                 root,
@@ -540,7 +586,9 @@ export namespace Cam::Gui {
                 .climbMilling = toolPath.climbMilling,
                 .rapidSpeedMmPerSec = toolPath.rapidSpeedMmPerSec,
                 .retractHeight = double(toolPath.retractHeight),
-                .insideOut = toolPath.insideOut
+                .insideOut = toolPath.insideOut,
+                .finishPass = toolPath.finishPass,
+                .finishWidth = toolPath.finishWidth
             };
         }
 
@@ -552,18 +600,21 @@ export namespace Cam::Gui {
                 feedRateInput->commit(e);
                 rapidSpeedInput->commit(e);
                 retractHeightInput->commit(e);
+                finishWidthInput->commit(e);
             }
 
             out.strategy = strategyDropdown->params.value;
             out.toolName = toolDropdown->params.value;
             out.climbMilling = cutDirectionDropdown->params.value != "conventional";
             out.insideOut = ringOrderDropdown->params.value != "outside_in";
+            out.finishPass = finishPassDropdown->params.value != "off";
 
             if (!stepDownInput->tryGetValue(out.stepDown)) { return false; }
             if (!stepoverInput->tryGetValue(out.stepoverPercent)) { return false; }
             if (!feedRateInput->tryGetValue(out.feedRate)) { return false; }
             if (!rapidSpeedInput->tryGetValue(out.rapidSpeedMmPerSec)) { return false; }
             if (!retractHeightInput->tryGetValue(out.retractHeight)) { return false; }
+            if (!finishWidthInput->tryGetValue(out.finishWidth)) { return false; }
 
             return true;
         }
@@ -585,7 +636,9 @@ export namespace Cam::Gui {
                 current.climbMilling != savedFields.climbMilling ||
                 !nearlyEqual(current.rapidSpeedMmPerSec, savedFields.rapidSpeedMmPerSec) ||
                 !nearlyEqual(current.retractHeight, savedFields.retractHeight) ||
-                current.insideOut != savedFields.insideOut
+                current.insideOut != savedFields.insideOut ||
+                current.finishPass != savedFields.finishPass ||
+                !nearlyEqual(current.finishWidth, savedFields.finishWidth)
             );
         }
 
@@ -685,6 +738,15 @@ export namespace Cam::Gui {
             const std::string strategy = strategyDropdown->params.value;
             const bool climbMilling = cutDirectionDropdown->params.value != "conventional";
             const bool insideOut = ringOrderDropdown->params.value != "outside_in";
+
+            // finishPass / finishWidth aren't in saveToolPathSettings' fixed
+            // signature; write them straight onto the toolpath first (the save
+            // preserves any field it isn't given, then recomputes the path).
+            double finishWidth = state->toolPath.finishWidth;
+            finishWidthInput->commit(e);
+            finishWidthInput->tryGetValue(finishWidth);
+            state->toolPath.finishPass = finishPassDropdown->params.value != "off";
+            state->toolPath.finishWidth = finishWidth;
 
             if (!app->saveToolPathSettings(
                 state,

@@ -63,6 +63,11 @@ export namespace Cam::App::Slicer::Strategy {
         // re-woven, climb handedness untouched).
         bool insideOut = true;
 
+        // Finishing pass (profile strategy): a thin ring just after the boundary
+        // clearance pass. Forwarded to Geo::SliceParams::finishPass / finishWidth.
+        bool  finishPass = true;
+        float finishWidth = 0.1f;
+
         // Thread-mill callout + options (only the ThreadMill strategy reads
         // these).  A thread is defined entirely by its callout, so these drive
         // the helix directly.

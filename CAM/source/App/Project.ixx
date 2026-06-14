@@ -19,6 +19,7 @@ import Rev.Core.Pos3;
 
 import Cam.App.Model;
 import Cam.App.Stage;
+import Cam.App.Probe;
 import Cam.App.Operation;
 import Cam.App.ToolPath;
 import Cam.App.ToolLibrary;
@@ -91,6 +92,14 @@ export namespace Cam::App {
         Stage* workingStage = nullptr;
         Stage* displayedStage = nullptr;
         std::vector<Stage*> viewSelection;
+
+        // The probe correction is a PROPERTY OF THE WHOLE PART, not of one stage:
+        // a probe measures where the part actually sits in the machine, and that
+        // pose must apply to EVERY subsequent step's cut.  So it lives here, at the
+        // project level, and persists across steps and runs until the operator
+        // re-locates the part with "Set Origin" (which clears it).  applied to all
+        // cuts by getMachineToolPath; written by a completed probe operation.
+        ProbeResult probeCorrection;
 
         // Transient component selection: a property (component) of a stage that
         // is actively selected in the tree. The world view force-shows it even
@@ -374,6 +383,10 @@ export namespace Cam::App {
 
             json["toolFolderPath"] = toolFolderPath;
 
+            // The probe correction (part pose in the machine) persists with the
+            // project until "Set Origin" clears it.
+            json["probeCorrection"] = probeCorrection.getState();
+
             json["stages"] = Json::array();
 
             for (size_t i = 0; i < stages.size(); i++) {
@@ -448,6 +461,8 @@ export namespace Cam::App {
                     { "climbMilling", stage->toolPath.climbMilling },
                     { "retractHeight", stage->toolPath.retractHeight },
                     { "insideOut", stage->toolPath.insideOut },
+                    { "finishPass", stage->toolPath.finishPass },
+                    { "finishWidth", stage->toolPath.finishWidth },
                     { "threadMajorDiameter", stage->toolPath.threadMajorDiameter },
                     { "threadPitch", stage->toolPath.threadPitch },
                     { "threadInternal", stage->toolPath.threadInternal },
@@ -513,6 +528,11 @@ export namespace Cam::App {
 
                 if (json.contains("toolFolderPath") && json["toolFolderPath"].is_string()) {
                     toolFolderPath = json["toolFolderPath"].get<std::string>();
+                }
+
+                probeCorrection.reset();
+                if (json.contains("probeCorrection") && json["probeCorrection"].is_object()) {
+                    probeCorrection.setState(json["probeCorrection"]);
                 }
 
                 if (!json.contains("stages") || !json["stages"].is_array()) {
@@ -677,6 +697,13 @@ export namespace Cam::App {
 
                         if (toolPathJson.contains("insideOut") && toolPathJson["insideOut"].is_boolean()) {
                             stage->toolPath.insideOut = toolPathJson["insideOut"].get<bool>();
+                        }
+
+                        if (toolPathJson.contains("finishPass") && toolPathJson["finishPass"].is_boolean()) {
+                            stage->toolPath.finishPass = toolPathJson["finishPass"].get<bool>();
+                        }
+                        if (toolPathJson.contains("finishWidth") && toolPathJson["finishWidth"].is_number()) {
+                            stage->toolPath.finishWidth = toolPathJson["finishWidth"].get<double>();
                         }
 
                         if (toolPathJson.contains("sliceAxis") && toolPathJson["sliceAxis"].is_array() && toolPathJson["sliceAxis"].size() >= 3) {
