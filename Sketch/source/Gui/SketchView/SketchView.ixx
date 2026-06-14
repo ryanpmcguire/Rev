@@ -178,6 +178,9 @@ export namespace Sketch::Gui {
         float lastToolRadius = -1.0f;      // parameter-panel values last built with
         float lastStepover = -1.0f;
         int lastIterations = -1;
+        float lastLeadInset = -1.0f;
+        float lastCuttingDepth = -1.0f;
+        float lastPlungeSlope = -1.0f;
         std::string lastStrategy;
 
         SketchView(Element* parent, StyleList styles = {}) : Box(parent, styles, "SketchView") {
@@ -1618,6 +1621,10 @@ export namespace Sketch::Gui {
                     app->activeProject->viewToolpath  = app->viewToolpath;
                     app->activeProject->reverseToolpath = app->toolReverse;
                     app->activeProject->climbMilling  = app->climbMilling;
+                    app->activeProject->leadIn        = app->leadIn;
+                    app->activeProject->leadInset     = app->leadInset;
+                    app->activeProject->cuttingDepth  = app->cuttingDepth;
+                    app->activeProject->plungeSlope   = app->plungeSlope;
                     app->activeProject->stepover      = app->stepover;
                     app->activeProject->iterations    = app->iterations;
                     app->activeProject->runStrategy(app->strategy, app->toolRadius);
@@ -1732,6 +1739,10 @@ export namespace Sketch::Gui {
                             else if (c.link == LinkKind::Retract) {   // pastel cyan
                                 done    = Color{ 0.55f, 0.95f, 0.95f, 1.00f };
                                 pending = Color{ 0.55f, 0.95f, 0.95f, 0.40f };
+                            }
+                            else if (c.link == LinkKind::Lead) {      // magenta
+                                done    = Color{ 1.00f, 0.20f, 0.90f, 1.00f };
+                                pending = Color{ 1.00f, 0.20f, 0.90f, 0.40f };
                             }
                             else {
                                 done = doneColor;
@@ -1854,11 +1865,15 @@ export namespace Sketch::Gui {
                             | (app->viewArrows    ? 8 : 0)
                             | (app->viewToolpath  ? 16 : 0)
                             | (app->toolReverse   ? 32 : 0)
-                            | (app->climbMilling  ? 64 : 0);
+                            | (app->climbMilling  ? 64 : 0)
+                            | (app->leadIn        ? 128 : 0);
                 if (options != lastViewOptions) { lastViewOptions = options; geometryDirty = true; }
                 if (app->toolRadius != lastToolRadius) { lastToolRadius = app->toolRadius; geometryDirty = true; }
                 if (app->stepover != lastStepover) { lastStepover = app->stepover; geometryDirty = true; }
                 if (app->iterations != lastIterations) { lastIterations = app->iterations; geometryDirty = true; }
+                if (app->leadInset != lastLeadInset) { lastLeadInset = app->leadInset; geometryDirty = true; }
+                if (app->cuttingDepth != lastCuttingDepth) { lastCuttingDepth = app->cuttingDepth; geometryDirty = true; }
+                if (app->plungeSlope != lastPlungeSlope) { lastPlungeSlope = app->plungeSlope; geometryDirty = true; }
                 if (app->strategy != lastStrategy) { lastStrategy = app->strategy; geometryDirty = true; }
             }
 

@@ -157,7 +157,7 @@ export namespace Rev::Appearance {
     // Color
     //--------------------------------------------------
 
-    struct Color {
+    struct sColor {
 
         enum Type {
             Unset,
@@ -175,7 +175,7 @@ export namespace Rev::Appearance {
         int transition = -1;
         Core::DirtyFlag* dirty = nullptr;
 
-        static inline Color Null() {
+        static inline sColor Null() {
             return { Type::Unset, -0.0f, -0.0f, -0.0f, -0.0f, -1, nullptr };
         }
 
@@ -188,11 +188,11 @@ export namespace Rev::Appearance {
         }
 
         // Apply other color to this one
-        inline void apply(Color& other) {
+        inline void apply(sColor& other) {
             if (other) { *this = other; }
         }
 
-        void animate(Color& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+        void animate(sColor& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
 
             int transitionLength = transition > 1 ? transition : ms;
             if (transitionLength < 1) { return; }
@@ -203,7 +203,7 @@ export namespace Rev::Appearance {
             if (a != old.a) { Transition::createNew(a, old.a, transitions, time, transitionLength); }
         }
 
-        bool operator==(const Color& other) {
+        bool operator==(const sColor& other) {
             return (
                 type == other.type &&
                 r == other.r && g == other.g && b == other.b && a == other.a
@@ -212,7 +212,7 @@ export namespace Rev::Appearance {
 
         // Custom assignment operator
         // Copy everything except the "dirty" flag pointer
-        Color& operator=(const Color& other) {
+        sColor& operator=(const sColor& other) {
 
             // Check if assignment *should* occur, set dirty if so
             if (this == &other) { return *this; }
@@ -231,16 +231,16 @@ export namespace Rev::Appearance {
         }
     };
 
-    Color rgba(float r, float g, float b, float a) {
-        return { Color::Type::Rgba, r / 255.0f, g / 255.0f, b / 255.0f, a };
+    sColor rgba(float r, float g, float b, float a) {
+        return { sColor::Type::Rgba, r / 255.0f, g / 255.0f, b / 255.0f, a };
     }
 
-    Color rgb(float r, float g, float b) {
-        return { Color::Type::Rgba, r / 255.0f, g / 255.0f, b / 255.0f, 1.0 };
+    sColor rgb(float r, float g, float b) {
+        return { sColor::Type::Rgba, r / 255.0f, g / 255.0f, b / 255.0f, 1.0 };
     }
 
-    Color Tint(Color color) {
-        color.type = Color::Type::Tint;
+    sColor Tint(sColor color) {
+        color.type = sColor::Type::Tint;
         return color;
     }
     
@@ -479,14 +479,14 @@ export namespace Rev::Appearance {
 
     struct Background {
 
-        Color color;
+        sColor color;
         int transition = -1;
         Core::DirtyFlag* dirty = nullptr;
 
         static inline Background Null() {
 
             return {
-                Color::Null(),
+                sColor::Null(),
                 -1, nullptr
             };
         }
@@ -548,7 +548,7 @@ export namespace Rev::Appearance {
 
         struct Side {
 
-            Color color;
+            sColor color;
             Dist width;
 
             int transition = -1;
@@ -556,7 +556,7 @@ export namespace Rev::Appearance {
 
             static inline Side Null() {
                 return {
-                    Color::Null(), Dist::Null(),
+                    sColor::Null(), Dist::Null(),
                     -1, nullptr
                 };
             }
@@ -586,7 +586,7 @@ export namespace Rev::Appearance {
         };
 
         // Top-level
-        Color color;
+        sColor color;
         Dist radius;
         Dist width;
 
@@ -600,7 +600,7 @@ export namespace Rev::Appearance {
         static inline Border Null() {
 
             return {
-                Color::Null(), Dist::Null(), Dist::Null(),
+                sColor::Null(), Dist::Null(), Dist::Null(),
                 Corner::Null(), Corner::Null(), Corner::Null(), Corner::Null(),
                 Side::Null(), Side::Null(), Side::Null(), Side::Null(),
                 -1, nullptr
@@ -664,7 +664,7 @@ export namespace Rev::Appearance {
 
     struct Shadow {
 
-        Color color;
+        sColor color;
 
         Dist size;
         Dist blur;
@@ -676,7 +676,7 @@ export namespace Rev::Appearance {
         static inline Shadow Null() {
 
             return {
-                Color::Null(),
+                sColor::Null(),
                 Dist::Null(), Dist::Null(),
                 Dist::Null(), Dist::Null(),
                 -1, nullptr
@@ -725,7 +725,7 @@ export namespace Rev::Appearance {
     struct TextStyle {
 
         Core::Resource font;
-        Color color;
+        sColor color;
         Dist size;
         int weight = -1;
         Dist lineHeight;
@@ -739,7 +739,7 @@ export namespace Rev::Appearance {
 
             return {
                 Core::Resource(),
-                Color::Null(), Dist::Null(),
+                sColor::Null(), Dist::Null(),
                 -1,
                 Dist::Null(), Dist::Null(),
                 Wrap::Unset,
@@ -880,9 +880,9 @@ export namespace Rev::Appearance {
 
     struct InheritCast {
 
-        // Cast to Color
-        [[nodiscard]] inline operator Color() const noexcept {
-            return Color{ Color::Type::Inherit, 0.0f, 0.0f, 0.0f, 0.0f, -1 };
+        // Cast to sColor
+        [[nodiscard]] inline operator sColor() const noexcept {
+            return sColor{ sColor::Type::Inherit, 0.0f, 0.0f, 0.0f, 0.0f, -1 };
         }
     
         // Cast to Dist

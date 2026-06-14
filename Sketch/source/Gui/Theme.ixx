@@ -22,61 +22,61 @@ export namespace Sketch::Gui::Theme {
 
     struct Palette {
 
-        Color background;
+        sColor background;
 
-        Color panelSurface;
-        Color panelBorder;
-        Color panelShadow;
+        sColor panelSurface;
+        sColor panelBorder;
+        sColor panelShadow;
 
-        Color rowSurface;
-        Color rowHover;
-        Color rowSelected;
+        sColor rowSurface;
+        sColor rowHover;
+        sColor rowSelected;
 
-        Color text;
-        Color textMuted;
-        Color textAccent;
-        Color textOnAccent;
-        Color textTab;
-        Color textTabActive;
+        sColor text;
+        sColor textMuted;
+        sColor textAccent;
+        sColor textOnAccent;
+        sColor textTab;
+        sColor textTabActive;
 
-        Color buttonSurface;
-        Color buttonBorder;
-        Color buttonHover;
-        Color buttonPress;
-        Color buttonLabel;
+        sColor buttonSurface;
+        sColor buttonBorder;
+        sColor buttonHover;
+        sColor buttonPress;
+        sColor buttonLabel;
 
-        Color solidButtonSurface;
-        Color solidButtonHover;
-        Color solidButtonPress;
-        Color solidButtonShadow;
+        sColor solidButtonSurface;
+        sColor solidButtonHover;
+        sColor solidButtonPress;
+        sColor solidButtonShadow;
 
-        Color icon;
-        Color iconHover;
-        Color iconDisabled;
+        sColor icon;
+        sColor iconHover;
+        sColor iconDisabled;
 
-        Color accent;
-        Color accentButton;
-        Color accentButtonHover;
+        sColor accent;
+        sColor accentButton;
+        sColor accentButtonHover;
 
-        Color tabBar;
-        Color tabBarBorder;
-        Color tab;
-        Color tabBorder;
-        Color tabHover;
-        Color tabHoverBorder;
-        Color tabActive;
-        Color tabActiveBorder;
+        sColor tabBar;
+        sColor tabBarBorder;
+        sColor tab;
+        sColor tabBorder;
+        sColor tabHover;
+        sColor tabHoverBorder;
+        sColor tabActive;
+        sColor tabActiveBorder;
 
-        Color closeHover;
-        Color warning;
+        sColor closeHover;
+        sColor warning;
 
-        Color settingsSurface;
-        Color settingsHeader;
-        Color settingsFooter;
-        Color settingsHeaderTitle;
-        Color settingsHeaderEyebrow;
-        Color settingsDivider;
-        Color settingsShadow;
+        sColor settingsSurface;
+        sColor settingsHeader;
+        sColor settingsFooter;
+        sColor settingsHeaderTitle;
+        sColor settingsHeaderEyebrow;
+        sColor settingsDivider;
+        sColor settingsShadow;
 
         bool useShadow;
     };
@@ -754,7 +754,7 @@ export namespace Sketch::Gui::Theme {
     // sits behind it: a translucent white in dark mode (lighter), a translucent
     // black in light mode (darker). Layer it over a background to nudge an
     // element a touch lighter/darker than its surroundings in either theme.
-    inline Color distinct(float alpha) {
+    inline sColor distinct(float alpha) {
         return mode == Mode::Dark
             ? rgba(255, 255, 255, alpha)
             : rgba(0, 0, 0, alpha);

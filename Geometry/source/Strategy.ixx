@@ -6,6 +6,7 @@ module;
 #include <cstddef>
 #include <algorithm>
 #include <functional>
+#include <optional>
 #include <unordered_set>
 
 export module Geo.Strategy;
@@ -52,6 +53,23 @@ export namespace Geo {
         bool climb = true;            // chain HANDEDNESS: climb keeps the method's
                                       // travel (material on the left); conventional
                                       // reverses every chain
+
+        // Lead-in / lead-out: engagement moves woven around RETRACT steps so the
+        // tool eases off the cut before retracting and eases back on after arriving,
+        // never landing cold on the cut path. Each lead follows a small INSET of the
+        // target itself (the same offset method the generations run on), preserving
+        // the target's own motion as it approaches; the consumer also reads a lead as
+        // a DESCENT, so the inset loop doubles as a helix ramp.
+        bool  lead = false;           // weave lead-in/out chains around retract steps
+        float leadInset = 0.25f;      // the "safe offset" inset, as a FRACTION of the
+                                      // tool radius (the lead rides this far inside the cut)
+
+        // How LONG the lead runs along the inset. The lead is the horizontal run of
+        // the ramp the consumer will descend: to drop `cuttingDepth` at `plungeSlope`
+        // degrees off horizontal, the run is cuttingDepth / tan(slope). That arc
+        // length of inset is what we emit; the CAM app extrudes it into the 3D slope.
+        float cuttingDepth = 4.0f;    // depth the lead ramp descends (model units)
+        float plungeSlope = 23.0f;    // ramp angle off horizontal (deg); shallower = longer
     };
 
     // One generation's stats and its sanity verdict.
@@ -295,8 +313,161 @@ export namespace Geo {
                 return false;
             };
 
+            // The "safe offset" inset of a single chain: feed it through the very
+            // same offset method the generations run on, so the inset PRESERVES the
+            // target's topology (a circle insets to a smaller circle). Returns the
+            // inset chain nearest `near`, with the foot point and its edge. Empty when
+            // the target is too small to inset at all (it collapses) -- the caller
+            // then falls back to the target itself.
+            auto insetNear = [&](const Chain& target, Pos near,
+                                 Pos& insPt, size_t& insK) -> std::optional<Chain> {
+                const float safe = params.toolRadius * std::max(0.02f, params.leadInset);
+                Profile p; p.chains.push_back(target.clone());
+                Profile off = p.offsetBy(safe);
+                const Chain* best = nullptr; float bestD = 1e30f; Pos bestPt; size_t bestK = 0;
+                for (const Chain& c : off.chains) {
+                    if (!c.closed || c.edges.empty()) { continue; }
+                    Pos pt; size_t k = c.nearestPoint(near, pt);
+                    float d = (pt - near).pythag();
+                    if (d < bestD) { bestD = d; best = &c; bestPt = pt; bestK = k; }
+                }
+                if (!best) { return {}; }
+                insPt = bestPt; insK = bestK;
+                return best->clone();
+            };
+
+            // A sub-portion of a CLOSED loop by ARC LENGTH, measured along travel:
+            // head=true returns the first `len` from the loop's seam (its start);
+            // head=false returns the last `len`, ending at the seam. `len` past the
+            // perimeter spirals AROUND: the lead wraps the inset as many full times
+            // as the run demands (the small-island helix), plus a partial wrap for the
+            // remainder. This is how much of the inset topology the lead actually
+            // covers.
+            auto portion = [&](const Chain& seated, float len, bool head)
+                                 -> std::vector<std::unique_ptr<Stoicheion>> {
+                std::vector<std::unique_ptr<Stoicheion>> out;
+                if (seated.edges.empty() || len <= 1e-4f) { return out; }
+
+                float total = 0.0f;
+                for (const auto& e : seated.edges) { total += Chain::edgeLength(*e); }
+                if (total <= 1e-4f) { return out; }
+
+                // Split the run into whole laps + a leftover partial lap (capped, so
+                // pathological depth/slope can't spawn unbounded geometry).
+                const int maxLaps = 256;
+                int laps = std::min(maxLaps, static_cast<int>(len / total));
+                const float rem = len - static_cast<float>(laps) * total;
+
+                auto wholeLap = [&]() {
+                    for (const auto& e : seated.edges) { out.push_back(e->clone()); }
+                };
+
+                // One sub-perimeter run: the first `plen` (head) or the last `plen`
+                // (tail) of a single seam-seated lap.
+                auto partial = [&](float plen, bool h) {
+                    if (plen <= 1e-4f) { return; }
+                    const float skip = h ? 0.0f : (total - plen);
+                    float acc = 0.0f;
+                    for (const auto& e : seated.edges) {
+                        const float el = Chain::edgeLength(*e);
+                        const float endAcc = acc + el;
+                        if (h) {
+                            if (endAcc <= plen + 1e-4f) { out.push_back(e->clone()); }
+                            else {
+                                std::unique_ptr<Stoicheion> a, b;
+                                Chain::splitEdge(*e, Chain::edgePointAt(*e, (plen - acc) / el), a, b);
+                                out.push_back(std::move(a));
+                                break;
+                            }
+                        }
+                        else {
+                            if (endAcc <= skip + 1e-4f) { /* before the kept region */ }
+                            else if (acc >= skip - 1e-4f) { out.push_back(e->clone()); }
+                            else {
+                                std::unique_ptr<Stoicheion> a, b;
+                                Chain::splitEdge(*e, Chain::edgePointAt(*e, (skip - acc) / el), a, b);
+                                out.push_back(std::move(b));
+                            }
+                        }
+                        acc = endAcc;
+                    }
+                };
+
+                // Head leads OUT of the seam: whole laps then the partial. Tail leads
+                // INTO the seam: the partial first, then the whole laps -- every lap is
+                // seam-to-seam, so the joins are continuous either way.
+                if (head) {
+                    for (int i = 0; i < laps; i++) { wholeLap(); }
+                    partial(rem, true);
+                }
+                else {
+                    partial(rem, false);
+                    for (int i = 0; i < laps; i++) { wholeLap(); }
+                }
+                return out;
+            };
+
+            // The lead-IN: come down onto the target's inset (or, if the inset
+            // collapsed, the target itself -- a valid in-place helix), follow `run`
+            // of that topology, then merge out onto the actual cut entry. The covered
+            // run is the consumer's descent ramp. Returns the open Lead chain;
+            // `startOut` is where the rapid should deliver the tool.
+            auto buildLeadIn = [&](const Chain& target, Pos entry, float run, Pos& startOut) -> Chain {
+                Chain lead; lead.closed = false; lead.id = newId(); lead.link = LinkKind::Lead;
+                Pos insPt; size_t insK;
+                std::optional<Chain> ins = insetNear(target, entry, insPt, insK);
+                if (ins) {
+                    Chain seated = ins->startedAt(insK, insPt);    // inset loop from insPt
+                    auto tail = portion(seated, run, /*head=*/false);   // the run ENDING at insPt
+                    for (auto& e : tail) { lead.edges.push_back(std::move(e)); }
+                    if ((entry - insPt).pythag() > 1e-4f) {        // merge out onto the cut
+                        lead.edges.push_back(std::make_unique<Segment2>(insPt, entry));
+                    }
+                    startOut = lead.edges.empty() ? insPt : Chain::eStart(*lead.edges.front());
+                }
+                else {
+                    Chain copy = target.clone();                   // descend the cut itself
+                    for (const auto& e : copy.edges) { lead.edges.push_back(e->clone()); }
+                    startOut = entry;
+                }
+                return lead;
+            };
+
+            // The lead-OUT: the mirror -- merge off the cut at the exit onto the
+            // inset, follow `run` of it, and leave the tool there so the retract lifts
+            // AWAY from the cut surface, never up it. `endOut` is where the retract
+            // begins.
+            auto buildLeadOut = [&](const Chain& source, Pos exitPt, float run, Pos& endOut) -> Chain {
+                Chain lead; lead.closed = false; lead.id = newId(); lead.link = LinkKind::Lead;
+                Pos insPt; size_t insK;
+                std::optional<Chain> ins = insetNear(source, exitPt, insPt, insK);
+                if (ins) {
+                    if ((insPt - exitPt).pythag() > 1e-4f) {       // merge off the cut
+                        lead.edges.push_back(std::make_unique<Segment2>(exitPt, insPt));
+                    }
+                    Chain seated = ins->startedAt(insK, insPt);
+                    auto headRun = portion(seated, run, /*head=*/true);   // the run STARTING at insPt
+                    for (auto& e : headRun) { lead.edges.push_back(std::move(e)); }
+                    endOut = lead.edges.empty() ? exitPt : Chain::eEnd(*lead.edges.back());
+                }
+                else {
+                    Chain copy = source.clone();
+                    for (const auto& e : copy.edges) { lead.edges.push_back(e->clone()); }
+                    endOut = exitPt;
+                }
+                return lead;
+            };
+
+            // How far each lead runs along the inset: the horizontal run of a ramp
+            // that descends `cuttingDepth` at `plungeSlope` off horizontal.
+            const float slopeRad =
+                std::clamp(params.plungeSlope, 1.0f, 89.0f) * 3.14159265358979f / 180.0f;
+            const float leadRun =
+                (params.cuttingDepth > 0.0f) ? params.cuttingDepth / std::tan(slopeRad) : 0.0f;
+
             Pos cursor;
             bool haveCursor = false;
+            std::optional<Chain> prevCut;   // the cut just emitted, for its lead-out
 
             for (Chain& next : run) {
 
@@ -327,21 +498,54 @@ export namespace Geo {
                     }
                 }
 
-                // Weave the tagged link from the tool's position to the entry.
-                if (haveCursor) {
-                    Pos entry = Chain::eStart(*next.edges.front());
-                    if ((entry - cursor).pythag() > 1e-4f) {
-                        Chain link;
-                        link.closed = false;
-                        link.id = newId();
-                        link.link = cutLink ? LinkKind::Cut : LinkKind::Retract;
-                        link.edges.push_back(std::make_unique<Segment2>(cursor, entry));
-                        result.toolpath.push_back(std::move(link));
+                // The cut begins at `entry`. Leads are woven ONLY at retract steps (a
+                // cut-link already rides down into the next ring -- it needs none).
+                // Such a step is ALWAYS paired: a lead-OUT eases off the previous cut
+                // before the retract lifts, and a lead-IN eases onto this one after it
+                // lands -- so the tool moves AWAY from a chain before retracting and
+                // TOWARD a chain after arriving, never up or down the cut wall.
+                Pos entry = Chain::eStart(*next.edges.front());
+                Pos linkTarget = entry;
+                const bool doLead = params.lead && next.closed && !cutLink;
+
+                // 1. Lead-OUT of the previous cut, easing the tool off it before the
+                //    retract. This advances the cursor to the lift point.
+                if (doLead && haveCursor && prevCut) {
+                    Pos outEnd;
+                    Chain lo = buildLeadOut(*prevCut, cursor, leadRun, outEnd);
+                    if (!lo.edges.empty()) {
+                        result.toolpath.push_back(std::move(lo));
+                        cursor = outEnd;
                     }
+                }
+
+                // 2. Lead-IN to the target, built first so the link can deliver the
+                //    tool to where the lead-in begins (its inset, not the cut).
+                std::optional<Chain> leadIn;
+                if (doLead) {
+                    Pos inStart;
+                    Chain li = buildLeadIn(next, entry, leadRun, inStart);
+                    if (!li.edges.empty()) { linkTarget = inStart; leadIn = std::move(li); }
+                }
+
+                // 3. The link (rapid/retract, or stay-down cut) to the link target.
+                if (haveCursor && (linkTarget - cursor).pythag() > 1e-4f) {
+                    Chain link;
+                    link.closed = false;
+                    link.id = newId();
+                    link.link = cutLink ? LinkKind::Cut : LinkKind::Retract;
+                    link.edges.push_back(std::make_unique<Segment2>(cursor, linkTarget));
+                    result.toolpath.push_back(std::move(link));
+                }
+
+                // 4. The lead-in, then the cut itself.
+                if (leadIn) {
+                    result.toolpath.push_back(std::move(*leadIn));
                 }
 
                 cursor = Chain::eEnd(*next.edges.back());
                 haveCursor = true;
+                prevCut = next.clone();
 
                 result.toolpath.push_back(std::move(next));
             }

@@ -198,8 +198,8 @@ def cmd_transpile(args) -> int:
     rels = [r for r in tindex if (repo / r).exists()]
     digests = {}
     for r in rels:
-        prov, _ = dg.light_scan((repo / r).read_text(encoding="utf-8", errors="replace"))
-        digests[r] = {"provides": prov}
+        prov, reqs = dg.light_scan((repo / r).read_text(encoding="utf-8", errors="replace"))
+        digests[r] = {"provides": prov, "requires": reqs}
 
     xb = XBuilder(manifest, repo, store, digests, verbose=args.verbose, jobs=args.jobs)
     if not xb.build():

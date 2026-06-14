@@ -259,40 +259,40 @@ export namespace Rev::Element::ControlTheme {
 
     struct Palette {
 
-        Color fieldSurface;
-        Color fieldBorder;
-        Color fieldText;
-        Color labelText;
-        Color placeholderText;
-        Color focusBorder;
-        Color dropdownArrow;
-        Color optionHover;
-        Color optionSelected;
-        Color optionDisabledText;
-        Color sliderTrack;
-        Color sliderThumb;
-        Color sliderHoverBorder;
-        Color sliderValueText;
-        Color checkboxSurface;
-        Color checkboxBorder;
-        Color checkboxChecked;
-        Color checkboxPress;
-        Color checkboxMark;
-        Color buttonSecondarySurface;
-        Color buttonSecondaryBorder;
-        Color buttonSecondaryHover;
-        Color buttonSecondaryLabel;
-        Color buttonPrimarySurface;
-        Color buttonPrimaryHover;
-        Color buttonPrimaryLabel;
-        Color shadowColor;
+        sColor fieldSurface;
+        sColor fieldBorder;
+        sColor fieldText;
+        sColor labelText;
+        sColor placeholderText;
+        sColor focusBorder;
+        sColor dropdownArrow;
+        sColor optionHover;
+        sColor optionSelected;
+        sColor optionDisabledText;
+        sColor sliderTrack;
+        sColor sliderThumb;
+        sColor sliderHoverBorder;
+        sColor sliderValueText;
+        sColor checkboxSurface;
+        sColor checkboxBorder;
+        sColor checkboxChecked;
+        sColor checkboxPress;
+        sColor checkboxMark;
+        sColor buttonSecondarySurface;
+        sColor buttonSecondaryBorder;
+        sColor buttonSecondaryHover;
+        sColor buttonSecondaryLabel;
+        sColor buttonPrimarySurface;
+        sColor buttonPrimaryHover;
+        sColor buttonPrimaryLabel;
+        sColor shadowColor;
     };
 
     inline void markDirty(Style& style) {
         style.dirty = true;
     }
 
-    inline void applyFieldShadow(Shadow& shadow, Color color) {
+    inline void applyFieldShadow(Shadow& shadow, sColor color) {
         shadow.color = color;
         shadow.size = Px(-2);
         shadow.blur = 8_px;
@@ -300,7 +300,7 @@ export namespace Rev::Element::ControlTheme {
         shadow.x = 0_px;
     }
 
-    inline void applyFieldShadow(Style& style, Color color) {
+    inline void applyFieldShadow(Style& style, sColor color) {
         applyFieldShadow(style.shadow, color);
     }
 

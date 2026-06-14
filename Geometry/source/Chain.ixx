@@ -68,7 +68,9 @@ export namespace Geo {
     enum class LinkKind : std::uint8_t {
         None,      // an ordinary cutting chain
         Cut,       // cutting link: tool stays down, hops to the next concentric ring
-        Retract    // retract link: tool must fully retract before the next branch
+        Retract,   // retract link: tool must fully retract before the next branch
+        Lead       // lead-in: a line that eases into a cutting chain's entry at an
+                   // angle, woven AFTER the rapid/cut link and BEFORE the cut
     };
 
     struct Chain {

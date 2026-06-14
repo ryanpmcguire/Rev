@@ -8,5 +8,5 @@ export namespace Rev::Themes {
 
     using namespace Rev::Appearance;
 
-    Color testThemeColor = rgba(0, 0, 0, 0);
+    sColor testThemesColor = rgba(0, 0, 0, 0);
 };

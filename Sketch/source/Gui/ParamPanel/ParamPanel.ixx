@@ -39,9 +39,13 @@ export namespace Sketch::Gui {
         Slider* radius = nullptr;
         Slider* stepover = nullptr;
         Slider* iterations = nullptr;
+        Slider* leadInset = nullptr;
+        Slider* cuttingDepth = nullptr;
+        Slider* plungeSlope = nullptr;
         Dropdown* strategy = nullptr;
         Dropdown* direction = nullptr;
         Dropdown* milling = nullptr;
+        Dropdown* leadIn = nullptr;
 
         // The per-iteration signed-area readout: a fixed pool of rows, filled
         // from the live profile series each style pass (unused rows go blank).
@@ -136,6 +140,47 @@ export namespace Sketch::Gui {
                 refresh(e);
             };
 
+            // Lead-in/out: engagement moves woven around retract steps. The toggle
+            // enables them; the inset (a fraction of the tool radius) is the "safe
+            // offset" the lead rides inside the cut as it approaches / departs.
+            Dropdown::Params lp;
+            lp.label = "Lead-in";
+            lp.options = {
+                { "Off", "off" },
+                { "On",  "on" }
+            };
+            lp.placeholder = "Off";
+            lp.value = (app && app->leadIn) ? "on" : "off";
+            leadIn = new Dropdown(this, lp);
+
+            leadIn->onChange = [this](Event& e) {
+                if (this->app && this->leadIn) {
+                    this->app->leadIn = (this->leadIn->params.value == "on");
+                }
+                refresh(e);
+            };
+
+            Slider::SliderData li;
+            li.min = 0.05f; li.max = 1.0f; li.def = 0.25f;
+            li.val = app ? app->leadInset : 0.25f;
+            leadInset = new Slider(this, li);
+            if (leadInset->labelText) { leadInset->labelText->setContent(std::string("Lead Inset: ")); }
+
+            // Cutting depth + plunge slope set how FAR the lead runs along the inset:
+            // the horizontal run of a ramp that descends `depth` at `slope` degrees,
+            // i.e. depth / tan(slope). The CAM app extrudes that run into the 3D ramp.
+            Slider::SliderData cd;
+            cd.min = 0.1f; cd.max = 25.0f; cd.def = 4.0f;
+            cd.val = app ? app->cuttingDepth : 4.0f;
+            cuttingDepth = new Slider(this, cd);
+            if (cuttingDepth->labelText) { cuttingDepth->labelText->setContent(std::string("Cutting Depth: ")); }
+
+            Slider::SliderData ps;
+            ps.min = 1.0f; ps.max = 89.0f; ps.def = 23.0f;
+            ps.val = app ? app->plungeSlope : 23.0f;
+            plungeSlope = new Slider(this, ps);
+            if (plungeSlope->labelText) { plungeSlope->labelText->setContent(std::string("Plunge Slope: ")); }
+
             // Toolpath step readout: one row per generated profile, with the stats
             // a linking / ordering pass will eventually consume.
             areaHeader = new Text(this, "Toolpath steps", { &ParamPanelStyle::AreaHeader });
@@ -150,6 +195,9 @@ export namespace Sketch::Gui {
             if (app && radius) { app->toolRadius = radius->data.val; }
             if (app && stepover) { app->stepover = stepover->data.val; }
             if (app && iterations) { app->iterations = static_cast<int>(iterations->data.val + 0.5f); }
+            if (app && leadInset) { app->leadInset = leadInset->data.val; }
+            if (app && cuttingDepth) { app->cuttingDepth = cuttingDepth->data.val; }
+            if (app && plungeSlope) { app->plungeSlope = plungeSlope->data.val; }
 
             // Refresh the toolpath step readout from the live run.
             if (app && app->activeProject) {

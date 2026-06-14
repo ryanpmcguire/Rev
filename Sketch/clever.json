@@ -114,6 +114,38 @@
       "output": "Rev/Rev.lib"
     },
     {
+      "name": "Geometry",
+      "kind": "static",
+      "include_dirs": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/Resources/.modules",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external"
+      ],
+      "defines": [
+        "DEBUG",
+        "GLEW_STATIC",
+        "PLATFORM_OPENGL",
+        "_DEBUG",
+        "_DLL",
+        "_MT"
+      ],
+      "compile_flags": [
+        "-O0",
+        "-g",
+        "-Xclang",
+        "-gcodeview",
+        "-Xclang",
+        "--dependent-lib=msvcrtd"
+      ],
+      "sources": [
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Geometry/source/Chain.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Geometry/source/Geometry.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Geometry/source/Strategy.ixx",
+        "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp"
+      ],
+      "output": "Geometry/Geometry.lib"
+    },
+    {
       "name": "Sketch",
       "kind": "exe",
       "include_dirs": [
@@ -139,13 +171,16 @@
       ],
       "sources": [
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp",
+        "source/App/App.Persist.ixx",
         "source/App/App.ixx",
-        "source/App/Geometry/Geometry.ixx",
         "source/App/Chain/Chain.ixx",
+        "source/App/Geometry/Geometry.ixx",
         "source/App/Layer.ixx",
         "source/App/Project.ixx",
         "source/App/Tool/Tool.ixx",
         "source/Gui/Gui.ixx",
+        "source/Gui/ParamPanel/ParamPanel.ixx",
+        "source/Gui/PreviewBar/PreviewBar.ixx",
         "source/Gui/SketchView/SketchView.ixx",
         "source/Gui/TabView/TabView.ixx",
         "source/Gui/Theme.ixx",
@@ -155,6 +190,8 @@
       ],
       "output": "Sketch/Sketch.exe",
       "depends": [
+        "Rev",
+        "Geometry",
         "Rev"
       ],
       "link_libraries": [

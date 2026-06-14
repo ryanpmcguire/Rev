@@ -57,6 +57,10 @@ export namespace Sketch::App {
         int   iterations = 32;        // max offset generations per run
         bool  toolReverse = false;    // execute the final toolpath backwards (chain ORDER only)
         bool  climbMilling = true;    // climb vs conventional: the HANDEDNESS of every toolpath chain
+        bool  leadIn = false;         // weave lead-in/out chains around retract steps
+        float leadInset = 0.25f;      // the lead's "safe offset" inset, fraction of tool radius
+        float cuttingDepth = 4.0f;    // depth the lead ramp descends (model units)
+        float plungeSlope = 23.0f;    // lead ramp angle off horizontal (deg); shallower = longer
         std::string strategy = "profile";
 
         // Select a tool, toggling it off if it was already active.

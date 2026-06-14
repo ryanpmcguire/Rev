@@ -99,7 +99,7 @@ def transpile_impl(rel: str, repo: Path, xpp_root: Path,
             f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
     text = _inject_unleak(text)
     out.write_bytes(text.encode("latin-1"))
-    return out, sorted(set(res_paths))
+    return out, sorted(set(res_paths)), []
 
 
 def build_module_hpp_map(digests: dict[str, dict], xpp_root: Path) -> dict[str, Path]:
@@ -109,6 +109,67 @@ def build_module_hpp_map(digests: dict[str, dict], xpp_root: Path) -> dict[str, 
         if mod:
             out[mod] = hpp_path(xpp_root, mod, Path(rel).stem)
     return out
+
+
+_SYMBOL_KINDS = {
+    cx.CursorKind.STRUCT_DECL, cx.CursorKind.CLASS_DECL, cx.CursorKind.ENUM_DECL,
+    cx.CursorKind.CLASS_TEMPLATE, cx.CursorKind.FUNCTION_DECL,
+    cx.CursorKind.TYPE_ALIAS_DECL, cx.CursorKind.TYPEDEF_DECL,
+}
+
+
+def _ns_qual(c) -> str:
+    """Fully-qualified name of a NAMESPACE cursor, e.g. 'Rev::Element'."""
+    parts = []
+    while c is not None and c.kind == cx.CursorKind.NAMESPACE:
+        if c.spelling:
+            parts.append(c.spelling)
+        c = c.semantic_parent
+    return "::".join(reversed(parts))
+
+
+def _collect_symbols(tu, rel: str) -> list[list[str]]:
+    """Top-level [namespace, name] pairs this file exports -- used to build the
+    cross-file collision map (names defined in >1 namespace)."""
+    out, seen = [], set()
+    main = str(rel)
+    for c in tu.cursor.walk_preorder():
+        f = c.location.file
+        if f is None or str(f) != main or c.kind not in _SYMBOL_KINDS or not c.spelling:
+            continue
+        sp = c.semantic_parent
+        if sp is not None and sp.kind == cx.CursorKind.NAMESPACE:
+            key = (_ns_qual(sp), c.spelling)
+            if key not in seen:
+                seen.add(key)
+                out.append([key[0], key[1]])
+    return out
+
+
+def qualify_text(text: str, name_to_target: dict[str, str]) -> str:
+    """Rewrite each *unqualified* use of a collision name to `Target::name`.
+    Skips members/qualified uses (`x.name`, `a::name`, `p->name`) and the
+    name's own definition (`struct name`, `namespace name`)."""
+    if not name_to_target:
+        return text
+    masked = _mask(text)
+    edits = []
+    for name, target in name_to_target.items():
+        pat = re.compile(r"\b" + re.escape(name) + r"\b")
+        for m in pat.finditer(masked):
+            s = m.start()
+            j = s - 1
+            while j >= 0 and text[j] in " \t":
+                j -= 1
+            if j >= 0 and text[j] in ":.>":          # ::name / .name / ->name
+                continue
+            k = j
+            while k >= 0 and (text[k].isalnum() or text[k] == "_"):
+                k -= 1
+            if text[k + 1:j + 1] in ("struct", "class", "enum", "union", "namespace"):
+                continue
+            edits.append((s, m.end(), f"{target}::{name}"))
+    return _apply_edits(text, edits)
 
 
 def _enclosing(c):
@@ -434,6 +495,22 @@ def _relocations(tu, rel: str, raw: str, masked: str):
             continue
         params_end, init, body_open, body_close = spans
 
+        # A member DEFINED out-of-line (`void Arc2::foo(){...}` at namespace
+        # scope -- lexical parent is a namespace, not the record) is already a
+        # qualified definition AND the class already declares it. Move the whole
+        # thing to the .cpp and leave nothing in the header (emitting a qualified
+        # *declaration* there would be illegal: "out-of-line declaration of a
+        # member must be a definition").
+        if (not is_free and c.lexical_parent is not None
+                and c.lexical_parent.kind in _NS_SCOPES):
+            out.append({
+                "start": decl_start, "end": body_close + 1,
+                "declaration": "",
+                "definition": raw[decl_start:body_close + 1],
+                "ns": "::".join(ns_chain),
+            })
+            continue
+
         # Declaration kept in the class: signature, no init list, no body.
         # Strip the `inline` keyword: we are externalising the definition into
         # the .cpp, so the function must NOT stay inline (an inline function
@@ -505,7 +582,7 @@ def transpile(rel: str, repo: Path, xpp_root: Path, module_hpp: dict[str, Path],
     masked = _mask(raw)
     buf, module, imports = _demodularize(raw, masked)  # offset-preserving
     if module is None:
-        return None, None, []
+        return None, None, [], []
     res_paths: list[str] = []
 
     # Hand libclang the real UTF-8 bytes (latin-1 re-encode reconstructs them).
@@ -549,6 +626,29 @@ def transpile(rel: str, repo: Path, xpp_root: Path, module_hpp: dict[str, Path],
         edits.append((r["start"], r["end"], r["declaration"]))
         defs_by_ns.setdefault(r["ns"], []).append(r["definition"])
 
+    # Single-header-library IMPLEMENTATION blocks (`#define X_IMPLEMENTATION` +
+    # the includes right after) must be compiled in exactly ONE TU. As a header
+    # they would leak into every includer -> duplicate symbols. Move the whole
+    # block to the top of the .cpp (so the bodies compile once there) and strip
+    # the *defines* from the .hpp (its include then brings declarations only).
+    impl_block = ""
+    impl_defs = list(re.finditer(
+        r"(?m)^[ \t]*#[ \t]*define[ \t]+\w+_IMPLEMENTATION\b[^\n]*\r?$", masked))
+    if impl_defs:
+        bs = impl_defs[0].start()
+        pos = bs
+        while pos < len(masked):
+            le = masked.find("\n", pos)
+            le = len(masked) if le == -1 else le + 1
+            st = masked[pos:le].strip()
+            if st.startswith("#define") or st.startswith("#include"):
+                pos = le
+            else:
+                break
+        impl_block = raw[bs:pos].rstrip()
+        for m in impl_defs:
+            edits.append((m.start(), m.end(), ""))   # strip defines from header
+
     # Build .hpp
     body = _apply_edits(raw, edits)
     if has_managed:
@@ -567,9 +667,12 @@ def transpile(rel: str, repo: Path, xpp_root: Path, module_hpp: dict[str, Path],
                 f'#line 1 "{str(src).replace(chr(92), "/")}"\n{body}\n')
     hpp.write_bytes(hpp_text.encode("latin-1"))
 
-    # Build .cpp
-    out = [f"// clever-transpiled implementation unit for module {module}",
-           f'#include "{str(hpp).replace(chr(92), "/")}"', ""]
+    # Build .cpp. The IMPLEMENTATION block (if any) must come BEFORE the hpp
+    # include so its `#define`d impl include is the first one in the TU.
+    out = [f"// clever-transpiled implementation unit for module {module}"]
+    if impl_block:
+        out.append(impl_block)
+    out += [f'#include "{str(hpp).replace(chr(92), "/")}"', ""]
     for ns, defs in defs_by_ns.items():
         if ns:
             out.append(f"namespace {ns} {{")
@@ -583,4 +686,4 @@ def transpile(rel: str, repo: Path, xpp_root: Path, module_hpp: dict[str, Path],
     cpp_text = _inject_unleak(cpp_text)
     cpp.write_bytes(cpp_text.encode("latin-1"))
 
-    return hpp, cpp, sorted(set(res_paths))
+    return hpp, cpp, sorted(set(res_paths)), _collect_symbols(tu, rel)

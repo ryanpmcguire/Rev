@@ -1644,14 +1644,13 @@ export namespace Cam::Gui {
 
             ProbeSessionEntry& entry = probeSession_[probeFillIndex_++];
 
-            // [PRB:x,y,z] is the ABSOLUTE MACHINE position at contact, not WCS.
-            // Convert to WCS by subtracting the machine work origin (the absolute
-            // position where WCS = 0 = the begin-work point), then invert the
-            // forward map toMachine() did: wcs = frame.toFrame(cad) -
-            // beginWorkInFrame, so frame.toFrame(cad) = wcs + beginWorkInFrame
-            // and cad = frame.toWorld(that).  The probe targets here face the
-            // tool (rotaryAngle 0), so there is no part rotation to undo.
-            // TODO: for tilted probes, un-rotate by the probe pose's rotation.
+            // [PRB:x,y,z] is the ABSOLUTE MACHINE position at contact.  Map it back
+            // to the part/CAD frame: subtract the machine work origin to get the
+            // part-relative offset, add beginWorkInFrame, then frame.toWorld.  This
+            // is the exact inverse of toMachine().  The probe is ALWAYS driven to
+            // fixed nominal positions (never rotated by a correction), so the part
+            // is at its mounted pose during every contact -- there is no part
+            // rotation to undo, by construction.
             float omx = 0, omy = 0, omz = 0, ocx = 0, ocy = 0, ocz = 0;
             Carvera::MachineLink::instance().workOrigin(omx, omy, omz, ocx, ocy, ocz);
 
@@ -2026,10 +2025,40 @@ export namespace Cam::Gui {
             }
         }
 
+        // Build the 4x4 (column-major) of a stage's TRUE probe pose -- the honest
+        // measured rigid transform (rTrue/tTrue).  Identity when the stage has no
+        // valid probe result.  This is how "the system's idea of where the part
+        // actually is" gets reflected in the view: the part mesh (and its probe
+        // markers/plan) are displayed at this measured pose.
+        static void probeTrueMatrix(Cam::App::Stage* s, float out[16]) {
+            Cam::Machine::Pose::identityMatrix(out);
+            if (!s || !s->probe.result.valid) { return; }
+            const Cam::App::ProbeResult& r = s->probe.result;
+            // column-major out[col*4+row] from row-major rTrue[row*3+col].
+            out[0]  = float(r.rTrue[0]); out[1]  = float(r.rTrue[3]); out[2]  = float(r.rTrue[6]);
+            out[4]  = float(r.rTrue[1]); out[5]  = float(r.rTrue[4]); out[6]  = float(r.rTrue[7]);
+            out[8]  = float(r.rTrue[2]); out[9]  = float(r.rTrue[5]); out[10] = float(r.rTrue[8]);
+            out[12] = r.tTrue.x;         out[13] = r.tTrue.y;         out[14] = r.tTrue.z;
+        }
+
+        // out = a * b  (both column-major 4x4).
+        static void mul4(const float a[16], const float b[16], float out[16]) {
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+                    float s = 0.0f;
+                    for (int k = 0; k < 4; k++) { s += a[k * 4 + row] * b[col * 4 + k]; }
+                    out[col * 4 + row] = s;
+                }
+            }
+        }
+
         // Set one world matrix on every actor that belongs to the physical
         // workpiece (all material views' meshes + toolpaths) and on the shared
         // tool preview.  In absolute mode this is identity; in machine mode it
         // is the current part pose.  In execute mode it is the live A-axis pose.
+        // Each part is additionally placed at its MEASURED pose (the true probe
+        // fit) so the view reflects where the part actually is right after a
+        // probe: displayed = (chuck/part pose) * (measured pose).
         //
         // NOTE: in Execute mode the tool preview actor is NOT transformed here —
         // its position comes from telemetry (already in CAD/world space) and is
@@ -2053,20 +2082,34 @@ export namespace Cam::Gui {
 
                 if (!v) { continue; }
 
-                if (v->partActor)        { v->partActor->setWorldTransform(M); }
-                if (v->modelActor)       { v->modelActor->setWorldTransform(M); }
-                if (v->deltaActor)       { v->deltaActor->setWorldTransform(M); }
-                if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(M); }
-                // Probe markers + plan are points ON the part, so they must ride
-                // the same part pose -- otherwise they float at nominal while the
-                // part rotates (the "probe points don't move with the part" bug).
-                if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(M); }
-                if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(M); }
+                // Compose this part's measured pose: Mv = M * trueProbePose.  Only
+                // in a machine view (sim/execute) -- the plain design view stays
+                // nominal.  Un-probed stages get identity, so Mv == M.
+                float Mv[16];
+                if (transformed) {
+                    float C[16];
+                    probeTrueMatrix(v->state, C);
+                    mul4(M, C, Mv);
+                }
+                else {
+                    for (int i = 0; i < 16; i++) { Mv[i] = M[i]; }
+                }
+
+                if (v->partActor)        { v->partActor->setWorldTransform(Mv); }
+                if (v->modelActor)       { v->modelActor->setWorldTransform(Mv); }
+                if (v->deltaActor)       { v->deltaActor->setWorldTransform(Mv); }
+                if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(Mv); }
+                // Probe markers + plan are points ON the part, so they ride the
+                // same measured pose -- otherwise they float at nominal while the
+                // part sits crooked (the "probe points don't move with the part").
+                if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(Mv); }
+                if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(Mv); }
             }
 
             // In Execute mode the tool preview sits in absolute CAD/world space
             // (telemetry is already converted); applying the part rotation to it
-            // would double-transform its position.
+            // would double-transform its position.  The tool is NOT on the part,
+            // so it never gets the measured-pose correction.
             if (previewMode != PreviewMode::Execute) {
                 if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
                 if (spindlePreviewActor) { spindlePreviewActor->setWorldTransform(M); }

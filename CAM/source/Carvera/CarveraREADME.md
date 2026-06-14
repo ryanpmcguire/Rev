@@ -327,17 +327,35 @@ CAM (WorldView::buildExecuteOperations)
 - The legacy `Air::onStartRequested` callback is GONE; `onTelemetry` (the
   high-rate display push) is the only remaining single-callback hook.
 
-## Coordinate conventions in our code
+## Coordinate conventions in our code  (ABSOLUTE MACHINE -- 2026-06-13)
 
-- All telemetry (`livePosition`, `currentConfirmed`) reports **MPos**.
-- `goTo(x, y, z, a)` emits `G53 G0` -- absolute machine.
-- `jog(dx, dy, dz)` / `jogA(deg)` / `jogRel(dx, dy, dz, da, f)` all emit
-  `$J=G91` (relative).  Sidesteps WCS issues.
-- The WorldView's program builder is in WCS -- `WorldView::buildExecuteOperations`
-  computes `machineX/Y/Z` as `inFrame - beginWorkInFrame` and the waypoints are
-  emitted as absolute WCS coordinates with `G90`.  This is correct because the
-  WCS origin matches the begin-work point after the operator's `Set Origin` --
-  which `Air::preflightStart` now REQUIRES before any execution.
+Core principle: **everything the machine is TOLD to do is emitted in ABSOLUTE
+MACHINE coordinates.**  "Set work origin" does NOT redefine the controller's
+zero -- it LOCATES THE PART in machine space.  Toolpaths/probe points live in
+the part's own frame; the host transforms each to absolute and drives the
+machine absolutely.  No coordinate is ever interpreted relative to a
+controller-side WCS offset.
+
+- All telemetry (`livePosition`, `currentConfirmed`) reports **MPos** (absolute).
+- `setWorkOrigin()` captures the current MPos as the part-origin location and
+  emits `G10 L2 P1 X0 Y0 Z0 A0` -- **zeroes the WCS offset** (NOT `L20`, which
+  zeroed at the part).  After this `G90` coordinates ARE absolute machine values.
+- `goTo` / ATC moves emit `G53 G0` (absolute machine) -- always have.
+- `WorldView::buildExecuteOperations` emits ABSOLUTE coords: `toMachine` computes
+  `(inFrame - beginWorkInFrame) + machineOrigin` (and `A + machineOriginA`), so
+  every cut/probe waypoint is an absolute machine target streamed with `G90`.
+  `preflightStart` REQUIRES the work origin be set first.
+- THE PROBE TOUCH is the one exception that stays relative: `G91 G38.2 <fixed
+  delta>` from an absolutely-positioned standoff.  This Carvera was observed to
+  execute `G38.2` INCREMENTALLY even under `G90`, so an absolute target would be
+  driven as a delta (~150 mm) and crash.  The fixed delta from an absolute
+  standoff is deterministic, not accumulating-relative.
+- `jog`/`jogA`/`jogRel` stay `$J=G91` (interactive nudging, not autonomous
+  toolpath -- inherently "move from here").
+- The contact back-transform (`handleProbeContact`) inverts the above: MPos -
+  machineOrigin -> + beginWorkInFrame -> `frame.toWorld` -> CAD.  The probe is
+  never driven by a correction (always nominal positions), so the part is at its
+  mounted pose during every contact -- no part rotation to undo.
 
 ## Tools / refs
 

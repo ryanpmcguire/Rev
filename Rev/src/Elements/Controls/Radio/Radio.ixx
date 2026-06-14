@@ -184,8 +184,8 @@ export namespace Rev::Element {
                 optionElem->resolved.disabled = option.disabled;
                 optionElem->label->content = option.name;
 
-                Color backgroundColor = option.value == params.value ? rgb(51, 106, 255) : Color::Null();
-                Color textColor = option.disabled ? rgba(0, 0, 0, 0.5) : Color::Null();
+                sColor backgroundColor = option.value == params.value ? rgb(51, 106, 255) : sColor::Null();
+                sColor textColor = option.disabled ? rgba(0, 0, 0, 0.5) : sColor::Null();
 
                 optionElem->dot->style->background.color = backgroundColor;
                 optionElem->label->style->text.color = textColor;

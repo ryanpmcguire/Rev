@@ -36,10 +36,10 @@ def _transpile_worker(task):
     mhpp = {k: Path(v) for k, v in mhpp.items()}
     pr = Path(project_root) if project_root else None
     if rel.endswith(".ixx"):
-        _, cpp, res = _tx.transpile(rel, repo, xpp, mhpp, parse_args)
+        _, cpp, res, syms = _tx.transpile(rel, repo, xpp, mhpp, parse_args)
     else:
-        cpp, res = _tx.transpile_impl(rel, repo, xpp, mhpp, pr)
-    return rel, (str(cpp) if cpp else None), res
+        cpp, res, syms = _tx.transpile_impl(rel, repo, xpp, mhpp, pr)
+    return rel, (str(cpp) if cpp else None), res, syms
 
 
 class XBuilder(Builder):
@@ -191,8 +191,8 @@ class XBuilder(Builder):
 
         print(f"[1/3] Transpiling: {len(tasks)} changed, {reused} reused (-j{self.jobs})...")
 
-        def consume(triples):
-            for i, (rel, cpp, res) in enumerate(triples, 1):
+        def consume(quads):
+            for i, (rel, cpp, res, syms) in enumerate(quads, 1):
                 print(f"  [{i:>3}/{len(tasks)}] XPP {rel}")
                 # The files were just rewritten -> drop any cached hashes.
                 self._sha_cache.pop(str(self.cpp_of[rel]), None)
@@ -201,7 +201,7 @@ class XBuilder(Builder):
                     self._sha_cache.pop(str(hpp), None)
                 src_sha, pa_sig = meta[rel]
                 self.cur["files"][rel] = {
-                    "src_sha": src_sha, "pa": pa_sig,
+                    "src_sha": src_sha, "pa": pa_sig, "symbols": syms or [],
                     "hpp_sha": self._sha(hpp) if hpp else "",
                     "cpp_sha": self._sha(self.cpp_of[rel]),
                     "res_deps": {p: self._sha(p) for p in (res or [])},
@@ -216,6 +216,64 @@ class XBuilder(Builder):
             with concurrent.futures.ProcessPoolExecutor(max_workers=self.jobs) as ex:
                 consume(ex.map(_transpile_worker, tasks))
         print(f"      transpiled into {self.xpp}")
+        self._qualify_collisions([t[0] for t in tasks])
+
+    def _qualify_collisions(self, retranspiled: list[str]) -> None:
+        """Pre-disambiguate names defined in >1 namespace: in each (re)transpiled
+        file, rewrite unqualified collision-name uses to the namespace that file's
+        own module / imports actually provide. This neutralises the leaked
+        `using namespace` directives that headers (unlike modules) propagate."""
+        # Collision map (name -> {namespaces}) and module -> [[ns,name]] from ALL files.
+        name_ns: dict[str, set] = {}
+        mod_syms: dict[str, list] = {}
+        for rel, fc in self.cur["files"].items():
+            mod = self.provides.get(rel)
+            syms = fc.get("symbols", [])
+            if mod:
+                mod_syms[mod] = syms
+            for ns, name in syms:
+                name_ns.setdefault(name, set()).add(ns)
+        collisions = {n for n, nss in name_ns.items() if len(nss) > 1}
+        if not collisions or not retranspiled:
+            return
+        n_qual = 0
+        for rel in retranspiled:
+            # NEVER qualify a name this file itself defines (it's unambiguous
+            # there, and qualifying would break ctor/dtor/out-of-line syntax).
+            own = {name for _, name in mod_syms.get(self.provides.get(rel), [])}
+            # Qualify imported collision names: target = the namespace of the
+            # single import that provides it (skip if two imports conflict).
+            n2t: dict[str, str] = {}
+            conflict: set = set()
+            for M in self.requires.get(rel, []):
+                for ns, name in mod_syms.get(M, []):
+                    if name not in collisions or name in own:
+                        continue
+                    if name in n2t and n2t[name] != ns:
+                        conflict.add(name)
+                    else:
+                        n2t.setdefault(name, ns)
+            for name in conflict:
+                n2t.pop(name, None)
+            if not n2t:
+                continue
+            for path in ({self.cpp_of[rel], self.cpp_of[rel].with_suffix(".hpp")}
+                         if rel.endswith(".ixx") else {self.cpp_of[rel]}):
+                if not path.exists():
+                    continue
+                text = path.read_bytes().decode("latin-1")
+                new = tx.qualify_text(text, n2t)
+                if new != text:
+                    path.write_bytes(new.encode("latin-1"))
+                    self._sha_cache.pop(str(path), None)
+                    n_qual += 1
+            # refresh recorded hashes (qualify rewrote the files)
+            fc = self.cur["files"][rel]
+            hpp = self.cpp_of[rel].with_suffix(".hpp") if rel.endswith(".ixx") else None
+            fc["hpp_sha"] = self._sha(hpp) if hpp else ""
+            fc["cpp_sha"] = self._sha(self.cpp_of[rel])
+        if n_qual:
+            print(f"      qualified {len(collisions)} colliding name(s) in {n_qual} file(s)")
 
     # -- stage: classic compile -------------------------------------------
 

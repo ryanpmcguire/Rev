@@ -101,6 +101,10 @@ export namespace Sketch::App {
         bool viewToolpath = true;     // toolpath rules applied over the method's output
         bool reverseToolpath = false; // chain ORDER reversed (execution sequence only)
         bool climbMilling = true;     // chain HANDEDNESS: climb keeps the method's travel, conventional flips it
+        bool leadIn = false;          // weave lead-in/out chains around retract steps
+        float leadInset = 0.25f;      // the lead's "safe offset" inset, fraction of tool radius
+        float cuttingDepth = 4.0f;    // depth the lead ramp descends (model units)
+        float plungeSlope = 23.0f;    // lead ramp angle off horizontal (deg); shallower = longer
         float stepover = 1.0f;        // ring advance as a fraction of the tool radius
         int  iterations = 32;         // max offset generations per strategy run
 
@@ -209,6 +213,10 @@ export namespace Sketch::App {
             params.maxGenerations = std::max(1, iterations);
             params.reverse = reverseToolpath;
             params.climb = climbMilling;
+            params.lead = leadIn;
+            params.leadInset = leadInset;
+            params.cuttingDepth = cuttingDepth;
+            params.plungeSlope = plungeSlope;
 
             Geo::SliceResult sliced =
                 Geo::runSliceStrategy(Profile::fromEntities(geometry.entities), params);
