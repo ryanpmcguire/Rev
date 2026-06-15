@@ -102,17 +102,21 @@ export namespace Rev::Primitives {
 
         void compute() override {
 
+            // Skip baking when the element has no layout size yet (e.g. inside a
+            // hidden container whose children haven't been laid out).
+            if (data->rect.w <= 0 || data->rect.h <= 0) { return; }
+
             // If no change, do nothing
             if ((svg->resource == resource) &&
                 (svg->width == data->rect.w) &&
                 (svg->height == data->rect.h)) {
                 return;
             }
-            
+
             svg->resource = resource;
             svg->width = data->rect.w;
             svg->height = data->rect.h;
-            
+
             svg->bake();
         }
 
