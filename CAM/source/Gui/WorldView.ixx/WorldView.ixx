@@ -1752,15 +1752,13 @@ export namespace Cam::Gui {
             if (!def.part.dof.freeRotations.empty()) {
                 rotaryAxis = def.part.dof.freeRotations.front();
             }
-            // Assumed POINT on the rotary axis: the part's begin-work origin.
-            // Stage 1 holds this at the prior; it only affects non-zero-angle
-            // re-probes (which the trust gate keeps to small angles), so the error
-            // is second-order.  Stage 3 will MEASURE this line.
-            const Rev::Core::Pos3 rotaryPoint =
-                probeFrameOrigin_
-                + probeFrameX_ * probeBeginWorkInFrame_.x
-                + probeFrameY_ * probeBeginWorkInFrame_.y
-                + probeFrameZ_ * probeBeginWorkInFrame_.z;
+            // POINT on the rotary axis: the USER-FRAME ORIGIN, which is where the
+            // user placed the rotary (X) axis -- so the axis is rigidly attached to
+            // the part's own coordinate system, not to an arbitrary Z origin.  The
+            // achievable correction pivots about this line, keeping the part
+            // ATTACHED TO ITS AXIS; Stage 3 will let multi-orientation probing move
+            // this line relative to the frame (measure the real stock-vs-axis offset).
+            const Rev::Core::Pos3 rotaryPoint = probeFrameOrigin_;
 
             Cam::App::Project* project = activeProject();
             if (!project) { return; }

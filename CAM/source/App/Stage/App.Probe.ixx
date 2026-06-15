@@ -248,7 +248,7 @@ export namespace Cam::App {
                 measured.push_back(
                     rotateAboutLine(m.measured, rotaryAxis, rotaryPoint, -m.angleDeg));
             }
-            return fit(nominal, measured, normal, rotaryAxis);
+            return fit(nominal, measured, normal, rotaryAxis, rotaryPoint);
         }
 
         // Fit a frame correction (nominal CAD -> measured part pose) from probed
@@ -279,7 +279,8 @@ export namespace Cam::App {
             const std::vector<Pos3>& nominal,
             const std::vector<Pos3>& measured,
             const std::vector<Pos3>& normal,
-            const Pos3&              rotaryAxis = Pos3{})
+            const Pos3&              rotaryAxis  = Pos3{},
+            const Pos3&              rotaryPoint = Pos3{})
         {
             ProbeResult out;   // identity by default
             const size_t n = std::min(nominal.size(), measured.size());
@@ -404,41 +405,38 @@ export namespace Cam::App {
                             }
                         }
 
-                        // PROPER model-fit translation: map the probed centroid to
-                        // the MEASURED centroid (t = cM - R*cN).  Because the probe
-                        // touches at the nominal X/Y, cM shares cN's X/Y, so this
-                        // does NOT move the part laterally -- only height + angle,
-                        // which is all we measured.  (The earlier "offset along the
-                        // tilted normal" had X/Y components and dragged the part
-                        // sideways -- that was the spurious shift.)
-                        auto mapCN = [&](const double* M) -> Pos3 {
+                        // Rotate a vector v by a row-major 3x3 M.
+                        auto mapVec = [](const double* M, const Pos3& v) -> Pos3 {
                             return Pos3{
-                                float(M[0]*cN.x + M[1]*cN.y + M[2]*cN.z),
-                                float(M[3]*cN.x + M[4]*cN.y + M[5]*cN.z),
-                                float(M[6]*cN.x + M[7]*cN.y + M[8]*cN.z)
+                                float(M[0]*v.x + M[1]*v.y + M[2]*v.z),
+                                float(M[3]*v.x + M[4]*v.y + M[5]*v.z),
+                                float(M[6]*v.x + M[7]*v.y + M[8]*v.z)
                             };
                         };
 
                         for (int i = 0; i < 9; i++) { out.r[i] = Ra[i]; out.rTrue[i] = Rt[i]; }
 
-                        // TRANSLATION = least movement consistent with the data.
-                        // A probed plane observes only ONE translation DOF: the
-                        // offset ALONG the face normal (height).  In-plane
-                        // translation is the plane's null space and is NOT
-                        // observed, so it must stay zero.  We therefore pivot the
-                        // rotation about the probed centroid cN and shift PURELY
-                        // along the measured normal n1 by the height delta dz.
-                        //
-                        // The earlier `t = cM - R*cN` mapped cN onto the measured
-                        // centroid cM, which silently leaked any in-plane cM-cN
-                        // drift (from a tilted/side face, or noise) into a spurious
-                        // LATERAL shift of the whole part.  For a vertical-normal
-                        // (top-face) probe cM.xy == cN.xy and the two agree; for a
-                        // tilted face this version is the honest, minimal one.
-                        const double dz   = double((cM - cN).dot(n1));
-                        const Pos3   dzN1 = n1 * float(dz);
-                        out.t     = (cN - mapCN(Ra)) + dzN1;
-                        out.tTrue = (cN - mapCN(Rt)) + dzN1;
+                        // ---- ACHIEVABLE translation: keep the part ATTACHED TO ITS
+                        // AXIS.  The only motion the machine can make to LOCATE the
+                        // part is a rotation about the ROTARY AXIS LINE (direction
+                        // rotaryAxis through rotaryPoint) plus a height offset.  So
+                        // we pivot Ra about that LINE -- not the probed face centroid
+                        // -- because driving a centroid-pivot correction would swing
+                        // the part about its face and drag the whole coordinate
+                        // system (origin + axis) sideways; pivoting about the axis
+                        // returns the ENTIRE frame to its assumed place when squared.
+                        // The offset is along the part's up-normal n0 only (no X/Y:
+                        // we have no lateral information and trust the user's mount).
+                        const Pos3   RaLineCN = mapVec(Ra, cN - rotaryPoint) + rotaryPoint;
+                        const double dzA      = double((cM - RaLineCN).dot(n0));
+                        out.t = (rotaryPoint - mapVec(Ra, rotaryPoint)) + n0 * float(dzA);
+
+                        // ---- TRUE translation (record / rms / honest pose): the
+                        // least-squares-optimal pivot is the probed centroid cN,
+                        // with the offset purely along the measured normal n1 (the
+                        // minimal, in-plane-free fit -- no lateral leak).
+                        const double dzT = double((cM - cN).dot(n1));
+                        out.tTrue = (cN - mapVec(Rt, cN)) + n1 * float(dzT);
                         out.valid = true;
 
                         // rms = quality of the TRUE fit (how well the model lines

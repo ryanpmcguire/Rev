@@ -62,13 +62,10 @@ export namespace Cam::App {
 
         // Settings
         //
-        // toolName is the ROUGH tool -- the single tool every operation uses for
-        // bulk material removal.  fineToolName is the optional FINISH tool, used
-        // only by strategies that distinguish dimensionally-critical passes
-        // (currently just Thread Mill).  Empty fineToolName = no separate finish
-        // tool; the rough tool does everything.
+        // toolName is the single tool the operation uses.  (Thread milling once
+        // distinguished a separate finish tool, but the thread mill is now JUST
+        // the threading pass -- the bore is a prior step -- so one tool suffices.)
         std::string toolName = "";
-        std::string fineToolName = "";
         std::string strategy = Hatch::name();
         bool strategyAuto = true;
 
@@ -101,6 +98,8 @@ export namespace Cam::App {
         // created; edited in the thread-mill settings view.
         double threadMajorDiameter = 2.0;   // nominal thread major diameter (mm)
         double threadPitch = 0.4;           // thread pitch (mm/rev)
+        double threadPreBore = 1.6;         // recommended pre-mill bore (mm); mirrors
+                                            // the ThreadMillOperation's pre-bore
         bool   threadInternal = true;       // internal (tapped hole) vs external
         int    threadPasses = 1;            // radial passes (1 = single-pass)
         bool   threadUpCut = true;          // true = bottom-up, false = top-down

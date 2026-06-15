@@ -816,6 +816,16 @@ export namespace Cam::App {
             return activeProject->beginThreadMillFromSelection();
         }
 
+        // Set a thread-mill operation's callout (the feature step owns it) and
+        // recompute -- re-models the pre-bore and derives the toolpath thread
+        // settings.  No-op for stages that aren't thread-mill operations.
+        bool setThreadMillCallout(Stage* stage, double major, double pitch, double preBore, bool internal) {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->setThreadMillCallout(stage, major, pitch, preBore, internal);
+        }
+
         bool commitWorkingStage() {
 
             if (!activeProject) { return false; }

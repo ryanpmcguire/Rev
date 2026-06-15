@@ -38,6 +38,30 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
         static bool detect(const Model&) { return false; }
 
+        // The centroid of a loop, from its edge start points -- the hole axis in
+        // the slice plane.
+        static Pos loopCentroid(const Geo::Chain& loop) {
+            double sx = 0.0, sy = 0.0;
+            int n = 0;
+            for (const auto& e : loop.edges) {
+                const Pos p = Geo::Chain::eStart(*e);
+                sx += p.x; sy += p.y; n++;
+            }
+            if (n == 0) { return Pos(0.0f, 0.0f); }
+            return Pos(float(sx / n), float(sy / n));
+        }
+
+        // A single-circle tool-centre loop at `centre`, radius `r`, wound to match
+        // `sign` (+1 CCW, -1 CW) so it carries the same climb handedness the slice
+        // boundary already chose.
+        static Geo::Chain circleLoop(const Pos& centre, float r, int sign) {
+            Geo::Chain ring;
+            ring.closed = true;
+            ring.edges.push_back(std::make_unique<Geo::Circle2>(centre, r));   // CCW
+            if (sign < 0) { ring = ring.reversed(); }
+            return ring;
+        }
+
         // Condition + boundary pass, identical to the Profile/Bore front end --
         // we only keep generation 1 (the wall-following ring).
         void processSlice(SliceLayer& slice, const StrategyContext& ctx) {
@@ -101,13 +125,41 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
             const Geo::Profile& boundary = crossSlice->result.profiles[1];
 
+            // A thread is defined ENTIRELY by its callout -- we KNOW the crest is at
+            // the major diameter about the hole axis, regardless of the delta volume
+            // the operation happened to leave (the pre-bore could be anything; the
+            // hole as drawn could be enormous).  So we do NOT trace the sliced
+            // collar wall.  We take only the hole's AXIS and HANDEDNESS from each
+            // boundary loop (its centroid and turning sign -- the latter already
+            // encodes the climb choice), and lay a fresh tool-centre circle at the
+            // callout radius: r = majorR - toolR for an internal thread.
+            //
+            // For an external thread (not yet handled) or a missing callout we fall
+            // back to the sliced boundary itself.
+            Geo::Profile cutRing;
+
+            const float majorR = 0.5f * ctx.threadMajorDiameter;
+            const float toolR  = static_cast<float>(ctx.tool->radius);
+            const float r      = majorR - toolR;
+
+            if (ctx.threadInternal && majorR > 1e-4f && r > 1e-4f) {
+                for (const Geo::Chain& src : boundary.chains) {
+                    if (!src.closed || src.edges.empty()) { continue; }
+                    cutRing.chains.push_back(
+                        circleLoop(loopCentroid(src), r, src.turningSign())
+                    );
+                }
+            }
+
+            if (cutRing.chains.empty()) { cutRing = boundary.clone(); }
+
             const int turns = std::max(1, static_cast<int>(std::ceil(depth / pitch)));
 
             // Every closed boundary loop becomes its own helix.  For a single
             // hole that is one helix; "any profile" with several loops threads
             // each.  The loops already carry the correct climb handedness from
             // the boundary pass; up/down only sets the z order.
-            for (const Geo::Chain& loop : boundary.chains) {
+            for (const Geo::Chain& loop : cutRing.chains) {
 
                 if (!loop.closed || loop.edges.empty()) { continue; }
 
@@ -134,8 +186,8 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             }
 
             dbg(
-                "[ThreadMill] pitch=%.3f depth=%.3f turns=%d loops=%zu (%s)",
-                pitch, depth, turns, boundary.chains.size(),
+                "[ThreadMill] pitch=%.3f depth=%.3f turns=%d loops=%zu majorDia=%.3f (%s)",
+                pitch, depth, turns, cutRing.chains.size(), ctx.threadMajorDiameter,
                 ctx.threadUpCut ? "up-cut" : "down-cut"
             );
         }

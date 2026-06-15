@@ -8,6 +8,7 @@ export module Cam.Gui.ThreadMillToolpathView;
 import Rev.Element;
 import Rev.Element.Event;
 import Rev.Element.Box;
+import Rev.Element.Text;
 import Rev.Element.NumberInput;
 import Rev.Element.Checkbox;
 import Rev.Element.Dropdown;
@@ -16,44 +17,41 @@ import Cam.App.Stage;
 import Cam.App.ToolPath;
 import Cam.App.Slicer.Strategy.Strategies.ThreadMill;
 
+import Cam.Gui.Theme;
 import Cam.Gui.ToolpathStrategyView;
 
 export namespace Cam::Gui {
 
     using namespace Rev::Element;
 
-    // Thread milling is the one strategy that uses TWO tools: a rough tool (the
-    // common "Tool" dropdown) to open the bore, and a fine tool to cut the
-    // dimensionally-critical thread wall.  It also exposes the thread callout
-    // that turns a bore into a thread: pitch, radial passes, and cut direction.
+    // The thread-mill toolpath is JUST the threading pass: one tool, cutting the
+    // thread the OPERATION's callout specifies (the bore is a prior step).  So
+    // this view carries only machining choices -- radial passes, cut direction,
+    // climb -- over the common tool/feed controls.  The callout (major / pitch /
+    // pre-bore) is edited in the operation's feature view and shown here read-only.
     struct ThreadMillToolpathView : public ToolpathStrategyView {
 
-        Dropdown*    fineToolDropdown  = nullptr;
-        NumberInput* pitchInput        = nullptr;
-        NumberInput* passesInput       = nullptr;
+        Text*        calloutSummary   = nullptr;
+        NumberInput* passesInput      = nullptr;
         Dropdown*    directionDropdown = nullptr;
         Checkbox*    climbCheckbox     = nullptr;
 
         ThreadMillToolpathView(Element* parent) : ToolpathStrategyView(parent) {
 
-            buildCommon();   // rough tool, stepdown, feed, retract
+            buildCommon(false);   // tool, feed, retract -- no stepdown (the pitch is the axial step)
 
-            // The finish tool: the dimensionally-critical thread-wall pass.
-            Box* fineRow = new Box(this, { &ToolpathViewStyle::Row }, "TMFineToolRow");
-            fineToolDropdown = new Dropdown(
-                fineRow,
-                { .label = "Fine tool", .options = toolOptions(), .placeholder = "Fine tool", .value = "" },
-                { &ToolpathViewStyle::Field }
+            // The thread the operation specifies (read-only here -- edit it in the
+            // feature step).
+            Box* calloutRow = new Box(this, { &ToolpathViewStyle::Row }, "TMCalloutRow");
+            calloutSummary = new Text(
+                calloutRow, "Thread: --",
+                Theme::layer({ &ToolpathViewStyle::Field }, { &Theme::Styles::MutedText })
             );
-            fineToolDropdown->onChange = [this](Event& e) { commit(e); };
 
-            Box* threadRow = new Box(this, { &ToolpathViewStyle::Row }, "TMThreadRow");
-            pitchInput  = makeNumberInput(threadRow, "Pitch (mm)", "0.4");
-            passesInput = makeNumberInput(threadRow, "Passes", "1");
-
-            Box* dirRow = new Box(this, { &ToolpathViewStyle::Row }, "TMDirRow");
+            Box* machineRow = new Box(this, { &ToolpathViewStyle::Row }, "TMMachineRow");
+            passesInput = makeNumberInput(machineRow, "Passes", "1");
             directionDropdown = new Dropdown(
-                dirRow,
+                machineRow,
                 {
                     .label = "Cut",
                     .options = { { "Up cut", "up" }, { "Down cut", "down" } },
@@ -72,38 +70,38 @@ export namespace Cam::Gui {
             return Cam::App::Slicer::Strategy::Strategies::ThreadMill::name();
         }
 
+        // A human-readable callout, e.g. "Thread: M2.5 x 0.45  (pre-bore 2.05 mm)".
+        static std::string calloutText(const Cam::App::ToolPath& tp) {
+            auto trim = [](double v) {
+                std::string s = std::to_string(v);
+                while (s.size() > 1 && s.back() == '0') { s.pop_back(); }
+                if (!s.empty() && s.back() == '.') { s.pop_back(); }
+                return s;
+            };
+            return "Thread: " + trim(tp.threadMajorDiameter) + " x " + trim(tp.threadPitch)
+                 + "  (pre-bore " + trim(tp.threadPreBore) + " mm)";
+        }
+
         void populateExtras() override {
             if (!state) { return; }
 
             const Cam::App::ToolPath& tp = state->toolPath;
 
-            if (fineToolDropdown) {
-                fineToolDropdown->params.options = toolOptions();
-                fineToolDropdown->params.value = tp.fineToolName;
-            }
-            if (pitchInput)  { pitchInput->setValue(tp.threadPitch); }
-            if (passesInput) { passesInput->setValue(double(tp.threadPasses)); }
+            if (calloutSummary) { calloutSummary->setContent(calloutText(tp)); }
+            if (passesInput)    { passesInput->setValue(double(tp.threadPasses)); }
             if (directionDropdown) {
                 directionDropdown->params.value = tp.threadUpCut ? "up" : "down";
             }
             if (climbCheckbox) { climbCheckbox->value = tp.climbMilling; }
         }
 
-        // Thread-specific fields are written straight onto the toolpath -- the
-        // shared save carries only the common settings, and leaves these intact
-        // (so they survive the recompute that save triggers).  The rough tool +
-        // climb flow through the base commit as usual.
+        // Only machining choices are written here; the callout is owned by the
+        // operation and mirrored onto the toolpath on recompute.
         void readExtras(Event& e, double& stepover, bool& climb, bool& insideOut) override {
 
             if (climbCheckbox) { climb = climbCheckbox->value; }
 
             if (!state) { return; }
-
-            if (pitchInput) {
-                pitchInput->commit(e);
-                double p = 0.0;
-                if (pitchInput->tryGetValue(p) && p > 0.0) { state->toolPath.threadPitch = p; }
-            }
 
             if (passesInput) {
                 passesInput->commit(e);
@@ -115,10 +113,6 @@ export namespace Cam::Gui {
 
             if (directionDropdown) {
                 state->toolPath.threadUpCut = (directionDropdown->params.value != "down");
-            }
-
-            if (fineToolDropdown) {
-                state->toolPath.fineToolName = fineToolDropdown->params.value;
             }
         }
     };

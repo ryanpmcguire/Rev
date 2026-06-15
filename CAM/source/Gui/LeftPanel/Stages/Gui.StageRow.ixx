@@ -31,6 +31,7 @@ import Cam.App.Operation;
 import Cam.Gui.Theme;
 import Cam.Gui.OperationView;
 import Cam.Gui.FaceOperationView;
+import Cam.Gui.ThreadMillOperationView;
 import Cam.Gui.ImportOperationView;
 import Cam.Gui.ProbeView;
 import Cam.Gui.ToolPathSettingsWindow;
@@ -637,6 +638,8 @@ export namespace Cam::Gui {
             switch (type) {
                 case Cam::App::OperationType::Import:
                     return new ImportOperationView(parent);
+                case Cam::App::OperationType::ThreadMill:
+                    return new ThreadMillOperationView(parent);
                 default:
                     return new FaceOperationView(parent);
             }

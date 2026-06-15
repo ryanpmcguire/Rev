@@ -23,6 +23,7 @@ import Cam.App.Probe;
 import Cam.App.Operation;
 import Cam.App.ToolPath;
 import Cam.App.ToolLibrary;
+import Cam.App.ThreadSpec;
 export namespace Cam::App {
 
     using Json = nlohmann::json;
@@ -459,7 +460,6 @@ export namespace Cam::App {
 
                 stageJson["toolPath"] = {
                     { "toolName", stage->toolPath.toolName },
-                    { "fineToolName", stage->toolPath.fineToolName },
                     { "strategy", stage->toolPath.strategy },
                     { "strategyAuto", stage->toolPath.strategyAuto },
                     { "stepDown", stage->toolPath.stepDown },
@@ -478,6 +478,7 @@ export namespace Cam::App {
                     { "leadFeedRate", stage->toolPath.leadFeedRate },
                     { "threadMajorDiameter", stage->toolPath.threadMajorDiameter },
                     { "threadPitch", stage->toolPath.threadPitch },
+                    { "threadPreBore", stage->toolPath.threadPreBore },
                     { "threadInternal", stage->toolPath.threadInternal },
                     { "threadPasses", stage->toolPath.threadPasses },
                     { "threadUpCut", stage->toolPath.threadUpCut },
@@ -645,10 +646,6 @@ export namespace Cam::App {
                             stage->toolPath.toolName = toolPathJson["toolName"].get<std::string>();
                         }
 
-                        if (toolPathJson.contains("fineToolName") && toolPathJson["fineToolName"].is_string()) {
-                            stage->toolPath.fineToolName = toolPathJson["fineToolName"].get<std::string>();
-                        }
-
                         if (toolPathJson.contains("hasToolPath") && toolPathJson["hasToolPath"].is_boolean()) {
                             stage->hasToolPath = toolPathJson["hasToolPath"].get<bool>();
                         }
@@ -698,6 +695,9 @@ export namespace Cam::App {
                         }
                         if (toolPathJson.contains("threadPitch") && toolPathJson["threadPitch"].is_number()) {
                             stage->toolPath.threadPitch = toolPathJson["threadPitch"].get<double>();
+                        }
+                        if (toolPathJson.contains("threadPreBore") && toolPathJson["threadPreBore"].is_number()) {
+                            stage->toolPath.threadPreBore = toolPathJson["threadPreBore"].get<double>();
                         }
                         if (toolPathJson.contains("threadInternal") && toolPathJson["threadInternal"].is_boolean()) {
                             stage->toolPath.threadInternal = toolPathJson["threadInternal"].get<bool>();
@@ -1716,6 +1716,18 @@ export namespace Cam::App {
             bool ok = stage->operation->apply(stage->model);
 
             stage->model.clearSelection();
+
+            // Thread milling: the operation owns the callout, so mirror it onto
+            // the toolpath BEFORE the toolpath recompute (inside computeDelta) so
+            // the helix is cut to exactly what the feature specifies.
+            if (stage->operation->type() == OperationType::ThreadMill) {
+                ThreadMillOperation* op = static_cast<ThreadMillOperation*>(stage->operation);
+                stage->toolPath.threadMajorDiameter = op->majorDiameter;
+                stage->toolPath.threadPitch = op->pitch;
+                stage->toolPath.threadPreBore = op->preBoreDiameter;
+                stage->toolPath.threadInternal = op->internal;
+            }
+
             stage->computeDelta(toolLibrary, selectedToolName);
 
             dirty = true;
@@ -1839,11 +1851,13 @@ export namespace Cam::App {
             return best;
         }
 
-        // Begin a thread-mill operation on the selected cylindrical hole: shrink
-        // the hole to its pre-thread bore (the operation's apply) and auto-select
-        // the Thread Mill toolpath strategy, seeded with the callout read from
-        // the hole.  The user refines pitch / pre-bore in the operation + the
-        // thread-mill settings view.
+        // Begin a thread-mill operation on the selected cylindrical hole.  The
+        // sensible default is the LARGEST standard callout that fits the hole,
+        // with its coarse pitch and recommended pre-bore.  The operation owns the
+        // callout (editable in its feature view); the Thread Mill toolpath is
+        // auto-selected and its thread settings are derived from that callout (by
+        // recomputeOperation).  The bore itself is assumed to be a prior step --
+        // the operation only models the plain pre-thread bore to leave.
         bool beginThreadMillFromSelection() {
 
             if (!workingStage || !workingStage->parent) { return false; }
@@ -1853,35 +1867,62 @@ export namespace Cam::App {
 
             const int hole = static_cast<int>(*sel.begin());
 
-            const double major = workingStage->model.faceCylinderDiameter(static_cast<size_t>(hole));
-            if (major <= 1e-6) {
+            const double holeDia = workingStage->model.faceCylinderDiameter(static_cast<size_t>(hole));
+            if (holeDia <= 1e-6) {
                 dbg("[ThreadMill] selected face is not a cylindrical hole");
                 return false;
             }
 
             ThreadMillOperation* op = new ThreadMillOperation();
             op->holeFace = hole;
-            op->majorDiameter = major;
-            op->pitch = coarsePitchFor(major);
-            op->preBoreDiameter = ThreadMillOperation::minorDiameter(major, op->pitch);
+
+            // Largest standard thread that fits the hole; fall back to the hole's
+            // own size for a hole smaller than the smallest preset.
+            if (const ThreadSpec* spec = largestThreadFitting(holeDia)) {
+                op->majorDiameter = spec->major;
+                op->pitch = spec->pitch;
+                op->preBoreDiameter = spec->preBore;
+            }
+            else {
+                op->majorDiameter = holeDia;
+                op->pitch = coarsePitchFor(holeDia);
+                op->preBoreDiameter = recommendedPreBore(holeDia, op->pitch);
+            }
+
             op->referencedFaces = { static_cast<size_t>(hole) };
 
             delete workingStage->operation;
             workingStage->operation = op;
             workingStage->highlightedOperationFaces = op->referencedFaces;
 
-            // Auto-select the Thread Mill toolpath strategy and seed its callout.
+            // Auto-select the Thread Mill toolpath strategy; recomputeOperation
+            // mirrors the operation's callout onto the toolpath.
             workingStage->toolPath.strategy = "ThreadMill";
             workingStage->toolPath.strategyAuto = false;
-            workingStage->toolPath.threadMajorDiameter = op->majorDiameter;
-            workingStage->toolPath.threadPitch = op->pitch;
-            workingStage->toolPath.threadInternal = op->internal;
 
             selectComponent(workingStage, 2 /* Operation */);
             recomputeOperation(workingStage);
 
             dirty = true;
             return true;
+        }
+
+        // Set the thread-mill operation's callout (the feature step owns it) and
+        // recompute -- which re-models the pre-bore AND mirrors the callout onto
+        // the toolpath, so the thread is cut to exactly what the feature specifies.
+        bool setThreadMillCallout(Stage* stage, double major, double pitch, double preBore, bool internal) {
+
+            if (!stage || !stage->operation) { return false; }
+            if (stage->operation->type() != OperationType::ThreadMill) { return false; }
+
+            ThreadMillOperation* op = static_cast<ThreadMillOperation*>(stage->operation);
+
+            op->majorDiameter = major;
+            op->pitch = pitch;
+            op->preBoreDiameter = preBore;
+            op->internal = internal;
+
+            return recomputeOperation(stage);
         }
 
         bool beginExtrudeFromSelection() {

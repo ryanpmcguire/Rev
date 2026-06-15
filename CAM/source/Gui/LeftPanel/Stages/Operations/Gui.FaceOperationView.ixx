@@ -151,7 +151,7 @@ export namespace Cam::Gui {
             return el;
         }
 
-        void rebuild() {
+        virtual void rebuild() {
 
             for (Element* row : rows) { delete row; }
             rows.clear();

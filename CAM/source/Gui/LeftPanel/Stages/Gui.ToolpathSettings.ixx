@@ -65,6 +65,7 @@ export namespace Cam::Gui {
         Cam::App::AppState* app = nullptr;
         Cam::App::Stage* state = nullptr;
         Cam::App::Stage* boundState = nullptr;
+        std::string boundStrategy;
 
         Dropdown* strategyDropdown = nullptr;
         Box* strategyBody = nullptr;
@@ -139,10 +140,15 @@ export namespace Cam::Gui {
         void setState(Cam::App::Stage* stage) {
 
             state = stage;
-            if (state == boundState) { return; }
-            boundState = state;
 
             const std::string strategy = state ? state->toolPath.strategy : std::string();
+
+            // Refresh when the stage OR its strategy changes -- the strategy can
+            // flip underneath a bound stage (e.g. starting a thread mill auto-
+            // selects the Thread Mill strategy), and the menu must follow.
+            if (state == boundState && strategy == boundStrategy) { return; }
+            boundState = state;
+            boundStrategy = strategy;
 
             if (strategyDropdown) { strategyDropdown->params.value = strategy; }
 

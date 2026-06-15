@@ -79,8 +79,10 @@ export namespace Cam::Gui {
         virtual std::string strategyName() const = 0;
 
         // Build the controls every strategy shares. Subclasses call this first in
-        // their constructor, then append their own controls.
-        void buildCommon() {
+        // their constructor, then append their own controls.  `withStepDown` is
+        // false for strategies where an axial stepdown is meaningless (thread
+        // milling, whose axial step IS the pitch).
+        void buildCommon(bool withStepDown = true) {
 
             Box* toolRow = new Box(this, { &ToolpathViewStyle::Row }, "ToolpathToolRow");
 
@@ -93,7 +95,9 @@ export namespace Cam::Gui {
 
             Box* machiningRow = new Box(this, { &ToolpathViewStyle::Row }, "ToolpathMachiningRow");
 
-            stepDownInput = makeNumberInput(machiningRow, "Stepdown (mm)", "0.5");
+            if (withStepDown) {
+                stepDownInput = makeNumberInput(machiningRow, "Stepdown (mm)", "0.5");
+            }
             feedRateInput = makeNumberInput(machiningRow, "Feed rate (mm/min)", "250");
 
             // Retract height applies to EVERY strategy: the clearance plane
