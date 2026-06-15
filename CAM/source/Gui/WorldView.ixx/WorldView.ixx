@@ -1164,19 +1164,24 @@ export namespace Cam::Gui {
             Rev::Core::Pos3 dir = { 0.0f, 0.0f, 1.0f };
             bool haveTip = false;
 
-            // EXECUTE: show where the machine ACTUALLY is, from telemetry.
+            // EXECUTE: show where the TOOL TIP actually is.  We read the
+            // controller's own tip position (WPos) -- tool-length already folded
+            // in by the machine -- rather than reconstructing the tip from MPos
+            // minus a tool length we'd have to track.  This is why a long probe
+            // and a short endmill both display correctly: the machine, not us,
+            // owns the tip math.  Falls back to MPos until a WPos arrives.
             float tx, ty, tz, ta;
             float omx, omy, omz, ocx, ocy, ocz;
 
             if (executeMode &&
                 link.connected() &&
-                link.telemetry(tx, ty, tz, ta) &&
+                (link.tipTelemetry(tx, ty, tz, ta) || link.telemetry(tx, ty, tz, ta)) &&
                 link.workOrigin(omx, omy, omz, ocx, ocy, ocz)) {
 
-                // MPos - machineOrigin = WCS coords in the user/machine frame.
-                // Add the begin-work offset (also in-frame) and rotate back into
-                // CAD world via frame.toWorld.  This is the exact inverse of the
-                // streamer's transform — no ad-hoc axis swaps.
+                // tipPos - machineOrigin = the tip in the user/machine frame.  Add
+                // the begin-work offset (also in-frame) and rotate back into CAD
+                // via frame.toWorld -- the exact inverse of the streamer's
+                // transform, no ad-hoc axis swaps.
                 const Rev::Core::Pos3 wcsInFrame = {
                     tx - omx,
                     ty - omy,

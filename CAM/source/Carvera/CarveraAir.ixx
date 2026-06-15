@@ -347,6 +347,17 @@ export namespace Carvera {
             return true;
         }
 
+        // The TOOL-TIP position straight from the controller (WPos): tool-length
+        // and work offset already applied by the machine.  This is the number to
+        // display/track -- no host-side tip reconstruction.  Returns false until
+        // the machine has reported a WPos (caller may fall back to telemetry()).
+        bool tipTelemetry(float& x, float& y, float& z, float& a) const {
+            if (!wcsPosValid.load()) { return false; }
+            x = wcsX.load(); y = wcsY.load(); z = wcsZ.load();
+            a = wcsAValid.load() ? wcsA.load() : 0.0f;
+            return true;
+        }
+
         bool isArmed()        const { return armed.load() && connected(); }
         bool isSpindleArmed() const { return spindleArmed.load(); }
 
@@ -1197,6 +1208,11 @@ export namespace Carvera {
 
         float pendingWcsA      = 0;
         bool  pendingWcsAValid = false;
+        // WPos X/Y/Z: the machine's own TOOL-TIP position (tool-length + work
+        // offset already folded in by the controller).  We read this directly
+        // rather than reconstructing the tip from MPos minus a tool length.
+        float pendingWcsX = 0, pendingWcsY = 0, pendingWcsZ = 0;
+        bool  pendingWcsPosValid = false;
 
         // Probe-reply handoff: processLine (worker) parses a "[PRB:...]" line
         // into these; drainTelemetry (main) emits the ProbeEvent.
@@ -1262,6 +1278,8 @@ export namespace Carvera {
 
         std::atomic<float> wcsA { 0 };
         std::atomic<bool>  wcsAValid { false };
+        std::atomic<float> wcsX { 0 }, wcsY { 0 }, wcsZ { 0 };
+        std::atomic<bool>  wcsPosValid { false };
 
         // -- Arming -------------------------------------------------
 
@@ -1604,8 +1622,11 @@ export namespace Carvera {
 
                 float wx = 0, wy = 0, wz = 0, wa = 0;
                 size_t wp   = msg.find("WPos:");
-                bool wposOk = (wp != std::string::npos) &&
-                              sscanf(msg.c_str() + wp + 5, "%f,%f,%f,%f", &wx, &wy, &wz, &wa) >= 4;
+                int    wn   = (wp != std::string::npos)
+                    ? sscanf(msg.c_str() + wp + 5, "%f,%f,%f,%f", &wx, &wy, &wz, &wa)
+                    : 0;
+                const bool wposPosOk = wn >= 3;   // X/Y/Z (the tool tip)
+                const bool wposOk    = wn >= 4;   // includes the A angle
 
                 // Some Carvera/Smoothie builds include the loaded tool number
                 // in the status frame as "|T:<n>" or "|TLO:..." -- parse it so
@@ -1617,6 +1638,10 @@ export namespace Carvera {
                 if (posOk) {
                     pendingPosX = x; pendingPosY = y; pendingPosZ = z; pendingPosA = a;
                     pendingPosValid = true;
+                }
+                if (wposPosOk) {
+                    pendingWcsX = wx; pendingWcsY = wy; pendingWcsZ = wz;
+                    pendingWcsPosValid = true;
                 }
                 if (wposOk) {
                     pendingWcsA      = wa;
@@ -1759,6 +1784,8 @@ export namespace Carvera {
             float       nx = 0, ny = 0, nz = 0, na = 0;
             float       nwa = 0;
             bool        nwaValid = false;
+            float       nwx = 0, nwy = 0, nwz = 0;
+            bool        nwposValid = false;
             std::string nstate;
 
             bool             connDirty = false;
@@ -1789,6 +1816,11 @@ export namespace Carvera {
                 if (pendingWcsAValid) {
                     nwa = pendingWcsA; nwaValid = true;
                     pendingWcsAValid = false;
+                }
+                if (pendingWcsPosValid) {
+                    nwx = pendingWcsX; nwy = pendingWcsY; nwz = pendingWcsZ;
+                    nwposValid = true;
+                    pendingWcsPosValid = false;
                 }
                 pendingResponseSeen = false;
 
@@ -1871,6 +1903,10 @@ export namespace Carvera {
             }
 
             if (nwaValid) { setWcsA(nwa); }
+            if (nwposValid) {
+                wcsX.store(nwx); wcsY.store(nwy); wcsZ.store(nwz);
+                wcsPosValid.store(true);
+            }
 
             return posDirty;
         }
