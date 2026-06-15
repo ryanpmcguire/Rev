@@ -3,6 +3,8 @@
 #include <exception>
 #include <string>
 #include <cstdio>
+#include <csignal>
+#include <typeinfo>
 
 import Rev.Application;
 import Rev.Window;
@@ -15,32 +17,65 @@ import LithoControl.Interface;
 using namespace Rev;
 using namespace LithoControl;
 
-static LONG WINAPI FirstChanceAV(EXCEPTION_POINTERS* ep) {
-    if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
-        char msg[512];
+static LONG WINAPI FirstChanceHandler(EXCEPTION_POINTERS* ep) {
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    char msg[512];
+    if (code == EXCEPTION_ACCESS_VIOLATION) {
         snprintf(msg, sizeof(msg),
             "Access Violation!\n"
-            "RIP: 0x%016llX\n"
-            "RVA: 0x%08llX  (subtract 0x140000000 if ASLR off)\n"
+            "RIP: 0x%016llX  (RVA ~0x%08llX)\n"
             "%s address: 0x%016llX",
             (unsigned long long)ep->ContextRecord->Rip,
             (unsigned long long)(ep->ContextRecord->Rip - 0x140000000ULL),
             ep->ExceptionRecord->ExceptionInformation[0] == 1 ? "WRITE to" : "READ from",
             (unsigned long long)ep->ExceptionRecord->ExceptionInformation[1]);
         MessageBoxA(nullptr, msg, "AV - First Chance", MB_OK | MB_ICONERROR);
+    } else if (code == 0xC00000FD) {
+        snprintf(msg, sizeof(msg), "STACK OVERFLOW at RIP 0x%016llX",
+            (unsigned long long)ep->ContextRecord->Rip);
+        MessageBoxA(nullptr, msg, "Stack Overflow", MB_OK | MB_ICONERROR);
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
 int main() {
 
-    AddVectoredExceptionHandler(1, FirstChanceAV);
+    AddVectoredExceptionHandler(1, FirstChanceHandler);
+
+    // SIGABRT fires when abort() is called directly (e.g. assert, not via terminate)
+    std::signal(SIGABRT, [](int) {
+        MessageBoxA(nullptr,
+            "abort() called directly (not via terminate).\n"
+            "This means: assert() failed, or abort() was called without throwing first.\n"
+            "Check Output window for assertion text.",
+            "SIGABRT Handler", MB_OK | MB_ICONERROR);
+    });
 
     std::set_terminate([]() {
-        MessageBoxA(nullptr,
-            "Fatal error: std::terminate() called.\n"
-            "Check the crash dump in %LOCALAPPDATA%\\CrashDumps for details.",
-            "LithoControl – Fatal Error", MB_OK | MB_ICONERROR);
+        char msg[1024];
+        auto ep = std::current_exception();
+        if (ep) {
+            try {
+                std::rethrow_exception(ep);
+            } catch (const std::exception& ex) {
+                snprintf(msg, sizeof(msg),
+                    "std::terminate() — active C++ exception:\ntype: %s\nwhat: %s\n\n"
+                    "Likely cause: exception escaped a noexcept function or destructor.",
+                    typeid(ex).name(), ex.what());
+            } catch (...) {
+                snprintf(msg, sizeof(msg),
+                    "std::terminate() — active exception of unknown type.\n\n"
+                    "Likely cause: exception escaped a noexcept function or destructor.");
+            }
+        } else {
+            snprintf(msg, sizeof(msg),
+                "std::terminate() called with NO active exception.\n\n"
+                "Likely causes:\n"
+                "  - std::thread destroyed while still joinable\n"
+                "  - pure virtual function called\n"
+                "  - std::terminate() called directly");
+        }
+        MessageBoxA(nullptr, msg, "LithoControl – Fatal Error", MB_OK | MB_ICONERROR);
         std::abort();
     });
 
