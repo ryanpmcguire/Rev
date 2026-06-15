@@ -270,8 +270,12 @@ export namespace Carvera::Gui {
             Carvera::Air& a = air();
             const bool isConnected = a.connected();
 
+            // Read out the TOOL-TIP position (the controller's tip-referenced
+            // WPos, already smoothed by Air).  Fall back to the machine
+            // (spindle) position until a tip frame has arrived.
             float px = 0, py = 0, pz = 0, pa = 0;
-            const bool havePos = a.livePosition(px, py, pz, pa);
+            const bool havePos = a.tipTelemetry(px, py, pz, pa) ||
+                                 a.livePosition(px, py, pz, pa);
 
             if (!isConnected || !havePos) {
                 if (posXText) posXText->content = "---";

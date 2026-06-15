@@ -32,7 +32,12 @@ export namespace Carvera::Gui {
         inline Rev::Element::Style Root = {
             .layout  = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
             .size    = { .width = 100_pct, .height = 100_pct },
-            .padding = { 16_px, 16_px, 16_px, 16_px }
+            .padding = { 16_px, 16_px, 16_px, 16_px },
+            // Fill the host, never wrap content, clip what spills, and let the
+            // operator scroll the sections vertically when they exceed the
+            // available window height.
+            .overflow = Overflow::Hide,
+            .scroll   = Scroll::Vertical
         };
 
         inline Rev::Element::Style Section = {

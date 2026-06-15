@@ -152,15 +152,25 @@ export namespace Cam::Gui {
         std::vector<ProbeSessionEntry> probeSession_;
         size_t probeFillIndex_ = 0;
 
-        // How many times each stage's probe operation runs.  ONE: the probe is
-        // never driven by the fitted correction (it always measures the part at
-        // its fixed mounted pose), so a single pass is the complete absolute
-        // measurement -- re-probing would only re-measure the same thing.
-        // Iterative re-probe (which physically re-orients the part between passes)
-        // is intentionally NOT done until the pose math is rigorously verified:
-        // rotating the fragile probe by a not-yet-trusted correction is what
-        // broke probes.  See CarveraREADME.md probing notes.
-        static constexpr int kProbeRepeatCount = 1;
+        // How many times each stage's probe operation runs.  Pass 0 is ALWAYS a
+        // clean ABSOLUTE measurement (driven to fixed nominal positions, fit
+        // REPLACES).  Passes > 0 are ITERATIVE re-probes: they are driven by the
+        // prior pass's correction so the probe approaches the part where it now
+        // is, measure the RESIDUAL, and compose -- the pose converges.
+        //
+        // CRITICAL SAFETY GATE: a pass > 0 is only driven by the prior correction
+        // when that fit is TRUSTED (tight RMS, modest tilt -- see
+        // kProbeReprobeMax*).  An untrusted fit falls back to a clean nominal
+        // re-measure, so the fragile, expensive probe is NEVER swung by a wild or
+        // uncertain correction (the failure mode that broke probes).  See
+        // ProbeResult::trustedForReprobe / composedOnto and CarveraREADME.md.
+        static constexpr int kProbeRepeatCount = 2;
+
+        // Trust thresholds gating whether a re-probe (pass > 0) is DRIVEN by the
+        // prior pass's correction.  Conservative on purpose: only a tight fit
+        // with a modest commanded tilt may rotate the probe.
+        static constexpr double kProbeReprobeMaxRmsMm   = 0.5;
+        static constexpr double kProbeReprobeMaxTiltDeg = 10.0;
 
         // Frame captured at the build that produced the current probeSession_,
         // used to map a machine-WCS contact back into the CAD frame.  Stored as
@@ -171,6 +181,15 @@ export namespace Cam::Gui {
         Rev::Core::Pos3 probeFrameY_{ 0, 1, 0 };
         Rev::Core::Pos3 probeFrameZ_{ 0, 0, 1 };
         Rev::Core::Pos3 probeBeginWorkInFrame_{};
+
+        // When the current probe session is a DRIVEN re-probe (pass > 0 with a
+        // trusted prior fit), the correction it was driven by is stashed here and
+        // probeSessionComposed_ is set: the session's nominal/normal entries are
+        // already base-corrected, so handleProbeContact fits the RESIDUAL and
+        // COMPOSES it onto this base instead of replacing.  Cleared (identity,
+        // false) for a clean absolute pass, where the fit REPLACES.
+        Cam::App::ProbeResult probeSessionBase_;
+        bool                  probeSessionComposed_ = false;
 
         // Liveness guard for the dispatcher-registered onProbe listener.  The
         // Dispatcher has no removal, and this view IS destructible, so the
@@ -1734,15 +1753,24 @@ export namespace Cam::Gui {
             }
 
             // Store the fit as the PROJECT-WIDE correction (a part property that
-            // applies to every step), REPLACING any prior value.  The probe always
-            // measures the part at its fixed mounted pose (never driven by a prior
-            // correction), so every fit is an independent ABSOLUTE measurement --
-            // nothing to accumulate.  It persists until "Set Origin" clears it.
+            // applies to every step).  It persists until "Set Origin" clears it.
+            //
+            //  * Clean ABSOLUTE pass (probe driven to nominal): the fit is an
+            //    independent measurement of the part at its mounted pose, so it
+            //    REPLACES any prior value -- nothing to accumulate.
+            //  * Trusted iterative RE-PROBE (probe driven by the base correction):
+            //    the session's nominal/normal are already base-corrected, so the
+            //    fit is the RESIDUAL relative to the applied pose.  Compose it onto
+            //    the base so the correction refines and converges.
             Cam::App::Project* project = activeProject();
             if (!project) { return; }
 
-            project->probeCorrection =
+            const Cam::App::ProbeResult fitted =
                 Cam::App::ProbeResult::fit(nominal, measured, normal, rotaryAxis);
+
+            project->probeCorrection = probeSessionComposed_
+                ? fitted.composedOnto(probeSessionBase_)
+                : fitted;
             project->dirty = true;
 
             const Cam::App::ProbeResult& r = project->probeCorrection;
@@ -2330,7 +2358,8 @@ export namespace Cam::Gui {
             // Probe operation (a break to locate the part) BEFORE the stage's
             // cut: for each target, rapid to the standoff point, then drive
             // slowly along -normal through the nominal point (G38.2) until touch.
-            auto appendProbeOp = [&](Cam::App::Stage* state) {
+            auto appendProbeOp = [&](Cam::App::Stage* state,
+                                     const Cam::App::ProbeResult* drive) {
 
                 if (!state || !state->probe.enabled || state->probe.targets.empty()) { return; }
 
@@ -2346,15 +2375,17 @@ export namespace Cam::Gui {
                 // from the material, so the solver orients the feature to the tool.
                 Cam::App::ToolPath probePath;
 
-                // SAFETY INVARIANT: the probe is NEVER driven by a fitted
-                // correction.  It only ever moves to fixed, origin-referenced
-                // nominal positions, so the fragile probe can never be rotated
-                // into a bizarre orientation by an accumulating/incorrect
-                // correction.  Each probe is therefore a clean ABSOLUTE
-                // measurement of the part at its mounted pose; the fit is taken
-                // raw-nominal vs. true-contact and REPLACES (no composition, no
-                // compounding).  The correction is applied to the CUT and the
-                // view -- never to the probe.
+                // SAFETY INVARIANT: the probe is driven by a fitted correction
+                // ONLY on a TRUSTED iterative re-probe (drive != null; the caller
+                // has already gated on trustedForReprobe).  Pass 0 -- and any
+                // untrusted pass -- has drive == null and moves to fixed, origin-
+                // referenced NOMINAL positions, so the fragile probe can never be
+                // swung into a bizarre orientation by a wild/uncertain correction.
+                // When driven, the targets are mapped by the correction so the
+                // probe approaches the part WHERE IT NOW IS; the fit then measures
+                // the residual and COMPOSES (see handleProbeContact).  The session
+                // entries below store the (possibly driven) nominal/normal, which
+                // is exactly what the residual fit must compare against.
                 struct KeptTarget { Rev::Core::Pos3 point; Rev::Core::Pos3 normal; };
                 std::vector<KeptTarget> keptTargets;
 
@@ -2366,17 +2397,28 @@ export namespace Cam::Gui {
                             "(%.2f, %.2f, %.2f)", t.point.x, t.point.y, t.point.z);
                         continue;
                     }
-                    const Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
-                    keptTargets.push_back({ t.point, n });
+                    Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
+                    Rev::Core::Pos3 p = t.point;
+
+                    // Trusted re-probe: place the target where the correction says
+                    // the part now is (point mapped, normal rotated + renormalized).
+                    if (drive) {
+                        p = drive->apply(t.point);
+                        Rev::Core::Pos3 dn = drive->applyDirection(n);
+                        const float dl = dn.pythag();
+                        if (dl > 1e-5f) { n = dn * (1.0f / dl); }
+                    }
+
+                    keptTargets.push_back({ p, n });
 
                     Cam::App::ToolPathPoint a;   // standoff (outside surface, +normal)
-                    a.position      = t.point + n * static_cast<float>(t.standoff);
+                    a.position      = p + n * static_cast<float>(t.standoff);
                     a.toolDirection = n;
                     a.rapid = true;  a.cutting = false;
                     probePath.points.push_back(a);
 
                     Cam::App::ToolPathPoint b;   // through the point (-normal, overtravel)
-                    b.position      = t.point - n * static_cast<float>(t.overtravel);
+                    b.position      = p - n * static_cast<float>(t.overtravel);
                     b.toolDirection = n;
                     b.rapid = false; b.cutting = false;
                     probePath.points.push_back(b);
@@ -2523,7 +2565,7 @@ export namespace Cam::Gui {
             // what lets Air pull ops one at a time and have each built fresh.
             long opCursor = 0;
 
-            auto commitProbe = [&](Cam::App::Stage* state) {
+            auto commitProbe = [&](Cam::App::Stage* state, int passIndex) {
                 if (onlyOpIndex < 0 || opCursor == onlyOpIndex) {
                     // Reset the probe session for THIS op so its [PRB] replies
                     // attribute to its own targets, and capture the frame for the
@@ -2535,7 +2577,31 @@ export namespace Cam::Gui {
                     probeFrameY_           = frame.Y;
                     probeFrameZ_           = frame.Z;
                     probeBeginWorkInFrame_ = beginWorkInFrame;
-                    appendProbeOp(state);
+
+                    // Iterative re-probe: pass > 0 is DRIVEN by the prior pass's
+                    // correction -- but ONLY when that fit is trusted.  Otherwise
+                    // (and always for pass 0) we drive nominal and the fit
+                    // REPLACES.  The base is stashed so the residual composes.
+                    probeSessionBase_.reset();
+                    probeSessionComposed_ = false;
+                    const Cam::App::ProbeResult* drive = nullptr;
+                    if (passIndex > 0 &&
+                        project->probeCorrection.trustedForReprobe(
+                            kProbeReprobeMaxRmsMm, kProbeReprobeMaxTiltDeg)) {
+                        probeSessionBase_     = project->probeCorrection;
+                        probeSessionComposed_ = true;
+                        drive                 = &probeSessionBase_;
+                        dbg("[Probe] pass %d DRIVEN by trusted correction "
+                            "(rms=%.4f, drivenTilt=%.2f deg)",
+                            passIndex, probeSessionBase_.rmsError,
+                            probeSessionBase_.drivenTiltDeg());
+                    }
+                    else if (passIndex > 0) {
+                        dbg("[Probe] pass %d NOT driven (prior fit untrusted) - "
+                            "re-measuring nominal", passIndex);
+                    }
+
+                    appendProbeOp(state, drive);
                 }
                 opCursor++;
             };
@@ -2553,7 +2619,7 @@ export namespace Cam::Gui {
             auto appendState = [&](Cam::App::Stage* state) {
                 if (!state) { return; }
                 if (stageHasProbe(state)) {
-                    for (int r = 0; r < kProbeRepeatCount; r++) { commitProbe(state); }
+                    for (int r = 0; r < kProbeRepeatCount; r++) { commitProbe(state, r); }
                 }
                 if (state->hasToolPath) { commitCut(state); }
             };

@@ -347,11 +347,22 @@ export namespace Carvera {
             return true;
         }
 
-        // The TOOL-TIP position straight from the controller (WPos): tool-length
-        // and work offset already applied by the machine.  This is the number to
-        // display/track -- no host-side tip reconstruction.  Returns false until
-        // the machine has reported a WPos (caller may fall back to telemetry()).
+        // Smoothed TOOL-TIP position (WPos): tool-length and work offset already
+        // applied by the machine, then run through the same display smoothing as
+        // the machine coordinates.  This is the number to display/track -- no
+        // host-side tip reconstruction.  Returns false until the machine has
+        // reported a WPos (caller may fall back to telemetry()).  A is rotary so
+        // tip A == smoothed machine A.
         bool tipTelemetry(float& x, float& y, float& z, float& a) const {
+            if (!tipTelemValid.load()) { return false; }
+            x = tipTelemX.load(); y = tipTelemY.load(); z = tipTelemZ.load();
+            a = telemA.load();
+            return true;
+        }
+
+        // Last confirmed (raw, un-smoothed) TOOL-TIP position (WPos), straight
+        // from the controller.  The smoothing-free counterpart to tipTelemetry().
+        bool tipConfirmed(float& x, float& y, float& z, float& a) const {
             if (!wcsPosValid.load()) { return false; }
             x = wcsX.load(); y = wcsY.load(); z = wcsZ.load();
             a = wcsAValid.load() ? wcsA.load() : 0.0f;
@@ -1231,6 +1242,12 @@ export namespace Carvera {
         float confX = 0, confY = 0, confZ = 0, confA = 0;
         bool  confValid = false;
 
+        // Last confirmed (raw) TOOL-TIP position (WPos) from the same frame
+        // family as conf*.  Kept so the tip can be smoothed alongside the
+        // machine coordinates -- see publishLivePosition().
+        float confWX = 0, confWY = 0, confWZ = 0;
+        bool  confWValid = false;
+
         // -- Intent / display estimator -----------------------------
         //
         // The displayed position is a TIME-BASED ESTIMATE, never a snap:
@@ -1280,6 +1297,12 @@ export namespace Carvera {
         std::atomic<bool>  wcsAValid { false };
         std::atomic<float> wcsX { 0 }, wcsY { 0 }, wcsZ { 0 };
         std::atomic<bool>  wcsPosValid { false };
+
+        // Smoothed TOOL-TIP mirror (the value the GUI tracks for the tip).
+        // Derived from the smoothed machine display minus the constant
+        // tool-length/work offset -- see publishLivePosition().
+        std::atomic<float> tipTelemX { 0 }, tipTelemY { 0 }, tipTelemZ { 0 };
+        std::atomic<bool>  tipTelemValid { false };
 
         // -- Arming -------------------------------------------------
 
@@ -1906,6 +1929,8 @@ export namespace Carvera {
             if (nwposValid) {
                 wcsX.store(nwx); wcsY.store(nwy); wcsZ.store(nwz);
                 wcsPosValid.store(true);
+                confWX = nwx; confWY = nwy; confWZ = nwz;
+                confWValid = true;
             }
 
             return posDirty;
@@ -2016,6 +2041,21 @@ export namespace Carvera {
             telemX.store(dispX); telemY.store(dispY);
             telemZ.store(dispZ); telemA.store(dispA);
             telemValid.store(true);
+
+            // Smoothed TOOL-TIP position.  The tip differs from the machine
+            // (spindle) reference only by the controller's tool-length/work
+            // offset, which is constant except at a tool change.  Subtracting
+            // that offset from the already-smoothed machine display gives a tip
+            // that inherits every behaviour of the machine estimator -- dead-
+            // reckoning, jog lead, quiet anchoring -- for free, and steps once
+            // (correctly) when the tip reference changes at a tool change.  A is
+            // a rotary axis with no tool-length offset, so tip A == machine A.
+            if (confWValid) {
+                tipTelemX.store(dispX - (confX - confWX));
+                tipTelemY.store(dispY - (confY - confWY));
+                tipTelemZ.store(dispZ - (confZ - confWZ));
+                tipTelemValid.store(true);
+            }
 
             if (onTelemetry) { onTelemetry(dispX, dispY, dispZ, dispA); }
 

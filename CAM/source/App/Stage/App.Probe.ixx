@@ -132,6 +132,62 @@ export namespace Cam::App {
             };
         }
 
+        // Tilt magnitude (degrees) of the DRIVEN / TRUE rotation, from the trace:
+        // angle = acos((trace - 1) / 2).
+        double drivenTiltDeg() const {
+            const double tr = r[0] + r[4] + r[8];
+            return std::acos(std::clamp((tr - 1.0) * 0.5, -1.0, 1.0)) * 57.29577951308232;
+        }
+        double trueTiltDeg() const {
+            const double tr = rTrue[0] + rTrue[4] + rTrue[8];
+            return std::acos(std::clamp((tr - 1.0) * 0.5, -1.0, 1.0)) * 57.29577951308232;
+        }
+
+        // Is this correction trustworthy enough to physically DRIVE a re-probe by
+        // it?  A driven re-probe rotates the fragile, expensive probe by this
+        // correction, so we only do it when the fit is tight (small RMS) and the
+        // commanded tilt is modest -- an uncertain or wild fit must NEVER swing
+        // the probe.  (This is the gate that the broken-probe incidents lacked.)
+        bool trustedForReprobe(double maxRmsMm, double maxTiltDeg) const {
+            return valid
+                && rmsError      <= maxRmsMm
+                && drivenTiltDeg() <= maxTiltDeg
+                && trueTiltDeg()   <= maxTiltDeg;
+        }
+
+        // Compose: the correction equivalent to applying `base` first, then
+        // `*this`.  Rigid composition of BOTH the achievable (driven) and the
+        // true (record) parts:  R = R_this * R_base,  t = R_this * t_base + t_this.
+        // Iterative re-probe uses this: a driven pass measures the RESIDUAL
+        // relative to the already-applied base, and composing refines/converges
+        // the total correction (rmsError carries the latest residual's quality).
+        ProbeResult composedOnto(const ProbeResult& base) const {
+            ProbeResult o;
+            auto mul = [](const double* A, const double* B, double* O) {
+                for (int row = 0; row < 3; row++) {
+                    for (int col = 0; col < 3; col++) {
+                        O[row * 3 + col] = A[row * 3 + 0] * B[0 * 3 + col]
+                                         + A[row * 3 + 1] * B[1 * 3 + col]
+                                         + A[row * 3 + 2] * B[2 * 3 + col];
+                    }
+                }
+            };
+            auto xform = [](const double* M, const Pos3& p) -> Pos3 {
+                return Pos3{
+                    float(M[0] * p.x + M[1] * p.y + M[2] * p.z),
+                    float(M[3] * p.x + M[4] * p.y + M[5] * p.z),
+                    float(M[6] * p.x + M[7] * p.y + M[8] * p.z)
+                };
+            };
+            mul(r,     base.r,     o.r);
+            mul(rTrue, base.rTrue, o.rTrue);
+            o.t        = xform(r,     base.t)     + t;
+            o.tTrue    = xform(rTrue, base.tTrue) + tTrue;
+            o.valid    = valid && base.valid;
+            o.rmsError = rmsError;   // quality of the latest (residual) fit
+            return o;
+        }
+
         // Fit a frame correction (nominal CAD -> measured part pose) from probed
         // contacts.  nominal[i] / measured[i] are paired contact points in the
         // CAD frame; normal[i] is the outward surface normal the probe drove

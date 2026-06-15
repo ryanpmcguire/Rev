@@ -353,9 +353,19 @@ controller-side WCS offset.
 - `jog`/`jogA`/`jogRel` stay `$J=G91` (interactive nudging, not autonomous
   toolpath -- inherently "move from here").
 - The contact back-transform (`handleProbeContact`) inverts the above: MPos -
-  machineOrigin -> + beginWorkInFrame -> `frame.toWorld` -> CAD.  The probe is
-  never driven by a correction (always nominal positions), so the part is at its
-  mounted pose during every contact -- no part rotation to undo.
+  machineOrigin -> + beginWorkInFrame -> `frame.toWorld` -> CAD (world frame).
+- ITERATIVE RE-PROBE (`kProbeRepeatCount = 2`): each probe stage runs N passes.
+  Pass 0 is a clean ABSOLUTE measurement -- driven to fixed nominal positions,
+  fit REPLACES.  Pass > 0 is driven by the prior pass's correction so the probe
+  approaches the part WHERE IT NOW IS (the chuck has rotated between passes); the
+  back-transform yields the world-frame contact, compared against the base-
+  corrected nominal, giving the RESIDUAL, which `ProbeResult::composedOnto`
+  composes onto the base so the pose converges.  CRITICAL GATE: a pass is only
+  driven when the prior fit is TRUSTED (`trustedForReprobe`: rms <= 0.5 mm AND
+  driven/true tilt <= 10 deg); otherwise it re-measures nominal.  So the fragile,
+  expensive probe is NEVER swung by a wild/uncertain correction -- the failure
+  mode that broke probes.  Air does not know it is doing multiple passes; it just
+  pulls ops one at a time, and each driven pass picks up the latest correction.
 
 ## Tools / refs
 

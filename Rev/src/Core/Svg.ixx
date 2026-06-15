@@ -72,7 +72,7 @@ export namespace Rev::Core {
 
         void bake() {
 
-            dbg("[Svg] Baking");
+            //dbg("[Svg] Baking");
 
             // Free old resources if rebaking
             if (texture) { delete texture; texture = nullptr; }
