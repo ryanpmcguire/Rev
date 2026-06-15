@@ -112,6 +112,7 @@ export namespace Cam::App::Slicer::Strategy {
 
             strategy.slices_.clear();
             strategy.paths_.clear();
+            strategy.warnings_.clear();
 
             if (!ctx.positive) {
                 dbg("[%s] Failed: no positive model", S::name());
@@ -209,6 +210,16 @@ export namespace Cam::App::Slicer::Strategy {
 
                 strategy.processSlice(slice, ctx);
 
+                // Hoist the slice's advisories up, deduplicated (the same warning
+                // typically recurs on many slices), and log them.
+                for (const std::string& w : slice.result.warnings) {
+                    if (std::find(strategy.warnings_.begin(), strategy.warnings_.end(), w)
+                        == strategy.warnings_.end()) {
+                        strategy.warnings_.push_back(w);
+                        dbg("[%s] warning: %s", S::name(), w.c_str());
+                    }
+                }
+
                 if (!slice.hasProfiles()) {
                     dbg("[%s] depth=%.3f: no profiles", S::name(), depth);
                     continue;
@@ -237,6 +248,10 @@ export namespace Cam::App::Slicer::Strategy {
 
         const std::vector<LayerPath>& paths() const {
             return paths_;
+        }
+
+        const std::vector<std::string>& warnings() const {
+            return warnings_;
         }
 
         // Bounds
@@ -431,5 +446,9 @@ export namespace Cam::App::Slicer::Strategy {
         // Output
         std::vector<SliceLayer> slices_;
         std::vector<LayerPath> paths_;
+
+        // Non-fatal advisories raised by the slice strategy (deduplicated across
+        // slices), for the app to surface. Empty = a clean run.
+        std::vector<std::string> warnings_;
     };
 }

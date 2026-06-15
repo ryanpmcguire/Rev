@@ -7,6 +7,7 @@ module;
 #include <algorithm>
 #include <functional>
 #include <optional>
+#include <string>
 #include <unordered_set>
 
 export module Geo.Strategy;
@@ -108,11 +109,16 @@ export namespace Geo {
         // The final toolpath: flattened, ordered, ACTUAL tool motion.
         std::vector<Chain> toolpath;
 
+        // Non-fatal advisories raised while slicing (e.g. a finishing pass that had
+        // to be narrowed). The caller may surface or aggregate these; an empty list
+        // means a clean run. Strings are kept human-readable on purpose.
+        std::vector<std::string> warnings;
+
         SliceResult() = default;
         SliceResult(SliceResult&&) = default;
         SliceResult& operator=(SliceResult&&) = default;
 
-        void clear() { profiles.clear(); steps.clear(); toolpath.clear(); }
+        void clear() { profiles.clear(); steps.clear(); toolpath.clear(); warnings.clear(); }
     };
 
     // The strategy MANAGER: configure it (params), feed it (ingest), run it.
@@ -192,20 +198,40 @@ export namespace Geo {
 
                 const size_t n = result.profiles.size();   // profiles so far (seed = 1)
 
-                float amount = step;
-                bool finishingGen = false;
-                if (n == 1) {
-                    amount = params.toolRadius;            // boundary clearance ring
-                }
-                else if (n == 2 && params.finishPass) {
-                    amount = finish; finishingGen = true;  // the thin finishing pass
+                // The thin finishing ring (generation 2). A finishing inset that is
+                // too wide for a NARROW region MITOSES -- the ring splits into more
+                // chains than its parent -- which destroys the single continuous skin
+                // and forces the finishing pass to plough into unroughed stock. So
+                // narrow the inset until it no longer splits, and warn that we did.
+                if (n == 2 && params.finishPass) {
+
+                    const Profile& parent = result.profiles.back();   // generation 1
+                    float f = finish;
+                    Profile fin;
+                    bool narrowed = false;
+
+                    for (int attempt = 0; attempt < 12; attempt++) {
+                        fin = parent.offsetBy(f);
+                        if (fin.empty()) { break; }
+                        if (fin.chains.size() <= parent.chains.size()) { break; }  // no split
+                        f *= 0.7f; narrowed = true;                                 // try narrower
+                    }
+
+                    if (fin.empty()) { break; }
+                    if (narrowed) {
+                        result.warnings.push_back(
+                            "Sliced profile was too narrow to create a finishing pass with the "
+                            "given parameters. The finishing pass stepover was reduced to account "
+                            "for this.");
+                    }
+                    for (Chain& c : fin.chains) { c.link = LinkKind::Finish; }
+                    result.profiles.push_back(std::move(fin));
+                    continue;
                 }
 
+                const float amount = (n == 1) ? params.toolRadius : step;
                 Profile next = result.profiles.back().offsetBy(amount);
                 if (next.empty()) { break; }
-                if (finishingGen) {
-                    for (Chain& c : next.chains) { c.link = LinkKind::Finish; }
-                }
                 result.profiles.push_back(std::move(next));
             }
         }
