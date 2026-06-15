@@ -2042,21 +2042,49 @@ export namespace Cam::Gui {
             }
         }
 
-        // Set one world matrix on every actor that belongs to the physical
-        // workpiece (all material views' meshes + toolpaths) and on the shared
-        // tool preview.  In absolute mode this is identity; in machine mode it is
-        // the current part pose; in execute mode it is the live A-axis pose.
+        // 4x4 (column-major) of the project's ACHIEVABLE probe correction (r/t),
+        // i.e. the pose the machine actually drives the part to.  Identity when
+        // there is no valid correction.  We compose the ACHIEVABLE (not the true)
+        // correction so the displayed part stays locked to the tool: the cut/IK
+        // and the telemetry tool both use exactly this transform, so part and tool
+        // never desync (composing the TRUE fit instead is what made the tool
+        // plunge).  The off-axis residual the machine can't make is reported, not
+        // drawn.
+        void probeCorrectionMatrix(float out[16]) const {
+            Cam::Machine::Pose::identityMatrix(out);
+            Cam::App::Project* project = activeProject();
+            if (!project || !project->probeCorrection.valid) { return; }
+            const Cam::App::ProbeResult& c = project->probeCorrection;
+            // column-major out[col*4+row] from row-major r[row*3+col].
+            out[0]  = float(c.r[0]); out[1]  = float(c.r[3]); out[2]  = float(c.r[6]);
+            out[4]  = float(c.r[1]); out[5]  = float(c.r[4]); out[6]  = float(c.r[7]);
+            out[8]  = float(c.r[2]); out[9]  = float(c.r[5]); out[10] = float(c.r[8]);
+            out[12] = c.t.x;         out[13] = c.t.y;         out[14] = c.t.z;
+        }
+
+        // out = a * b  (both column-major 4x4).
+        static void mul4(const float a[16], const float b[16], float out[16]) {
+            for (int col = 0; col < 4; col++) {
+                for (int row = 0; row < 4; row++) {
+                    float s = 0.0f;
+                    for (int k = 0; k < 4; k++) { s += a[k * 4 + row] * b[col * 4 + k]; }
+                    out[col * 4 + row] = s;
+                }
+            }
+        }
+
+        // Place every actor that belongs to the physical workpiece (meshes,
+        // toolpaths, probe markers) at the part's pose, AND the tool preview with
+        // it so they stay locked.  The pose is:
         //
-        // The probe correction is NOT composed in here: in execute mode the tool
-        // preview comes from live telemetry in the nominal frame, so moving the
-        // part mesh by the correction would desync the two (the tool appears to
-        // plunge into / float above the part).  The part's CORRECTED ROTATION is
-        // already visible via the live A axis (the chuck physically swings), which
-        // this matrix tracks; the residual (off-axis tilt) is reported, not drawn.
+        //   Mc = (chuck / A-axis pose) * (achievable probe correction)
         //
-        // NOTE: in Execute mode the tool preview actor is NOT transformed here —
-        // its position comes from telemetry (already in CAD/world space) and is
-        // set to identity by syncSharedToolPreview.
+        // So the moment a probe fits, the part SNAPS to its measured pose (chuck
+        // still at the mount angle -> Mc = the correction); then as the chuck
+        // physically rotates to compensate, the part animates from crooked into
+        // square (Mc -> ~identity).  Because the cut, the IK, and the telemetry
+        // tool all use this same achievable correction, the tool stays on the
+        // surface throughout.  Identity correction (un-probed) => Mc == M.
         void applyWorldTransforms() {
 
             float M[16];
@@ -2072,26 +2100,37 @@ export namespace Cam::Gui {
 
             if (!transformed) { Cam::Machine::Pose::identityMatrix(M); }
 
+            // Compose the achievable probe correction (only in a machine view --
+            // the plain design view stays nominal).
+            float Mc[16];
+            if (transformed) {
+                float C[16];
+                probeCorrectionMatrix(C);
+                mul4(M, C, Mc);
+            }
+            else {
+                for (int i = 0; i < 16; i++) { Mc[i] = M[i]; }
+            }
+
             for (Cam::Gui::World::Stage* v : materialViews) {
 
                 if (!v) { continue; }
 
-                if (v->partActor)        { v->partActor->setWorldTransform(M); }
-                if (v->modelActor)       { v->modelActor->setWorldTransform(M); }
-                if (v->deltaActor)       { v->deltaActor->setWorldTransform(M); }
-                if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(M); }
-                // Probe markers + plan ride the same part pose so they move with
-                // the part as the chuck swings.
-                if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(M); }
-                if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(M); }
+                if (v->partActor)        { v->partActor->setWorldTransform(Mc); }
+                if (v->modelActor)       { v->modelActor->setWorldTransform(Mc); }
+                if (v->deltaActor)       { v->deltaActor->setWorldTransform(Mc); }
+                if (v->toolPath.actor)   { v->toolPath.actor->setWorldTransform(Mc); }
+                if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(Mc); }
+                if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(Mc); }
             }
 
-            // In Execute mode the tool preview sits in absolute CAD/world space
-            // (telemetry is already converted); applying the part rotation to it
-            // would double-transform its position.
+            // In Execute mode the tool preview is positioned from live telemetry
+            // (already absolute CAD), so it is NOT transformed here.  In the sim
+            // view it is sampled in nominal space and must ride the SAME corrected
+            // pose Mc as the part, or it would float off the corrected toolpath.
             if (previewMode != PreviewMode::Execute) {
-                if (toolPreviewActor) { toolPreviewActor->setWorldTransform(M); }
-                if (spindlePreviewActor) { spindlePreviewActor->setWorldTransform(M); }
+                if (toolPreviewActor) { toolPreviewActor->setWorldTransform(Mc); }
+                if (spindlePreviewActor) { spindlePreviewActor->setWorldTransform(Mc); }
             }
         }
 
