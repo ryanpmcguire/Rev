@@ -76,6 +76,20 @@ export namespace Cam::App {
         }
     };
 
+    // One probe CONTACT, recorded in the canonical form the pose solver needs:
+    // the nominal target + its outward normal (CAD frame), the actual contact
+    // (CAD/world frame, as back-transformed from the [PRB] reply), and the
+    // commanded rotary angle the part was at when touched.  These accumulate in
+    // the Project (cleared on "Set Origin") and the part pose is RE-SOLVED over
+    // the whole set -- so compounding (more probes, more orientations) emerges
+    // naturally instead of being a replace-vs-compose special case.
+    struct ProbeMeasurement {
+        double angleDeg = 0.0;   // commanded rotary (A) angle at the contact
+        Pos3   nominal{};        // nominal target point (CAD frame)
+        Pos3   normal{};         // outward unit surface normal (CAD frame)
+        Pos3   measured{};       // actual contact (CAD/world frame)
+    };
+
     // The fitted rigid result of a probing run: a frame correction applied as
     //   p_corrected = R * p_nominal + t
     // mapping nominal CAD coordinates onto the measured part pose.  Persists
@@ -186,6 +200,55 @@ export namespace Cam::App {
             o.valid    = valid && base.valid;
             o.rmsError = rmsError;   // quality of the latest (residual) fit
             return o;
+        }
+
+        // Rotate point p by angleDeg about the LINE through axisPoint along
+        // axisDir (Rodrigues).  Used to canonicalize a contact taken at a
+        // commanded rotary angle back into the A=0 frame.
+        static Pos3 rotateAboutLine(
+            const Pos3& p, const Pos3& axisDir, const Pos3& axisPoint, double angleDeg)
+        {
+            const float len = axisDir.pythag();
+            if (len < 1e-6f || std::fabs(angleDeg) < 1e-9) { return p; }
+            const Pos3   a  = axisDir * (1.0f / len);
+            const double th = angleDeg * 0.017453292519943295;   // deg -> rad
+            const double c  = std::cos(th), s = std::sin(th);
+            const Pos3   d  = p - axisPoint;
+            const Pos3   axd  = a.cross(d);
+            const double adot = double(a.dot(d));
+            const Pos3   dr =
+                d * float(c) + axd * float(s) + a * float(adot * (1.0 - c));
+            return axisPoint + dr;
+        }
+
+        // Solve the single part pose S over an ENTIRE accumulated measurement
+        // set (the Stage-1 source of truth).  Each contact is canonicalized back
+        // to the A=0 frame by undoing its commanded rotation about the (assumed)
+        // rotary axis line; the pooled nominal/measured/normal then go through
+        // the same rigid fit() one orientation uses.  Pooling everything is what
+        // makes compounding emergent: more probes -- and more orientations --
+        // simply add points and refine S, with no replace-vs-compose branch.
+        //
+        // The axis is held at its prior here (Stage 1 estimates only S).  Stage 2+
+        // will let the same set inform the axis (direction, then the full line),
+        // at which point this canonicalization becomes self-consistent rather than
+        // prior-dependent.
+        static ProbeResult solve(
+            const std::vector<ProbeMeasurement>& ms,
+            const Pos3&                          rotaryAxis,
+            const Pos3&                          rotaryPoint)
+        {
+            std::vector<Pos3> nominal, measured, normal;
+            nominal.reserve(ms.size());
+            measured.reserve(ms.size());
+            normal.reserve(ms.size());
+            for (const ProbeMeasurement& m : ms) {
+                nominal.push_back(m.nominal);
+                normal.push_back(m.normal);
+                measured.push_back(
+                    rotateAboutLine(m.measured, rotaryAxis, rotaryPoint, -m.angleDeg));
+            }
+            return fit(nominal, measured, normal, rotaryAxis);
         }
 
         // Fit a frame correction (nominal CAD -> measured part pose) from probed
@@ -357,8 +420,25 @@ export namespace Cam::App {
                         };
 
                         for (int i = 0; i < 9; i++) { out.r[i] = Ra[i]; out.rTrue[i] = Rt[i]; }
-                        out.t     = cM - mapCN(Ra);
-                        out.tTrue = cM - mapCN(Rt);
+
+                        // TRANSLATION = least movement consistent with the data.
+                        // A probed plane observes only ONE translation DOF: the
+                        // offset ALONG the face normal (height).  In-plane
+                        // translation is the plane's null space and is NOT
+                        // observed, so it must stay zero.  We therefore pivot the
+                        // rotation about the probed centroid cN and shift PURELY
+                        // along the measured normal n1 by the height delta dz.
+                        //
+                        // The earlier `t = cM - R*cN` mapped cN onto the measured
+                        // centroid cM, which silently leaked any in-plane cM-cN
+                        // drift (from a tilted/side face, or noise) into a spurious
+                        // LATERAL shift of the whole part.  For a vertical-normal
+                        // (top-face) probe cM.xy == cN.xy and the two agree; for a
+                        // tilted face this version is the honest, minimal one.
+                        const double dz   = double((cM - cN).dot(n1));
+                        const Pos3   dzN1 = n1 * float(dz);
+                        out.t     = (cN - mapCN(Ra)) + dzN1;
+                        out.tTrue = (cN - mapCN(Rt)) + dzN1;
                         out.valid = true;
 
                         // rms = quality of the TRUE fit (how well the model lines

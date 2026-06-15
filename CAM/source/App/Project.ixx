@@ -101,6 +101,14 @@ export namespace Cam::App {
         // cuts by getMachineToolPath; written by a completed probe operation.
         ProbeResult probeCorrection;
 
+        // The raw probe contacts behind `probeCorrection`, accumulated since the
+        // last "Set Origin".  This is the SOURCE OF TRUTH: the part pose is solved
+        // over the whole set, so compounding (more probes / more orientations)
+        // emerges naturally.  In-memory session state -- intentionally NOT
+        // serialized (a reloaded project starts un-probed, like probeCorrection's
+        // contacts), and cleared on load + on "Set Origin".
+        std::vector<ProbeMeasurement> probeMeasurements;
+
         // Transient component selection: a property (component) of a stage that
         // is actively selected in the tree. The world view force-shows it even
         // when its visibility flag is off. The index follows the tree order:
@@ -536,6 +544,7 @@ export namespace Cam::App {
                 }
 
                 probeCorrection.reset();
+                probeMeasurements.clear();   // raw contacts are session-only
                 if (json.contains("probeCorrection") && json["probeCorrection"].is_object()) {
                     probeCorrection.setState(json["probeCorrection"]);
                 }

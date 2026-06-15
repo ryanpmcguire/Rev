@@ -143,8 +143,9 @@ export namespace Cam::Gui {
         // un-probed stage is simply an uncorrected one — no branch.
         struct ProbeSessionEntry {
             Cam::App::Stage* stage = nullptr;
-            Rev::Core::Pos3  nominalCad{};   // target.point (CAD frame)
-            Rev::Core::Pos3  normalCad{};    // unit outward normal (CAD frame)
+            Rev::Core::Pos3  nominalCad{};   // RAW nominal target.point (CAD frame)
+            Rev::Core::Pos3  normalCad{};    // RAW unit outward normal (CAD frame)
+            double           commandedAngleDeg = 0.0;  // rotary A at the contact
             bool             filled = false;
             Rev::Core::Pos3  measuredCad{};  // contact, back-transformed to CAD
             bool             triggered = false;
@@ -312,11 +313,13 @@ export namespace Cam::Gui {
                     executeTrackedState    = nullptr;
                     executeTrackedProgress = 0.0;
 
-                    // NOTE: the probe correction is deliberately NOT cleared here.
-                    // It is a part property that persists across runs and steps; it
-                    // is cleared only when the operator re-locates the part with
-                    // "Set Origin" (see onWorkOriginSet).  A re-probe REPLACES it
-                    // (absolute measurement), so re-running never double-corrects.
+                    // NOTE: the probe correction (and the measurement set behind
+                    // it) is deliberately NOT cleared here.  It is a part property
+                    // that persists across runs and steps; it is cleared only when
+                    // the operator re-locates the part with "Set Origin" (see
+                    // onWorkOriginSet).  Each probe ADDS its contacts and the pose
+                    // is re-solved over the whole set, so re-running refines rather
+                    // than double-corrects.
 
                     rebuildPreviewTimelineIfNeeded();
                     if (previewTimeline.atEnd()) {
@@ -336,6 +339,9 @@ export namespace Cam::Gui {
             // view and any subsequent cut go back to nominal until the next probe).
             Carvera::MachineLink::instance().onWorkOriginSet = [this]() {
                 if (Cam::App::Project* project = activeProject()) {
+                    // Re-locating the part invalidates every prior contact: clear
+                    // the measurement set AND the pose solved from it.
+                    project->probeMeasurements.clear();
                     project->probeCorrection.reset();
                     project->dirty = true;
                 }
@@ -1721,17 +1727,15 @@ export namespace Cam::Gui {
                 (probeSession_[probeFillIndex_].stage != stage);
             if (!stageComplete) { return; }
 
-            std::vector<Rev::Core::Pos3> nominal, measured, normal;
-            bool allTriggered = true;
+            size_t stageContacts = 0;
+            bool   allTriggered  = true;
             for (const ProbeSessionEntry& s : probeSession_) {
                 if (s.stage != stage || !s.filled) { continue; }
-                nominal.push_back(s.nominalCad);
-                measured.push_back(s.measuredCad);
-                normal.push_back(s.normalCad);
+                stageContacts++;
                 allTriggered = allTriggered && s.triggered;
             }
 
-            if (nominal.empty()) { return; }
+            if (stageContacts == 0) { return; }
 
             if (!allTriggered) {
                 Carvera::MachineLink::instance().log(
@@ -1741,39 +1745,49 @@ export namespace Cam::Gui {
                 return;
             }
 
-            // Fit the MODEL to the measured face: a true rigid registration (the
-            // honest pose, any axis) plus the DRIVEN part the single rotary axis
-            // can make.  fit() needs the rotary axis (model frame) to compute the
-            // achievable rotation; the cut applies only that achievable part so
-            // the IK never rejects points, and the off-axis remainder is residual.
+            // Rotary axis (DIRECTION) in the model frame: needed both for the
+            // achievable fit and to canonicalize multi-orientation contacts.
             const Cam::Machine::MachineDefinition def = buildMachineDefinition(stage);
             Rev::Core::Pos3 rotaryAxis{};
             if (!def.part.dof.freeRotations.empty()) {
                 rotaryAxis = def.part.dof.freeRotations.front();
             }
+            // Assumed POINT on the rotary axis: the part's begin-work origin.
+            // Stage 1 holds this at the prior; it only affects non-zero-angle
+            // re-probes (which the trust gate keeps to small angles), so the error
+            // is second-order.  Stage 3 will MEASURE this line.
+            const Rev::Core::Pos3 rotaryPoint =
+                probeFrameOrigin_
+                + probeFrameX_ * probeBeginWorkInFrame_.x
+                + probeFrameY_ * probeBeginWorkInFrame_.y
+                + probeFrameZ_ * probeBeginWorkInFrame_.z;
 
-            // Store the fit as the PROJECT-WIDE correction (a part property that
-            // applies to every step).  It persists until "Set Origin" clears it.
-            //
-            //  * Clean ABSOLUTE pass (probe driven to nominal): the fit is an
-            //    independent measurement of the part at its mounted pose, so it
-            //    REPLACES any prior value -- nothing to accumulate.
-            //  * Trusted iterative RE-PROBE (probe driven by the base correction):
-            //    the session's nominal/normal are already base-corrected, so the
-            //    fit is the RESIDUAL relative to the applied pose.  Compose it onto
-            //    the base so the correction refines and converges.
             Cam::App::Project* project = activeProject();
             if (!project) { return; }
 
-            const Cam::App::ProbeResult fitted =
-                Cam::App::ProbeResult::fit(nominal, measured, normal, rotaryAxis);
+            // ACCUMULATE this operation's contacts into the project's persistent
+            // measurement set, then RE-SOLVE the single part pose (S) over
+            // EVERYTHING measured since the last "Set Origin".  This is the Stage-1
+            // spine: the measurement set is the source of truth and compounding is
+            // emergent -- more probes (and more orientations) just add points and
+            // refine S, so there is no replace-vs-compose branch.  The axis is held
+            // at its prior here (Stage 1 solves only S).
+            for (const ProbeSessionEntry& s : probeSession_) {
+                if (s.stage != stage || !s.filled) { continue; }
+                Cam::App::ProbeMeasurement m;
+                m.angleDeg = s.commandedAngleDeg;
+                m.nominal  = s.nominalCad;
+                m.normal   = s.normalCad;
+                m.measured = s.measuredCad;
+                project->probeMeasurements.push_back(m);
+            }
 
-            project->probeCorrection = probeSessionComposed_
-                ? fitted.composedOnto(probeSessionBase_)
-                : fitted;
+            project->probeCorrection = Cam::App::ProbeResult::solve(
+                project->probeMeasurements, rotaryAxis, rotaryPoint);
             project->dirty = true;
 
             const Cam::App::ProbeResult& r = project->probeCorrection;
+            const size_t totalPts = project->probeMeasurements.size();
             // Tilt magnitudes from each rotation's trace: angle = acos((tr-1)/2).
             // "true" = the measured face tilt; "driven" = the part the rotary axis
             // can make.  Their difference is the off-axis residual the machine
@@ -1783,12 +1797,12 @@ export namespace Cam::Gui {
                 return std::acos(std::clamp((tr - 1.0) * 0.5, -1.0, 1.0)) * 57.29577951308232;
             };
             Carvera::MachineLink::instance().log(std::format(
-                "Probe: fitted from {} point(s) - true tilt={:.2f} deg, "
+                "Probe: solved pose over {} contact(s) - true tilt={:.2f} deg, "
                 "driven (rotary) tilt={:.2f} deg, t=({:.3f},{:.3f},{:.3f}) "
                 "rms={:.4f} mm.{}",
-                nominal.size(), tiltOf(r.rTrue), tiltOf(r.r),
+                totalPts, tiltOf(r.rTrue), tiltOf(r.r),
                 r.t.x, r.t.y, r.t.z, r.rmsError,
-                nominal.size() < 3 ? " (translation-only; <3 points)" : ""));
+                totalPts < 3 ? " (translation-only; <3 points)" : ""));
 
             // The correction changed; force a re-solve so cuts (and the preview)
             // pick it up, and rebuild the probe-preview path + timeline so a
@@ -2382,11 +2396,15 @@ export namespace Cam::Gui {
                 // referenced NOMINAL positions, so the fragile probe can never be
                 // swung into a bizarre orientation by a wild/uncertain correction.
                 // When driven, the targets are mapped by the correction so the
-                // probe approaches the part WHERE IT NOW IS; the fit then measures
-                // the residual and COMPOSES (see handleProbeContact).  The session
-                // entries below store the (possibly driven) nominal/normal, which
-                // is exactly what the residual fit must compare against.
-                struct KeptTarget { Rev::Core::Pos3 point; Rev::Core::Pos3 normal; };
+                // probe approaches the part WHERE IT NOW IS.  The session entries
+                // record the RAW nominal/normal plus the commanded rotary angle;
+                // the pose solver canonicalizes the contact back to A=0 and fits
+                // the raw nominal -> measured, so a driven re-probe just adds more
+                // points to the global solve (no residual/compose bookkeeping).
+                struct KeptTarget {
+                    Rev::Core::Pos3 point;     Rev::Core::Pos3 normal;      // driven (physical approach)
+                    Rev::Core::Pos3 rawPoint;  Rev::Core::Pos3 rawNormal;   // raw nominal (recorded)
+                };
                 std::vector<KeptTarget> keptTargets;
 
                 for (const Cam::App::ProbeTarget& t : state->probe.targets) {
@@ -2397,7 +2415,8 @@ export namespace Cam::Gui {
                             "(%.2f, %.2f, %.2f)", t.point.x, t.point.y, t.point.z);
                         continue;
                     }
-                    Rev::Core::Pos3 n = t.normal * (1.0f / nlen);
+                    const Rev::Core::Pos3 rawN = t.normal * (1.0f / nlen);
+                    Rev::Core::Pos3 n = rawN;
                     Rev::Core::Pos3 p = t.point;
 
                     // Trusted re-probe: place the target where the correction says
@@ -2409,7 +2428,7 @@ export namespace Cam::Gui {
                         if (dl > 1e-5f) { n = dn * (1.0f / dl); }
                     }
 
-                    keptTargets.push_back({ p, n });
+                    keptTargets.push_back({ p, n, t.point, rawN });
 
                     Cam::App::ToolPathPoint a;   // standoff (outside surface, +normal)
                     a.position      = p + n * static_cast<float>(t.standoff);
@@ -2489,9 +2508,10 @@ export namespace Cam::Gui {
                     // stream in this order) can be back-transformed and fitted.
                     if (k < keptTargets.size()) {
                         ProbeSessionEntry entry;
-                        entry.stage      = state;
-                        entry.nominalCad = keptTargets[k].point;
-                        entry.normalCad  = keptTargets[k].normal;
+                        entry.stage             = state;
+                        entry.nominalCad        = keptTargets[k].rawPoint;
+                        entry.normalCad         = keptTargets[k].rawNormal;
+                        entry.commandedAngleDeg = tPose.rotaryAngle * radToDeg;
                         probeSession_.push_back(entry);
                     }
                 }
