@@ -29,6 +29,11 @@ export namespace Cam::Gui {
         Dropdown* ringOrderDropdown = nullptr;
         Checkbox* finishCheckbox = nullptr;
         NumberInput* finishWidthInput = nullptr;
+        NumberInput* finishStepdownInput = nullptr;
+        NumberInput* finishFeedInput = nullptr;
+        NumberInput* finishSpindleInput = nullptr;
+        NumberInput* leadSlopeInput = nullptr;
+        NumberInput* leadFeedInput = nullptr;
 
         ProfileToolpathView(Element* parent) : ToolpathStrategyView(parent) {
 
@@ -40,10 +45,20 @@ export namespace Cam::Gui {
             Box* checkRow = new Box(this, { &ToolpathViewStyle::CheckRow }, "ProfileClimbRow");
             climbCheckbox = makeClimbCheckbox(checkRow);
 
-            // Finishing pass: a thin extra ring after the boundary clearance pass,
-            // with its width (fraction of the tool radius) beside the toggle.
+            // Lead-in/out ramp: slope (deg) and its own gentle feed.
+            Box* leadRow = new Box(this, { &ToolpathViewStyle::Row }, "ProfileLeadRow");
+            leadSlopeInput = makeNumberInput(leadRow, "Lead slope (deg)", "30");
+            leadFeedInput  = makeNumberInput(leadRow, "Lead feed (mm/min)", "200");
+
+            // Finishing pass: enabled by the toggle; skin width + final floor
+            // stepdown (both mm), and its own feed + spindle.
             Box* finishRow = new Box(this, { &ToolpathViewStyle::Row }, "ProfileFinishRow");
-            finishWidthInput = makeNumberInput(finishRow, "Finish width (xR)", "0.1");
+            finishWidthInput = makeNumberInput(finishRow, "Finish skin (mm)", "0.2");
+            finishStepdownInput = makeNumberInput(finishRow, "Finish stepdown (mm)", "0.25");
+
+            Box* finishFeedRow = new Box(this, { &ToolpathViewStyle::Row }, "ProfileFinishFeedRow");
+            finishFeedInput = makeNumberInput(finishFeedRow, "Finish feed (mm/min)", "150");
+            finishSpindleInput = makeNumberInput(finishFeedRow, "Finish spindle (RPM)", "12000");
 
             Box* finishCheckRow = new Box(this, { &ToolpathViewStyle::CheckRow }, "ProfileFinishCheckRow");
             finishCheckbox = new Checkbox(finishCheckRow, { .label = "Finishing pass", .def = true });
@@ -62,20 +77,33 @@ export namespace Cam::Gui {
             }
             if (finishCheckbox) { finishCheckbox->value = state->toolPath.finishPass; }
             if (finishWidthInput) { finishWidthInput->setValue(state->toolPath.finishWidth); }
+            if (finishStepdownInput) { finishStepdownInput->setValue(state->toolPath.finishStepdown); }
+            if (finishFeedInput) { finishFeedInput->setValue(state->toolPath.finishFeedRate); }
+            if (finishSpindleInput) { finishSpindleInput->setValue(state->toolPath.finishSpindleSpeed); }
+            if (leadSlopeInput) { leadSlopeInput->setValue(state->toolPath.leadSlope); }
+            if (leadFeedInput) { leadFeedInput->setValue(state->toolPath.leadFeedRate); }
         }
 
         void readExtras(Event& e, double& stepover, bool& climb, bool& insideOut) override {
             if (climbCheckbox) { climb = climbCheckbox->value; }
             if (ringOrderDropdown) { insideOut = (ringOrderDropdown->params.value != "outside_in"); }
 
-            // finishPass / finishWidth aren't part of saveToolPathSettings' fixed
-            // signature, so write them straight onto the toolpath (the save call
-            // below preserves any field it isn't given, then recomputes).
-            if (state && finishCheckbox) { state->toolPath.finishPass = finishCheckbox->value; }
-            if (state && finishWidthInput) {
-                finishWidthInput->commit(e);
-                state->toolPath.finishWidth = finishWidthInput->valueOr(state->toolPath.finishWidth);
-            }
+            // These aren't part of saveToolPathSettings' fixed signature, so write
+            // them straight onto the toolpath (the save preserves any field it isn't
+            // given, then recomputes).
+            if (!state) { return; }
+            auto readInto = [&](NumberInput* in, double& dst) {
+                if (!in) { return; }
+                in->commit(e);
+                dst = in->valueOr(dst);
+            };
+            if (finishCheckbox) { state->toolPath.finishPass = finishCheckbox->value; }
+            readInto(finishWidthInput, state->toolPath.finishWidth);
+            readInto(finishStepdownInput, state->toolPath.finishStepdown);
+            readInto(finishFeedInput, state->toolPath.finishFeedRate);
+            readInto(finishSpindleInput, state->toolPath.finishSpindleSpeed);
+            readInto(leadSlopeInput, state->toolPath.leadSlope);
+            readInto(leadFeedInput, state->toolPath.leadFeedRate);
         }
     };
 }

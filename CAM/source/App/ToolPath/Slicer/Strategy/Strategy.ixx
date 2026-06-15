@@ -46,6 +46,10 @@ export namespace Cam::App::Slicer::Strategy {
         // one turn of a helix.
         bool helical = false;
         float zTo = 0.0f;
+
+        // The global finishing pass (the final slice that cuts the deferred wall +
+        // shaves the floor). Its cut moves run the finishing feed / spindle.
+        bool finishing = false;
     };
 
     // Inputs shared by every strategy run.
@@ -74,6 +78,10 @@ export namespace Cam::App::Slicer::Strategy {
         // across all roughing slices and cut in ONE final finishing slice, which
         // also takes a thin floor stepdown. This is that final floor stepdown.
         float finishStepdown = 0.25f;
+
+        // Lead-in/out ramp slope (degrees off horizontal). Forwarded to Geo
+        // SliceParams::plungeSlope -- it sizes the lead's run length.
+        float leadSlope = 30.0f;
 
         // Thread-mill callout + options (only the ThreadMill strategy reads
         // these).  A thread is defined entirely by its callout, so these drive
@@ -163,20 +171,21 @@ export namespace Cam::App::Slicer::Strategy {
             // depth), stepping down by dz -- and one FINAL slice lands exactly
             // on the bottom-most (rough) depth. Each carries whether it emits the
             // outer wall profile.
-            std::vector<std::pair<float, bool>> depths;   // (depth, emitOuter)
+            struct SlicePlan { float depth; bool emitOuter; bool finishing; };
+            std::vector<SlicePlan> depths;
 
             for (float depth = maxDepth - dz; depth > roughBottom + 1e-4f; depth -= dz) {
-                depths.push_back({ depth, !finishing });   // roughing: defer the wall
+                depths.push_back({ depth, !finishing, false });   // roughing: defer the wall
             }
 
             if (roughBottom > minDepth + 1e-4f || !finishing) {
-                depths.push_back({ roughBottom, !finishing });
+                depths.push_back({ roughBottom, !finishing, false });
             }
 
             // The finishing slice: at the true bottom, emitting the full path
             // including the deferred wall (and shaving the held-back floor).
             if (finishing) {
-                depths.push_back({ minDepth, true });
+                depths.push_back({ minDepth, true, true });
             }
 
             // The pipeline stores slices bottom-up (display flips to forward).
@@ -184,12 +193,14 @@ export namespace Cam::App::Slicer::Strategy {
 
             size_t attempted = 0;
 
-            for (const auto& [depth, emitOuter] : depths) {
+            for (const SlicePlan& plan : depths) {
                 attempted += 1;
 
                 SliceLayer slice;
-                slice.z = depth;
-                slice.emitOuter = emitOuter;
+                slice.z = plan.depth;
+                slice.emitOuter = plan.emitOuter;
+                slice.finishing = plan.finishing;
+                const float depth = plan.depth;
 
                 if (!SliceSource::build(*ctx.positive, ctx.frame, depth, slice)) {
                     dbg("[%s] depth=%.3f: no slice source", S::name(), depth);

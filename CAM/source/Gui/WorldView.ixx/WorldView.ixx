@@ -1317,7 +1317,7 @@ export namespace Cam::Gui {
         // App/project access
         //--------------------------------------------------
 
-        Cam::App::Project* activeProject() {
+        Cam::App::Project* activeProject() const {
 
             if (!app) { return nullptr; }
 

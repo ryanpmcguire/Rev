@@ -464,6 +464,10 @@ export namespace Cam::App {
                     { "finishPass", stage->toolPath.finishPass },
                     { "finishWidth", stage->toolPath.finishWidth },
                     { "finishStepdown", stage->toolPath.finishStepdown },
+                    { "finishFeedRate", stage->toolPath.finishFeedRate },
+                    { "finishSpindleSpeed", stage->toolPath.finishSpindleSpeed },
+                    { "leadSlope", stage->toolPath.leadSlope },
+                    { "leadFeedRate", stage->toolPath.leadFeedRate },
                     { "threadMajorDiameter", stage->toolPath.threadMajorDiameter },
                     { "threadPitch", stage->toolPath.threadPitch },
                     { "threadInternal", stage->toolPath.threadInternal },
@@ -708,6 +712,18 @@ export namespace Cam::App {
                         }
                         if (toolPathJson.contains("finishStepdown") && toolPathJson["finishStepdown"].is_number()) {
                             stage->toolPath.finishStepdown = toolPathJson["finishStepdown"].get<double>();
+                        }
+                        if (toolPathJson.contains("finishFeedRate") && toolPathJson["finishFeedRate"].is_number()) {
+                            stage->toolPath.finishFeedRate = toolPathJson["finishFeedRate"].get<double>();
+                        }
+                        if (toolPathJson.contains("finishSpindleSpeed") && toolPathJson["finishSpindleSpeed"].is_number()) {
+                            stage->toolPath.finishSpindleSpeed = toolPathJson["finishSpindleSpeed"].get<double>();
+                        }
+                        if (toolPathJson.contains("leadSlope") && toolPathJson["leadSlope"].is_number()) {
+                            stage->toolPath.leadSlope = toolPathJson["leadSlope"].get<double>();
+                        }
+                        if (toolPathJson.contains("leadFeedRate") && toolPathJson["leadFeedRate"].is_number()) {
+                            stage->toolPath.leadFeedRate = toolPathJson["leadFeedRate"].get<double>();
                         }
 
                         if (toolPathJson.contains("sliceAxis") && toolPathJson["sliceAxis"].is_array() && toolPathJson["sliceAxis"].size() >= 3) {

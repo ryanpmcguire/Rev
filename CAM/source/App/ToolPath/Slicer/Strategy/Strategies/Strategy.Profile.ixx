@@ -81,11 +81,13 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             // and descends / climbs them over that depth.
             params.lead = true;
             params.cuttingDepth = ctx.stepDown;
-            params.plungeSlope = 30.0f;
+            params.plungeSlope = ctx.leadSlope;   // the lead-in/out ramp angle
 
             // Finishing pass: a thin ring just after the boundary clearance pass.
+            // The skin width is an absolute (mm) setting; the slicer wants it as a
+            // fraction of the tool radius.
             params.finishPass = ctx.finishPass;
-            params.finishWidth = ctx.finishWidth;
+            params.finishWidth = (radius > 1e-6f) ? ctx.finishWidth / radius : 0.1f;
 
             // Global finishing: roughing slices DEFER the outer wall profile (it is
             // generated but not emitted/linked/led); the finishing slice emits it.
@@ -114,6 +116,7 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
                 LayerPath layer;
                 layer.z = slice.z;
+                layer.finishing = slice.finishing;
 
                 for (const Geo::Chain& c : slice.result.toolpath) {
                     layer.chains.push_back(c.clone());

@@ -44,6 +44,10 @@ export namespace Cam::App {
         // A LINKING step: the tool is down and cutting, but the move exists to
         // travel between passes (a Cut-tagged link chain), not to clear stock.
         bool link = false;
+
+        // Per-move feed override (mm/min); 0 = use the toolpath's global feed.
+        // Lead ramps and the finishing pass set their own, slower/finer feeds.
+        double feedRateOverride = 0.0;
     };
 
     // Computed tool motion for one material state.
@@ -82,8 +86,15 @@ export namespace Cam::App {
         // boundary clearance ring (ladder = 1*R -> finishWidth*R -> stepover),
         // leaving a fine pass.  Forwarded to the slice strategy's finish params.
         bool   finishPass = true;
-        double finishWidth = 0.1;     // its inset as a fraction of the tool radius
-        double finishStepdown = 0.25; // final floor stepdown for the global finishing pass
+        double finishWidth = 0.2;     // finishing skin width left on the wall (mm)
+        double finishStepdown = 0.25; // final floor stepdown for the global finishing pass (mm)
+        double finishFeedRate = 150.0;     // feed for the finishing pass cut (mm/min)
+        double finishSpindleSpeed = 12000.0; // spindle for the finishing pass (RPM)
+
+        // Lead-in / lead-out ramp: its slope (degrees off horizontal -> Geo
+        // plungeSlope) and its own, gentler feed.
+        double leadSlope = 30.0;      // lead-in/out ramp angle (deg)
+        double leadFeedRate = 200.0;  // feed for lead-in/out ramps (mm/min)
 
         // Thread milling callout + options (used only by the ThreadMill
         // strategy).  Seeded from the ThreadMillOperation when the stage is
@@ -225,8 +236,9 @@ export namespace Cam::App {
 
         double speedMmPerSecForPoint(const ToolPathPoint& point) const {
 
-            if (point.cutting && !point.rapid && feedRate > 0.0) {
-                return feedRate / 60.0;
+            if (point.cutting && !point.rapid) {
+                const double feed = point.feedRateOverride > 0.0 ? point.feedRateOverride : feedRate;
+                if (feed > 0.0) { return feed / 60.0; }
             }
 
             return rapidSpeedMmPerSec > 0.0 ? rapidSpeedMmPerSec : 10.0;
@@ -360,9 +372,16 @@ export namespace Cam::App {
                 place(uv, depth, true, false);           // plunge to the start
             };
 
+            // Per-move feed / spindle for the cut moves emitted next (0 = global);
+            // set by the chain loop for lead ramps and the finishing pass.
+            double curFeed = 0.0;
+            double curSpindle = 0.0;
+
             auto cutTo = [&](const Pos& uv, float depth, bool link = false) {
                 place(uv, depth, false, true);
                 points.back().link = link;
+                points.back().feedRateOverride = curFeed;
+                if (curSpindle > 0.0) { points.back().spindleSpeed = curSpindle; }
             };
 
             // A cutting RAMP: cut along the polyline while depth interpolates linearly
@@ -424,6 +443,21 @@ export namespace Cam::App {
                     // begins / ends its ramp.
                     const float zCut = layer.z;
                     const float zTop = layer.z + stepZ;
+
+                    // Per-move feed / spindle: lead ramps run the gentle lead feed;
+                    // the finishing pass's cuts run the finishing feed + spindle;
+                    // everything else uses the global feed.
+                    const bool isLead = (chain.link == Geo::LinkKind::LeadIn
+                                      || chain.link == Geo::LinkKind::LeadOut);
+                    if (isLead) {
+                        curFeed = leadFeedRate; curSpindle = 0.0;
+                    }
+                    else if (layer.finishing) {
+                        curFeed = finishFeedRate; curSpindle = finishSpindleSpeed;
+                    }
+                    else {
+                        curFeed = 0.0; curSpindle = 0.0;
+                    }
 
                     // A RETRACT link is a tagged traversal, not a cut: get to its end
                     // without cutting via the safe-Z machinery. When it feeds a lead-in,
@@ -740,6 +774,7 @@ export namespace Cam::App {
                 .finishPass = finishPass,
                 .finishWidth = static_cast<float>(finishWidth),
                 .finishStepdown = static_cast<float>(finishStepdown),
+                .leadSlope = static_cast<float>(leadSlope),
                 .threadMajorDiameter = static_cast<float>(threadMajorDiameter),
                 .threadPitch = static_cast<float>(threadPitch),
                 .threadInternal = threadInternal,

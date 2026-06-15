@@ -25,6 +25,10 @@ export namespace Cam::App::Slicer::Strategy::Slice {
         // it true. Forwarded to Geo::SliceParams::emitOuter by the strategy.
         bool emitOuter = true;
 
+        // This is the global finishing pass (final wall + floor). Its cut moves
+        // run the finishing feed / spindle in the 3D layer.
+        bool finishing = false;
+
         // Bounds of source edges in XY.
         Pos min = {};
         Pos max = {};

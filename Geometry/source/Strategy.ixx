@@ -571,6 +571,17 @@ export namespace Geo {
             const float leadRun = runFor(params.plungeSlope);
             const float leadOutRun = runFor(params.retractSlope);
 
+            // The outer boundary rings (generation 1, the wall-touching profile --
+            // the part's perimeter AND every hole). Their START/END seam leaves a
+            // faint witness bump on the cut wall, so each is OVERSHOT: after closing
+            // the loop the tool carries on along the chain by one tool radius,
+            // re-cutting the seam clean. Identified by id (clones / re-seats preserve
+            // it). Inner rings never witness a wall, so they are left alone.
+            std::unordered_set<Id> outerIds;
+            if (result.profiles.size() > 1) {
+                for (const Chain& c : result.profiles[1].chains) { outerIds.insert(c.id); }
+            }
+
             Pos cursor;
             bool haveCursor = false;
             std::optional<Chain> prevCut;   // the cut just emitted, for its lead-out
@@ -649,9 +660,23 @@ export namespace Geo {
                     result.toolpath.push_back(std::move(*leadIn));
                 }
 
+                // The CLOSED loop, kept for the next chain's lead-out (which insets
+                // it -- offsetting needs a closed chain), BEFORE any overshoot opens
+                // it.
+                prevCut = next.clone();
+
+                // Witness-mark overshoot: an outer boundary ring carries on past its
+                // seam by one tool radius along its own start, re-cutting the join so
+                // no bump is left where the loop opened and closed.
+                if (next.closed && params.toolRadius > 1e-4f && outerIds.count(next.id)) {
+                    for (auto& e : portion(next, params.toolRadius, /*head=*/true)) {
+                        next.edges.push_back(std::move(e));
+                    }
+                    next.closed = false;
+                }
+
                 cursor = Chain::eEnd(*next.edges.back());
                 haveCursor = true;
-                prevCut = next.clone();
 
                 result.toolpath.push_back(std::move(next));
             }

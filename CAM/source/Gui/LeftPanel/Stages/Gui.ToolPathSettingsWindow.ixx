@@ -89,7 +89,12 @@ export namespace Cam::Gui {
             double retractHeight = 0.0;
             bool insideOut = true;
             bool finishPass = true;
-            double finishWidth = 0.1;
+            double finishWidth = 0.2;
+            double finishStepdown = 0.25;
+            double finishFeedRate = 150.0;
+            double finishSpindleSpeed = 12000.0;
+            double leadSlope = 30.0;
+            double leadFeedRate = 200.0;
         };
 
         Cam::App::AppState* app = nullptr;
@@ -106,6 +111,11 @@ export namespace Cam::Gui {
         Dropdown* ringOrderDropdown = nullptr;
         Dropdown* finishPassDropdown = nullptr;
         NumberInput* finishWidthInput = nullptr;
+        NumberInput* finishStepdownInput = nullptr;
+        NumberInput* finishFeedInput = nullptr;
+        NumberInput* finishSpindleInput = nullptr;
+        NumberInput* leadSlopeInput = nullptr;
+        NumberInput* leadFeedInput = nullptr;
         NumberInput* stepDownInput = nullptr;
         NumberInput* stepoverInput = nullptr;
         NumberInput* feedRateInput = nullptr;
@@ -414,8 +424,31 @@ export namespace Cam::Gui {
 
             hookLiveNumberEdit(feedRateInput);
 
-            // Finishing pass: a thin extra ring just after the boundary clearance
-            // pass (profile only); its width is a fraction of the tool radius.
+            // A configured number field in a settings row (label, placeholder),
+            // hooked for live edits.
+            auto numberField = [&](Box* row, const std::string& label,
+                                   const std::string& placeholder) -> NumberInput* {
+                NumberInput::Params p;
+                p.label = label;
+                p.placeholder = placeholder;
+                p.maxLength = 32;
+                p.selectAllOnFocus = true;
+                p.allowNegative = false;
+                p.allowDecimal = true;
+                p.allowEmpty = false;
+                p.maxDecimalPlaces = 4;
+                NumberInput* in = new NumberInput(row, p, { &ToolPathSettingsLayout::RowField });
+                hookLiveNumberEdit(in);
+                return in;
+            };
+
+            // Lead-in/out ramp: slope (deg) and its own gentle feed.
+            Box* leadRow = settingsRow("LeadRow");
+            leadSlopeInput = numberField(leadRow, "Lead slope (deg)", "30");
+            leadFeedInput  = numberField(leadRow, "Lead feed (mm/min)", "200");
+
+            // Finishing pass: the wall is deferred to one final pass. Toggle + skin
+            // width and final floor stepdown (both mm), and its own feed + spindle.
             Box* finishRow = settingsRow("FinishRow");
 
             finishPassDropdown = new Dropdown(
@@ -437,23 +470,12 @@ export namespace Cam::Gui {
                 refresh(e);
             };
 
-            NumberInput::Params finishWidthParams;
-            finishWidthParams.label = "Finish width (xR)";
-            finishWidthParams.placeholder = "0.1";
-            finishWidthParams.maxLength = 32;
-            finishWidthParams.selectAllOnFocus = true;
-            finishWidthParams.allowNegative = false;
-            finishWidthParams.allowDecimal = true;
-            finishWidthParams.allowEmpty = false;
-            finishWidthParams.maxDecimalPlaces = 4;
+            finishWidthInput = numberField(finishRow, "Finish skin (mm)", "0.2");
 
-            finishWidthInput = new NumberInput(
-                finishRow,
-                finishWidthParams,
-                { &ToolPathSettingsLayout::RowField }
-            );
-
-            hookLiveNumberEdit(finishWidthInput);
+            Box* finishRow2 = settingsRow("FinishRow2");
+            finishStepdownInput = numberField(finishRow2, "Finish stepdown (mm)", "0.25");
+            finishFeedInput     = numberField(finishRow2, "Finish feed (mm/min)", "150");
+            finishSpindleInput  = numberField(finishRow2, "Finish spindle (RPM)", "12000");
 
             new Text(
                 body,
@@ -507,6 +529,11 @@ export namespace Cam::Gui {
             rapidSpeedInput->setValue(toolPath.rapidSpeedMmPerSec);
             retractHeightInput->setValue(double(toolPath.retractHeight));
             finishWidthInput->setValue(toolPath.finishWidth);
+            finishStepdownInput->setValue(toolPath.finishStepdown);
+            finishFeedInput->setValue(toolPath.finishFeedRate);
+            finishSpindleInput->setValue(toolPath.finishSpindleSpeed);
+            leadSlopeInput->setValue(toolPath.leadSlope);
+            leadFeedInput->setValue(toolPath.leadFeedRate);
 
             Box* footer = new Box(
                 root,
@@ -588,7 +615,12 @@ export namespace Cam::Gui {
                 .retractHeight = double(toolPath.retractHeight),
                 .insideOut = toolPath.insideOut,
                 .finishPass = toolPath.finishPass,
-                .finishWidth = toolPath.finishWidth
+                .finishWidth = toolPath.finishWidth,
+                .finishStepdown = toolPath.finishStepdown,
+                .finishFeedRate = toolPath.finishFeedRate,
+                .finishSpindleSpeed = toolPath.finishSpindleSpeed,
+                .leadSlope = toolPath.leadSlope,
+                .leadFeedRate = toolPath.leadFeedRate
             };
         }
 
@@ -601,6 +633,11 @@ export namespace Cam::Gui {
                 rapidSpeedInput->commit(e);
                 retractHeightInput->commit(e);
                 finishWidthInput->commit(e);
+                finishStepdownInput->commit(e);
+                finishFeedInput->commit(e);
+                finishSpindleInput->commit(e);
+                leadSlopeInput->commit(e);
+                leadFeedInput->commit(e);
             }
 
             out.strategy = strategyDropdown->params.value;
@@ -615,6 +652,11 @@ export namespace Cam::Gui {
             if (!rapidSpeedInput->tryGetValue(out.rapidSpeedMmPerSec)) { return false; }
             if (!retractHeightInput->tryGetValue(out.retractHeight)) { return false; }
             if (!finishWidthInput->tryGetValue(out.finishWidth)) { return false; }
+            if (!finishStepdownInput->tryGetValue(out.finishStepdown)) { return false; }
+            if (!finishFeedInput->tryGetValue(out.finishFeedRate)) { return false; }
+            if (!finishSpindleInput->tryGetValue(out.finishSpindleSpeed)) { return false; }
+            if (!leadSlopeInput->tryGetValue(out.leadSlope)) { return false; }
+            if (!leadFeedInput->tryGetValue(out.leadFeedRate)) { return false; }
 
             return true;
         }
@@ -638,7 +680,12 @@ export namespace Cam::Gui {
                 !nearlyEqual(current.retractHeight, savedFields.retractHeight) ||
                 current.insideOut != savedFields.insideOut ||
                 current.finishPass != savedFields.finishPass ||
-                !nearlyEqual(current.finishWidth, savedFields.finishWidth)
+                !nearlyEqual(current.finishWidth, savedFields.finishWidth) ||
+                !nearlyEqual(current.finishStepdown, savedFields.finishStepdown) ||
+                !nearlyEqual(current.finishFeedRate, savedFields.finishFeedRate) ||
+                !nearlyEqual(current.finishSpindleSpeed, savedFields.finishSpindleSpeed) ||
+                !nearlyEqual(current.leadSlope, savedFields.leadSlope) ||
+                !nearlyEqual(current.leadFeedRate, savedFields.leadFeedRate)
             );
         }
 
@@ -739,14 +786,21 @@ export namespace Cam::Gui {
             const bool climbMilling = cutDirectionDropdown->params.value != "conventional";
             const bool insideOut = ringOrderDropdown->params.value != "outside_in";
 
-            // finishPass / finishWidth aren't in saveToolPathSettings' fixed
-            // signature; write them straight onto the toolpath first (the save
-            // preserves any field it isn't given, then recomputes the path).
-            double finishWidth = state->toolPath.finishWidth;
-            finishWidthInput->commit(e);
-            finishWidthInput->tryGetValue(finishWidth);
+            // These aren't in saveToolPathSettings' fixed signature; write them
+            // straight onto the toolpath first (the save preserves any field it
+            // isn't given, then recomputes the path).
+            auto readInto = [&](NumberInput* in, double& dst) {
+                if (!in) { return; }
+                in->commit(e);
+                in->tryGetValue(dst);
+            };
             state->toolPath.finishPass = finishPassDropdown->params.value != "off";
-            state->toolPath.finishWidth = finishWidth;
+            readInto(finishWidthInput, state->toolPath.finishWidth);
+            readInto(finishStepdownInput, state->toolPath.finishStepdown);
+            readInto(finishFeedInput, state->toolPath.finishFeedRate);
+            readInto(finishSpindleInput, state->toolPath.finishSpindleSpeed);
+            readInto(leadSlopeInput, state->toolPath.leadSlope);
+            readInto(leadFeedInput, state->toolPath.leadFeedRate);
 
             if (!app->saveToolPathSettings(
                 state,

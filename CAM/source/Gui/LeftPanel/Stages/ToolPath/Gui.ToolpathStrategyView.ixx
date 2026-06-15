@@ -3,6 +3,7 @@ module;
 #include <string>
 #include <vector>
 #include <functional>
+#include <optional>
 
 export module Cam.Gui.ToolpathStrategyView;
 
@@ -121,6 +122,11 @@ export namespace Cam::Gui {
             input->onKeyDown([this](Event& e) {
                 if (e.keyboard.enter) { commit(e); }
             });
+
+            // Live: recompute as the value changes, not only on Enter. (This is the
+            // commit path every edit shares; without it the tree-item fields only
+            // refreshed on Enter, which read as "settings don't update live".)
+            input->onValueChange = [this](Event& e, std::optional<double>) { commit(e); };
 
             return input;
         }
