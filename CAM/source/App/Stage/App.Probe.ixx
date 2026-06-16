@@ -88,6 +88,8 @@ export namespace Cam::App {
         Pos3   nominal{};        // nominal target point (CAD frame)
         Pos3   normal{};         // outward unit surface normal (CAD frame)
         Pos3   measured{};       // actual contact (CAD/world frame)
+        Pos3   machineContact{}; // raw [PRB] contact (ABSOLUTE machine coords) --
+                                 // origin-independent, used for rotary-axis fitting
     };
 
     // The WORK frame's defining feature: the machine's literal rotary (A) axis,
@@ -112,11 +114,97 @@ export namespace Cam::App {
     // axis (part<->work), and eventually the rotary axis's offset from the assumed
     // machine location (work<->machine).
     struct RotaryAxis {
-        Pos3 direction{ 1, 0, 0 };   // unit A-axis direction (CAD/part frame)
-        Pos3 point{};                // a point the axis line passes through (CAD)
+        Pos3 direction{ 1, 0, 0 };   // unit A-axis direction
+        Pos3 point{};                // a point the axis line passes through
         bool measured = false;       // false = assumed (machine def); true = probed
+        double residual = 0.0;       // how well the 2-orientation fit closed (mm)
 
         void reset() { *this = RotaryAxis(); }
+
+        // Locate the rotary axis from a face measured at several known rotation
+        // angles.  At each orientation plane-fitting gives a centroid c_i and
+        // normal n_i.  Rotation about the axis preserves a plane's distance, so
+        // each rotated plane relates to a reference plane by the PLANE-DIFFERENCE
+        // constraint  (n_i - n_0) . a = h_i - h_0,  h_i = n_i . c_i.  The axis
+        // direction is KNOWN (the A axis); the position a is the least-squares
+        // solution of those constraints in the plane perpendicular to dir.
+        //
+        // This deliberately uses ONLY the plane (normal + offset), NOT point
+        // correspondence -- which matters because a flat face probed along fixed
+        // rays does NOT trace a point about the axis, so any centroid-tracking
+        // method would put the axis at the FACE depth, not the true depth.
+        //
+        // >= 3 orientations are required (>= 2 constraints) to pin the position;
+        // at exactly 3 the fit is exactly determined (residual ~0, correct if the
+        // data is clean), and >= 4 over-determines it so the residual can validate.
+        static RotaryAxis inferFromNormalPlanes(
+            const std::vector<Pos3>& centroids,
+            const std::vector<Pos3>& normals,
+            const Pos3&              dirIn)
+        {
+            RotaryAxis out;
+            const size_t n = std::min(centroids.size(), normals.size());
+            if (n < 3) { return out; }   // need >= 2 constraints to pin the position
+            const float dl = dirIn.pythag();
+            if (dl < 1e-6f) { return out; }
+            const Pos3 d = dirIn * (1.0f / dl);
+
+            // Basis (u, w) of the plane perpendicular to d.  a's along-d component
+            // is meaningless for a line, so solve only its (u, w) coordinates.
+            const Pos3 ref = (std::fabs(d.z) < 0.9f) ? Pos3{ 0, 0, 1 } : Pos3{ 1, 0, 0 };
+            Pos3 u = d.cross(ref);
+            const float ul = u.pythag();
+            if (ul < 1e-6f) { return out; }
+            u = u * (1.0f / ul);
+            const Pos3 w = d.cross(u);
+
+            // PLANE-DIFFERENCE constraint (uses ONLY each plane's normal + offset --
+            // NO point correspondence, so it works on a featureless flat face
+            // probed along fixed rays).  Rotation about the axis preserves a plane's
+            // distance, so a plane at orientation i relates to the reference 0 by:
+            //     (n_i - n_0) . a = h_i - h_0 ,   h_i = n_i . c_i
+            // Each non-reference orientation gives one such constraint (its normal,
+            // n_i - n_0, lies in the plane perpendicular to d).  Least-squares for a
+            // in (u, w).  The earlier "axis lies in the plane through the centroid"
+            // form fails here: with fixed-ray centroids it is forced to put the axis
+            // at the FACE depth, not the true axis depth.
+            const Pos3   n0 = normals[0];
+            const double h0 = double(n0.dot(centroids[0]));
+            double Suu = 0, Suw = 0, Sww = 0, Su = 0, Sw = 0;
+            size_t used = 0;
+            for (size_t i = 1; i < n; i++) {
+                const Pos3   g  = normals[i] - n0;        // perpendicular to d
+                const double hi = double(normals[i].dot(centroids[i]));
+                const double rhs = hi - h0;
+                const double gu = double(g.dot(u)), gw = double(g.dot(w));
+                Suu += gu*gu; Suw += gu*gw; Sww += gw*gw;
+                Su  += rhs*gu; Sw  += rhs*gw;
+                used++;
+            }
+            if (used < 2) { return out; }   // need >= 3 orientations (>= 2 constraints)
+            const double det = Suu * Sww - Suw * Suw;
+            if (std::fabs(det) < 1e-9) { return out; }   // orientations too close -> undefined
+
+            const double au = ( Sww * Su - Suw * Sw) / det;
+            const double aw = (-Suw * Su + Suu * Sw) / det;
+            const Pos3   a = u * float(au) + w * float(aw)
+                           + d * float(centroids[0].dot(d));
+
+            // Residual: how well the constraints concur (meaningful only when
+            // OVER-determined -- i.e. >= 4 orientations; exactly determined at 3).
+            double sse = 0.0;
+            for (size_t i = 1; i < n; i++) {
+                const Pos3   g = normals[i] - n0;
+                const double hi = double(normals[i].dot(centroids[i]));
+                const double e = double(g.dot(a)) - (hi - h0);
+                sse += e * e;
+            }
+            out.residual  = std::sqrt(sse / double(used));
+            out.direction = d;
+            out.point     = a;
+            out.measured  = true;
+            return out;
+        }
     };
 
     // The fitted rigid result of a probing run: a frame correction applied as
@@ -244,6 +332,35 @@ export namespace Cam::App {
             o.tTrue    = xform(rTrue, base.tTrue) + tTrue;
             o.valid    = valid && base.valid;
             o.rmsError = rmsError;   // quality of the latest (residual) fit
+            return o;
+        }
+
+        // A correction that is a PURE rotation of angleDeg about the line through
+        // `point` along `dir`.  Used to command a deliberate calibration tilt:
+        // driving the probe by this rotates the part by angleDeg about the rotary
+        // axis, so the same face is measured at a known, well-separated angle.
+        static ProbeResult pureRotation(const Pos3& dir, const Pos3& point, double angleDeg) {
+            ProbeResult o;
+            o.valid = true;
+            const float dl = dir.pythag();
+            if (dl < 1e-6f || std::fabs(angleDeg) < 1e-9) { return o; }   // identity
+            const Pos3   d  = dir * (1.0f / dl);
+            const double th = angleDeg * 0.017453292519943295;
+            const double c = std::cos(th), s = std::sin(th), t = 1.0 - c;
+            const double ax = d.x, ay = d.y, az = d.z;
+            const double R[9] = {
+                t*ax*ax + c,    t*ax*ay - s*az, t*ax*az + s*ay,
+                t*ax*ay + s*az, t*ay*ay + c,    t*ay*az - s*ax,
+                t*ax*az - s*ay, t*ay*az + s*ax, t*az*az + c
+            };
+            for (int i = 0; i < 9; i++) { o.r[i] = R[i]; o.rTrue[i] = R[i]; }
+            const Pos3 Rp{
+                float(R[0]*point.x + R[1]*point.y + R[2]*point.z),
+                float(R[3]*point.x + R[4]*point.y + R[5]*point.z),
+                float(R[6]*point.x + R[7]*point.y + R[8]*point.z)
+            };
+            o.t = point - Rp;   // pivot about `point`: apply(p) = R(p-point)+point
+            o.tTrue = o.t;
             return o;
         }
 
