@@ -110,6 +110,13 @@ export namespace Cam::Gui {
         View3d::Actor* partFrameActor = nullptr;
         std::vector<Rev::Core::Vertex3> partFrameLines;
 
+        // The MEASURED rotary axis: the physical line the chuck turns the part
+        // about, as located by multi-orientation probing (workRotaryAxis).  Drawn
+        // STATIC (it is fixed in machine space; the part rotates about it), and
+        // only when it has actually been measured.
+        View3d::Actor* axisLineActor = nullptr;
+        std::vector<Rev::Core::Vertex3> axisLineVerts;
+
         View3d::Actor* toolPreviewActor = nullptr;
         std::vector<Rev::Core::Vertex3> toolPreviewTriangles;
 
@@ -269,6 +276,7 @@ export namespace Cam::Gui {
 
             createAxisLineActor();
             createPartFrameActor();
+            createRotaryAxisActor();
             createToolPreviewActor();
             createSpindlePreviewActor();
             syncAxisLines();
@@ -472,6 +480,13 @@ export namespace Cam::Gui {
 
             delete partFrameActor;
             partFrameActor = nullptr;
+
+            if (view3d && axisLineActor) {
+                view3d->removeActor(axisLineActor);
+            }
+
+            delete axisLineActor;
+            axisLineActor = nullptr;
 
             if (view3d && toolPreviewActor) {
                 view3d->removeActor(toolPreviewActor);
@@ -941,6 +956,50 @@ export namespace Cam::Gui {
             partFrameLines = testLines;
             if (partFrameActor && partFrameActor->lines) {
                 partFrameActor->lines->dirty = true;
+            }
+
+            // The MEASURED rotary axis line (orange), drawn static at its located
+            // position once probing has determined it.  This is the physical line
+            // the part turns about -- the answer to "where is the chuck centreline".
+            axisLineVerts.clear();
+            if (Cam::App::Project* prj = activeProject()) {
+                if (prj->workRotaryAxis.measured) {
+                    Rev::Core::Pos3 dir = prj->workRotaryAxis.direction;
+                    const float dl = dir.pythag();
+                    if (dl > 1e-6f) {
+                        dir = dir * (1.0f / dl);
+                        const Rev::Core::Pos3 p = prj->workRotaryAxis.point;
+                        const float L = 120.0f;
+                        const Rev::Core::Color c = { 1.0f, 0.55f, 0.0f, 1.0f };
+                        const Rev::Core::Pos3 a = p - dir * L;
+                        const Rev::Core::Pos3 b = p + dir * L;
+                        axisLineVerts.push_back({ a.x, a.y, a.z, c });
+                        axisLineVerts.push_back({ b.x, b.y, b.z, c });
+                    }
+                }
+            }
+            if (axisLineActor && axisLineActor->lines) {
+                axisLineActor->lines->dirty = true;
+            }
+        }
+
+        void createRotaryAxisActor() {
+
+            axisLineActor = new View3d::Actor();
+
+            axisLineActor->visible = true;
+            axisLineActor->selectable = false;
+            axisLineActor->ownsLines = true;
+            axisLineActor->includeInFit = false;
+
+            axisLineActor->lines = new Rev::Primitives::Lines3d(shared->canvas, {
+                .lines = &axisLineVerts
+            });
+
+            axisLineActor->lines->color = { 1.0f, 0.55f, 0.0f, 1.0f };
+
+            if (view3d) {
+                view3d->addActor(axisLineActor);
             }
         }
 
@@ -1753,6 +1812,20 @@ export namespace Cam::Gui {
                 rotaryAxis = state->model.axisXDirection;
             }
 
+            // UNIFIED AXIS: once probing has MEASURED the rotary axis, it IS the
+            // work coordinate system's X axis.  Feeding it here -- the single source
+            // of the machine's rotary axis -- means EVERYTHING that rotates pivots
+            // about it: the IK solve, every emitted cut, AND the world view's part
+            // rotation (defaultPose.position / freeRotations both flow from here).
+            // The user's assumed X axis was only ever the prior; the probe supersedes
+            // it.  Before measurement, the user frame stands in (taken on faith).
+            if (Cam::App::Project* prj = activeProject()) {
+                if (prj->workRotaryAxis.measured) {
+                    pivot      = prj->workRotaryAxis.point;
+                    rotaryAxis = prj->workRotaryAxis.direction;
+                }
+            }
+
             return Cam::Machine::MachineDefinition::ThreePlusOne(pivot, rotaryAxis);
         }
 
@@ -2005,6 +2078,12 @@ export namespace Cam::Gui {
             // post-run scrub shows the corrected probe motion.
             machineToolPathsDirty = true;
             previewTimelineDirty  = true;
+
+            // Rebuild the drawn frames + the located rotary-axis line now (the
+            // probe path does not run a full syncRepresentation, so the axis line
+            // would otherwise not refresh until the next UI interaction).
+            syncAxisLines();
+            if (view3d && shared && shared->event) { view3d->refresh(*shared->event); }
         }
 
         // Return a reference to the solved MachineToolPath for a given state,
