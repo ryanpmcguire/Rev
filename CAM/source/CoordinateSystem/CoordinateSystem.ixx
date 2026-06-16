@@ -151,6 +151,59 @@ export namespace Cam {
         }
 
         // ===========================================================
+        // Chaining (the reason frames stack: machine -> work -> part)
+        // ===========================================================
+
+        // The frame `child` -- which is defined RELATIVE to this one -- expressed in
+        // THIS frame's parent.  result.apply(p) == this.apply(child.apply(p)).
+        // (Pose only; epistemics are not composed here -- see notes.)
+        CoordinateSystem composedWith(const CoordinateSystem& child) const {
+            CoordinateSystem out;
+            for (int row = 0; row < 3; row++) {
+                for (int col = 0; col < 3; col++) {
+                    out.r[row*3+col] = r[row*3+0]*child.r[0*3+col]
+                                     + r[row*3+1]*child.r[1*3+col]
+                                     + r[row*3+2]*child.r[2*3+col];
+                }
+            }
+            out.t = apply(child.t);   // R*child.t + t
+            out.resolveAxes();
+            return out;
+        }
+
+        // The inverse transform (PARENT -> LOCAL).
+        CoordinateSystem inverse() const {
+            CoordinateSystem out;
+            out.r[0] = r[0]; out.r[1] = r[3]; out.r[2] = r[6];   // R^T
+            out.r[3] = r[1]; out.r[4] = r[4]; out.r[5] = r[7];
+            out.r[6] = r[2]; out.r[7] = r[5]; out.r[8] = r[8];
+            out.t = applyInverse({ 0.0f, 0.0f, 0.0f });          // -R^T t
+            out.resolveAxes();
+            return out;
+        }
+
+        // THIS frame expressed in `other`'s frame:  other^-1 . this.
+        CoordinateSystem relativeTo(const CoordinateSystem& other) const {
+            return other.inverse().composedWith(*this);
+        }
+
+        // ===========================================================
+        // Construction from a basis / an axis
+        // ===========================================================
+
+        // From an explicit basis: columns of R are the local X/Y/Z directions
+        // expressed in the parent, `origin` is the local origin in the parent.
+        static CoordinateSystem fromBasis(Pos3 origin, Pos3 X, Pos3 Y, Pos3 Z) {
+            CoordinateSystem cs;
+            cs.r[0] = X.x; cs.r[1] = Y.x; cs.r[2] = Z.x;
+            cs.r[3] = X.y; cs.r[4] = Y.y; cs.r[5] = Z.y;
+            cs.r[6] = X.z; cs.r[7] = Y.z; cs.r[8] = Z.z;
+            cs.t = origin;
+            cs.resolveAxes();
+            return cs;
+        }
+
+        // ===========================================================
         // Epistemics (the "axes" half)
         // ===========================================================
 
