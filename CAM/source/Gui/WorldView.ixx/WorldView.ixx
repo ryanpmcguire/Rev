@@ -1775,32 +1775,15 @@ export namespace Cam::Gui {
         Cam::Machine::MachineDefinition buildMachineDefinition(
             Cam::App::Stage* state
         ) {
-            Rev::Core::Pos3 pivot      = {};
-            Rev::Core::Pos3 rotaryAxis = { 1.0f, 0.0f, 0.0f };  // world X default
+            // UNIFIED: the machine is derived from the EXACT SAME work coordinate
+            // system the world view draws (buildWorkFrame) -- one object whose X is
+            // the rotary axis (measured when probing has found it, the user's
+            // nominal X otherwise) and whose origin is the pivot.  Everything that
+            // rotates -- the IK solve, every emitted cut, the drawn frame, and the
+            // world view's part rotation -- now pivots about this single frame.
+            Cam::Coord::CoordinateSystem workCS = buildWorkFrame(activeProject());
 
-            if (state->model.hasAxisOrigin) {
-                pivot = state->model.axisOrigin;
-            }
-
-            if (state->model.hasAxisX) {
-                rotaryAxis = state->model.axisXDirection;
-            }
-
-            // UNIFIED AXIS: once probing has MEASURED the rotary axis, it IS the
-            // work coordinate system's X axis.  Feeding it here -- the single source
-            // of the machine's rotary axis -- means EVERYTHING that rotates pivots
-            // about it: the IK solve, every emitted cut, AND the world view's part
-            // rotation (defaultPose.position / freeRotations both flow from here).
-            // The user's assumed X axis was only ever the prior; the probe supersedes
-            // it.  Before measurement, the user frame stands in (taken on faith).
-            if (Cam::App::Project* prj = activeProject()) {
-                if (prj->workRotaryAxis.measured) {
-                    pivot      = prj->workRotaryAxis.point;
-                    rotaryAxis = prj->workRotaryAxis.direction;
-                }
-            }
-
-            return Cam::Machine::MachineDefinition::ThreePlusOne(pivot, rotaryAxis);
+            return Cam::Machine::MachineDefinition::fromWorkFrame(workCS);
         }
 
         // A probe touched the part.  Air reports the contact in MACHINE-WCS;
@@ -2396,10 +2379,48 @@ export namespace Cam::Gui {
 
         // THE WORK frame as a CoordinateSystem: the nominal user frame placed where
         // probing says it actually is (workCorrection applied).
+        // THE one work coordinate system, shared by the display AND the machine
+        // definition.  Its X axis rests EXACTLY on the rotary axis (measured when
+        // probing has found it, the user's nominal X otherwise); its origin is a
+        // point on that axis (the pivot).  Y/Z keep the user frame's orientation,
+        // re-orthogonalised against X, so the frame reads like the user frame but
+        // with its X snapped to the rotary line.  rx is the live rotary; its
+        // certainty records whether the axis was measured or is taken on faith.
         Cam::Coord::CoordinateSystem buildWorkFrame(Cam::App::Project* project) {
-            Cam::Coord::CoordinateSystem user = userFrameCS(project);
-            if (!project) { return user; }
-            return csFromCorrection(project->workCorrection).composedWith(user);
+
+            const UserFrame f = currentUserFrame(project);
+
+            Rev::Core::Pos3 pivot = f.origin;
+            Rev::Core::Pos3 X     = f.X;
+            bool            measured = false;
+
+            if (project && project->workRotaryAxis.measured) {
+                pivot    = project->workRotaryAxis.point;
+                X        = project->workRotaryAxis.direction;
+                measured = true;
+            }
+
+            const float xl = X.pythag();
+            X = (xl > 1e-6f) ? X * (1.0f / xl) : Rev::Core::Pos3{ 1.0f, 0.0f, 0.0f };
+
+            // Y from the user frame, made perpendicular to X; fall back to any
+            // perpendicular if the user's Y happens to be parallel to the rotary.
+            Rev::Core::Pos3 Y = f.Y - X * f.Y.dot(X);
+            float yl = Y.pythag();
+            if (yl <= 1e-6f) {
+                const Rev::Core::Pos3 ref =
+                    (std::fabs(X.z) < 0.9f) ? Rev::Core::Pos3{ 0,0,1 } : Rev::Core::Pos3{ 1,0,0 };
+                Y  = ref.cross(X);
+                yl = Y.pythag();
+            }
+            Y = (yl > 1e-6f) ? Y * (1.0f / yl) : Rev::Core::Pos3{ 0.0f, 1.0f, 0.0f };
+            const Rev::Core::Pos3 Z = X.cross(Y);
+
+            Cam::Coord::CoordinateSystem cs =
+                Cam::Coord::CoordinateSystem::fromBasis(pivot, X, Y, Z);
+            cs.rx.maxSpeed  = 1.0;                    // 3+1: the rotary is live
+            cs.rx.certainty = measured ? 1.0 : 0.25;  // measured vs taken on faith
+            return cs;
         }
 
         // Append the THREE axes (X red, Y green, Z blue) of a CoordinateSystem as

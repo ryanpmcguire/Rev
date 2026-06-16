@@ -74,6 +74,22 @@ export namespace Cam::Machine {
             };
         }
 
+        // Build the machine FROM a work coordinate system: its origin is the
+        // rotary pivot and its local X axis is the rotary axis -- the unified view
+        // in which "the rotary IS the work frame's X".  A free rx yields a 3+1
+        // indexed machine; a locked rx (no rotational freedom) yields pure 3-axis.
+        // This is the single bridge from "where the work frame is" (measured by
+        // probing, or taken on faith from the user frame) to "what the machine can
+        // do" -- the IK and every emitted cut flow from this one frame.
+        static MachineDefinition fromWorkFrame(const Cam::Coord::CoordinateSystem& work) {
+            const Pos3 pivot = work.apply({ 0.0f, 0.0f, 0.0f });
+            if (work.rx.isFree()) {
+                const Pos3 rotaryAxis = work.applyDirection({ 1.0f, 0.0f, 0.0f });
+                return ThreePlusOne(pivot, rotaryAxis);
+            }
+            return ThreeAxis();
+        }
+
         // -- The DOF, expressed as CoordinateSystems -------------------
         //
         // The machine's freedom IS a coordinate system: a frame whose axes carry a
