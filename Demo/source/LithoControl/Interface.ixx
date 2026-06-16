@@ -825,6 +825,7 @@ export namespace LithoControl {
             sidebarContent->style->layout.horizontal = Align::Start;
             sidebarContent->style->layout.vertical   = Align::Start;
             sidebarContent->style->layout.position   = Position::Absolute;
+            sidebarContent->style->layout.wrap       = Wrap::False;
             sidebarContent->style->size.width        = 100_pct;
 
             // Title
@@ -837,23 +838,23 @@ export namespace LithoControl {
             title->style->border.bottom.width = 1_px;
 
             Box* connBody = nullptr;
-            makeSection(sidebarContent, "CONNECTION", connBody, false);
+            makeSection(sidebarContent, "CONNECTION", connBody);
             buildConnectionPanel(connBody);
 
             Box* dispBody = nullptr;
-            makeSection(sidebarContent, "DISPLAY OUTPUT", dispBody, false);
+            makeSection(sidebarContent, "DISPLAY OUTPUT", dispBody);
             buildDisplayPanel(dispBody);
 
             Box* slicerBody = nullptr;
-            makeSection(sidebarContent, "SLICER", slicerBody, false);
+            makeSection(sidebarContent, "SLICER", slicerBody);
             buildSlicerPanel(slicerBody);
 
             Box* jobBody = nullptr;
-            makeSection(sidebarContent, "JOB QUEUE", jobBody, false);
+            makeSection(sidebarContent, "JOB QUEUE", jobBody);
             buildJobPanel(jobBody);
 
             Box* jogBody = nullptr;
-            makeSection(sidebarContent, "JOG", jogBody, false);
+            makeSection(sidebarContent, "JOG", jogBody);
             buildJogPanel(jogBody);
 
             // Scrollbar track: thin strip on the right edge of the sidebar.
@@ -888,10 +889,8 @@ export namespace LithoControl {
             });
 
             // Wheel handler: update scroll and immediately dirty sidebarContent
-            // so the frame repaints without waiting for a hover event. Only consume
-            // when the cursor is actually over the sidebar.
-            sb->onMouseWheel([this, sb](Rev::Element::Event& e) {
-                if (!sb->rect.contains(e.mouse.pos)) return;
+            // so the frame repaints without waiting for a hover event.
+            sb->onMouseWheel([this](Rev::Element::Event& e) {
                 sidebarScrollY -= (e.mouse.wheel.y / 120.0f) * 40.0f;
                 if (sidebarScrollY < 0.0f) sidebarScrollY = 0.0f;
                 sidebarContent->style->position.top = Px(-sidebarScrollY);
@@ -899,13 +898,15 @@ export namespace LithoControl {
             });
         }
 
-        // Collapsible section header + body
-        void makeSection(Box* parent, const std::string& title, Box*& body, bool collapsed) {
+        // Collapsible section header + body.
+        // Returns a toggle() callable — call it after populating the body to start
+        // the section collapsed; the header click calls the same function to expand.
+        std::function<void()> makeSection(Box* parent, const std::string& title, Box*& body) {
 
             Box* hdr = new Box(parent, { &Theme::SectionHdr, &Theme::SectionHdrHover });
             hdr->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
 
-            Text* arrow = new Text(hdr, collapsed ? ">" : "v");
+            Text* arrow = new Text(hdr, "v");
             arrow->style->text.color = rgba(232, 232, 232, 0.4f);
             arrow->style->text.size  = 10_px;
             arrow->style->margin.right = 6_px;
@@ -919,7 +920,7 @@ export namespace LithoControl {
             // Saved children used as collapse-state indicator (empty = expanded)
             auto saved = std::make_shared<std::vector<Element*>>();
 
-            hdr->onMouseDown([arrow, body, saved](Rev::Element::Event& e) {
+            auto toggle = [arrow, body, saved]() {
                 if (saved->empty()) {
                     // Collapse: detach children and zero padding
                     *saved = body->children;
@@ -933,7 +934,11 @@ export namespace LithoControl {
                     saved->clear();
                     arrow->content = "v";
                 }
-            });
+            };
+
+            hdr->onMouseDown([toggle](Rev::Element::Event&) { toggle(); });
+
+            return toggle;
         }
 
         // -- Sidebar collapse handle -------------------------------------------
@@ -1786,18 +1791,17 @@ export namespace LithoControl {
                 float contentH = measureSpread(sidebarContent);
                 if (contentH <= 0.0f) contentH = trackH;
                 float maxScroll = (std::max)(0.0f, contentH - trackH);
-                if (sidebarScrollY > maxScroll) sidebarScrollY = maxScroll;
-                sidebarContent->style->position.top = Px(-sidebarScrollY);
-
+                if (sidebarScrollY > maxScroll) {
+                    sidebarScrollY = maxScroll;
+                    sidebarContent->style->position.top = Px(-sidebarScrollY);
+                }
                 float ratio   = (contentH > trackH) ? (trackH / contentH) : 1.0f;
                 float thumbH  = (std::max)(20.0f, ratio * trackH);
                 float thumbTop = (maxScroll > 0.0f)
                     ? (sidebarScrollY / maxScroll) * (trackH - thumbH)
                     : 0.0f;
-                sidebarScrollThumb->style->size.height     = Px(thumbH);
-                sidebarScrollThumb->style->position.top    = Px(thumbTop);
-                sidebarScrollThumb->style->visibility = (maxScroll > 0.0f)
-                    ? Visibility::Visible : Visibility::Hidden;
+                sidebarScrollThumb->style->size.height  = Px(thumbH);
+                sidebarScrollThumb->style->position.top = Px(thumbTop);
             }
 
             // (Job list now flows in the sidebar and scrolls with it -- no separate
