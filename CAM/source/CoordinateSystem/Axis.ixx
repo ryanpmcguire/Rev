@@ -27,7 +27,7 @@ export module Cam.CoordinateSystem.Axis;
 // (maxSpeed 0) but may be unknown (certainty 0) until probed or taken on faith.
 // ------------------------------------------------------------------
 
-export namespace Cam {
+export namespace Cam::Coord {
 
     struct Axis {
 

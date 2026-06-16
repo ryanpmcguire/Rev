@@ -17,6 +17,8 @@ export module Cam.App.Project;
 import Rev.OS.File;
 import Rev.Core.Pos3;
 
+import Cam.CoordinateSystem;
+
 import Cam.App.Model;
 import Cam.App.Stage;
 import Cam.App.Probe;
@@ -129,6 +131,13 @@ export namespace Cam::App {
         // probe infers.  Assumed from the machine definition until probing across
         // orientations measures it.  Session state -- cleared on "Set Origin".
         RotaryAxis workRotaryAxis;
+
+        // UNIFIED COORDINATE-SYSTEM VIEW (the new representation everything migrates
+        // toward).  These are derived from the data above and are what the on-screen
+        // frames are drawn FROM -- the drawn axes ARE these objects.  Rebuilt after
+        // probing / on sync by the world view.
+        Cam::Coord::CoordinateSystem workFrame;   // where the work coord system actually is
+        Cam::Coord::CoordinateSystem partFrame;   // the part's frame within / atop the work
 
         // Raw probe contacts behind the two corrections, split by phase: contacts
         // taken while the work frame was UNKNOWN feed `workMeasurements`; contacts

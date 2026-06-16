@@ -36,6 +36,8 @@ import Rev.Primitive.Mesh3d;
 import Rev.Element.View3d;
 import Rev.Element.View3d.Actor3d;
 
+import Cam.CoordinateSystem;
+
 import Cam.App;
 import Cam.App.Project;
 import Cam.App.Model;
@@ -916,47 +918,19 @@ export namespace Cam::Gui {
 
             if (!lineActor || !lineActor->lines) { return; }
 
-            constexpr float core = 2.0f;
-            constexpr float far = 90.0f;
+            Cam::App::Project* project = activeProject();
 
-            Rev::Core::Pos3 origin = { 0.0f, 0.0f, 0.0f };
-            Rev::Core::Pos3 xDir = { 1.0f, 0.0f, 0.0f };
-            Rev::Core::Pos3 yDir = { 0.0f, 1.0f, 0.0f };
-            Rev::Core::Pos3 zDir = { 0.0f, 0.0f, 1.0f };
-
-            Cam::App::Model* model = selectionModel();
-
-            if (
-                model &&
-                (
-                    model->hasAxisOrigin ||
-                    model->hasAxisX ||
-                    model->hasAxisY ||
-                    model->hasAxisZ
-                )
-            ) {
-                origin = model->axisOrigin;
+            // THE WORK frame, drawn DIRECTLY from its CoordinateSystem: the nominal
+            // user frame placed where probing determined it actually is.  The lines
+            // are baked at the frame's pose, so what you see IS project->workFrame
+            // (the actor carries no transform -- see applyWorldTransforms).  The
+            // PART frame is built per-telemetry-frame in applyWorldTransforms (it
+            // rides the chuck), so it is not built here.
+            if (project) {
+                project->workFrame = buildWorkFrame(project);
+                drawFrame(project->workFrame, testLines, 90.0f);
             }
-
-            if (model) {
-                model->getOrthonormalAxisFrame(xDir, yDir, zDir);
-            }
-
-            appendAxisLine(origin, xDir, { 1.0f, 0.0f, 0.0f, 1.0f }, core, far);
-            appendAxisLine(origin, yDir, { 0.0f, 1.0f, 0.0f, 1.0f }, core, far);
-            appendAxisLine(origin, zDir, { 0.0f, 0.25f, 1.0f, 1.0f }, core, far);
-
             lineActor->lines->dirty = true;
-
-            // The part frame uses the SAME axis geometry; it diverges from the
-            // static reference only through its world transform (the part pose),
-            // applied in applyWorldTransforms.  So a probe/rotation makes the part
-            // frame swing away from this fixed reference, and the visible gap is
-            // the measured pose.
-            partFrameLines = testLines;
-            if (partFrameActor && partFrameActor->lines) {
-                partFrameActor->lines->dirty = true;
-            }
 
             // The MEASURED rotary axis line (orange), drawn static at its located
             // position once probing has determined it.  This is the physical line
@@ -2382,6 +2356,69 @@ export namespace Cam::Gui {
             out[12] = c.t.x;         out[13] = c.t.y;         out[14] = c.t.z;
         }
 
+        // ===========================================================
+        // CoordinateSystem bridge (the unified representation)
+        // ===========================================================
+
+        // A probe correction (row-major r + t) is already a rigid pose -> a
+        // CoordinateSystem.
+        static Cam::Coord::CoordinateSystem csFromCorrection(const Cam::App::ProbeResult& c) {
+            Cam::Coord::CoordinateSystem cs;
+            for (int i = 0; i < 9; i++) { cs.r[i] = c.r[i]; }
+            cs.t = c.t;
+            cs.resolveAxes();
+            return cs;
+        }
+
+        // A column-major 4x4 (the view/IK convention) -> a CoordinateSystem.
+        static Cam::Coord::CoordinateSystem csFromColMajor(const float m[16]) {
+            Cam::Coord::CoordinateSystem cs;
+            cs.r[0] = m[0]; cs.r[1] = m[4]; cs.r[2] = m[8];
+            cs.r[3] = m[1]; cs.r[4] = m[5]; cs.r[5] = m[9];
+            cs.r[6] = m[2]; cs.r[7] = m[6]; cs.r[8] = m[10];
+            cs.t = { m[12], m[13], m[14] };
+            cs.resolveAxes();
+            return cs;
+        }
+
+        // The user's nominal work frame as a CoordinateSystem (its X axis is the
+        // rotary axis -- the "co"/"ax" gestures define the basis).
+        Cam::Coord::CoordinateSystem userFrameCS(Cam::App::Project* project) {
+            const UserFrame f = currentUserFrame(project);
+            Cam::Coord::CoordinateSystem cs = Cam::Coord::CoordinateSystem::fromBasis(f.origin, f.X, f.Y, f.Z);
+            // The rotary is the X axis: free + slow; the linears are free + fast.
+            cs.rx.maxSpeed = 1.0;   // rotation: machine-driven (slow)
+            cs.x.maxSpeed  = 1.0;   // translations: machine-driven (fast) -- relative
+            cs.y.maxSpeed  = 0.0;   // lateral Y: faith-only on a 4-axis top probe
+            cs.z.maxSpeed  = 1.0;
+            return cs;
+        }
+
+        // THE WORK frame as a CoordinateSystem: the nominal user frame placed where
+        // probing says it actually is (workCorrection applied).
+        Cam::Coord::CoordinateSystem buildWorkFrame(Cam::App::Project* project) {
+            Cam::Coord::CoordinateSystem user = userFrameCS(project);
+            if (!project) { return user; }
+            return csFromCorrection(project->workCorrection).composedWith(user);
+        }
+
+        // Append the THREE axes (X red, Y green, Z blue) of a CoordinateSystem as
+        // line segments, baked at the frame's actual pose -- so what is drawn IS a
+        // direct reflection of the CoordinateSystem object.
+        static void drawFrame(const Cam::Coord::CoordinateSystem& cs,
+                              std::vector<Rev::Core::Vertex3>& out, float L) {
+            const Rev::Core::Pos3 o = cs.apply({ 0.0f, 0.0f, 0.0f });
+            auto axis = [&](Rev::Core::Pos3 localDir, Rev::Core::Color c) {
+                const Rev::Core::Pos3 d = cs.applyDirection(localDir);
+                const Rev::Core::Pos3 e = o + d * L;
+                out.push_back({ o.x, o.y, o.z, c });
+                out.push_back({ e.x, e.y, e.z, c });
+            };
+            axis({ 1.0f, 0.0f, 0.0f }, { 1.0f, 0.20f, 0.20f, 1.0f });   // X red
+            axis({ 0.0f, 1.0f, 0.0f }, { 0.20f, 1.0f, 0.20f, 1.0f });   // Y green
+            axis({ 0.0f, 0.0f, 1.0f }, { 0.30f, 0.45f, 1.0f, 1.0f });   // Z blue
+        }
+
         // The PART frame's correction: the full part pose (W o P), driven to the
         // part mesh and tool so they stay locked.
         void probeCorrectionMatrix(float out[16]) const {
@@ -2464,19 +2501,28 @@ export namespace Cam::Gui {
                 if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(Mc); }
             }
 
-            // THE PART frame rides the full part pose Mc (chuck rotation o W o P) --
-            // the same matrix as the part mesh, so it tracks the part's actual
-            // orientation.  THE WORK frame (lineActor) rides workCorrection ALONE:
-            // it is the rotary-axis / work coordinate system, fixed in machine
-            // space (it does NOT rotate with the chuck -- the part rotates about
-            // IT).  On the first probe pass the part offset is identity, so the part
-            // frame and work frame COINCIDE; only a measured part offset (pass 2+)
-            // makes them diverge.  Their gap is exactly the part-in-work offset.
-            if (partFrameActor) { partFrameActor->setWorldTransform(Mc); }
+            // THE FRAMES are drawn DIRECTLY from their CoordinateSystem objects --
+            // the lines are baked at each frame's pose, so the actors carry NO
+            // transform (identity); what is on screen IS the CoordinateSystem.
+            //
+            // The PART frame rides the full part pose Mc (chuck o W o P) -- it tracks
+            // the part's actual orientation -- so we rebuild it here, every
+            // telemetry frame, from project->partFrame.  The WORK frame is static
+            // between probes (built in syncAxisLines); the part rotates ABOUT it.
+            float identity[16];
+            Cam::Machine::Pose::identityMatrix(identity);
 
-            float Wm[16];
-            workCorrectionMatrix(Wm);
-            if (lineActor) { lineActor->setWorldTransform(Wm); }
+            if (Cam::App::Project* project = activeProject()) {
+                project->partFrame = csFromColMajor(Mc).composedWith(userFrameCS(project));
+                if (partFrameActor && partFrameActor->lines) {
+                    partFrameLines.clear();
+                    drawFrame(project->partFrame, partFrameLines, 90.0f);
+                    partFrameActor->lines->dirty = true;
+                }
+            }
+            if (partFrameActor) { partFrameActor->setWorldTransform(identity); }
+            if (lineActor)      { lineActor->setWorldTransform(identity); }
+            if (axisLineActor)  { axisLineActor->setWorldTransform(identity); }
 
             // In Execute mode the tool preview is positioned from live telemetry
             // (already absolute CAD), so it is NOT transformed here.  In the sim

@@ -29,7 +29,7 @@ export import Cam.CoordinateSystem.Axis;
 // off-axis remainder; they are the same thing.
 // ------------------------------------------------------------------
 
-export namespace Cam {
+export namespace Cam::Coord {
 
     using Rev::Core::Pos3;
 
