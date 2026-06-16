@@ -188,6 +188,8 @@
         "source/App/App.MachineSettings.ixx",
         "source/App/App.Persist.ixx",
         "source/App/App.ixx",
+        "source/CoordinateSystem/Axis.ixx",
+        "source/CoordinateSystem/CoordinateSystem.ixx",
         "source/App/Geometry/Segment3.ixx",
         "source/App/Machine/App.MachineLibrary.ixx",
         "source/App/Machine/App.MachineProfile.ixx",
