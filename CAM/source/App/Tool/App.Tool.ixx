@@ -62,6 +62,11 @@ export namespace Cam::App {
         double collarDiameter = 0.0;       // shank diameter (0 = same as shoulder)
         double collarLength = 40.0;        // axial shank length at the top
 
+        // Thread-mill form: the pitch the tool's teeth are ground for (mm).  Only
+        // meaningful for Type::ThreadMill, where it drives the toothed cutting
+        // silhouette (and tells the user what threads this tool can cut).
+        double threadPitch = 0.5;
+
         // Cached overall length (tip to top); kept equal to totalLength().
         double length = 50.0;
 
@@ -115,39 +120,21 @@ export namespace Cam::App {
             return collarDiameter * 0.5;
         }
 
-        // Right-hand silhouette of the revolved tool, tip (0,0) to top (0, total).
-        // Consumed by both the 2D preview (mirrored) and the 3D mesh (revolved),
-        // so the two can never disagree.
-        std::vector<ProfilePoint> profile() const {
+        // Append the shoulder transition, neck, collar/shank and the closing top
+        // centre point, starting at axial height `y` with the body currently at
+        // radius `fromR`.  Shared by every tool type so the shank always matches.
+        void appendShank(std::vector<ProfilePoint>& pts, double y, double fromR) const {
 
-            std::vector<ProfilePoint> pts;
-
-            const double cuttingR = std::max(radius, 0.0);
-
-            if (cuttingR <= 1e-9) { return pts; }
-
-            const double shoulderR = effectiveShoulderRadius(cuttingR, shoulderDiameter);
+            const double shoulderR = effectiveShoulderRadius(fromR, shoulderDiameter);
             const double collarR = effectiveCollarRadius(shoulderR, collarDiameter);
 
-            const double tipH = tipTaperHeight(cuttingR, taperAngle);
-            const double cutLen = std::max({ cuttingLength, tipH, 1e-4 });
-
-            double y = 0.0;
-
-            // Tip + flutes.
-            pts.push_back({ 0.0, 0.0 });        // tip centre
-            pts.push_back({ cuttingR, tipH });  // end of taper (== (cuttingR, 0) when flat)
-            pts.push_back({ cuttingR, cutLen }); // end of flutes
-            y = cutLen;
-
-            // Shoulder transition + neck.
-            const double transH = shoulderTransitionHeight(cuttingR, shoulderR, shoulderTaperAngle);
+            const double transH = shoulderTransitionHeight(fromR, shoulderR, shoulderTaperAngle);
 
             if (transH > 1e-9) {
                 y += transH;
                 pts.push_back({ shoulderR, y });
             }
-            else if (std::fabs(shoulderR - cuttingR) > 1e-9) {
+            else if (std::fabs(shoulderR - fromR) > 1e-9) {
                 pts.push_back({ shoulderR, y });  // instantaneous step
             }
 
@@ -158,7 +145,6 @@ export namespace Cam::App {
                 pts.push_back({ shoulderR, y });
             }
 
-            // Collar / shank.
             const double colLen = std::max(collarLength, 0.0);
 
             if (colLen > 1e-9) {
@@ -170,6 +156,65 @@ export namespace Cam::App {
             }
 
             pts.push_back({ 0.0, y });  // top centre
+        }
+
+        // The toothed cutting silhouette of a thread mill: a 60-degree saw-tooth
+        // (crest at the cutting radius, root one thread-depth in) repeating every
+        // pitch up the cutting length.  Revolved, this reads as a threaded cutter;
+        // mirrored, as a thread-mill profile -- visibly different from an end mill.
+        std::vector<ProfilePoint> threadMillProfile() const {
+
+            std::vector<ProfilePoint> pts;
+
+            const double majorR = std::max(radius, 0.0);
+            if (majorR <= 1e-9) { return pts; }
+
+            const double pitch = std::max(threadPitch, 1e-3);
+            const double depth = std::min(0.61343 * pitch, majorR * 0.9);   // 60-deg form
+            const double minorR = std::max(majorR - depth, 1e-4);
+            const double cutLen = std::max(cuttingLength, pitch);
+
+            pts.push_back({ 0.0, 0.0 });        // tip centre
+            pts.push_back({ majorR, 0.0 });     // flat tip at a crest
+
+            double y = 0.0;
+            bool crest = true;
+
+            while (y < cutLen - 1e-6) {
+                y = std::min(y + pitch * 0.5, cutLen);
+                crest = !crest;
+                pts.push_back({ crest ? majorR : minorR, y });
+            }
+
+            if (!crest) { pts.push_back({ majorR, cutLen }); }   // end on a crest
+
+            appendShank(pts, cutLen, majorR);
+
+            return pts;
+        }
+
+        // Right-hand silhouette of the revolved tool, tip (0,0) to top (0, total).
+        // Consumed by both the 2D preview (mirrored) and the 3D mesh (revolved),
+        // so the two can never disagree.  Geometry differs by tool type.
+        std::vector<ProfilePoint> profile() const {
+
+            if (type == Type::ThreadMill) { return threadMillProfile(); }
+
+            std::vector<ProfilePoint> pts;
+
+            const double cuttingR = std::max(radius, 0.0);
+
+            if (cuttingR <= 1e-9) { return pts; }
+
+            const double tipH = tipTaperHeight(cuttingR, taperAngle);
+            const double cutLen = std::max({ cuttingLength, tipH, 1e-4 });
+
+            // Tip + flutes.
+            pts.push_back({ 0.0, 0.0 });        // tip centre
+            pts.push_back({ cuttingR, tipH });  // end of taper (== (cuttingR, 0) when flat)
+            pts.push_back({ cuttingR, cutLen }); // end of flutes
+
+            appendShank(pts, cutLen, cuttingR);
 
             return pts;
         }

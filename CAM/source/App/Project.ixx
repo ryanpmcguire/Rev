@@ -94,13 +94,29 @@ export namespace Cam::App {
         Stage* displayedStage = nullptr;
         std::vector<Stage*> viewSelection;
 
+        // COORDINATE-SYSTEM MODEL (machine vs. work vs. part -- finally distinct):
+        //
+        //   * MACHINE frame: global controller coords (what we emit).  Anchored by
+        //     "Set Origin".  Implicit -- it IS the absolute coordinate space.
+        //   * WORK frame: the physical rotary axis the chuck turns about
+        //     (`workRotaryAxis`).  Initially assumed from the machine definition;
+        //     refinable by probing across orientations (`measured`).
+        //   * PART frame: the stock coordinate system (co/ax), attached to the
+        //     part = work o A-rotation o mount-offset.  Its offset from where it
+        //     was told to be is `probeCorrection`.
+        //
         // The probe correction is a PROPERTY OF THE WHOLE PART, not of one stage:
-        // a probe measures where the part actually sits in the machine, and that
-        // pose must apply to EVERY subsequent step's cut.  So it lives here, at the
-        // project level, and persists across steps and runs until the operator
-        // re-locates the part with "Set Origin" (which clears it).  applied to all
-        // cuts by getMachineToolPath; written by a completed probe operation.
+        // a probe measures where the part actually sits, and that pose must apply
+        // to EVERY subsequent step's cut.  It persists across steps and runs until
+        // the operator re-locates the part with "Set Origin" (which clears it).
+        // Applied to all cuts by getMachineToolPath; written by a completed probe.
         ProbeResult probeCorrection;
+
+        // The WORK frame: the machine's rotary axis as a line (direction + point).
+        // The home for the part<->work and (eventually) work<->machine offsets the
+        // probe infers.  Assumed from the machine definition until probing across
+        // orientations measures it.  Session state -- cleared on "Set Origin".
+        RotaryAxis workRotaryAxis;
 
         // The raw probe contacts behind `probeCorrection`, accumulated since the
         // last "Set Origin".  This is the SOURCE OF TRUTH: the part pose is solved
@@ -546,6 +562,7 @@ export namespace Cam::App {
 
                 probeCorrection.reset();
                 probeMeasurements.clear();   // raw contacts are session-only
+                workRotaryAxis.reset();      // re-assumed from machine def on use
                 if (json.contains("probeCorrection") && json["probeCorrection"].is_object()) {
                     probeCorrection.setState(json["probeCorrection"]);
                 }

@@ -183,9 +183,18 @@ class XBuilder(Builder):
             hpp = cpp.with_suffix(".hpp")
             res_ok = prev and all(self._sha(p) == s
                                   for p, s in prev.get("res_deps", {}).items())
+            # STRUCTURAL mtime guard (orthogonal to the content hash): if the
+            # source is newer on disk than the artifacts it should have produced,
+            # ALWAYS re-transpile -- even if src_sha "matches". This closes the
+            # race where a file edited *during* a build leaves the cache recording
+            # a sha for artifacts that were actually generated from older bytes.
+            arts = [cpp] + ([hpp] if rel.endswith(".ixx") else [])
+            src_mtime = self._mtime(self.repo / rel)
+            mtime_ok = all(a.exists() and src_mtime <= self._mtime(a) for a in arts)
             if (prev and prev.get("src_sha") == src_sha and prev.get("pa") == pa_sig
                     and res_ok and cpp.exists()
-                    and (not rel.endswith(".ixx") or hpp.exists())):
+                    and (not rel.endswith(".ixx") or hpp.exists())
+                    and mtime_ok):
                 self.cur["files"][rel] = prev  # unchanged: reuse artifacts + hashes
                 reused += 1
                 continue
@@ -281,7 +290,10 @@ class XBuilder(Builder):
 
     def _obj_dirty(self, rel: str, flags_sig: str) -> bool:
         """A .obj must be rebuilt if it's missing, its own .cpp changed, the
-        flags changed, or any header in its recorded depfile changed."""
+        flags changed, any header in its recorded depfile changed, OR (structural
+        guard) any input is newer on disk than the .obj -- the latter catches an
+        input edited *during* a build that the content hash might otherwise have
+        recorded as already-built."""
         obj = self._obj(rel)
         if not obj.exists():
             return True
@@ -290,10 +302,25 @@ class XBuilder(Builder):
             return True
         if prev.get("cpp_sha") != self.cur["files"].get(rel, {}).get("cpp_sha"):
             return True
+        obj_mtime = self._mtime(obj)
+        cpp = self.cpp_of.get(rel)
+        if cpp is not None and self._mtime(cpp) > obj_mtime:   # .cpp newer than .obj
+            return True
         for dep, sha in prev.get("deps", {}).items():
-            if self._sha(dep) != sha:   # a #included header changed
+            if self._sha(dep) != sha:           # a #included header changed
+                return True
+            if self._mtime(dep) > obj_mtime:    # .hpp/header newer than .obj
                 return True
         return False
+
+    @staticmethod
+    def _mtime(p) -> float:
+        """Modification time, or -inf if the path is missing (so a missing input
+        never reads as 'newer' and a missing artifact always reads as 'older')."""
+        try:
+            return Path(p).stat().st_mtime
+        except OSError:
+            return float("-inf")
 
     # Module imports are opaque BMIs, so in module-world no single TU ever saw
     # both <winsock2.h> (Rev's sockets) and the OLE/shell half of <windows.h>

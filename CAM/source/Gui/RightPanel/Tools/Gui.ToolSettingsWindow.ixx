@@ -120,6 +120,7 @@ export namespace Cam::Gui {
         NumberInput* diameterInput = nullptr;
         NumberInput* cuttingLengthInput = nullptr;
         NumberInput* taperInput = nullptr;
+        NumberInput* pitchInput = nullptr;
         NumberInput* shoulderDiameterInput = nullptr;
         NumberInput* shoulderLengthInput = nullptr;
         NumberInput* shoulderTaperInput = nullptr;
@@ -158,6 +159,22 @@ export namespace Cam::Gui {
 
         Cam::App::Tool::Type currentType() const {
             return Cam::App::Tool::typeFromKindString(typeDropdown->params.value);
+        }
+
+        // Show only the geometry / default fields that make sense for the tool
+        // type.  Thread mills are defined by their PITCH (not a tip taper) and
+        // their axial step IS the pitch (so a stepdown default is meaningless).
+        void applyTypeVisibility() {
+
+            const bool thread = currentType() == Cam::App::Tool::Type::ThreadMill;
+
+            auto show = [](Element* el, bool visible) {
+                if (el) { el->style->visibility = visible ? Visibility::Visible : Visibility::Hidden; }
+            };
+
+            show(taperInput, !thread);
+            show(pitchInput, thread);
+            show(stepdownInput, !thread);
         }
 
         void updateHeaderEyebrow(Cam::App::Tool::Type type) {
@@ -325,6 +342,8 @@ export namespace Cam::Gui {
 
             typeDropdown->onChange = [this](Event& e) {
                 updateHeaderEyebrow(currentType());
+                applyTypeVisibility();
+                syncPreview(e);
                 refresh(e);
             };
 
@@ -333,7 +352,12 @@ export namespace Cam::Gui {
             Box* cutRow = row(left, "CutRow");
             diameterInput = field(cutRow, "Diameter (mm)", "1.0");
             cuttingLengthInput = field(cutRow, "Cutting length (mm)", "20");
-            taperInput = field(row(left, "TaperRow"), "Tip taper (deg)", "0");
+
+            // Tip taper (end mills / chamfers) and thread pitch (thread mills)
+            // share a row -- only the one relevant to the tool type is shown.
+            Box* tipFormRow = row(left, "TipFormRow");
+            taperInput = field(tipFormRow, "Tip taper (deg)", "0");
+            pitchInput = field(tipFormRow, "Thread pitch (mm)", "0.5");
 
             // Shoulder
             section(left, "SHOULDER");
@@ -397,8 +421,10 @@ export namespace Cam::Gui {
             live(shoulderTaperInput);
             live(collarDiameterInput);
             live(collarLengthInput);
+            live(pitchInput);
 
             populateFrom(tool);
+            applyTypeVisibility();
 
             // Footer
             Box* footer = new Box(
@@ -458,6 +484,7 @@ export namespace Cam::Gui {
             diameterInput->setValue(t.diameter);
             cuttingLengthInput->setValue(t.cuttingLength);
             taperInput->setValue(t.taperAngle);
+            pitchInput->setValue(t.threadPitch);
             shoulderDiameterInput->setValue(t.shoulderDiameter);
             shoulderLengthInput->setValue(t.shoulderLength);
             shoulderTaperInput->setValue(t.shoulderTaperAngle);
@@ -485,6 +512,7 @@ export namespace Cam::Gui {
             t.radius = t.diameter * 0.5;
             t.cuttingLength = cuttingLengthInput->valueOr(0.0);
             t.taperAngle = taperInput->valueOr(0.0);
+            t.threadPitch = pitchInput->valueOr(0.5);
             t.shoulderDiameter = shoulderDiameterInput->valueOr(0.0);
             t.shoulderLength = shoulderLengthInput->valueOr(0.0);
             t.shoulderTaperAngle = shoulderTaperInput->valueOr(45.0);
@@ -542,6 +570,7 @@ export namespace Cam::Gui {
                 !nearlyEqual(t.diameter, savedTool.diameter) ||
                 !nearlyEqual(t.cuttingLength, savedTool.cuttingLength) ||
                 !nearlyEqual(t.taperAngle, savedTool.taperAngle) ||
+                !nearlyEqual(t.threadPitch, savedTool.threadPitch) ||
                 !nearlyEqual(t.shoulderDiameter, savedTool.shoulderDiameter) ||
                 !nearlyEqual(t.shoulderLength, savedTool.shoulderLength) ||
                 !nearlyEqual(t.shoulderTaperAngle, savedTool.shoulderTaperAngle) ||
@@ -613,6 +642,7 @@ export namespace Cam::Gui {
             diameterInput->commit(e);
             cuttingLengthInput->commit(e);
             taperInput->commit(e);
+            pitchInput->commit(e);
             shoulderDiameterInput->commit(e);
             shoulderLengthInput->commit(e);
             shoulderTaperInput->commit(e);

@@ -90,6 +90,35 @@ export namespace Cam::App {
         Pos3   measured{};       // actual contact (CAD/world frame)
     };
 
+    // The WORK frame's defining feature: the machine's literal rotary (A) axis,
+    // expressed as a LINE (direction + a point on it) in the part/CAD frame.
+    //
+    // This is the long-missing distinction made structural.  There are THREE
+    // coordinate systems, not one:
+    //   * MACHINE frame  -- global controller coordinates; the app emits in these.
+    //                       "Set Origin" anchors where the part frame STARTED in
+    //                       machine space (tool tip == ~0.1mm above stock centre).
+    //   * WORK frame     -- the physical rotary axis the chuck turns about.  Fixed
+    //                       in machine space but its exact location is initially
+    //                       ASSUMED (from the machine definition) and refinable by
+    //                       probing across orientations.  `measured` flips true
+    //                       once we have inferred it rather than assumed it.
+    //   * PART frame     -- the stock coordinate system (co/ax), attached to the
+    //                       physical part: WORK (rotary axis) o A-rotation o the
+    //                       part's mount offset.  The mount offset (part vs. its
+    //                       own axis) is what a probe-and-rotate sequence measures.
+    //
+    // Probing infers the offsets BETWEEN these: the part's offset from the rotary
+    // axis (part<->work), and eventually the rotary axis's offset from the assumed
+    // machine location (work<->machine).
+    struct RotaryAxis {
+        Pos3 direction{ 1, 0, 0 };   // unit A-axis direction (CAD/part frame)
+        Pos3 point{};                // a point the axis line passes through (CAD)
+        bool measured = false;       // false = assumed (machine def); true = probed
+
+        void reset() { *this = RotaryAxis(); }
+    };
+
     // The fitted rigid result of a probing run: a frame correction applied as
     //   p_corrected = R * p_nominal + t
     // mapping nominal CAD coordinates onto the measured part pose.  Persists
@@ -158,10 +187,13 @@ export namespace Cam::App {
         }
 
         // Is this correction trustworthy enough to physically DRIVE a re-probe by
-        // it?  A driven re-probe rotates the fragile, expensive probe by this
-        // correction, so we only do it when the fit is tight (small RMS) and the
-        // commanded tilt is modest -- an uncertain or wild fit must NEVER swing
-        // the probe.  (This is the gate that the broken-probe incidents lacked.)
+        // it?  A driven re-probe rotates the part by this correction so the
+        // confirmation probe can ask "am I where I think I am now?".  RMS is the
+        // real trust signal -- a tight fit is trustworthy regardless of how large
+        // the misalignment is, and a large-but-confident misalignment is exactly
+        // what we want to physically correct.  maxTiltDeg is only a sanity / anti-
+        // collision bound (reject degenerate fits, don't swing the probe an absurd
+        // amount in one shot); it must not block an ordinary confident mis-mount.
         bool trustedForReprobe(double maxRmsMm, double maxTiltDeg) const {
             return valid
                 && rmsError      <= maxRmsMm

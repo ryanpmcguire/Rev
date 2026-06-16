@@ -218,6 +218,7 @@ export namespace Cam::App {
             json["shoulderTaperAngle"] = tool.shoulderTaperAngle;
             json["collarDiameter"] = tool.collarDiameter;
             json["collarLength"] = tool.collarLength;
+            json["threadPitch"] = tool.threadPitch;
 
             json["defaultFeedRate"] = tool.defaultFeedRate;
             json["defaultStepdown"] = tool.defaultStepdown;
@@ -331,6 +332,10 @@ export namespace Cam::App {
                         out.shoulderTaperAngle)
                     + out.shoulderLength;
                 out.collarLength = std::max(legacyLength - used, 0.0);
+            }
+
+            if (json.contains("threadPitch") && json["threadPitch"].is_number()) {
+                out.threadPitch = json["threadPitch"].get<double>();
             }
 
             if (json.contains("defaultFeedRate") && json["defaultFeedRate"].is_number()) {

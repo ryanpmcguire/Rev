@@ -94,8 +94,21 @@ export namespace Cam::Gui {
 
         std::vector<Cam::Gui::World::Stage*> materialViews;
 
+        // The STATIC reference frame: the work/setup coordinate system as it sits
+        // at the nominal mount (where the part is SUPPOSED to be).  It does not
+        // move -- it is the fixed reference the part's actual frame is measured
+        // against.  (World-space == machine-space, so this also stands in for the
+        // machine frame at the anchor established by "Set Origin".)
         View3d::Actor* lineActor = nullptr;
         std::vector<Rev::Core::Vertex3> testLines;
+
+        // The MOVING part frame: the stock coordinate system (co/ax) as it is
+        // ACTUALLY oriented -- it rides the part pose (rotary rotation + probe
+        // correction), so it rotates with the chuck and tilts/shifts with what the
+        // probe measured.  The gap between this and the static reference frame IS
+        // the part's measured pose relative to the work/machine frame.
+        View3d::Actor* partFrameActor = nullptr;
+        std::vector<Rev::Core::Vertex3> partFrameLines;
 
         View3d::Actor* toolPreviewActor = nullptr;
         std::vector<Rev::Core::Vertex3> toolPreviewTriangles;
@@ -160,18 +173,22 @@ export namespace Cam::Gui {
         // is, measure the RESIDUAL, and compose -- the pose converges.
         //
         // CRITICAL SAFETY GATE: a pass > 0 is only driven by the prior correction
-        // when that fit is TRUSTED (tight RMS, modest tilt -- see
-        // kProbeReprobeMax*).  An untrusted fit falls back to a clean nominal
+        // when that fit is TRUSTED.  An untrusted fit falls back to a clean nominal
         // re-measure, so the fragile, expensive probe is NEVER swung by a wild or
         // uncertain correction (the failure mode that broke probes).  See
         // ProbeResult::trustedForReprobe / composedOnto and CarveraREADME.md.
         static constexpr int kProbeRepeatCount = 2;
 
         // Trust thresholds gating whether a re-probe (pass > 0) is DRIVEN by the
-        // prior pass's correction.  Conservative on purpose: only a tight fit
-        // with a modest commanded tilt may rotate the probe.
+        // prior pass's correction.  RMS is the REAL trust signal: a tight fit is
+        // trustworthy no matter how large the measured misalignment, and a large
+        // misalignment is exactly what we WANT to physically correct before the
+        // confirmation probe.  The tilt cap is therefore only a generous SANITY /
+        // anti-collision bound -- it rejects numerically degenerate fits and
+        // refuses to auto-swing the probe by an absurd amount in one shot, but it
+        // must NOT block a confident, ordinary mis-mount (e.g. 20 deg).
         static constexpr double kProbeReprobeMaxRmsMm   = 0.5;
-        static constexpr double kProbeReprobeMaxTiltDeg = 10.0;
+        static constexpr double kProbeReprobeMaxTiltDeg = 45.0;
 
         // Frame captured at the build that produced the current probeSession_,
         // used to map a machine-WCS contact back into the CAD frame.  Stored as
@@ -229,6 +246,7 @@ export namespace Cam::Gui {
             createPreviewBar();
 
             createAxisLineActor();
+            createPartFrameActor();
             createToolPreviewActor();
             createSpindlePreviewActor();
             syncAxisLines();
@@ -340,9 +358,11 @@ export namespace Cam::Gui {
             Carvera::MachineLink::instance().onWorkOriginSet = [this]() {
                 if (Cam::App::Project* project = activeProject()) {
                     // Re-locating the part invalidates every prior contact: clear
-                    // the measurement set AND the pose solved from it.
+                    // the measurement set, the pose solved from it, AND any
+                    // measured work-frame (rotary axis) inference.
                     project->probeMeasurements.clear();
                     project->probeCorrection.reset();
+                    project->workRotaryAxis.reset();
                     project->dirty = true;
                 }
                 machineToolPathsDirty = true;
@@ -421,6 +441,13 @@ export namespace Cam::Gui {
 
             delete lineActor;
             lineActor = nullptr;
+
+            if (view3d && partFrameActor) {
+                view3d->removeActor(partFrameActor);
+            }
+
+            delete partFrameActor;
+            partFrameActor = nullptr;
 
             if (view3d && toolPreviewActor) {
                 view3d->removeActor(toolPreviewActor);
@@ -881,6 +908,16 @@ export namespace Cam::Gui {
             appendAxisLine(origin, zDir, { 0.0f, 0.25f, 1.0f, 1.0f }, core, far);
 
             lineActor->lines->dirty = true;
+
+            // The part frame uses the SAME axis geometry; it diverges from the
+            // static reference only through its world transform (the part pose),
+            // applied in applyWorldTransforms.  So a probe/rotation makes the part
+            // frame swing away from this fixed reference, and the visible gap is
+            // the measured pose.
+            partFrameLines = testLines;
+            if (partFrameActor && partFrameActor->lines) {
+                partFrameActor->lines->dirty = true;
+            }
         }
 
         void createAxisLineActor() {
@@ -905,6 +942,31 @@ export namespace Cam::Gui {
 
             if (view3d) {
                 view3d->addActor(lineActor);
+            }
+        }
+
+        void createPartFrameActor() {
+
+            partFrameActor = new View3d::Actor();
+
+            partFrameActor->visible = true;
+            partFrameActor->selectable = false;
+            partFrameActor->ownsLines = true;
+            partFrameActor->includeInFit = false;
+
+            partFrameActor->lines = new Rev::Primitives::Lines3d(shared->canvas, {
+                .lines = &partFrameLines
+            });
+
+            partFrameActor->lines->color = {
+                1.0f,
+                1.0f,
+                1.0f,
+                1.0f
+            };
+
+            if (view3d) {
+                view3d->addActor(partFrameActor);
             }
         }
 
@@ -2168,6 +2230,13 @@ export namespace Cam::Gui {
                 if (v->probeMarkerActor) { v->probeMarkerActor->setWorldTransform(Mc); }
                 if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(Mc); }
             }
+
+            // The MOVING part frame rides the part pose Mc -- the SAME matrix the
+            // part mesh uses -- so it tracks the part's actual orientation (rotary
+            // rotation + probe correction).  The static reference frame (lineActor)
+            // is deliberately NOT transformed: it stays at the nominal mount, and
+            // the gap between the two frames is the measured part pose.
+            if (partFrameActor) { partFrameActor->setWorldTransform(Mc); }
 
             // In Execute mode the tool preview is positioned from live telemetry
             // (already absolute CAD), so it is NOT transformed here.  In the sim
