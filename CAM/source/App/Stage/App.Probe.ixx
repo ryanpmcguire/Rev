@@ -168,13 +168,28 @@ export namespace Cam::App {
             // in (u, w).  The earlier "axis lies in the plane through the centroid"
             // form fails here: with fixed-ray centroids it is forced to put the axis
             // at the FACE depth, not the true axis depth.
+            // LOCAL REFERENCE (critical for depth accuracy).  The offset is
+            // h_i = n_i . c_i, but c_i is an ABSOLUTE machine contact -- it carries
+            // the (large) work/home offset, so |c_i| can be hundreds of mm.  The
+            // normal n_i is the NOMINAL face normal spun by the COMMANDED angle, so
+            // it always has a small error dn (mounting tilt, angle calibration, the
+            // assumed axis direction).  The resulting offset error dn . c_i SCALES
+            // WITH |c_i| -- i.e. with the absolute face position / stock size -- and
+            // the depth solve then divides it by (n_i - n_0).normal ~ 1-cos(angle)
+            // (~0.015 at 10deg), a ~65x amplifier.  So a tiny normal error against a
+            // far-from-origin face becomes a large, systematic DEPTH bias (the axis
+            // sinks well below the part), while the well-conditioned LATERAL
+            // coordinate stays correct.  Referencing every contact to a nearby point
+            // p0 is exact-arithmetic-invariant (it only shifts the solution origin)
+            // but shrinks |c_i - p0| to a few mm, collapsing the amplified bias.
+            const Pos3   p0 = centroids[0];
             const Pos3   n0 = normals[0];
-            const double h0 = double(n0.dot(centroids[0]));
+            const double h0 = double(n0.dot(centroids[0] - p0));   // == 0
             double Suu = 0, Suw = 0, Sww = 0, Su = 0, Sw = 0;
             size_t used = 0;
             for (size_t i = 1; i < n; i++) {
                 const Pos3   g  = normals[i] - n0;        // perpendicular to d
-                const double hi = double(normals[i].dot(centroids[i]));
+                const double hi = double(normals[i].dot(centroids[i] - p0));
                 const double rhs = hi - h0;
                 const double gu = double(g.dot(u)), gw = double(g.dot(w));
                 Suu += gu*gu; Suw += gu*gw; Sww += gw*gw;
@@ -187,16 +202,18 @@ export namespace Cam::App {
 
             const double au = ( Sww * Su - Suw * Sw) / det;
             const double aw = (-Suw * Su + Suu * Sw) / det;
-            const Pos3   a = u * float(au) + w * float(aw)
-                           + d * float(centroids[0].dot(d));
+            // Solved relative to p0 (its along-d component is 0 by construction);
+            // add the reference back to land in absolute machine coords.
+            const Pos3   aRel = u * float(au) + w * float(aw);
+            const Pos3   a    = aRel + p0;
 
             // Residual: how well the constraints concur (meaningful only when
             // OVER-determined -- i.e. >= 4 orientations; exactly determined at 3).
             double sse = 0.0;
             for (size_t i = 1; i < n; i++) {
                 const Pos3   g = normals[i] - n0;
-                const double hi = double(normals[i].dot(centroids[i]));
-                const double e = double(g.dot(a)) - (hi - h0);
+                const double hi = double(normals[i].dot(centroids[i] - p0));
+                const double e = double(g.dot(aRel)) - (hi - h0);
                 sse += e * e;
             }
             out.residual  = std::sqrt(sse / double(used));

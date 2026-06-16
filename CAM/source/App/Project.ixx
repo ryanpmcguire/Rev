@@ -136,8 +136,15 @@ export namespace Cam::App {
         // toward).  These are derived from the data above and are what the on-screen
         // frames are drawn FROM -- the drawn axes ARE these objects.  Rebuilt after
         // probing / on sync by the world view.
-        Cam::Coord::CoordinateSystem workFrame;   // where the work coord system actually is
-        Cam::Coord::CoordinateSystem partFrame;   // the part's frame within / atop the work
+        Cam::Coord::CoordinateSystem workFrame;   // WORK in machine space (X on the rotary)
+        Cam::Coord::CoordinateSystem partFrame;   // PART in machine space (rides the chuck)
+
+        // PART expressed IN the WORK frame -- the genuine child relationship of the
+        // MACHINE -> WORK -> PART chain.  Its translation is the part origin in work
+        // coordinates: the components perpendicular to work-X are the eccentricity
+        // (how far off the rotary axis the part is mounted).  Derived each sync via
+        // partFrame.relativeTo(workFrame).
+        Cam::Coord::CoordinateSystem partInWorkFrame;
 
         // Raw probe contacts behind the two corrections, split by phase: contacts
         // taken while the work frame was UNKNOWN feed `workMeasurements`; contacts

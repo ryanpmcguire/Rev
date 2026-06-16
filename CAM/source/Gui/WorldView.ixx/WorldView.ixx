@@ -2535,9 +2535,25 @@ export namespace Cam::Gui {
 
             if (Cam::App::Project* project = activeProject()) {
                 project->partFrame = csFromColMajor(Mc).composedWith(userFrameCS(project));
+
+                // The MACHINE -> WORK -> PART chain made explicit: the part expressed
+                // IN the work frame.  Its origin's offset perpendicular to work-X is
+                // the eccentricity probing measured.
+                project->partInWorkFrame = project->partFrame.relativeTo(project->workFrame);
+
                 if (partFrameActor && partFrameActor->lines) {
                     partFrameLines.clear();
                     drawFrame(project->partFrame, partFrameLines, 90.0f);
+
+                    // Connector from the work origin (on the rotary axis) to the part
+                    // origin: the off-centre offset, drawn straight from the two
+                    // CoordinateSystem objects.
+                    const Rev::Core::Pos3 wo = project->workFrame.apply({ 0.0f, 0.0f, 0.0f });
+                    const Rev::Core::Pos3 po = project->partFrame.apply({ 0.0f, 0.0f, 0.0f });
+                    const Rev::Core::Color link = { 0.90f, 0.80f, 0.25f, 0.7f };
+                    partFrameLines.push_back({ wo.x, wo.y, wo.z, link });
+                    partFrameLines.push_back({ po.x, po.y, po.z, link });
+
                     partFrameActor->lines->dirty = true;
                 }
             }
