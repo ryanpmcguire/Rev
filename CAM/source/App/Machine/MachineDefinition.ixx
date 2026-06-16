@@ -1,8 +1,11 @@
 module;
 
+#include <cmath>
+
 export module Cam.Machine.Definition;
 
 import Cam.Machine.Pose;
+import Cam.CoordinateSystem;
 import Rev.Core.Pos3;
 
 // ------------------------------------------------------------------
@@ -70,5 +73,39 @@ export namespace Cam::Machine {
                 .part = { Pose{ partOrigin, {0,0,1} },  partDOF }
             };
         }
+
+        // -- The DOF, expressed as CoordinateSystems -------------------
+        //
+        // The machine's freedom IS a coordinate system: a frame whose axes carry a
+        // maxSpeed (free vs locked).  An actor's first free rotary becomes the
+        // frame's local X (so rx is the rotary), and its free translations light up
+        // the matching x/y/z.  The IK then solves directly on these frames.
+
+        static Cam::Coord::CoordinateSystem actorFrame(const MachineActor& a) {
+            Cam::Coord::CoordinateSystem cs;
+
+            // Orientation: put the (first) rotary on local X so rx is the rotary.
+            if (!a.dof.freeRotations.empty()) {
+                cs = Cam::Coord::CoordinateSystem::fromAxisX(
+                    a.defaultPose.position, a.dof.freeRotations[0]);
+                cs.rx.maxSpeed = 1.0;   // free rotation (machine-driven)
+            }
+            else {
+                cs.t = a.defaultPose.position;
+                cs.resolveAxes();
+            }
+
+            // Translations: with identity orientation the world axes map straight to
+            // x/y/z; light up whichever the actor can drive.
+            for (const Pos3& T : a.dof.freeTranslations) {
+                if (std::fabs(T.x) > 0.5f) { cs.x.maxSpeed = 1.0; }
+                if (std::fabs(T.y) > 0.5f) { cs.y.maxSpeed = 1.0; }
+                if (std::fabs(T.z) > 0.5f) { cs.z.maxSpeed = 1.0; }
+            }
+            return cs;
+        }
+
+        Cam::Coord::CoordinateSystem toolFrame() const { return actorFrame(tool); }
+        Cam::Coord::CoordinateSystem partFrame() const { return actorFrame(part); }
     };
 }

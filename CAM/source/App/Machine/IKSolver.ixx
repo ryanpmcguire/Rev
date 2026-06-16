@@ -9,6 +9,7 @@ import Cam.Machine.Pose;
 import Cam.Machine.Definition;
 import Cam.Machine.ToolPath;
 import Cam.App.ToolPath;
+import Cam.CoordinateSystem;
 import Rev.Core.Pos3;
 
 // ------------------------------------------------------------------
@@ -65,11 +66,17 @@ export namespace Cam::Machine {
             }
             result.rotaryPivot = machine.part.defaultPose.position;
 
+            // The part's freedom as a coordinate system (built once): its free
+            // rotary is rx, located on the rotary axis through the pivot.  Every
+            // point is solved directly on THIS frame.
+            Cam::Coord::CoordinateSystem partCS = machine.partFrame();
+
             for (Cam::App::ToolPathPoint const& pt : toolPath.points) {
                 result.points.push_back(solvePoint(
                     pt.position,
                     pt.toolDirection,
                     machine,
+                    partCS,
                     pt.rapid,
                     pt.cutting,
                     pt.t
@@ -172,6 +179,7 @@ export namespace Cam::Machine {
             Pos3   const& toolpathPos,
             Pos3   const& toolpathDir,
             MachineDefinition const& machine,
+            Cam::Coord::CoordinateSystem const& partCS,
             bool   rapid,
             bool   cutting,
             double t
@@ -184,30 +192,33 @@ export namespace Cam::Machine {
             Pos3 M          = machineToolDirection();
             Pos3 partOrigin = machine.part.defaultPose.position;
 
+            // The part's free rotary axis, in machine space (rx of the part frame).
+            Pos3 A = partCS.freeRotationAxis();
+
             // ── No part rotation DOF (pure 3-axis) ──────────────────────
-            if (machine.part.dof.freeRotations.empty()) {
+            if (A.pythag() < 1e-6f) {
                 result.toolWorldPose     = { toolpathPos, M };
                 result.partWorldPose     = machine.part.defaultPose;
                 result.directionResidual = toolpathDir - M;
                 return result;
             }
 
-            // ── One free rotation axis on the part (e.g. A = {1,0,0}) ──
-            Pos3 A = machine.part.dof.freeRotations[0];
+            // ── Orientation, solved ON THE FRAME ───────────────────────
+            // The frame's free rotary decides what's reachable: the angle that maps
+            // the cut direction onto the tool, the un-makeable residual (rotation
+            // about A can't change the along-A component), and the singularity.
+            auto rot = partCS.solveRotationAxis(toolpathDir, M);
 
-            // Achievability: rotation around A preserves dot(D, A).
-            // The cut is possible only when dot(toolpathDir, A) == dot(M, A).
-            float delta = toolpathDir.dot(A) - M.dot(A);
-
-            if (std::fabs(delta) > 1e-4f) {
+            // Achievability: residual ⟹ the cut needs a DOF the machine lacks.
+            if (rot.residual.pythag() > 1e-4f) {
                 result.toolWorldPose     = { toolpathPos, M };
                 result.partWorldPose     = machine.part.defaultPose;
-                result.directionResidual = A * delta;
+                result.directionResidual = rot.residual;
                 return result;
             }
 
             // Singularity: toolpathDir parallel to A → angle undefined.
-            if (toolpathDir.cross(A).pythag() < 1e-4f) {
+            if (rot.singular) {
                 result.toolWorldPose = { toolpathPos, M };
                 result.partWorldPose = machine.part.defaultPose;
                 result.singular      = true;
@@ -217,13 +228,12 @@ export namespace Cam::Machine {
             // Apply R (rotates toolpathDir → M around A) to:
             //   1. Part Z axis        → new part world direction
             //   2. Toolpath position  → machine XYZ for the tool
-
             Pos3 partDir    = applyRotationDtoM({ 0.0f, 0.0f, 1.0f }, toolpathDir, M, A);
             Pos3 machineXYZ = partOrigin + applyRotationDtoM(toolpathPos - partOrigin, toolpathDir, M, A);
 
             result.toolWorldPose = { machineXYZ, M };
             result.partWorldPose = { partOrigin, partDir };
-            result.rotaryAngle   = rotationAngleDtoM(toolpathDir, M, A);
+            result.rotaryAngle   = float(rot.angle);
 
             return result;
         }

@@ -203,6 +203,18 @@ export namespace Cam::Coord {
             return cs;
         }
 
+        // From an axis to put on local X (used to make a machine's rotary axis the
+        // frame's rx): builds an orthonormal right-handed basis with X = xDir.
+        static CoordinateSystem fromAxisX(Pos3 origin, Pos3 xDir) {
+            Pos3 X = xDir.normalized();
+            const Pos3 ref = (std::fabs(X.z) < 0.9f) ? Pos3{ 0,0,1 } : Pos3{ 1,0,0 };
+            Pos3 Y = ref.cross(X);
+            const float yl = Y.pythag();
+            Y = (yl > 1e-6f) ? Y * (1.0f / yl) : Pos3{ 0,1,0 };
+            const Pos3 Z = X.cross(Y);
+            return fromBasis(origin, X, Y, Z);
+        }
+
         // ===========================================================
         // Epistemics (the "axes" half)
         // ===========================================================
@@ -277,6 +289,61 @@ export namespace Cam::Coord {
             Projection out;
             solveOrientation(targetDir, out.achievableDirection, out.directionResidual, out.singular);
             solveTranslation(targetPos, out.achievablePosition, out.positionResidual);
+            return out;
+        }
+
+        // ===========================================================
+        // IK on the frame: solving in PARENT (machine) space
+        // ===========================================================
+        // The methods above project a target into THIS frame's local basis.  The IK,
+        // by contrast, asks: "the machine can spin this frame about its free rotary;
+        // what angle aligns a cut direction with the tool?"  That lives in parent
+        // space, where the free rotary axis is the basis column applyDirection(local).
+
+        // The (first) free rotation axis, expressed in the PARENT frame -- i.e. the
+        // machine-space rotary axis.  {0,0,0} if the frame has no rotational freedom.
+        Pos3 freeRotationAxis() const {
+            if (rx.isFree()) { return applyDirection({ 1.0f, 0.0f, 0.0f }); }
+            if (ry.isFree()) { return applyDirection({ 0.0f, 1.0f, 0.0f }); }
+            if (rz.isFree()) { return applyDirection({ 0.0f, 0.0f, 1.0f }); }
+            return { 0.0f, 0.0f, 0.0f };
+        }
+
+        struct RotationSolve {
+            double angle      = 0.0;     // signed angle about the free axis (radians)
+            Pos3   residual   {};        // off-axis component the single axis CANNOT make
+            bool   singular   = false;   // fromDir parallel to the axis -> angle undefined
+            bool   hasFreedom = true;    // false if the frame has no free rotary at all
+        };
+
+        // Solve the free rotation: the angle about the free rotary axis (parent space)
+        // that best maps `fromDir` onto `toDir`.  A rotation about A preserves the
+        // component along A, so `residual` (the un-makeable part) is A*(from.A - to.A);
+        // the angle aligns the in-plane parts.  This is the IK's orientation step,
+        // owned by the frame whose DOF decide what is reachable.
+        RotationSolve solveRotationAxis(const Pos3& fromDir, const Pos3& toDir) const {
+            RotationSolve out;
+            Pos3 A = freeRotationAxis();
+            const float al = A.pythag();
+            if (al < 1e-6f) { out.hasFreedom = false; out.residual = fromDir - toDir; return out; }
+            A = A * (1.0f / al);
+
+            const float delta = fromDir.dot(A) - toDir.dot(A);
+            if (std::fabs(delta) > 1e-4f) { out.residual = A * delta; }
+
+            if (fromDir.cross(A).pythag() < 1e-4f) { out.singular = true; return out; }
+
+            const Pos3 fP = fromDir - A * fromDir.dot(A);
+            const Pos3 tP = toDir   - A * toDir.dot(A);
+            const float fl = fP.pythag();
+            const float tl = tP.pythag();
+            if (fl < 1e-6f || tl < 1e-6f) { return out; }
+
+            const Pos3 fn = fP * (1.0f / fl);
+            const Pos3 tn = tP * (1.0f / tl);
+            const float c = fn.dot(tn);
+            const float s = A.dot(fn.cross(tn));
+            out.angle = std::atan2(s, c);
             return out;
         }
     };
