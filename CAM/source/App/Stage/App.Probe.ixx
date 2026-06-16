@@ -154,6 +154,19 @@ export namespace Cam::App {
             };
         }
 
+        // Inverse of the ACHIEVABLE correction: q -> R^T (q - t).  Maps a point
+        // from the corrected (driven) frame back into the nominal frame.  Used to
+        // peel the work-frame correction off a measured contact so what remains is
+        // the part's offset WITHIN the work frame.
+        Pos3 applyInverse(const Pos3& q) const {
+            const Pos3 d = q - t;
+            return {
+                float(r[0] * d.x + r[3] * d.y + r[6] * d.z),
+                float(r[1] * d.x + r[4] * d.y + r[7] * d.z),
+                float(r[2] * d.x + r[5] * d.y + r[8] * d.z)
+            };
+        }
+
         // Apply the ACHIEVABLE correction to a CAD-frame DIRECTION: rotation only.
         // This reorients tool axes before the IK solve so the rotary axis swings
         // to compensate as a consequence of the geometry.  Identity by default.

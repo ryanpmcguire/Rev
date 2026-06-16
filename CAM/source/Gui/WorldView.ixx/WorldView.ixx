@@ -94,19 +94,19 @@ export namespace Cam::Gui {
 
         std::vector<Cam::Gui::World::Stage*> materialViews;
 
-        // The STATIC reference frame: the work/setup coordinate system as it sits
-        // at the nominal mount (where the part is SUPPOSED to be).  It does not
-        // move -- it is the fixed reference the part's actual frame is measured
-        // against.  (World-space == machine-space, so this also stands in for the
-        // machine frame at the anchor established by "Set Origin".)
+        // The WORK frame: the rotary-axis / work coordinate system as the probe
+        // established it (rides workCorrection alone).  Fixed in machine space --
+        // it does NOT rotate with the chuck; the part rotates ABOUT it.  Identity
+        // (nominal) until the first probe establishes the work frame.
         View3d::Actor* lineActor = nullptr;
         std::vector<Rev::Core::Vertex3> testLines;
 
-        // The MOVING part frame: the stock coordinate system (co/ax) as it is
-        // ACTUALLY oriented -- it rides the part pose (rotary rotation + probe
-        // correction), so it rotates with the chuck and tilts/shifts with what the
-        // probe measured.  The gap between this and the static reference frame IS
-        // the part's measured pose relative to the work/machine frame.
+        // The PART frame: the stock coordinate system (co/ax) as it is ACTUALLY
+        // oriented -- it rides the full part pose (chuck rotation o W o P), so it
+        // rotates with the chuck and carries the part's offset within the work
+        // frame.  On the first probe pass the part offset is identity, so this
+        // COINCIDES with the work frame; only a measured part offset makes them
+        // diverge -- and that gap IS the part-in-work offset.
         View3d::Actor* partFrameActor = nullptr;
         std::vector<Rev::Core::Vertex3> partFrameLines;
 
@@ -358,9 +358,11 @@ export namespace Cam::Gui {
             Carvera::MachineLink::instance().onWorkOriginSet = [this]() {
                 if (Cam::App::Project* project = activeProject()) {
                     // Re-locating the part invalidates every prior contact: clear
-                    // the measurement set, the pose solved from it, AND any
-                    // measured work-frame (rotary axis) inference.
-                    project->probeMeasurements.clear();
+                    // both measurement sets, the work-frame + part corrections, and
+                    // any measured rotary-axis inference.
+                    project->workMeasurements.clear();
+                    project->partMeasurements.clear();
+                    project->workCorrection.reset();
                     project->probeCorrection.reset();
                     project->workRotaryAxis.reset();
                     project->dirty = true;
@@ -1825,44 +1827,97 @@ export namespace Cam::Gui {
             Cam::App::Project* project = activeProject();
             if (!project) { return; }
 
-            // ACCUMULATE this operation's contacts into the project's persistent
-            // measurement set, then RE-SOLVE the single part pose (S) over
-            // EVERYTHING measured since the last "Set Origin".  This is the Stage-1
-            // spine: the measurement set is the source of truth and compounding is
-            // emergent -- more probes (and more orientations) just add points and
-            // refine S, so there is no replace-vs-compose branch.  The axis is held
-            // at its prior here (Stage 1 solves only S).
+            // WORK-FRAME-FIRST attribution (order-independent by construction).
+            //
+            // A single orientation cannot separate "the work frame is mis-located"
+            // from "the part is offset within it".  So:
+            //
+            //   * While the work frame is UNKNOWN, every contact feeds directly into
+            //     it.  This pass's fit IS the work-frame correction W -- we attribute
+            //     the entire discrepancy to the work frame and assume the part is
+            //     perfectly seated (part offset = identity).
+            //   * Once the work frame is established, we physically apply W (the
+            //     re-probe is driven by it -- see commitProbe) and the contacts come
+            //     back at the work-corrected pose.  Peeling W off each contact
+            //     (W^-1 . measured) leaves the part's offset WITHIN the work frame,
+            //     which is fitted into the part correction P.
+            //
+            // Either way: total pose = W o P (project->totalPose()).
+            const bool establishingWork = !project->workEstablished();
+
+            auto& bucket = establishingWork ? project->workMeasurements
+                                            : project->partMeasurements;
             for (const ProbeSessionEntry& s : probeSession_) {
                 if (s.stage != stage || !s.filled) { continue; }
                 Cam::App::ProbeMeasurement m;
                 m.angleDeg = s.commandedAngleDeg;
                 m.nominal  = s.nominalCad;
                 m.normal   = s.normalCad;
-                m.measured = s.measuredCad;
-                project->probeMeasurements.push_back(m);
+                // For part contacts, peel the (already physically applied) work
+                // correction off the measurement so the fit sees the residual.
+                m.measured = establishingWork
+                    ? s.measuredCad
+                    : project->workCorrection.applyInverse(s.measuredCad);
+                bucket.push_back(m);
             }
 
-            project->probeCorrection = Cam::App::ProbeResult::solve(
-                project->probeMeasurements, rotaryAxis, rotaryPoint);
+            if (establishingWork) {
+                project->workCorrection = Cam::App::ProbeResult::solve(
+                    project->workMeasurements, rotaryAxis, rotaryPoint);
+
+                // DISCARD the user's Set-Origin value for the DOF the probe just
+                // MEASURED -- the probe is authoritative there; the user's input
+                // (jogged tool height, supplied origin) must NOT leak in.  The work
+                // correction's translation lies ALONG the probe normals (the
+                // observable translation DOF -- the fit projects onto them), so we
+                // fold it into the machine work origin: the origin is re-anchored to
+                // the PROBE, jog-independent.  Components PERPENDICULAR to the
+                // normals are zero, so unobservable DOF (e.g. X/Y under a top-face
+                // probe) keep the user's value -- taken on faith.  Emission is
+                // preserved (origin += frame(t), correction translation -> 0).
+                Carvera::MachineLink& mlink = Carvera::MachineLink::instance();
+                float wox, woy, woz, wcx, wcy, wcz;
+                if (mlink.workOrigin(wox, woy, woz, wcx, wcy, wcz)) {
+                    const Rev::Core::Pos3 wt = project->workCorrection.t;
+                    const float dmx = probeFrameX_.dot(wt);
+                    const float dmy = probeFrameY_.dot(wt);
+                    const float dmz = probeFrameZ_.dot(wt);
+                    mlink.captureMachineOrigin(
+                        wox + dmx, woy + dmy, woz + dmz, mlink.machineOriginA());
+                    project->workCorrection.t     = {};
+                    project->workCorrection.tTrue = {};
+                    dbg("[Probe] work origin re-anchored from probe by machine "
+                        "delta (%.3f, %.3f, %.3f) - user height/origin discarded "
+                        "for measured DOF", dmx, dmy, dmz);
+                }
+            }
+            else {
+                project->probeCorrection = Cam::App::ProbeResult::solve(
+                    project->partMeasurements, rotaryAxis, rotaryPoint);
+            }
             project->dirty = true;
 
-            const Cam::App::ProbeResult& r = project->probeCorrection;
-            const size_t totalPts = project->probeMeasurements.size();
-            // Tilt magnitudes from each rotation's trace: angle = acos((tr-1)/2).
-            // "true" = the measured face tilt; "driven" = the part the rotary axis
-            // can make.  Their difference is the off-axis residual the machine
-            // cannot correct (accepted).
+            const Cam::App::ProbeResult& w = project->workCorrection;
+            const Cam::App::ProbeResult& p = project->probeCorrection;
             auto tiltOf = [](const double* m) {
                 const double tr = m[0] + m[4] + m[8];
                 return std::acos(std::clamp((tr - 1.0) * 0.5, -1.0, 1.0)) * 57.29577951308232;
             };
-            Carvera::MachineLink::instance().log(std::format(
-                "Probe: solved pose over {} contact(s) - true tilt={:.2f} deg, "
-                "driven (rotary) tilt={:.2f} deg, t=({:.3f},{:.3f},{:.3f}) "
-                "rms={:.4f} mm.{}",
-                totalPts, tiltOf(r.rTrue), tiltOf(r.r),
-                r.t.x, r.t.y, r.t.z, r.rmsError,
-                totalPts < 3 ? " (translation-only; <3 points)" : ""));
+            if (establishingWork) {
+                Carvera::MachineLink::instance().log(std::format(
+                    "Probe: WORK frame established from {} contact(s) - tilt={:.2f} "
+                    "deg, t=({:.3f},{:.3f},{:.3f}) rms={:.4f} mm. Re-probe will "
+                    "apply it and measure the part's offset within it.",
+                    project->workMeasurements.size(), tiltOf(w.r),
+                    w.t.x, w.t.y, w.t.z, w.rmsError));
+            }
+            else {
+                Carvera::MachineLink::instance().log(std::format(
+                    "Probe: PART offset within work frame from {} contact(s) - "
+                    "tilt={:.2f} deg, t=({:.3f},{:.3f},{:.3f}) rms={:.4f} mm.",
+                    project->partMeasurements.size(), tiltOf(p.r),
+                    p.t.x, p.t.y, p.t.z, p.rmsError));
+            }
 
             // The correction changed; force a re-solve so cuts (and the preview)
             // pick it up, and rebuild the probe-preview path + timeline so a
@@ -1895,10 +1950,11 @@ export namespace Cam::Gui {
                 // geometry.  The correction is GLOBAL (a part property), so EVERY
                 // stage's cut is corrected by the one probe; the default identity
                 // means an un-probed project solves exactly as before.
-                static const Cam::App::ProbeResult kIdentityCorrection;
+                // The cut is corrected by the FULL part pose: the work-frame
+                // correction with the part's offset nested inside it (W o P).
                 Cam::App::Project* corrProject = activeProject();
-                const Cam::App::ProbeResult& correction =
-                    corrProject ? corrProject->probeCorrection : kIdentityCorrection;
+                const Cam::App::ProbeResult correction =
+                    corrProject ? corrProject->totalPose() : Cam::App::ProbeResult{};
 
                 // ToolPath is non-copyable (it owns strategy objects), and the IK
                 // solver only reads `.points`, so build a points-only corrected
@@ -2157,16 +2213,33 @@ export namespace Cam::Gui {
         // never desync (composing the TRUE fit instead is what made the tool
         // plunge).  The off-axis residual the machine can't make is reported, not
         // drawn.
-        void probeCorrectionMatrix(float out[16]) const {
+        // Column-major 4x4 from a correction's ACHIEVABLE (r/t) part.
+        static void correctionToMatrix(const Cam::App::ProbeResult& c, float out[16]) {
             Cam::Machine::Pose::identityMatrix(out);
-            Cam::App::Project* project = activeProject();
-            if (!project || !project->probeCorrection.valid) { return; }
-            const Cam::App::ProbeResult& c = project->probeCorrection;
-            // column-major out[col*4+row] from row-major r[row*3+col].
             out[0]  = float(c.r[0]); out[1]  = float(c.r[3]); out[2]  = float(c.r[6]);
             out[4]  = float(c.r[1]); out[5]  = float(c.r[4]); out[6]  = float(c.r[7]);
             out[8]  = float(c.r[2]); out[9]  = float(c.r[5]); out[10] = float(c.r[8]);
             out[12] = c.t.x;         out[13] = c.t.y;         out[14] = c.t.z;
+        }
+
+        // The PART frame's correction: the full part pose (W o P), driven to the
+        // part mesh and tool so they stay locked.
+        void probeCorrectionMatrix(float out[16]) const {
+            Cam::Machine::Pose::identityMatrix(out);
+            Cam::App::Project* project = activeProject();
+            if (!project || !project->workEstablished()) { return; }
+            correctionToMatrix(project->totalPose(), out);
+        }
+
+        // The WORK frame's correction: where the rotary-axis / work coordinate
+        // system actually sits (workCorrection alone).  The part rotates ABOUT
+        // this; on the first pass the part offset is identity so the part frame
+        // coincides with it exactly.
+        void workCorrectionMatrix(float out[16]) const {
+            Cam::Machine::Pose::identityMatrix(out);
+            Cam::App::Project* project = activeProject();
+            if (!project || !project->workEstablished()) { return; }
+            correctionToMatrix(project->workCorrection, out);
         }
 
         // out = a * b  (both column-major 4x4).
@@ -2231,12 +2304,19 @@ export namespace Cam::Gui {
                 if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(Mc); }
             }
 
-            // The MOVING part frame rides the part pose Mc -- the SAME matrix the
-            // part mesh uses -- so it tracks the part's actual orientation (rotary
-            // rotation + probe correction).  The static reference frame (lineActor)
-            // is deliberately NOT transformed: it stays at the nominal mount, and
-            // the gap between the two frames is the measured part pose.
+            // THE PART frame rides the full part pose Mc (chuck rotation o W o P) --
+            // the same matrix as the part mesh, so it tracks the part's actual
+            // orientation.  THE WORK frame (lineActor) rides workCorrection ALONE:
+            // it is the rotary-axis / work coordinate system, fixed in machine
+            // space (it does NOT rotate with the chuck -- the part rotates about
+            // IT).  On the first probe pass the part offset is identity, so the part
+            // frame and work frame COINCIDE; only a measured part offset (pass 2+)
+            // makes them diverge.  Their gap is exactly the part-in-work offset.
             if (partFrameActor) { partFrameActor->setWorldTransform(Mc); }
+
+            float Wm[16];
+            workCorrectionMatrix(Wm);
+            if (lineActor) { lineActor->setWorldTransform(Wm); }
 
             // In Execute mode the tool preview is positioned from live telemetry
             // (already absolute CAD), so it is NOT transformed here.  In the sim
@@ -2665,27 +2745,30 @@ export namespace Cam::Gui {
                     probeFrameZ_           = frame.Z;
                     probeBeginWorkInFrame_ = beginWorkInFrame;
 
-                    // Iterative re-probe: pass > 0 is DRIVEN by the prior pass's
-                    // correction -- but ONLY when that fit is trusted.  Otherwise
-                    // (and always for pass 0) we drive nominal and the fit
-                    // REPLACES.  The base is stashed so the residual composes.
+                    // Iterative re-probe: once the WORK frame is established, the
+                    // re-probe is physically DRIVEN by it (the chuck rotates to the
+                    // work-corrected pose) so it can measure the part's residual
+                    // offset within the work frame -- but ONLY when that fit is
+                    // trusted.  An untrusted fit (or the very first, work-
+                    // establishing pass) drives to fixed nominal positions, so the
+                    // fragile probe is never swung by a wild/uncertain correction.
                     probeSessionBase_.reset();
                     probeSessionComposed_ = false;
                     const Cam::App::ProbeResult* drive = nullptr;
-                    if (passIndex > 0 &&
-                        project->probeCorrection.trustedForReprobe(
+                    if (project->workEstablished() &&
+                        project->workCorrection.trustedForReprobe(
                             kProbeReprobeMaxRmsMm, kProbeReprobeMaxTiltDeg)) {
-                        probeSessionBase_     = project->probeCorrection;
+                        probeSessionBase_     = project->workCorrection;
                         probeSessionComposed_ = true;
                         drive                 = &probeSessionBase_;
-                        dbg("[Probe] pass %d DRIVEN by trusted correction "
-                            "(rms=%.4f, drivenTilt=%.2f deg)",
+                        dbg("[Probe] pass %d DRIVEN by established work frame "
+                            "(rms=%.4f, tilt=%.2f deg) -> measuring part offset",
                             passIndex, probeSessionBase_.rmsError,
                             probeSessionBase_.drivenTiltDeg());
                     }
                     else if (passIndex > 0) {
-                        dbg("[Probe] pass %d NOT driven (prior fit untrusted) - "
-                            "re-measuring nominal", passIndex);
+                        dbg("[Probe] pass %d NOT driven (work frame unestablished "
+                            "or untrusted) - re-measuring nominal", passIndex);
                     }
 
                     appendProbeOp(state, drive);

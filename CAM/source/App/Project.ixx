@@ -105,12 +105,24 @@ export namespace Cam::App {
         //     part = work o A-rotation o mount-offset.  Its offset from where it
         //     was told to be is `probeCorrection`.
         //
-        // The probe correction is a PROPERTY OF THE WHOLE PART, not of one stage:
-        // a probe measures where the part actually sits, and that pose must apply
-        // to EVERY subsequent step's cut.  It persists across steps and runs until
-        // the operator re-locates the part with "Set Origin" (which clears it).
-        // Applied to all cuts by getMachineToolPath; written by a completed probe.
-        ProbeResult probeCorrection;
+        // WORK-FRAME-FIRST probe inference (order-independent by construction):
+        //
+        // A single measurement cannot separate "the work frame (rotary axis) is
+        // mis-located" from "the part is offset within the work frame".  So we
+        // resolve the degeneracy by ESTABLISHING THE WORK FRAME FIRST: while it is
+        // unknown, every contact feeds directly into it (`workCorrection`).  Once
+        // established, we physically apply that correction and RE-MEASURE; the
+        // residual is then the part's true offset within the work frame
+        // (`probeCorrection`).  Because the work frame is fixed once established and
+        // never re-entangled, the outcome is independent of probe order.
+        //
+        //   total part pose (nominal -> actual) = workCorrection o probeCorrection
+        //                                       = W( P( point ) )
+        //
+        // Applied to all cuts (getMachineToolPath) and the view via totalPose().
+        // Both persist until "Set Origin" clears them.
+        ProbeResult workCorrection;   // W: where the work frame actually is
+        ProbeResult probeCorrection;  // P: the part's offset WITHIN the work frame
 
         // The WORK frame: the machine's rotary axis as a line (direction + point).
         // The home for the part<->work and (eventually) work<->machine offsets the
@@ -118,13 +130,20 @@ export namespace Cam::App {
         // orientations measures it.  Session state -- cleared on "Set Origin".
         RotaryAxis workRotaryAxis;
 
-        // The raw probe contacts behind `probeCorrection`, accumulated since the
-        // last "Set Origin".  This is the SOURCE OF TRUTH: the part pose is solved
-        // over the whole set, so compounding (more probes / more orientations)
-        // emerges naturally.  In-memory session state -- intentionally NOT
-        // serialized (a reloaded project starts un-probed, like probeCorrection's
-        // contacts), and cleared on load + on "Set Origin".
-        std::vector<ProbeMeasurement> probeMeasurements;
+        // Raw probe contacts behind the two corrections, split by phase: contacts
+        // taken while the work frame was UNKNOWN feed `workMeasurements`; contacts
+        // taken afterward (work-corrected re-probe) feed `partMeasurements`.
+        // In-memory session state -- NOT serialized, cleared on load + Set Origin.
+        std::vector<ProbeMeasurement> workMeasurements;
+        std::vector<ProbeMeasurement> partMeasurements;
+
+        // The full nominal->actual part pose: work frame correction with the part
+        // offset nested inside it (W o P).  Identity until the first probe.
+        ProbeResult totalPose() const {
+            return workCorrection.composedOnto(probeCorrection);
+        }
+
+        bool workEstablished() const { return workCorrection.valid; }
 
         // Transient component selection: a property (component) of a stage that
         // is actively selected in the tree. The world view force-shows it even
@@ -408,8 +427,9 @@ export namespace Cam::App {
 
             json["toolFolderPath"] = toolFolderPath;
 
-            // The probe correction (part pose in the machine) persists with the
-            // project until "Set Origin" clears it.
+            // The probe corrections (work frame + part offset within it) persist
+            // with the project until "Set Origin" clears them.
+            json["workCorrection"]  = workCorrection.getState();
             json["probeCorrection"] = probeCorrection.getState();
 
             json["stages"] = Json::array();
@@ -560,9 +580,14 @@ export namespace Cam::App {
                     toolFolderPath = json["toolFolderPath"].get<std::string>();
                 }
 
+                workCorrection.reset();
                 probeCorrection.reset();
-                probeMeasurements.clear();   // raw contacts are session-only
+                workMeasurements.clear();    // raw contacts are session-only
+                partMeasurements.clear();
                 workRotaryAxis.reset();      // re-assumed from machine def on use
+                if (json.contains("workCorrection") && json["workCorrection"].is_object()) {
+                    workCorrection.setState(json["workCorrection"]);
+                }
                 if (json.contains("probeCorrection") && json["probeCorrection"].is_object()) {
                     probeCorrection.setState(json["probeCorrection"]);
                 }
