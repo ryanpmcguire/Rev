@@ -118,6 +118,7 @@ export namespace Cam::App {
         Pos3 point{};                // a point the axis line passes through
         bool measured = false;       // false = assumed (machine def); true = probed
         double residual = 0.0;       // how well the 2-orientation fit closed (mm)
+        double probeRadius = 0.0;    // effective cylindrical-probe radius, self-fit (mm)
 
         void reset() { *this = RotaryAxis(); }
 
@@ -184,42 +185,83 @@ export namespace Cam::App {
             // but shrinks |c_i - p0| to a few mm, collapsing the amplified bias.
             const Pos3   p0 = centroids[0];
             const Pos3   n0 = normals[0];
-            const double h0 = double(n0.dot(centroids[0] - p0));   // == 0
-            double Suu = 0, Suw = 0, Sww = 0, Su = 0, Sw = 0;
+
+            // CYLINDRICAL-PROBE SELF-CALIBRATION.  A flat-ended cylinder of radius r
+            // cannot touch under its own axis on a tilted face -- its UPHILL EDGE
+            // strikes first -- so it reports the contact HIGH by r*sin(phi), where
+            // phi is the face tilt from the (vertical) probe-descent axis.  At small
+            // angles r*sin(phi) is ~10x the real face-rise term, so an uncorrected r
+            // grossly inflates the depth (the axis sinks toward the far face).  We
+            // therefore carry r as a THIRD unknown alongside the axis position
+            // (a_u, a_w): with >= 2 DISTINCT tilt magnitudes the system separates the
+            // probe radius from the true axis depth and self-calibrates the stylus.
+            //
+            //   true plane offset  h_i_true = n_i.(c_i - p0) - r*sin(phi_i)
+            //   equidistance:      (n_i - n_0).a' = h_i_true - h_0_true
+            //   => g_i.a' + r*(sin phi_i - sin phi_0) = n_i.(c_i - p0)
+            //
+            // sin(phi) is the horizontal magnitude of the (machine-frame) normal.
+            auto sinTilt = [](const Pos3& nrm) {
+                return std::sqrt(double(nrm.x*nrm.x + nrm.y*nrm.y));
+            };
+            const double s0 = sinTilt(n0);
+
+            // 3x3 normal equations for x = (a_u, a_w, r).
+            double M[3][3] = { {0,0,0},{0,0,0},{0,0,0} };
+            double b[3]    = { 0,0,0 };
             size_t used = 0;
             for (size_t i = 1; i < n; i++) {
                 const Pos3   g  = normals[i] - n0;        // perpendicular to d
                 const double hi = double(normals[i].dot(centroids[i] - p0));
-                const double rhs = hi - h0;
-                const double gu = double(g.dot(u)), gw = double(g.dot(w));
-                Suu += gu*gu; Suw += gu*gw; Sww += gw*gw;
-                Su  += rhs*gu; Sw  += rhs*gw;
+                const double row[3] = {
+                    double(g.dot(u)), double(g.dot(w)), sinTilt(normals[i]) - s0
+                };
+                for (int a = 0; a < 3; a++) {
+                    for (int c = 0; c < 3; c++) { M[a][c] += row[a]*row[c]; }
+                    b[a] += row[a]*hi;
+                }
                 used++;
             }
-            if (used < 2) { return out; }   // need >= 3 orientations (>= 2 constraints)
-            const double det = Suu * Sww - Suw * Suw;
-            if (std::fabs(det) < 1e-9) { return out; }   // orientations too close -> undefined
+            if (used < 3) { return out; }   // need >= 4 orientations (>= 3 constraints)
 
-            const double au = ( Sww * Su - Suw * Sw) / det;
-            const double aw = (-Suw * Su + Suu * Sw) / det;
+            auto det3 = [](const double m[3][3]) {
+                return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])
+                     - m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])
+                     + m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
+            };
+            const double D0 = det3(M);
+            // Near-singular => the tilt magnitudes are not distinct enough to
+            // separate r (the +phi/-phi-only degeneracy).
+            if (std::fabs(D0) < 1e-12) { return out; }
+            auto solveCol = [&](int col) {
+                double m[3][3];
+                for (int a = 0; a < 3; a++) for (int c = 0; c < 3; c++) m[a][c] = M[a][c];
+                for (int a = 0; a < 3; a++) m[a][col] = b[a];
+                return det3(m) / D0;
+            };
+            const double au = solveCol(0);
+            const double aw = solveCol(1);
+            const double r  = solveCol(2);
+
             // Solved relative to p0 (its along-d component is 0 by construction);
             // add the reference back to land in absolute machine coords.
             const Pos3   aRel = u * float(au) + w * float(aw);
             const Pos3   a    = aRel + p0;
 
-            // Residual: how well the constraints concur (meaningful only when
-            // OVER-determined -- i.e. >= 4 orientations; exactly determined at 3).
+            // Residual: how well all constraints (incl. the r term) concur.
             double sse = 0.0;
             for (size_t i = 1; i < n; i++) {
-                const Pos3   g = normals[i] - n0;
+                const Pos3   g  = normals[i] - n0;
                 const double hi = double(normals[i].dot(centroids[i] - p0));
-                const double e = double(g.dot(aRel)) - (hi - h0);
+                const double s  = sinTilt(normals[i]) - s0;
+                const double e  = double(g.dot(aRel)) + r*s - hi;
                 sse += e * e;
             }
-            out.residual  = std::sqrt(sse / double(used));
-            out.direction = d;
-            out.point     = a;
-            out.measured  = true;
+            out.residual    = std::sqrt(sse / double(used));
+            out.direction   = d;
+            out.point       = a;
+            out.probeRadius = r;
+            out.measured    = true;
             return out;
         }
     };

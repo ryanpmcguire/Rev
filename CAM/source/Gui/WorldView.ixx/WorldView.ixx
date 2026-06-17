@@ -187,8 +187,12 @@ export namespace Cam::Gui {
         // planes); only then is the work frame + axis fitted.  The CONFIRM pass
         // applies that correction and measures the part's residual offset within
         // the work frame.
-        static constexpr int    kProbeRepeatCount   = 4;
-        static constexpr double kProbeCalibAngleDeg = 10.0;   // +/- deliberate tilt
+        static constexpr int    kProbeRepeatCount    = 6;     // flat + 4 tilts + confirm
+        // TWO distinct tilt magnitudes (probed at +/- each) so the axis solve can
+        // separate the true axis depth from the cylindrical-probe edge bias and
+        // self-calibrate the stylus radius.  +/-6 then +/-12 deg.
+        static constexpr double kProbeCalibAngle1Deg = 6.0;
+        static constexpr double kProbeCalibAngle2Deg = 12.0;
 
         // Trust thresholds gating whether a re-probe (pass > 0) is DRIVEN by the
         // prior pass's correction.  RMS is the REAL trust signal: a tight fit is
@@ -1948,6 +1952,31 @@ export namespace Cam::Gui {
 
                 Cam::App::RotaryAxis ax =
                     Cam::App::RotaryAxis::inferFromNormalPlanes(centroids, normals, dirMach);
+
+                // DIAGNOSTIC.  Log each orientation's centroid rise, plus the solved
+                // axis depth D and the self-calibrated probe radius r.  D is now the
+                // TRUE axis->face distance (cylinder bias removed); r should land at
+                // the physical stylus radius.
+                {
+                    double flatA = 1e9, flatZ = 0.0;
+                    for (const auto& q : grps) {
+                        const double z = double((q.cSum * (1.0f / q.cnt)).z);
+                        if (std::fabs(q.angle) < std::fabs(flatA)) { flatA = q.angle; flatZ = z; }
+                    }
+                    for (const auto& q : grps) {
+                        if (std::fabs(q.angle - flatA) < 1.0) { continue; }
+                        const double z = double((q.cSum * (1.0f / q.cnt)).z);
+                        dbg("[Probe][axis] orient %+.2f deg: centroidZ=%.4f rise=%.4f",
+                            q.angle, z, z - flatZ);
+                    }
+                    double solvedD = 0.0;
+                    if (ax.measured && !centroids.empty()) {
+                        solvedD = double((centroids[0] - ax.point).dot(normals[0]));
+                    }
+                    dbg("[Probe][axis] solved D=%.3f mm | probe radius r=%.3f mm (residual %.4f)",
+                        solvedD, ax.probeRadius, ax.residual);
+                }
+
                 if (ax.measured && ax.residual <= kProbeReprobeMaxRmsMm) {
                     float wox, woy, woz, wcx, wcy, wcz;
                     if (Carvera::MachineLink::instance().workOrigin(wox, woy, woz, wcx, wcy, wcz)) {
@@ -1994,6 +2023,19 @@ export namespace Cam::Gui {
                 }
                 project->workCorrection = Cam::App::ProbeResult::solve(
                     flat, rotaryAxis, axisPt);
+
+                // ORIGIN-INVARIANCE: the rotary axis is a PHYSICAL line; it must not
+                // float with the initial set-origin / jog assumption.  The flat-pass
+                // work translation IS exactly that origin offset, and it is about to
+                // be folded into the machine origin (below) for the PART -- but the
+                // axis was mapped to CAD with the pre-fold origin, so without this it
+                // keeps the offset the part sheds.  Remove it here so the axis lands
+                // in the same re-anchored frame as the part (jogging + re-zeroing no
+                // longer shifts the reported axis).
+                if (project->workRotaryAxis.measured) {
+                    project->workRotaryAxis.point =
+                        project->workRotaryAxis.point - project->workCorrection.t;
+                }
 
                 // Re-anchor the work origin to the PROBE (jog-independent): fold the
                 // measured translation into the origin, once.
@@ -2988,15 +3030,18 @@ export namespace Cam::Gui {
                     probeFrameZ_           = frame.Z;
                     probeBeginWorkInFrame_ = beginWorkInFrame;
 
-                    // CALIBRATE + CONFIRM scheme:
-                    //   pass 0 -> flat (nominal, A=0)               | calibration
-                    //   pass 1 -> deliberate +10 deg about rotary   | calibration
-                    //   pass 2 -> deliberate -10 deg about rotary    | calibration (last)
-                    //   pass 3 -> driven by fitted work frame        | CONFIRM
+                    // CALIBRATE + CONFIRM scheme (two tilt magnitudes so the axis
+                    // fit can self-calibrate the probe radius):
+                    //   pass 0 -> flat (nominal, A=0)            | calibration
+                    //   pass 1 -> deliberate +6  deg about rotary | calibration
+                    //   pass 2 -> deliberate -6  deg about rotary | calibration
+                    //   pass 3 -> deliberate +12 deg about rotary | calibration
+                    //   pass 4 -> deliberate -12 deg about rotary | calibration (last)
+                    //   pass 5 -> driven by fitted work frame     | CONFIRM
                     probeSessionBase_.reset();
                     probeSessionComposed_      = false;
-                    probeSessionConfirm_       = (passIndex >= 3);
-                    probeSessionCalibComplete_ = (passIndex == 2);
+                    probeSessionConfirm_       = (passIndex >= 5);
+                    probeSessionCalibComplete_ = (passIndex == 4);
                     const Cam::App::ProbeResult* drive = nullptr;
                     Cam::App::ProbeResult deliberate;   // local: valid for appendProbeOp call
 
@@ -3010,9 +3055,14 @@ export namespace Cam::Gui {
                         project->workRotaryAxis.measured ? project->workRotaryAxis.point
                                                          : frame.origin;
 
-                    if (passIndex == 1 || passIndex == 2) {
-                        const double ang = (passIndex == 1) ? kProbeCalibAngleDeg
-                                                            : -kProbeCalibAngleDeg;
+                    if (passIndex >= 1 && passIndex <= 4) {
+                        double ang = 0.0;
+                        switch (passIndex) {
+                            case 1: ang =  kProbeCalibAngle1Deg; break;
+                            case 2: ang = -kProbeCalibAngle1Deg; break;
+                            case 3: ang =  kProbeCalibAngle2Deg; break;
+                            case 4: ang = -kProbeCalibAngle2Deg; break;
+                        }
                         deliberate = Cam::App::ProbeResult::pureRotation(axisDir, axisPt, ang);
                         drive = &deliberate;
                         dbg("[Probe] calibration pass %d: deliberate %+.1f deg tilt",
