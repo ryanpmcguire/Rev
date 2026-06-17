@@ -218,7 +218,34 @@ export namespace Cam::App {
             json["shoulderTaperAngle"] = tool.shoulderTaperAngle;
             json["collarDiameter"] = tool.collarDiameter;
             json["collarLength"] = tool.collarLength;
-            json["threadPitch"] = tool.threadPitch;
+            // Type-specific: thread-mill form cutter (teeth angle + count).
+            json["threadMill"] = {
+                { "toothAngle", tool.threadMill.toothAngle },
+                { "toothCount", tool.threadMill.toothCount }
+            };
+
+            // Type-specific: probe tip shape + stylus calibration.
+            json["probe"] = {
+                { "tipGeometry",         Tool::tipGeometryToString(tool.probe.tipGeometry) },
+                { "stylusRadius",        tool.probe.stylusRadius },
+                { "calibrated",          tool.probe.calibrated },
+                { "calibrationResidual", tool.probe.calibrationResidual }
+            };
+
+            // Owned named operation profiles.
+            json["profiles"] = Json::array();
+            for (const OperationProfile& p : tool.profiles) {
+                json["profiles"].push_back({
+                    { "name",         p.name },
+                    { "feedRate",     p.feedRate },
+                    { "plungeRate",   p.plungeRate },
+                    { "spindleSpeed", p.spindleSpeed },
+                    { "stepdown",     p.stepdown },
+                    { "stepover",     p.stepover },
+                    { "rapidSpeed",   p.rapidSpeed },
+                    { "climbMilling", p.climbMilling }
+                });
+            }
 
             json["defaultFeedRate"] = tool.defaultFeedRate;
             json["defaultStepdown"] = tool.defaultStepdown;
@@ -334,8 +361,52 @@ export namespace Cam::App {
                 out.collarLength = std::max(legacyLength - used, 0.0);
             }
 
-            if (json.contains("threadPitch") && json["threadPitch"].is_number()) {
-                out.threadPitch = json["threadPitch"].get<double>();
+            // Type-specific: thread-mill form cutter (absent => defaults; older
+            // pitch/major-minor tool fields are intentionally dropped -- those are
+            // operation parameters now).
+            if (json.contains("threadMill") && json["threadMill"].is_object()) {
+                const Json& tm = json["threadMill"];
+                if (tm.contains("toothAngle") && tm["toothAngle"].is_number()) {
+                    out.threadMill.toothAngle = tm["toothAngle"].get<double>();
+                }
+                if (tm.contains("toothCount") && tm["toothCount"].is_number()) {
+                    out.threadMill.toothCount = tm["toothCount"].get<int>();
+                }
+            }
+
+            // Type-specific: probe tip shape + stylus calibration (absent => defaults).
+            if (json.contains("probe") && json["probe"].is_object()) {
+                const Json& pj = json["probe"];
+                if (pj.contains("tipGeometry") && pj["tipGeometry"].is_string()) {
+                    out.probe.tipGeometry = Tool::tipGeometryFromString(pj["tipGeometry"].get<std::string>());
+                }
+                if (pj.contains("stylusRadius") && pj["stylusRadius"].is_number()) {
+                    out.probe.stylusRadius = pj["stylusRadius"].get<double>();
+                }
+                if (pj.contains("calibrated") && pj["calibrated"].is_boolean()) {
+                    out.probe.calibrated = pj["calibrated"].get<bool>();
+                }
+                if (pj.contains("calibrationResidual") && pj["calibrationResidual"].is_number()) {
+                    out.probe.calibrationResidual = pj["calibrationResidual"].get<double>();
+                }
+            }
+
+            // Owned cutting profiles.
+            if (json.contains("profiles") && json["profiles"].is_array()) {
+                out.profiles.clear();
+                for (const Json& pj : json["profiles"]) {
+                    if (!pj.is_object()) { continue; }
+                    OperationProfile p;
+                    if (pj.contains("name") && pj["name"].is_string()) { p.name = pj["name"].get<std::string>(); }
+                    if (pj.contains("feedRate") && pj["feedRate"].is_number()) { p.feedRate = pj["feedRate"].get<double>(); }
+                    if (pj.contains("plungeRate") && pj["plungeRate"].is_number()) { p.plungeRate = pj["plungeRate"].get<double>(); }
+                    if (pj.contains("spindleSpeed") && pj["spindleSpeed"].is_number()) { p.spindleSpeed = pj["spindleSpeed"].get<double>(); }
+                    if (pj.contains("stepdown") && pj["stepdown"].is_number()) { p.stepdown = pj["stepdown"].get<double>(); }
+                    if (pj.contains("stepover") && pj["stepover"].is_number()) { p.stepover = pj["stepover"].get<double>(); }
+                    if (pj.contains("rapidSpeed") && pj["rapidSpeed"].is_number()) { p.rapidSpeed = pj["rapidSpeed"].get<double>(); }
+                    if (pj.contains("climbMilling") && pj["climbMilling"].is_boolean()) { p.climbMilling = pj["climbMilling"].get<bool>(); }
+                    out.profiles.push_back(p);
+                }
             }
 
             if (json.contains("defaultFeedRate") && json["defaultFeedRate"].is_number()) {

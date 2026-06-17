@@ -14,6 +14,24 @@ import Rev.Core.Vertex3;
 
 export namespace Cam::App {
 
+    // A named OPERATION PROFILE -- a list of motion/operation defaults a tool
+    // carries.  Generalized so it applies to ANY tool: a cutter reads it as
+    // feed / spindle / stepdown ("Roughing", "Finishing"); a PROBE reads the same
+    // `feedRate` as its APPROACH rate and uses `rapidSpeed` ("Careful", "Rapid").
+    // The same SPEED concept underneath, named contextually at the UI.  Stored as
+    // its own referenced .json; a first-class struct so the toolpath AND probe
+    // layers can both consume it.
+    struct OperationProfile {
+        std::string name         = "Default";
+        double      feedRate     = 250.0;     // mm/min -- feed (cut) / approach (probe)
+        double      plungeRate   = 100.0;     // mm/min, Z entry
+        double      spindleSpeed = 10000.0;   // RPM (cutters)
+        double      stepdown     = 0.5;       // mm per pass (cutters)
+        double      stepover     = 0.25;      // fraction of cutting diameter (cutters)
+        double      rapidSpeed   = 10.0;      // mm/s -- travel, all tools
+        bool        climbMilling = true;      // cutters
+    };
+
     struct Tool {
 
         enum class Type {
@@ -62,11 +80,6 @@ export namespace Cam::App {
         double collarDiameter = 0.0;       // shank diameter (0 = same as shoulder)
         double collarLength = 40.0;        // axial shank length at the top
 
-        // Thread-mill form: the pitch the tool's teeth are ground for (mm).  Only
-        // meaningful for Type::ThreadMill, where it drives the toothed cutting
-        // silhouette (and tells the user what threads this tool can cut).
-        double threadPitch = 0.5;
-
         // Cached overall length (tip to top); kept equal to totalLength().
         double length = 50.0;
 
@@ -78,6 +91,48 @@ export namespace Cam::App {
         double defaultStepover = 0.25;     // fraction of diameter
         double defaultRapidSpeed = 10.0;   // mm/s
         bool   defaultClimbMilling = true;
+
+        // Type-specific settings
+        //--------------------------------------------------
+        //
+        // Only the sub-struct matching `type` is meaningful.  Named members
+        // (rather than a variant) keep value semantics, trivial JSON, and let the
+        // settings window show/hide a whole section by type.
+
+        // Probe (Type::Probe): the stylus is a small CYLINDER, so on a tilted face
+        // its uphill edge contacts first and reads high by r*tan(theta).
+        // `stylusRadius` is that edge radius -- CALIBRATED once per probe against a
+        // flat gauge / cylinder (not typed) -- and the rotary-axis fit subtracts
+        // its bias.  See the probe calibration window.
+        struct ProbeSettings {
+            // The stylus tip shape.  The Tool's `diameter` applies to BOTH; the
+            // shape decides the tilted-probe contact model -- a CYLINDER contacts
+            // its uphill EDGE (bias ~ r*tan(theta)); a SPHERE rolls to a tangent
+            // point (bias ~ R*(1-cos theta), far smaller).
+            enum class TipGeometry { Cylinder, Sphere };
+
+            TipGeometry tipGeometry        = TipGeometry::Cylinder;
+            double      stylusRadius        = 0.5;   // mm, calibrated edge radius
+            bool        calibrated          = false; // set true by a calibration run
+            double      calibrationResidual = 0.0;   // mm, fit residual of last calib
+        };
+        ProbeSettings probe;
+
+        // Thread mill (Type::ThreadMill): a FORM cutter, not a tap.  Its teeth are
+        // a V of `toothAngle` (the thread form angle, e.g. 60 deg) ground at the
+        // cutting `diameter`, repeated `toothCount` times up the body; the shank is
+        // the collar.  Crucially it is NOT tied to a pitch or a major/minor
+        // diameter -- those belong to the thread-milling OPERATION, because ONE
+        // cutter mills a whole range of pitches and diameters by helical interp.
+        struct ThreadMillSettings {
+            double toothAngle = 60.0;   // included V angle of the teeth, degrees
+            int    toothCount = 1;      // number of cutting teeth (form rows)
+        };
+        ThreadMillSettings threadMill;
+
+        // Named operation profiles this tool references (roughing / finishing /
+        // careful / rapid ...).  Empty => operations use the bare default* fields.
+        std::vector<OperationProfile> profiles;
 
         // Profile
         //--------------------------------------------------
@@ -158,38 +213,84 @@ export namespace Cam::App {
             pts.push_back({ 0.0, y });  // top centre
         }
 
-        // The toothed cutting silhouette of a thread mill: a 60-degree saw-tooth
-        // (crest at the cutting radius, root one thread-depth in) repeating every
-        // pitch up the cutting length.  Revolved, this reads as a threaded cutter;
-        // mirrored, as a thread-mill profile -- visibly different from an end mill.
+        // The cutting silhouette of a thread mill -- a FORM CUTTER.  The teeth are
+        // V-ridges of included angle `threadMill.toothAngle`, crests at the cutting
+        // radius (`diameter`/2), `threadMill.toothCount` of them stacked up from the
+        // tip; then the shank (collar).  The cutter carries NO pitch / major-minor:
+        // those are the OPERATION's (one cutter mills many pitches & diameters).
+        //
+        // The teeth tessellate root->crest->root.  The radial depth is a modest
+        // fraction of the cutting radius and the angle sets the axial spacing
+        // (tan(angle/2) = (spacing/2)/depth), so the rendered V reads at exactly the
+        // ground tooth angle.  Mirrored this is a thread-mill cutter, unmistakable
+        // from an end mill.
         std::vector<ProfilePoint> threadMillProfile() const {
 
             std::vector<ProfilePoint> pts;
 
-            const double majorR = std::max(radius, 0.0);
-            if (majorR <= 1e-9) { return pts; }
+            const double crestR = std::max(radius, 0.0);   // tooth OD / 2
+            if (crestR <= 1e-9) { return pts; }
 
-            const double pitch = std::max(threadPitch, 1e-3);
-            const double depth = std::min(0.61343 * pitch, majorR * 0.9);   // 60-deg form
-            const double minorR = std::max(majorR - depth, 1e-4);
-            const double cutLen = std::max(cuttingLength, pitch);
+            const int    teeth  = std::max(threadMill.toothCount, 1);
+            const double angle  = std::clamp(threadMill.toothAngle, 10.0, 170.0);
+            const double depth  = std::max(crestR * 0.18, 1e-3);          // radial tooth depth
+            const double rootR  = std::max(crestR - depth, 1e-4);
+            const double half   = depth * std::tan(angle * 0.5 * kPi / 180.0);  // axial half-tooth
 
             pts.push_back({ 0.0, 0.0 });        // tip centre
-            pts.push_back({ majorR, 0.0 });     // flat tip at a crest
+            pts.push_back({ rootR, 0.0 });      // bottom root at the tip
 
             double y = 0.0;
-            bool crest = true;
-
-            while (y < cutLen - 1e-6) {
-                y = std::min(y + pitch * 0.5, cutLen);
-                crest = !crest;
-                pts.push_back({ crest ? majorR : minorR, y });
+            for (int i = 0; i < teeth; i++) {
+                y += half; pts.push_back({ crestR, y });   // crest (cutting edge)
+                y += half; pts.push_back({ rootR,  y });   // root
             }
 
-            if (!crest) { pts.push_back({ majorR, cutLen }); }   // end on a crest
+            appendShank(pts, y, rootR);
 
-            appendShank(pts, cutLen, majorR);
+            return pts;
+        }
 
+        // Right-hand silhouette of a PROBE stylus.  The tip diameter is `diameter`
+        // for both shapes; the shape changes the bottom.  A CYLINDER is flat-ended
+        // (a pin); a SPHERE is a ball on a thin stem -- and the 2D preview / 3D
+        // mesh follow directly since both consume this.
+        std::vector<ProfilePoint> probeProfile() const {
+
+            std::vector<ProfilePoint> pts;
+
+            const double R = std::max(radius, 0.0);
+            if (R <= 1e-9) { return pts; }
+
+            const double stylusLen = std::max({ cuttingLength, 2.0 * R, 1e-4 });
+
+            if (probe.tipGeometry == ProbeSettings::TipGeometry::Sphere) {
+                // Ball of radius R on a thin stem.  Trace the right outline from the
+                // bottom pole, out past the equator, back in to where it narrows to
+                // the stem radius; then the stem, then the shank.
+                const double stemR = std::max(R * 0.35, 1e-3);
+                const double aStem = kPi - std::asin(std::clamp(stemR / R, 0.0, 1.0));
+                const int seg = 16;
+                for (int i = 0; i <= seg; i++) {
+                    const double a = aStem * (static_cast<double>(i) / seg);
+                    pts.push_back({ R * std::sin(a), R * (1.0 - std::cos(a)) });
+                }
+                const double yNeck = R * (1.0 - std::cos(aStem));
+                if (stylusLen > yNeck + 1e-6) {
+                    pts.push_back({ stemR, stylusLen });
+                    appendShank(pts, stylusLen, stemR);
+                }
+                else {
+                    appendShank(pts, yNeck, stemR);
+                }
+                return pts;
+            }
+
+            // Cylinder (flat-ended pin): full radius up the stylus, then shank.
+            pts.push_back({ 0.0, 0.0 });
+            pts.push_back({ R, 0.0 });
+            pts.push_back({ R, stylusLen });
+            appendShank(pts, stylusLen, R);
             return pts;
         }
 
@@ -199,6 +300,7 @@ export namespace Cam::App {
         std::vector<ProfilePoint> profile() const {
 
             if (type == Type::ThreadMill) { return threadMillProfile(); }
+            if (type == Type::Probe)      { return probeProfile(); }
 
             std::vector<ProfilePoint> pts;
 
@@ -328,6 +430,15 @@ export namespace Cam::App {
                 case Type::Probe:      return "Probe";
             }
             return "End mill";
+        }
+
+        static std::string tipGeometryToString(ProbeSettings::TipGeometry g) {
+            return g == ProbeSettings::TipGeometry::Sphere ? "Sphere" : "Cylinder";
+        }
+
+        static ProbeSettings::TipGeometry tipGeometryFromString(const std::string& s) {
+            return s == "Sphere" ? ProbeSettings::TipGeometry::Sphere
+                                 : ProbeSettings::TipGeometry::Cylinder;
         }
 
         static std::string typeEyebrow(Type type) {

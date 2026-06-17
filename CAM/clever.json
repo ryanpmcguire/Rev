@@ -245,6 +245,7 @@
         "source/Gui/LeftPanel/Stages/ToolPath/Gui.ThreadMillToolpathView.ixx",
         "source/Gui/LeftPanel/Stages/ToolPath/Gui.ToolpathStrategyView.ixx",
         "source/Gui/LeftPanel/StockMenu/Gui.StockMenu.ixx",
+        "source/Gui/Form/Gui.Form.ixx",
         "source/Gui/Machine/Gui.MachineSettingsWindow.ixx",
         "source/Gui/PreviewBar/Gui.PreviewBar.ixx",
         "source/Gui/RightPanel/Gui.RightPanel.ixx",

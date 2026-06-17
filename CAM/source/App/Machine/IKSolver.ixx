@@ -150,29 +150,6 @@ export namespace Cam::Machine {
             }
         }
 
-        // The signed angle (about A, right-hand rule) of the rotation that maps
-        // D → M.  Same c/s as applyRotationDtoM, resolved to an angle via atan2.
-        // This is the machine's rotary-axis index angle for the point.
-        static float rotationAngleDtoM(
-            Pos3 const& D,
-            Pos3 const& M,
-            Pos3 const& A
-        ) {
-            Pos3  Dperp    = D - A * D.dot(A);
-            Pos3  Mperp    = M - A * M.dot(A);
-            float DperpLen = Dperp.pythag();
-            float MperpLen = Mperp.pythag();
-
-            if (DperpLen < 1e-6f || MperpLen < 1e-6f) { return 0.0f; }
-
-            Pos3  Dn = Dperp / DperpLen;
-            Pos3  Mn = Mperp / MperpLen;
-            float c  = Dn.dot(Mn);
-            float s  = A.dot(Dn.cross(Mn));
-
-            return std::atan2(s, c);
-        }
-
         // Solve one toolpath point into a MachinePose.
 
         static MachinePose solvePoint(

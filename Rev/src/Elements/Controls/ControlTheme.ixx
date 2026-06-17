@@ -88,7 +88,7 @@ export namespace Rev::Element::ControlTheme {
             .position = Position::Absolute
         },
         .position = { .top = 100_pct },
-        .size = { .width = Grow(), .max = { .width = 100_pct } },
+        .size = { .min = { .width = 100_pct } },
         //.margin = { .top = 6_px },
         .padding = { 4_px, 4_px, 4_px, 4_px },
         .background = { .color = rgba(255, 255, 255, 1.0) },
@@ -115,7 +115,7 @@ export namespace Rev::Element::ControlTheme {
             .position = Position::Absolute
         },
         .position = { .bottom = 100_pct },
-        .size = { .width = Grow(), .max = { .width = 100_pct } },
+        .size = { .min = { .width = 100_pct } },
         .padding = { 4_px, 4_px, 4_px, 4_px },
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
@@ -128,7 +128,7 @@ export namespace Rev::Element::ControlTheme {
     };
 
     Style Option = {
-        .size = { 100_pct },
+        .size = { .min = { .width = 100_pct } },
         .padding = { .left = 10_px, .right = 10_px, .top = 6_px, .bottom = 6_px },
         .background = { .color = rgba(255, 255, 255, 0.0), .transition = 100_ms },
         .text = { .color = rgba(30, 41, 59, 1.0), .size = 13_px },

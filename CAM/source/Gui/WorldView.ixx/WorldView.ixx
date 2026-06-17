@@ -879,43 +879,6 @@ export namespace Cam::Gui {
             keepPreviewPlayingIfItWas(e, wasPlaying);
         }
 
-        void appendAxisLine(
-            const Rev::Core::Pos3& origin,
-            const Rev::Core::Pos3& direction,
-            const Rev::Core::Color& color,
-            float core,
-            float far
-        ) {
-            Rev::Core::Color full = color;
-            Rev::Core::Color soft = color;
-            Rev::Core::Color fade = color;
-
-            full.a = 1.0f;
-            soft.a = 0.8f;
-            fade.a = 0.0f;
-
-            const Rev::Core::Pos3 nFar = origin + direction * -far;
-            const Rev::Core::Pos3 nCore = origin + direction * -core;
-            const Rev::Core::Pos3 pCore = origin + direction * core;
-            const Rev::Core::Pos3 pFar = origin + direction * far;
-
-            auto addPoint = [this](const Rev::Core::Pos3& p, const Rev::Core::Color& c) {
-                testLines.push_back({ p.x, p.y, p.z, c });
-            };
-
-            addPoint(nFar, fade);
-            addPoint(nCore, soft);
-
-            addPoint(nCore, soft);
-            addPoint(origin, full);
-
-            addPoint(origin, full);
-            addPoint(pCore, soft);
-
-            addPoint(pCore, soft);
-            addPoint(pFar, fade);
-        }
-
         void syncAxisLines() {
 
             testLines.clear();
@@ -1776,9 +1739,10 @@ export namespace Cam::Gui {
         // Build the machine definition for the current project setup:
         // 3+1 indexed, using the user-defined axis origin as the A-axis pivot
         // and the user-defined X direction as the rotary axis.
-        Cam::Machine::MachineDefinition buildMachineDefinition(
-            Cam::App::Stage* state
-        ) {
+        // The machine definition is derived ENTIRELY from the project-wide work
+        // coordinate system (buildWorkFrame), so it no longer depends on any
+        // particular stage -- hence no parameter.
+        Cam::Machine::MachineDefinition buildMachineDefinition() {
             // UNIFIED: the machine is derived from the EXACT SAME work coordinate
             // system the world view draws (buildWorkFrame) -- one object whose X is
             // the rotary axis (measured when probing has found it, the user's
@@ -1868,7 +1832,7 @@ export namespace Cam::Gui {
 
             // Rotary axis (DIRECTION) in the model frame: needed both for the
             // achievable fit and to canonicalize multi-orientation contacts.
-            const Cam::Machine::MachineDefinition def = buildMachineDefinition(stage);
+            const Cam::Machine::MachineDefinition def = buildMachineDefinition();
             Rev::Core::Pos3 rotaryAxis{};
             if (!def.part.dof.freeRotations.empty()) {
                 rotaryAxis = def.part.dof.freeRotations.front();
@@ -2130,7 +2094,7 @@ export namespace Cam::Gui {
                 Cam::Machine::MachineToolPath solved =
                     Cam::Machine::IKSolver::solve(
                         corrected,
-                        buildMachineDefinition(state)
+                        buildMachineDefinition()
                     );
 
                 dbg(
@@ -2206,7 +2170,7 @@ export namespace Cam::Gui {
             }
             else {
                 Cam::Machine::MachineDefinition def =
-                    buildMachineDefinition(project->displayedStage);
+                    buildMachineDefinition();
                 if (!def.part.dof.freeRotations.empty()) {
                     rotaryAxis = def.part.dof.freeRotations.front();
                 }
@@ -2385,16 +2349,6 @@ export namespace Cam::Gui {
         // CoordinateSystem bridge (the unified representation)
         // ===========================================================
 
-        // A probe correction (row-major r + t) is already a rigid pose -> a
-        // CoordinateSystem.
-        static Cam::Coord::CoordinateSystem csFromCorrection(const Cam::App::ProbeResult& c) {
-            Cam::Coord::CoordinateSystem cs;
-            for (int i = 0; i < 9; i++) { cs.r[i] = c.r[i]; }
-            cs.t = c.t;
-            cs.resolveAxes();
-            return cs;
-        }
-
         // A column-major 4x4 (the view/IK convention) -> a CoordinateSystem.
         static Cam::Coord::CoordinateSystem csFromColMajor(const float m[16]) {
             Cam::Coord::CoordinateSystem cs;
@@ -2489,17 +2443,6 @@ export namespace Cam::Gui {
             Cam::App::Project* project = activeProject();
             if (!project || !project->workEstablished()) { return; }
             correctionToMatrix(project->totalPose(), out);
-        }
-
-        // The WORK frame's correction: where the rotary-axis / work coordinate
-        // system actually sits (workCorrection alone).  The part rotates ABOUT
-        // this; on the first pass the part offset is identity so the part frame
-        // coincides with it exactly.
-        void workCorrectionMatrix(float out[16]) const {
-            Cam::Machine::Pose::identityMatrix(out);
-            Cam::App::Project* project = activeProject();
-            if (!project || !project->workEstablished()) { return; }
-            correctionToMatrix(project->workCorrection, out);
         }
 
         // out = a * b  (both column-major 4x4).
@@ -2877,7 +2820,7 @@ export namespace Cam::Gui {
 
                 if (probePath.points.empty()) { return; }
 
-                const Cam::Machine::MachineDefinition machineDef = buildMachineDefinition(state);
+                const Cam::Machine::MachineDefinition machineDef = buildMachineDefinition();
                 const bool hasRotary = !machineDef.part.dof.freeRotations.empty();
 
                 const Cam::Machine::MachineToolPath solved =
@@ -3046,7 +2989,7 @@ export namespace Cam::Gui {
                     Cam::App::ProbeResult deliberate;   // local: valid for appendProbeOp call
 
                     // Rotary axis (CAD) about which the deliberate tilts pivot.
-                    const Cam::Machine::MachineDefinition pdef = buildMachineDefinition(state);
+                    const Cam::Machine::MachineDefinition pdef = buildMachineDefinition();
                     Rev::Core::Pos3 axisDir{ 1.0f, 0.0f, 0.0f };
                     if (!pdef.part.dof.freeRotations.empty()) {
                         axisDir = pdef.part.dof.freeRotations.front();

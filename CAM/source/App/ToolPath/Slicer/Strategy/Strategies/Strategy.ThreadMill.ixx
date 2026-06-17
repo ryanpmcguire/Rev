@@ -14,6 +14,7 @@ import Rev.Core.Pos;
 import Rev.Core.Pos3;
 
 import Cam.App.Model;
+import Cam.App.Tool;
 import Cam.App.Slicer.Strategy.Strategy;
 import Cam.App.Slicer.Strategy.Slice.Slice;
 
@@ -153,7 +154,22 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
             if (cutRing.chains.empty()) { cutRing = boundary.clone(); }
 
-            const int turns = std::max(1, static_cast<int>(std::ceil(depth / pitch)));
+            // Revolutions to form the thread.  A SINGLE-POINT cutter (one tooth)
+            // helically interpolates the whole length: one revolution per pitch.
+            // A multi-row FORM cutter has `toothCount` teeth one pitch apart, so it
+            // cuts that many thread turns at once -- its tooth stack already spans
+            // (toothCount - 1) extra pitches above the tip.  As the tip spirals up
+            // continuously, those stacked teeth cover the rest, so the helix only
+            // needs to sweep the turns the stack does NOT span.  Once the teeth
+            // cover the whole feature this collapses to a single orbit.
+            const int turnsTotal = std::max(1, static_cast<int>(std::ceil(depth / pitch)));
+
+            int teeth = 1;
+            if (ctx.tool && ctx.tool->type == Cam::App::Tool::Type::ThreadMill) {
+                teeth = std::max(1, ctx.tool->threadMill.toothCount);
+            }
+
+            const int turns = std::max(1, turnsTotal - (teeth - 1));
 
             // Every closed boundary loop becomes its own helix.  For a single
             // hole that is one helix; "any profile" with several loops threads
@@ -186,8 +202,8 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             }
 
             dbg(
-                "[ThreadMill] pitch=%.3f depth=%.3f turns=%d loops=%zu majorDia=%.3f (%s)",
-                pitch, depth, turns, cutRing.chains.size(), ctx.threadMajorDiameter,
+                "[ThreadMill] pitch=%.3f depth=%.3f turns=%d/%d teeth=%d loops=%zu majorDia=%.3f (%s)",
+                pitch, depth, turns, turnsTotal, teeth, cutRing.chains.size(), ctx.threadMajorDiameter,
                 ctx.threadUpCut ? "up-cut" : "down-cut"
             );
         }

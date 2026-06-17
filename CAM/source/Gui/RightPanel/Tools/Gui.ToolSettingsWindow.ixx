@@ -28,6 +28,7 @@ import Cam.App;
 import Cam.App.Tool;
 import Cam.Gui.ToolPreview;
 import Cam.Gui.Theme;
+import Cam.Gui.Form;
 
 export namespace Cam::Gui {
 
@@ -131,7 +132,8 @@ export namespace Cam::Gui {
         NumberInput* diameterInput = nullptr;
         NumberInput* cuttingLengthInput = nullptr;
         NumberInput* taperInput = nullptr;
-        NumberInput* pitchInput = nullptr;
+        NumberInput* toothAngleInput = nullptr;
+        NumberInput* toothCountInput = nullptr;
         NumberInput* shoulderDiameterInput = nullptr;
         NumberInput* shoulderLengthInput = nullptr;
         NumberInput* shoulderTaperInput = nullptr;
@@ -143,6 +145,7 @@ export namespace Cam::Gui {
         NumberInput* stepoverInput = nullptr;
         NumberInput* rapidSpeedInput = nullptr;
         Dropdown* cutDirectionDropdown = nullptr;
+        Dropdown* tipGeometryDropdown = nullptr;
 
         Button* applyButton = nullptr;
         bool applyPendingAppearance = false;
@@ -234,33 +237,20 @@ export namespace Cam::Gui {
             refresh(event);
         }
 
-        static NumberInput::Params numberParams(
-            const char* label,
-            const char* placeholder
-        ) {
-            NumberInput::Params p;
-            p.label = label;
-            p.placeholder = placeholder;
-            p.maxLength = 32;
-            p.selectAllOnFocus = true;
-            p.allowNegative = false;
-            p.allowDecimal = true;
-            p.allowEmpty = false;
-            p.maxDecimalPlaces = 4;
-            return p;
-        }
-
-        // Small builders shared by the per-type field layouts.
+        // Small builders shared by the per-type field layouts.  These now delegate
+        // to the composable Cam::Gui::Form primitives (so the probe-calibration
+        // window and profile editor build from the very same pieces); the window
+        // keeps only the behaviour -- live binding, validation, preview sync.
         Box* makeRow(Box* column, const char* name) {
-            return new Box(column, { &ToolSettingsLayout::Row }, name);
+            return Form::row(column, name);
         }
 
         void makeSection(Box* column, const char* text) {
-            new Text(column, text, Theme::layer({}, { &Theme::Styles::SettingsSectionLabel }));
+            Form::section(column, text);
         }
 
         NumberInput* makeField(Box* parent, const char* label, const char* placeholder) {
-            return new NumberInput(parent, numberParams(label, placeholder), { &ToolSettingsLayout::RowField });
+            return Form::numberField(parent, label, placeholder);
         }
 
         void bindLive(NumberInput* input) {
@@ -269,15 +259,23 @@ export namespace Cam::Gui {
             input->onValueChange = [this](Event& e, std::optional<double>) { syncPreview(e); };
         }
 
-        // The toolpath-default block, shared but tailored: thread mills have no
-        // stepdown (the pitch is the axial step); probes don't cut, so they get
-        // only the motion speeds.
-        void buildDefaults(Box* col, bool withStepdown, bool withStepover, bool withCutDir) {
-
-            makeSection(col, "TOOLPATH DEFAULTS");
+        // The operation-defaults block, shared but tailored.  The engagement speed
+        // is ONE concept named in the caller's language -- "Feed rate" when feeding
+        // material into a cutter, "Approach rate" when easing a probe onto a
+        // surface -- but it is the same underlying speed (working.defaultFeedRate).
+        // Thread mills have no stepdown (the pitch is the axial step); probes don't
+        // cut, so they get only the motion speeds.
+        void buildDefaults(
+            Box* col,
+            const char* sectionTitle,
+            const char* engageLabel,
+            const char* engagePlaceholder,
+            bool withStepdown, bool withStepover, bool withCutDir
+        ) {
+            makeSection(col, sectionTitle);
 
             Box* r1 = makeRow(col, "DefRow1");
-            feedRateInput = makeField(r1, "Feed rate (mm/min)", "250");
+            feedRateInput = makeField(r1, engageLabel, engagePlaceholder);
             if (withStepdown) { stepdownInput = makeField(r1, "Stepdown (mm)", "0.5"); }
 
             Box* r2 = makeRow(col, "DefRow2");
@@ -316,7 +314,8 @@ export namespace Cam::Gui {
             collarDiameterInput = makeField(col, "Collar dia. (mm)", "0");
             collarLengthInput = makeField(col, "Collar length (mm)", "40");
 
-            buildDefaults(mid, /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
+            buildDefaults(mid, "TOOLPATH DEFAULTS", "Feed rate (mm/min)", "250",
+                          /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
         }
 
         void buildChamferFields(Box* left, Box* mid) {
@@ -337,37 +336,45 @@ export namespace Cam::Gui {
             collarDiameterInput = makeField(col, "Collar dia. (mm)", "0");
             collarLengthInput = makeField(col, "Collar length (mm)", "40");
 
-            buildDefaults(mid, /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
+            buildDefaults(mid, "TOOLPATH DEFAULTS", "Feed rate (mm/min)", "250",
+                          /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
         }
 
         void buildThreadMillFields(Box* left, Box* mid) {
-            makeSection(left, "CUTTING");
+            // A FORM cutter: defined by its teeth (tip diameter, V angle, count),
+            // NOT by pitch / major-minor / threaded length -- those belong to the
+            // thread-milling OPERATION, since one cutter mills many threads.
+            makeSection(left, "CUTTING TEETH");
             Box* cut = makeRow(left, "CutRow");
-            diameterInput = makeField(cut, "Major dia. (mm)", "5.0");
-            cuttingLengthInput = makeField(cut, "Threaded length (mm)", "10");
-            pitchInput = makeField(makeRow(left, "PitchRow"), "Thread pitch (mm)", "0.8");
-
-            // The reduced-diameter neck and the shank above it (stored in the
-            // shoulder/collar fields, but presented as a thread mill's own terms).
-            makeSection(left, "NECK");
-            Box* neck = makeRow(left, "NeckRow");
-            shoulderDiameterInput = makeField(neck, "Neck dia. (mm)", "0");
-            shoulderLengthInput = makeField(neck, "Neck length (mm)", "0");
-            shoulderTaperInput = makeField(makeRow(left, "NeckTaperRow"), "Neck taper (deg)", "45");
+            diameterInput = makeField(cut, "Tooth dia. (mm)", "5.0");
+            toothAngleInput = makeField(cut, "Tooth angle (deg)", "60");
+            toothCountInput = makeField(makeRow(left, "TeethRow"), "Number of teeth", "1");
 
             makeSection(mid, "SHANK");
             Box* shank = makeRow(mid, "ShankRow");
-            collarDiameterInput = makeField(shank, "Shank dia. (mm)", "0");
+            collarDiameterInput = makeField(shank, "Shank dia. (mm)", "5");
             collarLengthInput = makeField(shank, "Shank length (mm)", "40");
 
             // No stepdown: a thread mill's axial advance per revolution is the pitch.
-            buildDefaults(mid, /*stepdown*/ false, /*stepover*/ true, /*cutDir*/ true);
+            buildDefaults(mid, "TOOLPATH DEFAULTS", "Feed rate (mm/min)", "250",
+                          /*stepdown*/ false, /*stepover*/ true, /*cutDir*/ true);
         }
 
         void buildProbeFields(Box* left, Box* mid) {
             makeSection(left, "STYLUS");
+
+            // Tip shape: diameter applies to both; the shape drives the preview AND
+            // the tilted-probe contact model.
+            tipGeometryDropdown = new Dropdown(left, {
+                .label = "Tip geometry",
+                .options = { { "Cylinder", "Cylinder" }, { "Sphere", "Sphere" } },
+                .placeholder = "Select shape",
+                .value = Cam::App::Tool::tipGeometryToString(working.probe.tipGeometry)
+            });
+            tipGeometryDropdown->onChange = [this](Event& e) { syncPreview(e); refresh(e); };
+
             Box* st = makeRow(left, "StylusRow");
-            diameterInput = makeField(st, "Ball dia. (mm)", "2.0");
+            diameterInput = makeField(st, "Tip dia. (mm)", "2.0");
             cuttingLengthInput = makeField(st, "Stylus length (mm)", "20");
 
             makeSection(left, "SHANK");
@@ -375,8 +382,10 @@ export namespace Cam::Gui {
             collarDiameterInput = makeField(shank, "Shank dia. (mm)", "4");
             collarLengthInput = makeField(shank, "Shank length (mm)", "40");
 
-            // A probe doesn't cut: only the motion speeds matter.
-            buildDefaults(mid, /*stepdown*/ false, /*stepover*/ false, /*cutDir*/ false);
+            // A probe doesn't cut: only motion speeds matter, and its engagement
+            // speed is the APPROACH rate (same field as a cutter's feed rate).
+            buildDefaults(mid, "MOTION", "Approach rate (mm/min)", "100",
+                          /*stepdown*/ false, /*stepover*/ false, /*cutDir*/ false);
         }
 
         // Rebuild the field columns for the current tool type, then re-bind live
@@ -386,11 +395,13 @@ export namespace Cam::Gui {
             if (leftColumn) { delete leftColumn; leftColumn = nullptr; }
             if (midColumn)  { delete midColumn;  midColumn = nullptr; }
 
-            diameterInput = cuttingLengthInput = taperInput = pitchInput = nullptr;
+            diameterInput = cuttingLengthInput = taperInput = nullptr;
+            toothAngleInput = toothCountInput = nullptr;
             shoulderDiameterInput = shoulderLengthInput = shoulderTaperInput = nullptr;
             collarDiameterInput = collarLengthInput = nullptr;
             feedRateInput = stepdownInput = stepoverInput = rapidSpeedInput = nullptr;
             cutDirectionDropdown = nullptr;
+            tipGeometryDropdown = nullptr;
             lengthLabel = nullptr;
 
             leftColumn = new Box(fieldsArea, { &ToolSettingsLayout::LeftColumn }, "Left");
@@ -412,7 +423,8 @@ export namespace Cam::Gui {
             bindLive(diameterInput);
             bindLive(cuttingLengthInput);
             bindLive(taperInput);
-            bindLive(pitchInput);
+            bindLive(toothAngleInput);
+            bindLive(toothCountInput);
             bindLive(shoulderDiameterInput);
             bindLive(shoulderLengthInput);
             bindLive(shoulderTaperInput);
@@ -583,7 +595,8 @@ export namespace Cam::Gui {
             if (diameterInput)       { diameterInput->setValue(working.diameter); }
             if (cuttingLengthInput)  { cuttingLengthInput->setValue(working.cuttingLength); }
             if (taperInput)          { taperInput->setValue(working.taperAngle); }
-            if (pitchInput)          { pitchInput->setValue(working.threadPitch); }
+            if (toothAngleInput)     { toothAngleInput->setValue(working.threadMill.toothAngle); }
+            if (toothCountInput)     { toothCountInput->setValue(static_cast<double>(working.threadMill.toothCount)); }
             if (shoulderDiameterInput) { shoulderDiameterInput->setValue(working.shoulderDiameter); }
             if (shoulderLengthInput) { shoulderLengthInput->setValue(working.shoulderLength); }
             if (shoulderTaperInput)  { shoulderTaperInput->setValue(working.shoulderTaperAngle); }
@@ -599,6 +612,12 @@ export namespace Cam::Gui {
                 cutDirectionDropdown->params.value = working.defaultClimbMilling ? "climb" : "conventional";
                 cutDirectionDropdown->dropdownText->content = working.defaultClimbMilling ? "Climb" : "Conventional";
             }
+
+            if (tipGeometryDropdown) {
+                const std::string g = Cam::App::Tool::tipGeometryToString(working.probe.tipGeometry);
+                tipGeometryDropdown->params.value = g;
+                tipGeometryDropdown->dropdownText->content = g;
+            }
         }
 
         // Read every currently-built input back into `working` (fields not present
@@ -612,7 +631,8 @@ export namespace Cam::Gui {
             working.radius = working.diameter * 0.5;
             if (cuttingLengthInput)  { working.cuttingLength = cuttingLengthInput->valueOr(working.cuttingLength); }
             if (taperInput)          { working.taperAngle = taperInput->valueOr(working.taperAngle); }
-            if (pitchInput)          { working.threadPitch = pitchInput->valueOr(working.threadPitch); }
+            if (toothAngleInput)     { working.threadMill.toothAngle = toothAngleInput->valueOr(working.threadMill.toothAngle); }
+            if (toothCountInput)     { working.threadMill.toothCount = static_cast<int>(std::lround(toothCountInput->valueOr(static_cast<double>(working.threadMill.toothCount)))); }
             if (shoulderDiameterInput) { working.shoulderDiameter = shoulderDiameterInput->valueOr(working.shoulderDiameter); }
             if (shoulderLengthInput) { working.shoulderLength = shoulderLengthInput->valueOr(working.shoulderLength); }
             if (shoulderTaperInput)  { working.shoulderTaperAngle = shoulderTaperInput->valueOr(working.shoulderTaperAngle); }
@@ -624,6 +644,7 @@ export namespace Cam::Gui {
             if (stepoverInput)   { working.defaultStepover = stepoverInput->valueOr(working.defaultStepover * 100.0) / 100.0; }
             if (rapidSpeedInput) { working.defaultRapidSpeed = rapidSpeedInput->valueOr(working.defaultRapidSpeed); }
             if (cutDirectionDropdown) { working.defaultClimbMilling = cutDirectionDropdown->params.value != "conventional"; }
+            if (tipGeometryDropdown) { working.probe.tipGeometry = Cam::App::Tool::tipGeometryFromString(tipGeometryDropdown->params.value); }
 
             working.recomputeLength();
         }
@@ -674,7 +695,8 @@ export namespace Cam::Gui {
                 !nearlyEqual(t.diameter, savedTool.diameter) ||
                 !nearlyEqual(t.cuttingLength, savedTool.cuttingLength) ||
                 !nearlyEqual(t.taperAngle, savedTool.taperAngle) ||
-                !nearlyEqual(t.threadPitch, savedTool.threadPitch) ||
+                !nearlyEqual(t.threadMill.toothAngle, savedTool.threadMill.toothAngle) ||
+                t.threadMill.toothCount != savedTool.threadMill.toothCount ||
                 !nearlyEqual(t.shoulderDiameter, savedTool.shoulderDiameter) ||
                 !nearlyEqual(t.shoulderLength, savedTool.shoulderLength) ||
                 !nearlyEqual(t.shoulderTaperAngle, savedTool.shoulderTaperAngle) ||
@@ -748,7 +770,8 @@ export namespace Cam::Gui {
             commitIf(diameterInput);
             commitIf(cuttingLengthInput);
             commitIf(taperInput);
-            commitIf(pitchInput);
+            commitIf(toothAngleInput);
+            commitIf(toothCountInput);
             commitIf(shoulderDiameterInput);
             commitIf(shoulderLengthInput);
             commitIf(shoulderTaperInput);
