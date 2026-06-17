@@ -705,6 +705,8 @@ export namespace LithoControl {
         std::mutex        hdmiFrameMtx;
         std::vector<uint8_t> hdmiCurrentFrame;  // 28800-byte 1bpp; empty = blank
         bool              hdmiIsBlank    = true;
+        std::atomic<uint32_t> hdmiSolidColor { 0 };  // 0=off; else fill HDMI with this BGRA
+        std::thread       hdmiColorTestThread;
 
         bool hdmiPassthrough() const {
             return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
@@ -804,7 +806,8 @@ export namespace LithoControl {
         ~Interface() {
             abortFlag = true;
             if (jobThread.joinable()) jobThread.join();
-            if (hdmiWinThread.joinable()) hdmiWinThread.detach();
+            if (hdmiWinThread.joinable())      hdmiWinThread.detach();
+            if (hdmiColorTestThread.joinable()) hdmiColorTestThread.detach();
             delete stmSerial;
             delete piClient;
             saveSettings();
@@ -1082,6 +1085,10 @@ export namespace LithoControl {
             makeBtn(btnRow, "640x360",  [this]() { setDisplayResolution(); });
             makeBtn(btnRow, "OPEN",     [this]() { openHdmiWindow(); });
             makeBtn(btnRow, "CLOSE",    [this]() { closeHdmiWindow(); });
+
+            Box* testRow = new Box(hdmiDisplayRow, { &Theme::RowH });
+            testRow->style->margin.top = 4_px;
+            makeBtn(testRow, "COLOR TEST", [this]() { colorTest(); });
         }
 
         void scanDisplays() {
@@ -1140,15 +1147,20 @@ export namespace LithoControl {
                 HDC hdc = (msg == WM_PAINT) ? BeginPaint(hwnd, &ps) : GetDC(hwnd);
                 RECT rc; GetClientRect(hwnd, &rc);
                 int ww = rc.right, wh = rc.bottom;
-                // Build 32bpp pixel buffer from current 1bpp frame
+                // Build 32bpp pixel buffer from current 1bpp frame or solid color
                 std::vector<uint32_t> px(640 * 360, 0xFF000000u);
                 if (self) {
-                    std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
-                    if (!self->hdmiCurrentFrame.empty()) {
-                        const auto& bmp = self->hdmiCurrentFrame;
-                        for (int i = 0; i < 640 * 360; i++) {
-                            uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
-                            px[i] = bit ? 0xFFFFFFFFu : 0xFF000000u;
+                    uint32_t solid = self->hdmiSolidColor.load();
+                    if (solid) {
+                        std::fill(px.begin(), px.end(), solid);
+                    } else {
+                        std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
+                        if (!self->hdmiCurrentFrame.empty()) {
+                            const auto& bmp = self->hdmiCurrentFrame;
+                            for (int i = 0; i < 640 * 360; i++) {
+                                uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
+                                px[i] = bit ? 0xFFFFFFFFu : 0xFF000000u;
+                            }
                         }
                     }
                 }
@@ -1242,6 +1254,36 @@ export namespace LithoControl {
             }
             if (hdmiHwnd)
                 PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+        }
+
+        void showSolid(uint32_t bgra) {
+            hdmiSolidColor.store(bgra);
+            if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+        }
+
+        void colorTest() {
+            if (!hdmiPassthrough()) { logQ.push("[DISP] Open projector window first"); return; }
+            if (hdmiColorTestThread.joinable()) hdmiColorTestThread.detach();
+            hdmiColorTestThread = std::thread([this]() {
+                // BI_RGB 32bpp DWORD layout: byte[0]=B, byte[1]=G, byte[2]=R
+                const struct { uint32_t bgra; const char* name; } steps[] = {
+                    { 0x000000FFu, "RED"   },
+                    { 0x0000FF00u, "GREEN" },
+                    { 0x00FF0000u, "BLUE"  },
+                    { 0x00FFFFFFu, "WHITE" },
+                };
+                for (auto& s : steps) {
+                    if (abortFlag) break;
+                    logQ.push(std::string("[DISP] ") + s.name);
+                    showSolid(s.bgra);
+                    for (int i = 0; i < 200 && !abortFlag; i++)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                hdmiSolidColor.store(0);
+                if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+                logQ.push("[DISP] Color test done");
+            });
+            hdmiColorTestThread.detach();
         }
 
         // -- Slicer panel ------------------------------------------------------
