@@ -14,6 +14,7 @@ import Rev.Element.Checkbox;
 import Rev.Element.Dropdown;
 
 import Cam.App.Stage;
+import Cam.App.Tool;
 import Cam.App.ToolPath;
 import Cam.App.Slicer.Strategy.Strategies.ThreadMill;
 
@@ -68,6 +69,25 @@ export namespace Cam::Gui {
 
         std::string strategyName() const override {
             return Cam::App::Slicer::Strategy::Strategies::ThreadMill::name();
+        }
+
+        // Only a thread mill whose pitch range covers the callout AND whose crest
+        // fits inside the thread's major diameter can run this operation.
+        bool toolCanPerform(const Cam::App::Tool& tool) const override {
+
+            if (!tool.implied.canMillThreads) { return false; }
+            if (!state) { return true; }
+
+            const Cam::App::ToolPath& tp = state->toolPath;
+
+            if (tp.threadPitch > 0.0 && !tool.canCutThreadPitch(tp.threadPitch)) {
+                return false;
+            }
+            // The cutter must orbit inside the bore: crest diameter below the major.
+            if (tp.threadMajorDiameter > 0.0 && tool.diameter >= tp.threadMajorDiameter) {
+                return false;
+            }
+            return true;
         }
 
         // A human-readable callout, e.g. "Thread: M2.5 x 0.45  (pre-bore 2.05 mm)".

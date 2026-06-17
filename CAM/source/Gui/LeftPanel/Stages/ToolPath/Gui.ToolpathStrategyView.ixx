@@ -171,6 +171,15 @@ export namespace Cam::Gui {
             return dd;
         }
 
+        // Whether `tool` can physically perform the operation this view edits.
+        // Default: any cutter qualifies (a probe cannot cut, so it is rejected).
+        // Strategy subclasses tighten this using the tool's implied capabilities
+        // (e.g. thread milling needs a thread mill whose pitch range fits the
+        // callout).  Tools that fail are shown greyed-out in the dropdown.
+        virtual bool toolCanPerform(const Cam::App::Tool& tool) const {
+            return tool.implied.canCut;
+        }
+
         std::vector<Dropdown::Item> toolOptions() const {
 
             std::vector<Dropdown::Item> items;
@@ -179,7 +188,11 @@ export namespace Cam::Gui {
             for (size_t i = 0; i < app->toolCount(); i++) {
                 Cam::App::Tool* tool = app->toolAt(i);
                 if (!tool) { continue; }
-                items.push_back({ "#" + std::to_string(i + 1) + "  " + tool->name, tool->name });
+                Dropdown::Item item;
+                item.name = "#" + std::to_string(i + 1) + "  " + tool->name;
+                item.value = tool->name;
+                item.disabled = !toolCanPerform(*tool);
+                items.push_back(item);
             }
 
             if (items.empty()) { items.push_back({ "No tools", "" }); }

@@ -39,6 +39,19 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
         static constexpr const char* name() { return "Bore"; }
 
+        // The centroid of a loop, from its edge start points -- the bore axis in
+        // the slice plane (rings are concentric, so any ring yields the same).
+        static Pos loopCentroid(const Geo::Chain& loop) {
+            double sx = 0.0, sy = 0.0;
+            int n = 0;
+            for (const auto& e : loop.edges) {
+                const Pos p = Geo::Chain::eStart(*e);
+                sx += p.x; sy += p.y; n++;
+            }
+            if (n == 0) { return Pos(0.0f, 0.0f); }
+            return Pos(float(sx / n), float(sy / n));
+        }
+
         // Detection
         //--------------------------------------------------
 
@@ -213,14 +226,31 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
                     const Pos seam = Geo::Chain::eStart(*topChain.edges.front());
 
+                    // The bore AXIS: every plunge and retract happens here, on the
+                    // open centre, never against the ring being cut.  The tool
+                    // drops down the centre, leads radially out to the ring seam,
+                    // helixes down + cleans the floor, then leads back to the
+                    // centre before lifting.  (Rings are bored innermost-first, so
+                    // the centre is already clear by the time outer rings run.)
+                    const Pos centre = loopCentroid(topChain);
+
                     auto seated = [&](const Geo::Chain& c) {
                         Pos p;
                         size_t k = c.nearestPoint(seam, p);
                         return c.startedAt(k, p);
                     };
 
+                    // Lead-out: seam -> centre at the floor depth.  Stored FIRST so
+                    // it executes LAST -- the retract that follows lifts at the axis.
+                    {
+                        LayerPath leadOut;
+                        leadOut.z = slices_.front().z;
+                        leadOut.points = { seam, centre };
+                        paths_.push_back(std::move(leadOut));
+                    }
+
                     // The flat floor-cleaning revolution at the bottom slice:
-                    // stored FIRST, so it executes LAST.
+                    // stored before the turns, so it executes just before the lead-out.
                     {
                         LayerPath floor;
                         floor.z = slices_.front().z;
@@ -246,6 +276,16 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
                         turn.chains.push_back(seated(slices_[s].result.profiles[g].chains[j]));
 
                         paths_.push_back(std::move(turn));
+                    }
+
+                    // Lead-in: centre -> seam at the surface.  Stored LAST so it
+                    // executes FIRST -- the plunge that precedes it drops at the axis,
+                    // then the tool leads out to the ring and the helix ramps in.
+                    {
+                        LayerPath leadIn;
+                        leadIn.z = surface;
+                        leadIn.points = { centre, seam };
+                        paths_.push_back(std::move(leadIn));
                     }
                 }
             }

@@ -303,15 +303,42 @@ export namespace Cam::App {
             assignPointTimes();
         }
 
+        // The biggest chord deviation (mm) any tessellated curve may bow away from
+        // the true arc. The machine cuts straight moves between sampled points, so
+        // this is the actual surface error left on the part -- keep it tight.
+        static constexpr float ChordTolerance = 0.01f;
+
         // Sample one stoicheion in TRAVEL order (edgePointAt walks the edge's
         // own direction, so arcs and exotic curves come out the way the tool
-        // actually moves).
-        static void sampleEdgeUv(const Geo::Stoicheion& edge, std::vector<Pos>& out, int samples = 24) {
+        // actually moves). The sample COUNT is ADAPTIVE: enough chords that the
+        // straight cuts between them never bow more than ChordTolerance off the
+        // true curve, so a large arc is not faceted into a visible polygon (a fixed
+        // count made big radii coarse and small radii wasteful).
+        static void sampleEdgeUv(const Geo::Stoicheion& edge, std::vector<Pos>& out) {
 
             if (edge.type() == Geo::SKind::Segment) {
                 out.push_back(Geo::Chain::eStart(edge));
                 out.push_back(Geo::Chain::eEnd(edge));
                 return;
+            }
+
+            int samples = 24;   // fallback
+
+            Pos c; float r = 0.0f, a0 = 0.0f, sweep = 0.0f; int chir = 0;
+            if (Geo::Chain::circularOf(edge, c, r, a0, sweep, chir) && r > 1e-4f) {
+                // Max angle per chord that holds the sagitta r(1 - cos(dθ/2)) under
+                // tolerance: dθ = 2·acos(1 - tol/r). Bigger radius => smaller step.
+                const float arg = std::clamp(1.0f - ChordTolerance / r, -1.0f, 1.0f);
+                const float dTheta = 2.0f * std::acos(arg);
+                if (dTheta > 1e-5f) {
+                    samples = std::clamp(
+                        static_cast<int>(std::ceil(std::fabs(sweep) / dTheta)), 4, 4096);
+                }
+            }
+            else {
+                // Offset ellipse / other: fall back to a fixed chord length.
+                const float len = Geo::Chain::edgeLength(edge);
+                samples = std::clamp(static_cast<int>(std::ceil(len / 0.2f)), 8, 4096);
             }
 
             for (int i = 0; i <= samples; i++) {

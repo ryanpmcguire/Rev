@@ -29,6 +29,7 @@ import Cam.App.Tool;
 import Cam.Gui.ToolPreview;
 import Cam.Gui.Theme;
 import Cam.Gui.Form;
+import Cam.Gui.ProbeCalibrationWindow;
 
 export namespace Cam::Gui {
 
@@ -110,6 +111,12 @@ export namespace Cam::Gui {
         Style FooterButton = {
             .margin = { .left = 8_px }
         };
+
+        // The probe "Calibrate" action, sitting in the stylus geometry section.
+        Style CalibrateButton = {
+            // left, right, top, bottom -- a top gap separates it from the fields.
+            .margin = { 4_px, 0_px, 12_px, 4_px }
+        };
     }
 
     struct ToolSettingsWindow : public Rev::Window {
@@ -151,6 +158,7 @@ export namespace Cam::Gui {
         bool applyPendingAppearance = false;
 
         ToolPreview* preview = nullptr;
+        ProbeCalibrationWindow* calibrationWindow = nullptr;
 
         // The field columns are rebuilt per tool type (each type gets its own
         // menu rather than sharing/relabeling fields).  `working` carries the
@@ -377,6 +385,14 @@ export namespace Cam::Gui {
             diameterInput = makeField(st, "Tip dia. (mm)", "2.0");
             cuttingLengthInput = makeField(st, "Stylus length (mm)", "20");
 
+            // Calibrate the stylus radius against a known artifact (opens a child
+            // window).  Blue / primary = the headline action for a probe.
+            Button* calibrateButton = new Button(
+                left, Button::Params::Primary("Calibrate"),
+                { &ToolSettingsLayout::CalibrateButton }
+            );
+            calibrateButton->onClick([this](Event& e) { openCalibration(e); e.propagate = false; });
+
             makeSection(left, "SHANK");
             Box* shank = makeRow(left, "ShankRow");
             collarDiameterInput = makeField(shank, "Shank dia. (mm)", "4");
@@ -386,6 +402,17 @@ export namespace Cam::Gui {
             // speed is the APPROACH rate (same field as a cutter's feed rate).
             buildDefaults(mid, "MOTION", "Approach rate (mm/min)", "100",
                           /*stepdown*/ false, /*stepover*/ false, /*cutDir*/ false);
+        }
+
+        // Open (or re-focus) the probe-calibration child window, owned by this
+        // settings window.  Mirrors how the tool list owns the settings window.
+        void openCalibration(Event&) {
+            if (calibrationWindow && !calibrationWindow->shouldClose) {
+                calibrationWindow->show();
+                return;
+            }
+            calibrationWindow = new ProbeCalibrationWindow(this, working.name);
+            calibrationWindow->onClosed = [this](Event&) { calibrationWindow = nullptr; };
         }
 
         // Rebuild the field columns for the current tool type, then re-bind live

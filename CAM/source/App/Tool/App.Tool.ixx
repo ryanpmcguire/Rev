@@ -134,6 +134,31 @@ export namespace Cam::App {
         // careful / rapid ...).  Empty => operations use the bare default* fields.
         std::vector<OperationProfile> profiles;
 
+        // Implied capability envelope
+        //--------------------------------------------------
+        //
+        // DERIVED, never edited and never serialized: recomputed from the tool's
+        // type + geometry on every change (recomputeImplied, run by
+        // recomputeLength).  It captures the MIN/MAX conditions the tool can
+        // physically achieve, so an operation can grey out tools that cannot
+        // perform it -- a probe can't cut; a 5 mm cutter can't make a 2 mm hole;
+        // a multi-row thread mill cuts only the one pitch its teeth are ground at.
+        struct Implied {
+            bool   canCut          = true;   // removes material (false for probes)
+            bool   canProbe        = false;  // touch-probing (probes only)
+            bool   canMillThreads  = false;  // helical thread milling (thread mills only)
+
+            double minHoleDiameter = 0.0;    // smallest bore/hole it can create (mm)
+            double maxCutDepth     = 0.0;    // deepest the flutes/teeth reach (mm)
+
+            // Thread mills only.  A single-point cutter spans a RANGE (bounded
+            // below by the tooth width; maxThreadPitch == 0 means unbounded above);
+            // a multi-row form cutter is FIXED-pitch, so min == max.
+            double minThreadPitch  = 0.0;
+            double maxThreadPitch  = 0.0;
+        };
+        Implied implied;
+
         // Profile
         //--------------------------------------------------
 
@@ -395,11 +420,68 @@ export namespace Cam::App {
             }
         }
 
-        // Keep the cached length + mesh consistent with the profile.
+        // Derive the implied capability envelope from the tool's type + geometry.
+        // Pure function of the editable fields; safe to call any time they change.
+        void recomputeImplied() {
+
+            implied = Implied{};
+
+            const bool cutter = (type != Type::Probe);
+
+            implied.canCut         = cutter;
+            implied.canProbe       = (type == Type::Probe);
+            implied.canMillThreads = (type == Type::ThreadMill);
+
+            // A rotating cutter cannot bore a hole smaller than its own diameter,
+            // and cannot reach deeper than its cutting length.
+            implied.minHoleDiameter = cutter ? std::max(diameter, 0.0) : 0.0;
+            implied.maxCutDepth     = cutter ? std::max(cuttingLength, 0.0) : 0.0;
+
+            if (type == Type::ThreadMill) {
+                // The teeth sit at the form's crest-to-crest spacing -- that IS the
+                // pitch a full-form (multi-row) cutter cuts, and the finest pitch a
+                // single-point cutter can fit between adjacent threads.  (Mirrors
+                // threadMillProfile's tooth geometry so the two never disagree.)
+                const double crestR = std::max(radius, 0.0);
+                const double depth  = std::max(crestR * 0.18, 1e-3);
+                const double angle  = std::clamp(threadMill.toothAngle, 10.0, 170.0);
+                const double toothPitch = 2.0 * depth * std::tan(angle * 0.5 * kPi / 180.0);
+
+                if (threadMill.toothCount >= 2) {
+                    implied.minThreadPitch = toothPitch;   // ground form: one pitch only
+                    implied.maxThreadPitch = toothPitch;
+                }
+                else {
+                    implied.minThreadPitch = toothPitch;   // single point: tooth-width floor
+                    implied.maxThreadPitch = 0.0;          // ...no real ceiling (0 = unbounded)
+                }
+            }
+        }
+
+        // Capability queries (read the implied envelope) -----------------------
+
+        // Can this tool create a bore / hole of `diameterMm`?  Never smaller than
+        // its own cutting diameter.
+        bool canMakeHole(double diameterMm) const {
+            return implied.canCut && diameterMm >= implied.minHoleDiameter - 1e-6;
+        }
+
+        // Can this (thread mill) cut the given thread pitch?  False for non-thread
+        // mills; a multi-row cutter accepts only its single ground pitch.
+        bool canCutThreadPitch(double pitchMm) const {
+            if (!implied.canMillThreads) { return false; }
+            if (pitchMm < implied.minThreadPitch - 1e-4) { return false; }
+            if (implied.maxThreadPitch > 1e-9 && pitchMm > implied.maxThreadPitch + 1e-4) { return false; }
+            return true;
+        }
+
+        // Keep the cached length + mesh + implied envelope consistent with the
+        // profile.  The single hook every consume/modify path runs.
         void recomputeLength() {
             radius = diameter * 0.5;
             length = totalLength();
             buildMesh();
+            recomputeImplied();
         }
 
         // Type helpers

@@ -174,30 +174,71 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             // Every closed boundary loop becomes its own helix.  For a single
             // hole that is one helix; "any profile" with several loops threads
             // each.  The loops already carry the correct climb handedness from
-            // the boundary pass; up/down only sets the z order.
+            // the boundary pass.
             for (const Geo::Chain& loop : cutRing.chains) {
 
                 if (!loop.closed || loop.edges.empty()) { continue; }
 
-                // One helical LayerPath per revolution.  The point builder
-                // consumes layers back-to-front, so to cut BOTTOM-UP we push the
-                // top turn first and the bottom turn last.  Each turn reuses the
-                // SAME loop (a clone) at the same seam, so consecutive turns join
-                // continuously into one unbroken spiral.
-                for (int k = turns - 1; k >= 0; k--) {
+                // The bore AXIS and the helix SEAM (where the ring opens).  All
+                // plunging and retracting happens strictly at the axis: the tool
+                // drops down the open centre, leads radially out to the seam, cuts
+                // the helix, then leads back to the centre before lifting.  This
+                // keeps every vertical move clear of the thread wall.
+                const Pos centre = loopCentroid(loop);
+                const Pos seam   = Geo::Chain::eStart(*loop.edges.front());
 
-                    const float zLo = zBot + pitch * float(k);
-                    const float zHi = std::min(zTop, zBot + pitch * float(k + 1));
+                // The revolutions in EXECUTION order, as a continuous spiral
+                // (each turn ends where the next begins) -- up-cut climbs from the
+                // bottom, down-cut descends from the top.
+                struct Turn { float z; float zTo; };
+                std::vector<Turn> seq;
+                seq.reserve(static_cast<size_t>(turns));
 
+                for (int t = 0; t < turns; t++) {
+                    if (ctx.threadUpCut) {
+                        const float a = zBot + pitch * float(t);
+                        const float b = std::min(zTop, zBot + pitch * float(t + 1));
+                        seq.push_back({ a, b });
+                    }
+                    else {
+                        const float a = std::max(zBot, zTop - pitch * float(t));
+                        const float b = std::max(zBot, zTop - pitch * float(t + 1));
+                        seq.push_back({ a, b });
+                    }
+                }
+
+                const float entryDepth = seq.front().z;
+                const float exitDepth  = seq.back().zTo;
+
+                // The point builder consumes layers back-to-front, so push in
+                // REVERSE execution order: lead-out first (runs last), the spiral
+                // next (replayed forward), the lead-in last (runs first).  Lead
+                // moves are flat point-polylines at the cut depth -- the vertical
+                // plunge/retract before/after them lands on the centre.
+
+                // Lead-out: seam -> centre at the spiral's top/bottom.
+                {
+                    LayerPath leadOut;
+                    leadOut.z = exitDepth;
+                    leadOut.points = { seam, centre };
+                    paths_.push_back(std::move(leadOut));
+                }
+
+                for (int i = static_cast<int>(seq.size()); i-- > 0; ) {
                     LayerPath turn;
                     turn.helical = true;
-
-                    if (ctx.threadUpCut) { turn.z = zLo; turn.zTo = zHi; }   // ramp up
-                    else                 { turn.z = zHi; turn.zTo = zLo; }   // ramp down
-
+                    turn.z = seq[i].z;
+                    turn.zTo = seq[i].zTo;
                     turn.chains.push_back(loop.clone());
-
                     paths_.push_back(std::move(turn));
+                }
+
+                // Lead-in: centre -> seam at the spiral's start depth.
+                {
+                    LayerPath leadIn;
+                    leadIn.z = entryDepth;
+                    leadIn.points = { centre, seam };
+                    paths_.push_back(std::move(leadIn));
                 }
             }
 
