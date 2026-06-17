@@ -54,7 +54,9 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
             // Section the negative "don't touch" model at this same height so
             // we know which boundary edges hug keep-out material and which
             // face free space.
-            std::vector<std::unique_ptr<Geo::Stoicheion>> keepOut = keepOutSection(ctx, slice.z);
+            // Section the keep-out at the SAME depth the positive was sampled (the
+            // floor slice lifts both), so open-air detection compares like with like.
+            std::vector<std::unique_ptr<Geo::Stoicheion>> keepOut = keepOutSection(ctx, slice.sampleZ);
 
             const float radius = toolRadius(ctx);
 

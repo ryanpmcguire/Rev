@@ -203,7 +203,17 @@ export namespace Cam::App::Slicer::Strategy {
                 slice.finishing = plan.finishing;
                 const float depth = plan.depth;
 
-                if (!SliceSource::build(*ctx.positive, ctx.frame, depth, slice)) {
+                // Section the FLOOR slice a hair above the true floor so its 2D
+                // section does not lie in the floor face (which would defeat open-air
+                // boundary detection). Everything else samples at its own depth. The
+                // cut depth (slice.z) is unaffected -- only the sampling moves.
+                slice.sampleZ = depth;
+                if (std::fabs(depth - minDepth) < 1e-4f) {
+                    const float lift = std::clamp(dz * 0.05f, 0.01f, 0.1f);
+                    slice.sampleZ = depth + lift;
+                }
+
+                if (!SliceSource::build(*ctx.positive, ctx.frame, slice.sampleZ, slice)) {
                     dbg("[%s] depth=%.3f: no slice source", S::name(), depth);
                     continue;
                 }

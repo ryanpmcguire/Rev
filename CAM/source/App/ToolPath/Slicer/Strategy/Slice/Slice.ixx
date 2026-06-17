@@ -20,6 +20,12 @@ export namespace Cam::App::Slicer::Strategy::Slice {
 
         float z = 0.0f;
 
+        // The depth the 2D BReps are SECTIONED at. Normally equal to z, but the
+        // floor slice samples a hair ABOVE the true floor (z) so its section does
+        // not lie in the floor face -- which would defeat open-air boundary
+        // detection. The CUT still happens at z.
+        float sampleZ = 0.0f;
+
         // Emit the outer (wall) profile at this slice? Roughing slices set this
         // false to DEFER the wall to the finishing pass; the finishing slice sets
         // it true. Forwarded to Geo::SliceParams::emitOuter by the strategy.

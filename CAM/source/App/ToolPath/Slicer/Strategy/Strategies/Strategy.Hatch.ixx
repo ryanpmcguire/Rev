@@ -41,7 +41,9 @@ export namespace Cam::App::Slicer::Strategy::Strategies {
 
             if (slice.source.empty()) { return; }
 
-            std::vector<std::unique_ptr<Geo::Stoicheion>> keepOut = keepOutSection(ctx, slice.z);
+            // Same lifted depth the positive section used (floor slice), so open-air
+            // detection compares like with like.
+            std::vector<std::unique_ptr<Geo::Stoicheion>> keepOut = keepOutSection(ctx, slice.sampleZ);
 
             const float radius = toolRadius(ctx);
 
