@@ -428,14 +428,34 @@ export namespace Cam::Gui {
             // "Set Top": probe the part's top, then set the part Z from the contact.
             Carvera::MachineLink::instance().onSetTop = [this]() { armSetTop(); };
 
+            // Homing makes the captured work origin stale -- forget the persisted
+            // copy + part corrections so the operator must re-Set Origin (no driving
+            // to a stale absolute position).
+            Carvera::MachineLink::instance().onWorkOriginInvalidated = [this]() {
+                if (app) { app->machine.workOrigin.valid = false; app->saveSession(); }
+                if (Cam::App::Project* project = activeProject()) {
+                    project->workCorrection.reset();
+                    project->probeCorrection.reset();
+                    project->dirty = true;
+                }
+                machineToolPathsDirty = true;
+                previewTimelineDirty  = true;
+            };
+
             // Restore the persisted work origin (machine still on across a restart):
             // the controller kept its WCS zero, but the host forgot where the part
             // origin is -- without this the part/tool float until a manual Set Origin.
+            // SAFETY: this is only valid if the machine was NOT re-homed while closed;
+            // homing in-session clears it (above), but a homing while the app was shut
+            // can't be detected -- so warn the operator to re-Set Origin if unsure.
             if (app && app->machine.workOrigin.valid) {
                 const auto& w = app->machine.workOrigin;
                 Carvera::MachineLink::instance().captureMachineOrigin(
                     static_cast<float>(w.mx), static_cast<float>(w.my),
                     static_cast<float>(w.mz), static_cast<float>(w.ma));
+                Carvera::MachineLink::instance().log(
+                    "Work origin restored from the last session. If the machine was "
+                    "homed since, press Set Origin again before running.");
             }
 
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
@@ -501,6 +521,7 @@ export namespace Cam::Gui {
             Carvera::MachineLink::instance().onTelemetry       = nullptr;
             Carvera::MachineLink::instance().operationProvider = nullptr;
             Carvera::MachineLink::instance().onWorkOriginSet   = nullptr;
+            Carvera::MachineLink::instance().onWorkOriginInvalidated = nullptr;
             Carvera::MachineLink::instance().onSetTop          = nullptr;
 
             clearMaterialViews();
@@ -1276,12 +1297,13 @@ export namespace Cam::Gui {
                 link.setCadOrigin(cadBeginWork.x, cadBeginWork.y, cadBeginWork.z);
 
                 // If no precise origin has been set yet (via Set Origin), anchor
-                // to the current machine position so jogging shows relative
-                // motion immediately.  Set Origin later re-anchors precisely.
+                // to the current TOOL TIP (WPos) so jogging shows relative motion
+                // immediately -- the same tip frame everything else uses, NOT the
+                // spindle.  Set Origin later re-anchors precisely.
                 float tcx, tcy, tcz, tca;
                 float mx, my, mz, ocx2, ocy2, ocz2;
 
-                if (link.telemetry(tcx, tcy, tcz, tca) &&
+                if (link.currentTip(tcx, tcy, tcz, tca) &&
                     !link.workOrigin(mx, my, mz, ocx2, ocy2, ocz2)) {
                     // Auto-capture all four axes so the A reference is set
                     // even before the operator presses "Set Origin".
@@ -1822,13 +1844,15 @@ export namespace Cam::Gui {
             const double measuredTopF = frame.toFrame(frame.toWorld(wcs)).z;
 
             // The selected material state's KNOWN top: its highest point along the
-            // work-frame up axis (in frame coords, relative to the axis origin).
+            // work-frame up axis.  Track the actual topmost POINT too, so we can ask
+            // where the CURRENT correction already places it.
             Cam::App::Stage* stage = project->displayedStage;
             double nominalTopF = 0.0; bool have = false;
+            Rev::Core::Pos3 topPoint{};
             if (stage) {
                 for (const Rev::Core::Vertex3& v : stage->model.render.triangles) {
                     const double z = frame.toFrame(v).z;
-                    if (!have || z > nominalTopF) { nominalTopF = z; have = true; }
+                    if (!have || z > nominalTopF) { nominalTopF = z; topPoint = v; have = true; }
                 }
             }
             if (!have) {
@@ -1836,21 +1860,25 @@ export namespace Cam::Gui {
                 return;
             }
 
-            const double offset = measuredTopF - nominalTopF;   // how far above nominal
-
-            // Set the part's offset within the work frame as a pure translation along
-            // the work-frame up axis -- the part now sits where the probe found it.
-            project->probeCorrection.reset();
-            project->probeCorrection.t     = frame.Z * static_cast<float>(offset);
-            project->probeCorrection.tTrue = project->probeCorrection.t;
+            // COMPOSE, don't clobber: Set Top is a Z refinement.  Compute how far the
+            // ALREADY-corrected top sits from the probed height and add just that Z
+            // shift along the up axis -- preserving any existing rotation + in-plane
+            // offset (e.g. a Measure-Stock mount).  Re-running is idempotent, and with
+            // an identity prior correction this reduces to the plain offset.
+            const double currentTopF =
+                frame.toFrame(project->probeCorrection.apply(topPoint)).z;
+            const double add = measuredTopF - currentTopF;
+            const Rev::Core::Pos3 dz = frame.Z * static_cast<float>(add);
+            project->probeCorrection.t     = project->probeCorrection.t + dz;
+            project->probeCorrection.tTrue = project->probeCorrection.tTrue + dz;
             project->probeCorrection.valid = true;
             project->dirty = true;
             machineToolPathsDirty = true;
             previewTimelineDirty  = true;
 
             link.log(std::format(
-                "Set Top: part top at {:.3f} mm (nominal {:.3f}) -> part Z offset "
-                "{:.3f} mm above the work frame.", measuredTopF, nominalTopF, offset));
+                "Set Top: part top at {:.3f} mm (was {:.3f}) -> applied {:+.3f} mm Z "
+                "(preserving any existing part pose).", measuredTopF, currentTopF, add));
 
             syncAxisLines();
             if (view3d && shared && shared->event) { view3d->refresh(*shared->event); }

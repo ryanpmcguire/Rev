@@ -109,6 +109,14 @@ export namespace Cam::Gui {
         int    originSettle = 0;
         std::shared_ptr<bool> alive;
 
+        // Home + touch-off gating: after $H we WAIT for the machine to leave Idle
+        // (homing started) and settle back to Idle (homing done) before forcing the
+        // probe tool change -- never assuming the controller buffers $H + M6.
+        bool homeAwaitingIdle = false;   // homing issued; waiting for completion
+        bool homeSawMotion    = false;   // machine left Idle (homing actually started)
+        int  homeIdleFrames   = 0;       // consecutive Idle frames after motion
+        static constexpr int kHomeIdleSettle = 5;
+
         // -- Machine driver: flat reference, then tilt sampling --------
         enum class DriverPhase { None, Reference, Sampling };
         DriverPhase driverPhase = DriverPhase::None;
@@ -407,6 +415,7 @@ export namespace Cam::Gui {
         }
 
         void onRunButton(Event&) {
+            if (homeAwaitingIdle) { return; }   // ignore presses while homing runs
             switch (runState) {
                 case RunState::NeedsHome:   doHomeTouchOff(); break;
                 case RunState::NeedsOrigin: doSetOrigin();    break;
@@ -417,16 +426,29 @@ export namespace Cam::Gui {
 
         // Home + touch off FIRST: reference the machine to its repeatable zero and
         // the probe tip to the built-in sensor, so the axis Y/Z that calibration
-        // measures is expressed against that true zero.  Homing is async; advancing
-        // to Set Origin is fine -- the operator jogs to the artifact afterward.
+        // measures is expressed against that true zero.  We DON'T assume the
+        // controller buffers $H + the tool change: we issue $H now and GATE the
+        // forced touch-off on the machine returning to Idle (see onTelemetry).
         void doHomeTouchOff() {
-            auto& link = Carvera::MachineLink::instance();
-            link.home();
-            link.touchOffProbe();
+            Carvera::MachineLink::instance().home();
+            homeAwaitingIdle = true;
+            homeSawMotion    = false;
+            homeIdleFrames   = 0;
+            statusText->content =
+                "Homing... the probe touch-off will run automatically once the "
+                "machine is idle.";
+            refresh(event);
+        }
+
+        // Fired (from onTelemetry) once homing has completed and the machine is idle:
+        // NOW force the probe tool change, which runs the machine's tool-length
+        // touch-off.  Then the operator jogs to the artifact and presses Set Origin.
+        void onHomeComplete() {
+            Carvera::MachineLink::instance().touchOffProbe();   // forced probe change
             runState = RunState::NeedsOrigin;
             statusText->content =
-                "Homing + touch-off issued. When motion settles, jog to the artifact "
-                "and press Set Origin.";
+                "Homed + touch-off started. When it settles, jog to the artifact and "
+                "press Set Origin.";
             updateRunButton();
             refresh(event);
         }
@@ -475,7 +497,38 @@ export namespace Cam::Gui {
         }
 
         void onTelemetry(Carvera::MachineLink::TelemetryEvent& e) {
-            liveX = e.x; liveY = e.y; liveZ = e.z; liveA = e.a;
+            // Track the machine's TOOL TIP (WPos) -- the same frame the origin is
+            // captured in -- so move-detect compares like with like (the telemetry
+            // event itself carries MPos/spindle).
+            {
+                float tx, ty, tz, ta;
+                if (Carvera::MachineLink::instance().tipTelemetry(tx, ty, tz, ta)) {
+                    liveX = tx; liveY = ty; liveZ = tz; liveA = ta;
+                } else { liveX = e.x; liveY = e.y; liveZ = e.z; liveA = e.a; }
+            }
+
+            // Home gate: wait for homing to actually start (machine leaves Idle) and
+            // then settle back to a sustained Idle before forcing the touch-off.
+            if (homeAwaitingIdle) {
+                const std::string st = Carvera::MachineLink::instance().machineState();
+                if (st == "Alarm") {
+                    homeAwaitingIdle = false;
+                    statusText->content = "Homing alarm -- clear it and retry Home & Touch Off.";
+                    refresh(event);
+                    return;
+                }
+                if (!st.empty() && st != "Idle") {
+                    homeSawMotion = true; homeIdleFrames = 0;   // homing in progress
+                }
+                else if (homeSawMotion && st == "Idle") {
+                    if (++homeIdleFrames >= kHomeIdleSettle) {
+                        homeAwaitingIdle = false;
+                        onHomeComplete();
+                    }
+                }
+                return;   // don't run move-detect while homing
+            }
+
             if (originSettle > 0) {
                 originX = liveX; originY = liveY; originZ = liveZ; originA = liveA;
                 originSettle--;

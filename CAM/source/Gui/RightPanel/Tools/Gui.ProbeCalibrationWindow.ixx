@@ -461,7 +461,14 @@ export namespace Cam::Gui {
 
         // Live position; revert to "Set Origin" if jogged after it was set.
         void onTelemetry(Carvera::MachineLink::TelemetryEvent& e) {
-            liveX = e.x; liveY = e.y; liveZ = e.z; liveA = e.a;
+            // Track the machine's TOOL TIP (WPos), the frame the origin is captured
+            // in (the telemetry event itself carries MPos/spindle).
+            {
+                float tx, ty, tz, ta;
+                if (Carvera::MachineLink::instance().tipTelemetry(tx, ty, tz, ta)) {
+                    liveX = tx; liveY = ty; liveZ = tz; liveA = ta;
+                } else { liveX = e.x; liveY = e.y; liveZ = e.z; liveA = e.a; }
+            }
             if (originSettle > 0) {
                 // Re-sync the origin to live while the WCS re-zero settles, so the
                 // one-time coordinate jump isn't read as a jog.

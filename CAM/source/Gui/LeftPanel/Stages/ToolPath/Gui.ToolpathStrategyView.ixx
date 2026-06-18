@@ -64,6 +64,7 @@ export namespace Cam::Gui {
         Cam::App::Stage* boundState = nullptr;
 
         Dropdown* toolDropdown = nullptr;
+        Dropdown* profileDropdown = nullptr;
         NumberInput* stepDownInput = nullptr;
         NumberInput* feedRateInput = nullptr;
         NumberInput* retractHeightInput = nullptr;
@@ -92,6 +93,15 @@ export namespace Cam::Gui {
                 { &ToolpathViewStyle::Field }
             );
             toolDropdown->onChange = [this](Event& e) { commit(e); };
+
+            // Cutting profile: one of the selected tool's named profiles
+            // (roughing / finishing / ...), or the toolpath's own values.
+            profileDropdown = new Dropdown(
+                toolRow,
+                { .label = "Profile", .options = profileOptions(), .placeholder = "Profile", .value = "" },
+                { &ToolpathViewStyle::Field }
+            );
+            profileDropdown->onChange = [this](Event& e) { commit(e); };
 
             Box* machiningRow = new Box(this, { &ToolpathViewStyle::Row }, "ToolpathMachiningRow");
 
@@ -203,6 +213,26 @@ export namespace Cam::Gui {
             return items;
         }
 
+        // The cutting profiles of the currently-selected tool, plus a "Default"
+        // entry (empty value) meaning the toolpath uses its own feed/stepdown.
+        std::vector<Dropdown::Item> profileOptions() const {
+
+            std::vector<Dropdown::Item> items;
+            items.push_back({ "Default (toolpath)", "" });
+
+            const std::string toolN = toolDropdown ? toolDropdown->params.value
+                                    : (state ? state->toolPath.toolName : std::string());
+
+            const Cam::App::Tool* t = (app && !toolN.empty()) ? app->toolLibrary()->find(toolN) : nullptr;
+            if (t) {
+                for (const Cam::App::OperationProfile& p : t->profiles) {
+                    items.push_back({ p.name, p.name });
+                }
+            }
+
+            return items;
+        }
+
         void setState(Cam::App::Stage* stage) {
             state = stage;
             if (state == boundState) { return; }
@@ -221,6 +251,10 @@ export namespace Cam::Gui {
             if (toolDropdown) {
                 toolDropdown->params.options = toolOptions();
                 toolDropdown->params.value = tp.toolName;
+            }
+            if (profileDropdown) {
+                profileDropdown->params.options = profileOptions();
+                profileDropdown->params.value = tp.profileName;
             }
             if (stepDownInput) { stepDownInput->setValue(tp.stepDown); }
             if (feedRateInput) { feedRateInput->setValue(tp.feedRate); }
@@ -258,12 +292,23 @@ export namespace Cam::Gui {
 
             if (tool.empty() || stepover <= 0.0) { return; }
 
+            // Record the chosen cutting profile before saving; the recompute that
+            // save triggers applies the profile's speeds/feeds (ToolPath::applyProfile).
+            if (profileDropdown) {
+                state->toolPath.profileName = profileDropdown->params.value;
+            }
+
             if (!app->saveToolPathSettings(
                 state, strategyName(), tool,
                 stepDown, stepover, feedRate,
                 tp.rapidSpeedMmPerSec, climb, static_cast<float>(retract), insideOut
             )) {
                 return;
+            }
+
+            // The tool may have changed -- refresh the profile list to match it.
+            if (profileDropdown) {
+                profileDropdown->params.options = profileOptions();
             }
 
             if (onChanged) { onChanged(e); }

@@ -531,6 +531,8 @@ export namespace Cam::App {
 
                 stageJson["toolPath"] = {
                     { "toolName", stage->toolPath.toolName },
+                    { "profileName", stage->toolPath.profileName },
+                    { "finishProfileName", stage->toolPath.finishProfileName },
                     { "strategy", stage->toolPath.strategy },
                     { "strategyAuto", stage->toolPath.strategyAuto },
                     { "stepDown", stage->toolPath.stepDown },
@@ -730,6 +732,12 @@ export namespace Cam::App {
 
                         if (toolPathJson.contains("toolName") && toolPathJson["toolName"].is_string()) {
                             stage->toolPath.toolName = toolPathJson["toolName"].get<std::string>();
+                        }
+                        if (toolPathJson.contains("profileName") && toolPathJson["profileName"].is_string()) {
+                            stage->toolPath.profileName = toolPathJson["profileName"].get<std::string>();
+                        }
+                        if (toolPathJson.contains("finishProfileName") && toolPathJson["finishProfileName"].is_string()) {
+                            stage->toolPath.finishProfileName = toolPathJson["finishProfileName"].get<std::string>();
                         }
 
                         if (toolPathJson.contains("hasToolPath") && toolPathJson["hasToolPath"].is_boolean()) {

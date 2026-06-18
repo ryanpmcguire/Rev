@@ -374,9 +374,36 @@ export namespace Cam::App {
                     if (!best || t->diameter > best->diameter) { best = t; }
                 }
 
+                const Tool* chosen = best ? best : tool;
+                bool needRecompute = false;
+
                 if (best && best->name != toolPath.toolName) {
                     toolPath.toolName = best->name;
-                    hasToolPath = toolPath.compute(delta, parent->model, *best);
+                    needRecompute = true;
+                }
+
+                // Default to a ROUGHING-kind profile (else the tool's first), so a
+                // new operation starts with a real cutting profile rather than the
+                // bare toolpath values.  Searched by KIND, not by name.
+                if (toolPath.profileName.empty() && chosen && !chosen->profiles.empty()) {
+                    const Cam::App::OperationProfile* r =
+                        chosen->findProfileOfKind(Cam::App::OperationProfile::Kind::Roughing);
+                    toolPath.profileName = r ? r->name : chosen->profiles.front().name;
+                    needRecompute = true;
+                }
+
+                // And the finishing pass defaults to a FINISHING-kind profile
+                // (only the Profile strategy uses it; harmless elsewhere).
+                if (toolPath.finishProfileName.empty() && chosen) {
+                    if (const Cam::App::OperationProfile* f =
+                            chosen->findProfileOfKind(Cam::App::OperationProfile::Kind::Finishing)) {
+                        toolPath.finishProfileName = f->name;
+                        needRecompute = true;
+                    }
+                }
+
+                if (needRecompute && chosen) {
+                    hasToolPath = toolPath.compute(delta, parent->model, *chosen);
                 }
             }
         }

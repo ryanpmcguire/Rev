@@ -66,6 +66,12 @@ export namespace Cam::App {
         // distinguished a separate finish tool, but the thread mill is now JUST
         // the threading pass -- the bore is a prior step -- so one tool suffices.)
         std::string toolName = "";
+        // The selected cutting profile (a named OperationProfile owned by the
+        // tool).  Empty = use the toolpath's own feed/stepdown/stepover values.
+        std::string profileName = "";
+        // The profile that drives the strategy's FINISHING pass (Profile strategy).
+        // Empty = use the toolpath's own finish* values.
+        std::string finishProfileName = "";
         std::string strategy = Hatch::name();
         bool strategyAuto = true;
 
@@ -894,12 +900,45 @@ export namespace Cam::App {
             return true;
         }
 
+        // Adopt the selected cutting profile's speeds/feeds from the tool (no-op
+        // when none is selected or the named profile is absent).
+        void applyProfile(const Tool& tool) {
+            const OperationProfile* p = tool.findProfile(profileName);
+            if (!p) { return; }
+            feedRate = p->feedRate;
+            stepDown = p->stepdown;
+            stepover = p->stepover;
+            rapidSpeedMmPerSec = p->rapidSpeed;
+            climbMilling = p->climbMilling;
+            // The plunge rate drives the gentle lead-in/out (Z-entry) ramp feed.
+            // (spindleSpeed is carried on the profile but not yet consumed -- the
+            // toolpath has no spindle model yet.)
+            leadFeedRate = p->plungeRate;
+        }
+
+        // Adopt the selected FINISHING profile's speeds/feeds for the strategy's
+        // finishing pass (no-op when none is selected).  An atomic profile drives
+        // ONE engagement; the toolpath references a roughing profile AND a
+        // finishing profile, mapping onto the rough / finish passes respectively.
+        void applyFinishProfile(const Tool& tool) {
+            const OperationProfile* p = tool.findProfile(finishProfileName);
+            if (!p) { return; }
+            finishFeedRate = p->feedRate;
+            finishStepdown = p->stepdown;
+            finishSpindleSpeed = p->spindleSpeed;
+        }
+
         bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
             clearPathData();
 
             toolName = tool.name;
             toolDiameter = tool.diameter;
             toolLength = tool.totalLength();
+
+            // Selected cutting profiles drive the speeds/feeds: one for the
+            // roughing pass, one for the finishing pass.
+            applyProfile(tool);
+            applyFinishProfile(tool);
 
             if (strategyAuto) {
 

@@ -220,6 +220,7 @@ export namespace Cam::App {
             tool.radius = 0.5;
             tool.cuttingLength = 20.0;
             tool.collarLength = 80.0;
+            tool.ensureDefaultProfiles();
             tool.recomputeLength();
 
             if (!library.insertTool(tool)) { return false; }
@@ -301,6 +302,11 @@ export namespace Cam::App {
             updated.defaultStepover = src.defaultStepover;
             updated.defaultRapidSpeed = src.defaultRapidSpeed;
             updated.defaultClimbMilling = src.defaultClimbMilling;
+
+            // Type-specific settings + owned cutting profiles edited in the window.
+            updated.threadMill = src.threadMill;
+            updated.probe = src.probe;
+            updated.profiles = src.profiles;
 
             std::string targetPath = tool->filePath;
 

@@ -28,6 +28,7 @@ export namespace Cam::Gui {
         Checkbox* climbCheckbox = nullptr;
         Dropdown* ringOrderDropdown = nullptr;
         Checkbox* finishCheckbox = nullptr;
+        Dropdown* finishProfileDropdown = nullptr;
         NumberInput* finishWidthInput = nullptr;
         NumberInput* finishStepdownInput = nullptr;
         NumberInput* finishFeedInput = nullptr;
@@ -49,6 +50,17 @@ export namespace Cam::Gui {
             Box* leadRow = new Box(this, { &ToolpathViewStyle::Row }, "ProfileLeadRow");
             leadSlopeInput = makeNumberInput(leadRow, "Lead slope (deg)", "30");
             leadFeedInput  = makeNumberInput(leadRow, "Lead feed (mm/min)", "200");
+
+            // Finishing pass: a finishing PROFILE drives its feed / stepdown /
+            // spindle (mirroring the roughing profile); skin width stays a manual
+            // geometric setting.
+            Box* finishProfileRow = new Box(this, { &ToolpathViewStyle::Row }, "ProfileFinishProfileRow");
+            finishProfileDropdown = new Dropdown(
+                finishProfileRow,
+                { .label = "Finish profile", .options = profileOptions(), .placeholder = "Finish profile", .value = "" },
+                { &ToolpathViewStyle::Field }
+            );
+            finishProfileDropdown->onChange = [this](Event& e) { commit(e); };
 
             // Finishing pass: enabled by the toggle; skin width + final floor
             // stepdown (both mm), and its own feed + spindle.
@@ -76,6 +88,10 @@ export namespace Cam::Gui {
                 ringOrderDropdown->params.value = state->toolPath.insideOut ? "inside_out" : "outside_in";
             }
             if (finishCheckbox) { finishCheckbox->value = state->toolPath.finishPass; }
+            if (finishProfileDropdown) {
+                finishProfileDropdown->params.options = profileOptions();
+                finishProfileDropdown->params.value = state->toolPath.finishProfileName;
+            }
             if (finishWidthInput) { finishWidthInput->setValue(state->toolPath.finishWidth); }
             if (finishStepdownInput) { finishStepdownInput->setValue(state->toolPath.finishStepdown); }
             if (finishFeedInput) { finishFeedInput->setValue(state->toolPath.finishFeedRate); }
@@ -98,6 +114,10 @@ export namespace Cam::Gui {
                 dst = in->valueOr(dst);
             };
             if (finishCheckbox) { state->toolPath.finishPass = finishCheckbox->value; }
+            if (finishProfileDropdown) {
+                state->toolPath.finishProfileName = finishProfileDropdown->params.value;
+                finishProfileDropdown->params.options = profileOptions();
+            }
             readInto(finishWidthInput, state->toolPath.finishWidth);
             readInto(finishStepdownInput, state->toolPath.finishStepdown);
             readInto(finishFeedInput, state->toolPath.finishFeedRate);

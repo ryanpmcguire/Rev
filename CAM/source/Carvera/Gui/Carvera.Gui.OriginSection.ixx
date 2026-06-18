@@ -274,7 +274,7 @@ export namespace Carvera::Gui {
         void onSetOrigin(Event& e) {
             Carvera::Air& a = air();
             float x, y, z, aa;
-            if (!a.currentConfirmed(x, y, z, aa)) {
+            if (!a.currentTip(x, y, z, aa)) {   // the machine's TOOL-TIP position (WPos)
                 a.log("Connect and wait for a position before setting origin.");
                 refresh(e);
                 return;

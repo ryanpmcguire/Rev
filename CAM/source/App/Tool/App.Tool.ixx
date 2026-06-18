@@ -22,7 +22,14 @@ export namespace Cam::App {
     // its own referenced .json; a first-class struct so the toolpath AND probe
     // layers can both consume it.
     struct OperationProfile {
+
+        // The profile's ROLE -- its semantic kind, independent of its (free-form)
+        // name.  Code that "wants a roughing/finishing profile" searches by kind,
+        // so renaming a profile never breaks defaulting.  The name is just a label.
+        enum class Kind { Roughing, Finishing };
+
         std::string name         = "Default";
+        Kind        kind         = Kind::Roughing;
         double      feedRate     = 250.0;     // mm/min -- feed (cut) / approach (probe)
         double      plungeRate   = 100.0;     // mm/min, Z entry
         double      spindleSpeed = 10000.0;   // RPM (cutters)
@@ -31,6 +38,14 @@ export namespace Cam::App {
         double      rapidSpeed   = 10.0;      // mm/s -- travel, all tools
         bool        climbMilling = true;      // cutters
     };
+
+    inline std::string profileKindToString(OperationProfile::Kind k) {
+        return k == OperationProfile::Kind::Finishing ? "Finishing" : "Roughing";
+    }
+    inline OperationProfile::Kind profileKindFromString(const std::string& s) {
+        return s == "Finishing" ? OperationProfile::Kind::Finishing
+                                : OperationProfile::Kind::Roughing;
+    }
 
     struct Tool {
 
@@ -136,7 +151,58 @@ export namespace Cam::App {
 
         // Named operation profiles this tool references (roughing / finishing /
         // careful / rapid ...).  Empty => operations use the bare default* fields.
+        // Edited in the tool settings window; a toolpath picks one by name.
         std::vector<OperationProfile> profiles;
+
+        // The two profiles every tool ships with -- a heavier ROUGHING pass and a
+        // lighter FINISHING pass.  Used to seed new (and legacy keyless) tools.
+        static std::vector<OperationProfile> standardProfiles() {
+            OperationProfile rough;
+            rough.name         = "Roughing";
+            rough.kind         = OperationProfile::Kind::Roughing;
+            rough.feedRate     = 250.0;
+            rough.plungeRate   = 100.0;
+            rough.spindleSpeed = 10000.0;
+            rough.stepdown     = 0.5;
+            rough.stepover     = 0.25;
+            rough.rapidSpeed   = 10.0;
+            rough.climbMilling = true;
+
+            OperationProfile finish;
+            finish.name         = "Finishing";
+            finish.kind         = OperationProfile::Kind::Finishing;
+            finish.feedRate     = 180.0;
+            finish.plungeRate   = 80.0;
+            finish.spindleSpeed = 12000.0;
+            finish.stepdown     = 0.2;
+            finish.stepover     = 0.10;
+            finish.rapidSpeed   = 10.0;
+            finish.climbMilling = true;
+
+            return { rough, finish };
+        }
+
+        // Seed the standard profiles when a tool has none.
+        void ensureDefaultProfiles() {
+            if (profiles.empty()) { profiles = standardProfiles(); }
+        }
+
+        // Find a profile by name (nullptr if absent / empty list).
+        const OperationProfile* findProfile(const std::string& profileName) const {
+            for (const OperationProfile& p : profiles) {
+                if (p.name == profileName) { return &p; }
+            }
+            return nullptr;
+        }
+
+        // Find the first profile of a given KIND -- how the app requests "a
+        // roughing profile" / "a finishing profile" without relying on names.
+        const OperationProfile* findProfileOfKind(OperationProfile::Kind kind) const {
+            for (const OperationProfile& p : profiles) {
+                if (p.kind == kind) { return &p; }
+            }
+            return nullptr;
+        }
 
         // Implied capability envelope
         //--------------------------------------------------
@@ -551,6 +617,7 @@ export namespace Cam::App {
             tool.axis = { 0.0f, 0.0f, 1.0f };
             tool.name = "God Tool " + std::to_string(index);
 
+            tool.ensureDefaultProfiles();
             tool.recomputeLength();
 
             return tool;

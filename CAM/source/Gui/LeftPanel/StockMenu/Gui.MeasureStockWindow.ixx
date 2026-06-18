@@ -380,14 +380,29 @@ export namespace Cam::Gui {
 
         void doSetOrigin() {
             auto& link = Carvera::MachineLink::instance();
-            link.setWorkOrigin();
+            float x, y, z, a;
+            if (!link.currentTip(x, y, z, a)) {   // the machine's TOOL-TIP position (WPos)
+                statusText->content = "Set Origin failed -- connect and wait for a position.";
+                updateRunButton();
+                refresh(event);
+                return;
+            }
+            // The work-frame origin IS the rotary axis -- the tool is NOT at it (it is
+            // parked in the air above the stock).  So pin Y/Z to the CALIBRATED axis
+            // and take only X (where along the axis) + A (the index) from the jog.
+            // Uncalibrated -> fall back to the live position (the degenerate case).
+            double oy = y, oz = z;
+            if (machineAxisCalibrated()) { oy = meas.axisY; oz = meas.axisZ; }
+            link.setWorkOrigin(x, static_cast<float>(oy), static_cast<float>(oz), a);
+
             float mx, my, mz, ma;
             if (link.machineOrigin(mx, my, mz, ma)) {
                 originX = mx; originY = my; originZ = mz; originA = ma;
                 originSet = true;
                 originSettle = 12;
                 runState = RunState::Ready;
-                statusText->content = "Origin set (X). Press Start to measure the stock.";
+                statusText->content =
+                    "Origin set (X + A; Y/Z from the calibrated axis). Press Start.";
             }
             else {
                 statusText->content = "Set Origin failed -- connect and wait for a position.";
@@ -419,7 +434,14 @@ export namespace Cam::Gui {
         }
 
         void onTelemetry(Carvera::MachineLink::TelemetryEvent& e) {
-            liveX = e.x; liveY = e.y; liveZ = e.z; liveA = e.a;
+            // Track the machine's TOOL TIP (WPos), the frame the origin is captured
+            // in (the telemetry event itself carries MPos/spindle).
+            {
+                float tx, ty, tz, ta;
+                if (Carvera::MachineLink::instance().tipTelemetry(tx, ty, tz, ta)) {
+                    liveX = tx; liveY = ty; liveZ = tz; liveA = ta;
+                } else { liveX = e.x; liveY = e.y; liveZ = e.z; liveA = e.a; }
+            }
             if (originSettle > 0) {
                 originX = liveX; originY = liveY; originZ = liveZ; originA = liveA;
                 originSettle--;

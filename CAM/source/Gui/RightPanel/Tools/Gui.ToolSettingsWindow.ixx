@@ -5,6 +5,8 @@ module;
 #include <string>
 #include <optional>
 #include <functional>
+#include <algorithm>
+#include <vector>
 
 #include <dbg.hpp>
 
@@ -154,6 +156,22 @@ export namespace Cam::Gui {
         Dropdown* cutDirectionDropdown = nullptr;
         Dropdown* tipGeometryDropdown = nullptr;
 
+        // Cutting-profile editor (the active profile of working.profiles).
+        int          activeProfile = 0;
+        TextInput*   profileNameInput = nullptr;
+        Dropdown*    profKindDropdown = nullptr;
+        NumberInput* profFeedInput = nullptr;
+        NumberInput* profPlungeInput = nullptr;
+        NumberInput* profSpindleInput = nullptr;
+        NumberInput* profStepdownInput = nullptr;
+        NumberInput* profStepoverInput = nullptr;
+        NumberInput* profRapidInput = nullptr;
+        Dropdown*    profCutDirDropdown = nullptr;
+        // Which fields this tool type's profile exposes (set per type build).
+        bool profHasStepdown = true;
+        bool profHasStepover = true;
+        bool profHasCutDir = true;
+
         Button* applyButton = nullptr;
         bool applyPendingAppearance = false;
 
@@ -267,37 +285,191 @@ export namespace Cam::Gui {
             input->onValueChange = [this](Event& e, std::optional<double>) { syncPreview(e); };
         }
 
-        // The operation-defaults block, shared but tailored.  The engagement speed
-        // is ONE concept named in the caller's language -- "Feed rate" when feeding
-        // material into a cutter, "Approach rate" when easing a probe onto a
-        // surface -- but it is the same underlying speed (working.defaultFeedRate).
-        // Thread mills have no stepdown (the pitch is the axial step); probes don't
-        // cut, so they get only the motion speeds.
-        void buildDefaults(
+        // The CUTTING PROFILES editor -- create / rename / delete / edit the tool's
+        // named operation profiles (roughing, finishing, ...), mirroring the
+        // Origins editor.  The engagement speed is ONE concept named in the
+        // caller's language ("Feed rate" for a cutter, "Approach rate" for a
+        // probe).  Thread mills have no stepdown (the pitch is the axial step);
+        // probes don't cut, so they get only the motion speeds.  The active
+        // profile is also mirrored into the tool's fallback default* fields.
+        void buildProfilesSection(
             Box* col,
-            const char* sectionTitle,
             const char* engageLabel,
             const char* engagePlaceholder,
             bool withStepdown, bool withStepover, bool withCutDir
         ) {
-            makeSection(col, sectionTitle);
+            profHasStepdown = withStepdown;
+            profHasStepover = withStepover;
+            profHasCutDir   = withCutDir;
 
-            Box* r1 = makeRow(col, "DefRow1");
-            feedRateInput = makeField(r1, engageLabel, engagePlaceholder);
-            if (withStepdown) { stepdownInput = makeField(r1, "Stepdown (mm)", "0.5"); }
+            makeSection(col, "CUTTING PROFILES");
 
-            Box* r2 = makeRow(col, "DefRow2");
-            if (withStepover) { stepoverInput = makeField(r2, "Stepover (% dia.)", "25"); }
-            rapidSpeedInput = makeField(r2, "Rapid speed (mm/s)", "10");
+            profileNameInput = new TextInput(
+                col,
+                { .label = "", .placeholder = "Profile name", .maxLength = 48, .selectAllOnFocus = true },
+                { &ToolSettingsLayout::RowField }
+            );
+            profileNameInput->text->onLoseFocus([this](Event& e) {
+                commitProfileName(); refresh(e);
+            });
+
+            // The profile's ROLE -- how the app finds "a roughing / finishing
+            // profile" regardless of its name.
+            profKindDropdown = new Dropdown(col, {
+                .label = "Type",
+                .options = { { "Roughing", "Roughing" }, { "Finishing", "Finishing" } },
+                .placeholder = "Type",
+                .value = "Roughing"
+            });
+            profKindDropdown->onChange = [this](Event& e) { onProfileEdited(e); };
+
+            Box* nav = makeRow(col, "ProfNavRow");
+
+            Button* prevB = new Button(nav, Button::Params::Secondary("<"), { &ToolSettingsLayout::FooterButton });
+            prevB->onClick([this](Event& e) { profileSelect(-1, e); e.propagate = false; });
+            Button* nextB = new Button(nav, Button::Params::Secondary(">"), { &ToolSettingsLayout::FooterButton });
+            nextB->onClick([this](Event& e) { profileSelect(+1, e); e.propagate = false; });
+            Button* addB = new Button(nav, Button::Params::Secondary("+"), { &ToolSettingsLayout::FooterButton });
+            addB->onClick([this](Event& e) { profileAdd(e); e.propagate = false; });
+            Button* delB = new Button(nav, Button::Params::Secondary("Delete"), { &ToolSettingsLayout::FooterButton });
+            delB->onClick([this](Event& e) { profileDelete(e); e.propagate = false; });
+
+            Box* r1 = makeRow(col, "ProfRow1");
+            profFeedInput = makeField(r1, engageLabel, engagePlaceholder);
+            profPlungeInput = makeField(r1, "Plunge (mm/min)", "100");
+
+            Box* r2 = makeRow(col, "ProfRow2");
+            profSpindleInput = makeField(r2, "Spindle (rpm)", "10000");
+            profRapidInput = makeField(r2, "Rapid speed (mm/s)", "10");
+
+            if (withStepdown || withStepover) {
+                Box* r3 = makeRow(col, "ProfRow3");
+                if (withStepdown) { profStepdownInput = makeField(r3, "Stepdown (mm)", "0.5"); }
+                if (withStepover) { profStepoverInput = makeField(r3, "Stepover (% dia.)", "25"); }
+            }
 
             if (withCutDir) {
-                cutDirectionDropdown = new Dropdown(col, {
+                profCutDirDropdown = new Dropdown(col, {
                     .label = "Cut direction",
                     .options = { { "Climb", "climb" }, { "Conventional", "conventional" } },
                     .placeholder = "Select direction",
                     .value = "climb"
                 });
-                cutDirectionDropdown->onChange = [this](Event& e) { refresh(e); };
+                profCutDirDropdown->onChange = [this](Event& e) { onProfileEdited(e); };
+            }
+
+            auto bindProf = [this](NumberInput* in) {
+                if (!in) { return; }
+                in->onValueChange = [this](Event& e, std::optional<double>) { onProfileEdited(e); };
+                in->onKeyDown([this](Event& e) { if (e.keyboard.enter) { onProfileEdited(e); } });
+            };
+            bindProf(profFeedInput);
+            bindProf(profPlungeInput);
+            bindProf(profSpindleInput);
+            bindProf(profStepdownInput);
+            bindProf(profStepoverInput);
+            bindProf(profRapidInput);
+
+            loadProfileIntoFields();
+        }
+
+        // -- Profile CRUD handlers (operate on working.profiles) ---------------
+
+        Cam::App::OperationProfile* activeProfilePtr() {
+            if (working.profiles.empty()) { return nullptr; }
+            activeProfile = std::clamp(activeProfile, 0, (int)working.profiles.size() - 1);
+            return &working.profiles[activeProfile];
+        }
+
+        void commitProfileName() {
+            if (Cam::App::OperationProfile* p = activeProfilePtr()) {
+                if (profileNameInput) { p->name = profileNameInput->text->content.get(); }
+            }
+        }
+
+        void profileSelect(int delta, Event& e) {
+            commitProfileName();
+            if (working.profiles.empty()) { return; }
+            const int n = (int)working.profiles.size();
+            activeProfile = ((activeProfile + delta) % n + n) % n;
+            loadProfileIntoFields();
+            refresh(e);
+        }
+
+        void profileAdd(Event& e) {
+            commitProfileName();
+            Cam::App::OperationProfile p;
+            if (Cam::App::OperationProfile* cur = activeProfilePtr()) { p = *cur; }   // clone as a base
+            p.name = "Profile " + std::to_string(working.profiles.size() + 1);
+            const int at = working.profiles.empty()
+                ? 0
+                : std::clamp(activeProfile, 0, (int)working.profiles.size() - 1) + 1;
+            working.profiles.insert(working.profiles.begin() + at, p);
+            activeProfile = at;
+            loadProfileIntoFields();
+            syncDefaultsFromActiveProfile();
+            refresh(e);
+        }
+
+        void profileDelete(Event& e) {
+            if (working.profiles.empty()) { return; }
+            activeProfile = std::clamp(activeProfile, 0, (int)working.profiles.size() - 1);
+            working.profiles.erase(working.profiles.begin() + activeProfile);
+            if (activeProfile >= (int)working.profiles.size()) {
+                activeProfile = (int)working.profiles.size() - 1;
+            }
+            if (activeProfile < 0) { activeProfile = 0; }
+            loadProfileIntoFields();
+            syncDefaultsFromActiveProfile();
+            refresh(e);
+        }
+
+        // setValue without an Event so it does not re-fire onValueChange.
+        void loadProfileIntoFields() {
+            Cam::App::OperationProfile* p = activeProfilePtr();
+            if (profileNameInput) { profileNameInput->text->content = p ? p->name : std::string(); }
+            if (!p) { return; }
+            if (profKindDropdown) {
+                const std::string k = Cam::App::profileKindToString(p->kind);
+                profKindDropdown->params.value = k;
+                profKindDropdown->dropdownText->content = k;
+            }
+            if (profFeedInput)     { profFeedInput->setValue(p->feedRate); }
+            if (profPlungeInput)   { profPlungeInput->setValue(p->plungeRate); }
+            if (profSpindleInput)  { profSpindleInput->setValue(p->spindleSpeed); }
+            if (profStepdownInput) { profStepdownInput->setValue(p->stepdown); }
+            if (profStepoverInput) { profStepoverInput->setValue(p->stepover * 100.0); }
+            if (profRapidInput)    { profRapidInput->setValue(p->rapidSpeed); }
+            if (profCutDirDropdown) {
+                profCutDirDropdown->params.value = p->climbMilling ? "climb" : "conventional";
+                profCutDirDropdown->dropdownText->content = p->climbMilling ? "Climb" : "Conventional";
+            }
+        }
+
+        void onProfileEdited(Event& e) {
+            Cam::App::OperationProfile* p = activeProfilePtr();
+            if (!p) { refresh(e); return; }
+            if (profKindDropdown)  { p->kind = Cam::App::profileKindFromString(profKindDropdown->params.value); }
+            if (profFeedInput)     { p->feedRate = profFeedInput->valueOr(p->feedRate); }
+            if (profPlungeInput)   { p->plungeRate = profPlungeInput->valueOr(p->plungeRate); }
+            if (profSpindleInput)  { p->spindleSpeed = profSpindleInput->valueOr(p->spindleSpeed); }
+            if (profStepdownInput) { p->stepdown = profStepdownInput->valueOr(p->stepdown); }
+            if (profStepoverInput) { p->stepover = profStepoverInput->valueOr(p->stepover * 100.0) / 100.0; }
+            if (profRapidInput)    { p->rapidSpeed = profRapidInput->valueOr(p->rapidSpeed); }
+            if (profCutDirDropdown){ p->climbMilling = profCutDirDropdown->params.value != "conventional"; }
+            syncDefaultsFromActiveProfile();
+            refresh(e);
+        }
+
+        // Mirror the active profile into the tool's fallback default* fields, so a
+        // toolpath that selects no profile still gets sensible speeds/feeds.
+        void syncDefaultsFromActiveProfile() {
+            if (Cam::App::OperationProfile* p = activeProfilePtr()) {
+                working.defaultFeedRate    = p->feedRate;
+                working.defaultStepdown    = p->stepdown;
+                working.defaultStepover    = p->stepover;
+                working.defaultRapidSpeed  = p->rapidSpeed;
+                working.defaultClimbMilling = p->climbMilling;
             }
         }
 
@@ -322,8 +494,8 @@ export namespace Cam::Gui {
             collarDiameterInput = makeField(col, "Collar dia. (mm)", "0");
             collarLengthInput = makeField(col, "Collar length (mm)", "40");
 
-            buildDefaults(mid, "TOOLPATH DEFAULTS", "Feed rate (mm/min)", "250",
-                          /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
+            buildProfilesSection(mid, "Feed rate (mm/min)", "250",
+                                 /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
         }
 
         void buildChamferFields(Box* left, Box* mid) {
@@ -344,8 +516,8 @@ export namespace Cam::Gui {
             collarDiameterInput = makeField(col, "Collar dia. (mm)", "0");
             collarLengthInput = makeField(col, "Collar length (mm)", "40");
 
-            buildDefaults(mid, "TOOLPATH DEFAULTS", "Feed rate (mm/min)", "250",
-                          /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
+            buildProfilesSection(mid, "Feed rate (mm/min)", "250",
+                                 /*stepdown*/ true, /*stepover*/ true, /*cutDir*/ true);
         }
 
         void buildThreadMillFields(Box* left, Box* mid) {
@@ -364,8 +536,8 @@ export namespace Cam::Gui {
             collarLengthInput = makeField(shank, "Shank length (mm)", "40");
 
             // No stepdown: a thread mill's axial advance per revolution is the pitch.
-            buildDefaults(mid, "TOOLPATH DEFAULTS", "Feed rate (mm/min)", "250",
-                          /*stepdown*/ false, /*stepover*/ true, /*cutDir*/ true);
+            buildProfilesSection(mid, "Feed rate (mm/min)", "250",
+                                 /*stepdown*/ false, /*stepover*/ true, /*cutDir*/ true);
         }
 
         void buildProbeFields(Box* left, Box* mid) {
@@ -400,8 +572,8 @@ export namespace Cam::Gui {
 
             // A probe doesn't cut: only motion speeds matter, and its engagement
             // speed is the APPROACH rate (same field as a cutter's feed rate).
-            buildDefaults(mid, "MOTION", "Approach rate (mm/min)", "100",
-                          /*stepdown*/ false, /*stepover*/ false, /*cutDir*/ false);
+            buildProfilesSection(mid, "Approach rate (mm/min)", "100",
+                                 /*stepdown*/ false, /*stepover*/ false, /*cutDir*/ false);
         }
 
         // Open (or re-focus) the probe-calibration child window, owned by this
@@ -430,6 +602,12 @@ export namespace Cam::Gui {
             cutDirectionDropdown = nullptr;
             tipGeometryDropdown = nullptr;
             lengthLabel = nullptr;
+
+            profileNameInput = nullptr;
+            profKindDropdown = nullptr;
+            profFeedInput = profPlungeInput = profSpindleInput = nullptr;
+            profStepdownInput = profStepoverInput = profRapidInput = nullptr;
+            profCutDirDropdown = nullptr;
 
             leftColumn = new Box(fieldsArea, { &ToolSettingsLayout::LeftColumn }, "Left");
             midColumn  = new Box(fieldsArea, { &ToolSettingsLayout::MidColumn }, "Mid");
@@ -469,6 +647,7 @@ export namespace Cam::Gui {
             working = tool ? *tool : Cam::App::Tool();
             working.name = tool ? tool->name : toolName;
             working.type = selectedType;
+            working.ensureDefaultProfiles();   // the editor always shows at least Roughing/Finishing
 
             Box* root = new Box(
                 this,

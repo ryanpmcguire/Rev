@@ -252,6 +252,7 @@ export namespace Cam::App {
             for (const OperationProfile& p : tool.profiles) {
                 json["profiles"].push_back({
                     { "name",         p.name },
+                    { "kind",         profileKindToString(p.kind) },
                     { "feedRate",     p.feedRate },
                     { "plungeRate",   p.plungeRate },
                     { "spindleSpeed", p.spindleSpeed },
@@ -416,6 +417,7 @@ export namespace Cam::App {
                     if (!pj.is_object()) { continue; }
                     OperationProfile p;
                     if (pj.contains("name") && pj["name"].is_string()) { p.name = pj["name"].get<std::string>(); }
+                    if (pj.contains("kind") && pj["kind"].is_string()) { p.kind = profileKindFromString(pj["kind"].get<std::string>()); }
                     if (pj.contains("feedRate") && pj["feedRate"].is_number()) { p.feedRate = pj["feedRate"].get<double>(); }
                     if (pj.contains("plungeRate") && pj["plungeRate"].is_number()) { p.plungeRate = pj["plungeRate"].get<double>(); }
                     if (pj.contains("spindleSpeed") && pj["spindleSpeed"].is_number()) { p.spindleSpeed = pj["spindleSpeed"].get<double>(); }
@@ -425,6 +427,12 @@ export namespace Cam::App {
                     if (pj.contains("climbMilling") && pj["climbMilling"].is_boolean()) { p.climbMilling = pj["climbMilling"].get<bool>(); }
                     out.profiles.push_back(p);
                 }
+            }
+            else {
+                // Legacy tool with no "profiles" key: give it the standard pair.
+                // (A tool that intentionally has zero profiles serializes an empty
+                // array, which is present -- so this only seeds keyless files.)
+                out.ensureDefaultProfiles();
             }
 
             if (json.contains("defaultFeedRate") && json["defaultFeedRate"].is_number()) {

@@ -302,11 +302,23 @@ export namespace Carvera {
             return livePosition(x, y, z, a);
         }
 
-        // Last confirmed (raw, un-smoothed) machine position.
+        // Last confirmed (raw, un-smoothed) machine position (MPos -- the spindle).
         bool currentConfirmed(float& x, float& y, float& z, float& a) const {
             if (!confValid) { return false; }
             x = confX; y = confY; z = confZ; a = confA;
             return true;
+        }
+
+        // The machine's confirmed TOOL-TIP position (WPos): tool length + work offset
+        // already folded in by the controller (established at the tool-change
+        // touch-off).  This is the number to anchor the work frame to -- where the
+        // TIP is, not the spindle.  Falls back to MPos until a WPos has been seen.
+        bool currentTip(float& x, float& y, float& z, float& a) const {
+            if (confWValid) {
+                x = confWX; y = confWY; z = confWZ; a = confA;   // A: no tool-length
+                return true;
+            }
+            return currentConfirmed(x, y, z, a);
         }
 
         // Smoothed TOOL-TIP position (WPos): tool-length and work offset already
@@ -441,7 +453,18 @@ export namespace Carvera {
             beginJogLead();
         }
 
-        void home()   { if (requireConnected()) { sendLine("$H\n"); pushLog("Homing..."); } }
+        void home() {
+            if (!requireConnected()) { return; }
+            sendLine("$H\n");
+            pushLog("Homing...");
+            // Homing re-references machine coordinates, so any captured work origin
+            // is now STALE.  Invalidate it host-side and tell the CAM view to forget
+            // its persisted copy + stale part corrections -- the operator must re-Set
+            // Origin afterward (prevents driving to a stale absolute position).
+            originValid.store(false);
+            cadOriginValid.store(false);
+            if (onWorkOriginInvalidated) { onWorkOriginInvalidated(); }
+        }
         void unlock() {
             if (!requireConnected()) { return; }
             sendLine("$X\n");
@@ -486,9 +509,14 @@ export namespace Carvera {
                 pushLog("Connect and wait for position before setting origin.");
                 return;
             }
-            // No explicit origin given => take the current position on faith for
-            // EVERY component (the uncalibrated degenerate).
-            setWorkOrigin(confX, confY, confZ, confA);
+            // No explicit origin given => take the current TOOL-TIP position (WPos)
+            // on faith for every component (the uncalibrated degenerate).  We anchor
+            // the work frame to the TIP the machine reports after a tool change, NOT
+            // the spindle (MPos) -- so probe contacts (also tip-referenced) and the
+            // origin live in the same frame.
+            float tx, ty, tz, ta;
+            currentTip(tx, ty, tz, ta);
+            setWorkOrigin(tx, ty, tz, ta);
         }
 
         // Locate the part origin at an EXPLICIT machine point.  The caller decides
@@ -513,16 +541,22 @@ export namespace Carvera {
             if (onWorkOriginSet) { onWorkOriginSet(); }
         }
 
-        // Touch the loaded probe/tool off against the machine's built-in tool-length
-        // sensor.  NOTE: the exact Carvera touch-off command is unconfirmed on real
-        // hardware (M493 is the current best guess -- see CarveraREADME); verify and
-        // adjust here once observed.  Used by machine calibration to reference the
-        // tip to the machine's repeatable zero before measuring the axis.
+        // Reference the probe tip against the machine's built-in tool-length sensor
+        // by FORCING a probe tool change -- even if we believe the probe is already
+        // loaded.  The ATC tool change runs the machine's own tool-length touch-off
+        // as part of the swap, so re-issuing it is a reliable way to (re)reference
+        // the tip (more dependable than the unconfirmed bare M493).  Used by machine
+        // calibration's Home & Touch Off.
         void touchOffProbe() {
             if (!requireConnected()) { return; }
-            sendLine("M493\n");
-            pushLog("Touch-off (M493) -- referencing tip to the built-in sensor "
-                    "(command unconfirmed; verify on hardware).");
+            const int slot = probeSlot();
+            if (slot < 0) {
+                pushLog("Touch-off: no probe tool defined -- cannot reference the tip.");
+                return;
+            }
+            setSpindleInhibited(true, "probe touch-off (forced change)");
+            pushLog("Touch-off: forcing a probe tool change to reference the tip.");
+            changeTool(slot, /*force*/ true);
         }
 
         // ============================================================
@@ -688,11 +722,13 @@ export namespace Carvera {
         // message and aborts the change with a clear reason; if no reply
         // arrives within kRequestedTimeoutMs, the phase tick aborts on
         // timeout.  Either way we do NOT pretend the change is happening.
-        OperationResult changeTool(int slot) {
+        OperationResult changeTool(int slot, bool force = false) {
             // Early-exit: if the requested tool is already loaded there is
             // nothing to do.  Return SUCCESS (a no-op), not a failure -- the
-            // caller asked for "tool T<slot> loaded" and it already is.
-            if (connected() && slot == loadedSlot.load()) {
+            // caller asked for "tool T<slot> loaded" and it already is.  `force`
+            // suppresses this so the ATC change runs anyway (used by touch-off,
+            // where the point of the change is to re-run the tool-length probe).
+            if (!force && connected() && slot == loadedSlot.load()) {
                 pushLog(std::format("Tool change skipped: T{} is already loaded.", slot));
                 return OperationResult::success();
             }
@@ -888,6 +924,11 @@ export namespace Carvera {
         // been re-referenced, so any prior measured pose is stale).  Air itself
         // owns no probe-correction state -- it just announces the event.
         std::function<void()> onWorkOriginSet;
+
+        // Fired when the work origin becomes STALE (homing re-references machine
+        // coordinates).  The CAM view clears its persisted work origin + part
+        // corrections so a re-Set-Origin is required before the next run.
+        std::function<void()> onWorkOriginInvalidated;
 
         // Fired when the operator presses "Set Top": a request to probe the part's
         // top face and immediately set the part coordinate system's Z offset from
@@ -1842,18 +1883,28 @@ export namespace Carvera {
 
             // Emit probe result.
             if (probeDirty) {
+                // [PRB] is reported at the SPINDLE (MPos).  Express the contact at the
+                // TOOL TIP using the MACHINE'S OWN spindle->tip delta (confX - confWX
+                // = tool length + work offset, set by the tool-change touch-off) --
+                // never our stylus length.  So the contact lives in the same tip
+                // frame as the work origin (also tip) and the displayed tool.
+                float dx = 0, dy = 0, dz = 0;
+                if (confValid && confWValid) {
+                    dx = confX - confWX; dy = confY - confWY; dz = confZ - confWZ;
+                }
+                const float tipX = probeX - dx, tipY = probeY - dy, tipZ = probeZ - dz;
                 if (probeTrig) {
                     pushLog(std::format(
-                        "Probe TRIGGERED at X{:.3f} Y{:.3f} Z{:.3f}.",
-                        probeX, probeY, probeZ));
+                        "Probe TRIGGERED -- tip at X{:.3f} Y{:.3f} Z{:.3f}.",
+                        tipX, tipY, tipZ));
                     beep();
                 }
                 else {
                     pushLog(std::format(
-                        "Probe FAIL (no contact) -- last point X{:.3f} Y{:.3f} Z{:.3f}.",
-                        probeX, probeY, probeZ));
+                        "Probe FAIL (no contact) -- tip last at X{:.3f} Y{:.3f} Z{:.3f}.",
+                        tipX, tipY, tipZ));
                 }
-                ProbeEvent e{ probeX, probeY, probeZ, probeTrig };
+                ProbeEvent e{ tipX, tipY, tipZ, probeTrig };
                 probeDispatcher.tell(&Air::probeEvent, e);
             }
 
