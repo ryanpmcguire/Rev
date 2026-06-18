@@ -5,6 +5,7 @@ module;
 #include <cmath>
 #include <memory>
 #include <functional>
+#include <optional>
 
 export module Cam.Gui.MeasureStockWindow;
 

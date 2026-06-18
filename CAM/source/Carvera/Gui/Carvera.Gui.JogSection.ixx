@@ -221,6 +221,13 @@ export namespace Carvera::Gui {
             // "Probe TRIGGERED" line.  See CarveraREADME.md (Probing section).
             Box* r3 = new Box(grid, { &Style::JogGridRow }, "R3");
             makeJogBtn(r3, "PROBE")->onClick([this](Event& e) { air().probeTest(); e.propagate = false; });
+            // Probe the part's top face and immediately set the part coordinate
+            // system's Z relative to the work frame (handled by the CAM view, which
+            // knows the selected material state's known top).
+            makeJogBtn(r3, "SET TOP")->onClick([this](Event& e) {
+                if (air().onSetTop) { air().onSetTop(); }
+                e.propagate = false;
+            });
         }
 
         void subscribe() {

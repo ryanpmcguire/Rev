@@ -889,6 +889,12 @@ export namespace Carvera {
         // owns no probe-correction state -- it just announces the event.
         std::function<void()> onWorkOriginSet;
 
+        // Fired when the operator presses "Set Top": a request to probe the part's
+        // top face and immediately set the part coordinate system's Z offset from
+        // the contact.  Air owns no part state -- the CAM view (which knows the
+        // selected stage + work frame) wires this to do the probe + apply the shift.
+        std::function<void()> onSetTop;
+
         // Validate a program before ANY byte reaches the controller.  A single
         // malformed number (a NaN/Inf escaping an upstream geometry bug)
         // formats as "nan" in G-code -- the controller rejects the line and

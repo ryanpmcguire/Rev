@@ -244,6 +244,11 @@ export namespace Cam::Gui {
         // captured lambda checks this flag (a weak_ptr) before touching `this`.
         std::shared_ptr<bool> probeAlive_ = std::make_shared<bool>(true);
 
+        // "Set Top": when armed, the NEXT probe contact is interpreted as a one-shot
+        // top touch-off -- it sets the part's Z offset within the work frame directly
+        // (not a stage probe session).  Cleared once consumed.
+        bool setTopPending_ = false;
+
         std::function<void(Event&)> onStateChanged;
 
         GestureTracker<WorldViewCommand> gestures = {
@@ -406,7 +411,32 @@ export namespace Cam::Gui {
                 }
                 machineToolPathsDirty = true;
                 previewTimelineDirty  = true;
+
+                // Persist the freshly captured work origin so reopening the app (with
+                // the machine still on) restores the part/tool anchor -- no manual
+                // re-Set-Origin needed.  The controller keeps its WCS zero; this keeps
+                // the HOST's matching part-origin location.
+                if (app) {
+                    float mx, my, mz, ma;
+                    if (Carvera::MachineLink::instance().machineOrigin(mx, my, mz, ma)) {
+                        app->machine.workOrigin = { true, mx, my, mz, ma };
+                        app->saveSession();
+                    }
+                }
             };
+
+            // "Set Top": probe the part's top, then set the part Z from the contact.
+            Carvera::MachineLink::instance().onSetTop = [this]() { armSetTop(); };
+
+            // Restore the persisted work origin (machine still on across a restart):
+            // the controller kept its WCS zero, but the host forgot where the part
+            // origin is -- without this the part/tool float until a manual Set Origin.
+            if (app && app->machine.workOrigin.valid) {
+                const auto& w = app->machine.workOrigin;
+                Carvera::MachineLink::instance().captureMachineOrigin(
+                    static_cast<float>(w.mx), static_cast<float>(w.my),
+                    static_cast<float>(w.mz), static_cast<float>(w.ma));
+            }
 
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
 
@@ -471,6 +501,7 @@ export namespace Cam::Gui {
             Carvera::MachineLink::instance().onTelemetry       = nullptr;
             Carvera::MachineLink::instance().operationProvider = nullptr;
             Carvera::MachineLink::instance().onWorkOriginSet   = nullptr;
+            Carvera::MachineLink::instance().onSetTop          = nullptr;
 
             clearMaterialViews();
 
@@ -1755,11 +1786,88 @@ export namespace Cam::Gui {
             return Cam::Machine::MachineDefinition::fromWorkFrame(workCS);
         }
 
+        // "Set Top": probe straight down, then set the part Z from the contact.
+        // A one-shot -- it loads the probe + probes Z down, and the next contact is
+        // consumed by handleProbeContact's setTopPending_ branch (below).
+        void armSetTop() {
+            setTopPending_ = true;
+            Carvera::MachineLink::instance().probeTest();
+            Carvera::MachineLink::instance().log(
+                "Set Top: probing the top face; the part Z will be set from contact.");
+        }
+
+        // Apply a top touch-off: shift the part along the work-frame up axis so its
+        // KNOWN top (the selected material state's highest point) sits at the probed
+        // height.  This sets the part coordinate system's Z relative to the work
+        // frame from a single contact -- even with no stock defined.
+        void applySetTop(Carvera::MachineLink::ProbeEvent& e) {
+            Cam::App::Project* project = activeProject();
+            if (!project) { return; }
+            if (!e.triggered) {
+                Carvera::MachineLink::instance().log(
+                    "Set Top: probe did not contact -- part Z unchanged.");
+                return;
+            }
+            Carvera::MachineLink& link = Carvera::MachineLink::instance();
+            float omx, omy, omz, oma;
+            if (!link.machineOrigin(omx, omy, omz, oma)) {
+                link.log("Set Top: set the work origin first.");
+                return;
+            }
+
+            const UserFrame frame = currentUserFrame(project);
+
+            // The contact, in the work frame's up (Z) coordinate.
+            const Rev::Core::Pos3 wcs{ e.x - omx, e.y - omy, e.z - omz };
+            const double measuredTopF = frame.toFrame(frame.toWorld(wcs)).z;
+
+            // The selected material state's KNOWN top: its highest point along the
+            // work-frame up axis (in frame coords, relative to the axis origin).
+            Cam::App::Stage* stage = project->displayedStage;
+            double nominalTopF = 0.0; bool have = false;
+            if (stage) {
+                for (const Rev::Core::Vertex3& v : stage->model.render.triangles) {
+                    const double z = frame.toFrame(v).z;
+                    if (!have || z > nominalTopF) { nominalTopF = z; have = true; }
+                }
+            }
+            if (!have) {
+                link.log("Set Top: no material state geometry to reference.");
+                return;
+            }
+
+            const double offset = measuredTopF - nominalTopF;   // how far above nominal
+
+            // Set the part's offset within the work frame as a pure translation along
+            // the work-frame up axis -- the part now sits where the probe found it.
+            project->probeCorrection.reset();
+            project->probeCorrection.t     = frame.Z * static_cast<float>(offset);
+            project->probeCorrection.tTrue = project->probeCorrection.t;
+            project->probeCorrection.valid = true;
+            project->dirty = true;
+            machineToolPathsDirty = true;
+            previewTimelineDirty  = true;
+
+            link.log(std::format(
+                "Set Top: part top at {:.3f} mm (nominal {:.3f}) -> part Z offset "
+                "{:.3f} mm above the work frame.", measuredTopF, nominalTopF, offset));
+
+            syncAxisLines();
+            if (view3d && shared && shared->event) { view3d->refresh(*shared->event); }
+        }
+
         // A probe touched the part.  Air reports the contact in MACHINE-WCS;
         // map it back into the CAD frame, fill the next pending session entry,
         // and — once every entry for a stage is in — fit and store that stage's
         // ProbeResult.  From then on getMachineToolPath() applies it.
         void handleProbeContact(Carvera::MachineLink::ProbeEvent& e) {
+
+            // Set Top consumes the contact directly (one-shot, no session).
+            if (setTopPending_) {
+                setTopPending_ = false;
+                applySetTop(e);
+                return;
+            }
 
             if (probeFillIndex_ >= probeSession_.size()) {
                 dbg("[Probe] contact with no pending session entry - ignoring");
@@ -2290,8 +2398,16 @@ export namespace Cam::Gui {
         void probeCorrectionMatrix(float out[16]) const {
             Cam::Machine::Pose::identityMatrix(out);
             Cam::App::Project* project = activeProject();
-            if (!project || !project->workEstablished()) { return; }
-            correctionToMatrix(project->totalPose(), out);
+            if (!project) { return; }
+            // Apply the part pose whenever EITHER correction is real.  In the
+            // work-frame == machine-frame model the work frame is fixed by
+            // calibration (workCorrection stays identity/un-"established"), and the
+            // measured part offset lives in probeCorrection -- so gating on
+            // workEstablished() alone would wrongly drop a Set-Top / stage-probe
+            // result and leave the part unmoved.
+            const Cam::App::ProbeResult pose = project->totalPose();
+            if (!pose.valid) { return; }
+            correctionToMatrix(pose, out);
         }
 
         // out = a * b  (both column-major 4x4).

@@ -71,6 +71,13 @@ export namespace Cam::App {
                 oj["valid"] = o.valid;
                 m["origins"].push_back(oj);
             }
+            Json w;
+            w["valid"] = machine.workOrigin.valid;
+            w["mx"] = machine.workOrigin.mx;
+            w["my"] = machine.workOrigin.my;
+            w["mz"] = machine.workOrigin.mz;
+            w["ma"] = machine.workOrigin.ma;
+            m["workOrigin"] = w;
             return m;
         }
 
@@ -98,6 +105,16 @@ export namespace Cam::App {
 
             // Never leave the machine with zero origins.
             if (machine.origins.empty()) { machine = MachineSettings(); }
+
+            // Restored AFTER the empty-origins reset so it survives that path.
+            if (m.contains("workOrigin") && m["workOrigin"].is_object()) {
+                const Json& w = m["workOrigin"];
+                if (w.contains("valid") && w["valid"].is_boolean()) { machine.workOrigin.valid = w["valid"].get<bool>(); }
+                if (w.contains("mx") && w["mx"].is_number()) { machine.workOrigin.mx = w["mx"].get<double>(); }
+                if (w.contains("my") && w["my"].is_number()) { machine.workOrigin.my = w["my"].get<double>(); }
+                if (w.contains("mz") && w["mz"].is_number()) { machine.workOrigin.mz = w["mz"].get<double>(); }
+                if (w.contains("ma") && w["ma"].is_number()) { machine.workOrigin.ma = w["ma"].get<double>(); }
+            }
         }
 
         static Json machineFoldersToJson(
