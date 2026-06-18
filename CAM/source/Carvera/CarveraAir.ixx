@@ -443,13 +443,24 @@ export namespace Carvera {
 
         // Rapid to an absolute MACHINE position (G53 -- independent of any work
         // offset).  Used by the GUI's origin "Goto".
+        // Move so the TOOL TIP reaches (x,y,z,a) in WPos -- NOT a machine (G53)
+        // position.  WPos targets the tip (the controller's G43 tool length handles
+        // the rest), so going back to a saved point with a DIFFERENT tool puts the
+        // TIP there rather than the spindle -- a longer tool no longer crashes into
+        // it.  (Use machine coords only where a fixed machine feature -- homing,
+        // the tool setter -- genuinely requires it.)
         void goTo(float x, float y, float z, float a) {
             if (!connected() || !confValid) {
                 pushLog("Connect and wait for position before moving.");
                 return;
             }
-            sendLine(std::format("G53 G0 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}\n", x, y, z, a));
-            intentX = x; intentY = y; intentZ = z; intentA = a;
+            sendLine(std::format("G90 G0 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}\n", x, y, z, a));
+            // Display-lead intent is in MPos (the spindle display): WPos target + the
+            // machine's tip->spindle delta, so the displayed TIP leads to (x,y,z).
+            const float dx = (confValid && confWValid) ? (confX - confWX) : 0.0f;
+            const float dy = (confValid && confWValid) ? (confY - confWY) : 0.0f;
+            const float dz = (confValid && confWValid) ? (confZ - confWZ) : 0.0f;
+            intentX = x + dx; intentY = y + dy; intentZ = z + dz; intentA = a;
             beginJogLead();
         }
 

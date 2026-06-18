@@ -292,14 +292,14 @@ export namespace Carvera::Gui {
         }
 
         // SET POINT = store a point of interest (the active alias / bookmark) at the
-        // current machine position.  This is purely a navigation bookmark (used by
-        // Goto); it does NOT touch the work frame.  Previously this was tangled into
-        // Set Origin -- they are now distinct intents.
+        // current TOOL-TIP position (WPos).  A navigation bookmark (used by Goto); it
+        // does NOT touch the work frame.  Stored in WPos so Goto returns the TIP to
+        // this point regardless of which tool is loaded -- a longer tool won't crash.
         void onSetPoint(Event& e) {
             commitOriginName();
             Carvera::Air& a = air();
             float x, y, z, aa;
-            if (Cam::App::OriginAlias* o = activeOriginPtr(); o && a.currentConfirmed(x, y, z, aa)) {
+            if (Cam::App::OriginAlias* o = activeOriginPtr(); o && a.currentTip(x, y, z, aa)) {
                 o->x = x; o->y = y; o->z = z; o->a = aa;
                 o->valid = true;
                 loadOriginIntoFields();

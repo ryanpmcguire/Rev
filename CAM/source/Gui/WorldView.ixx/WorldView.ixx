@@ -1323,6 +1323,18 @@ export namespace Cam::Gui {
                 ? app->toolLibrary()->find(toolState->toolPath.toolName)
                 : nullptr;
 
+            // EXECUTE mode shows the tool ACTUALLY loaded in the machine (resolved by
+            // the loaded slot), not the tool the step expects -- so the operator sees
+            // what is physically in the spindle right now.
+            if (executeMode && app && app->toolLibrary()) {
+                const int slot = link.loadedToolSlot();
+                if (slot >= 1) {
+                    if (Cam::App::Tool* loaded = app->toolLibrary()->at(slot - 1)) {
+                        tool = loaded;
+                    }
+                }
+            }
+
             if (!tool || tool->mesh.empty()) { return; }
 
             Rev::Core::Pos3 tip;
@@ -2228,7 +2240,11 @@ export namespace Cam::Gui {
             Carvera::MachineLink& link = Carvera::MachineLink::instance();
             float tx, ty, tz, ta;
             float omx, omy, omz, ocx, ocy, ocz;
-            if (!link.telemetry(tx, ty, tz, ta))                    { return false; }
+            // Use the TOOL TIP (WPos) -- the work origin below is tip-framed, so
+            // mixing in MPos here would offset the mapped CAD position by the tool
+            // length and mis-track execute progress.  Falls back to MPos pre-WPos.
+            if (!link.tipTelemetry(tx, ty, tz, ta) &&
+                !link.telemetry(tx, ty, tz, ta))                   { return false; }
             if (!link.workOrigin(omx, omy, omz, ocx, ocy, ocz))    { return false; }
 
             Cam::App::Project* project = activeProject();
