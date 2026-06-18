@@ -27,6 +27,18 @@ export namespace Cam::App {
         bool rotaryY = false;
         bool rotaryZ = false;
 
+        // The rotary axis LOCATION in machine coordinates -- persistent machine
+        // geometry, established by machine calibration (or typed by hand).  The axis
+        // is a line; for a rotary-about-X machine, X is just a reference point along
+        // it (arbitrary), while Y and Z are the meaningful, calibrated location of
+        // the centreline.  Because the work frame IS the machine frame, this is the
+        // single source of truth for where the part pivots.
+        double rotaryAxisX = 0.0;
+        double rotaryAxisY = 0.0;
+        double rotaryAxisZ = 0.0;
+        bool   rotaryAxisCalibrated = false;
+        double rotaryAxisSigma = 0.0;   // 1-sigma confidence on Y/Z (mm)
+
         // Filenames relative to the machine folder (empty = none).
         std::string spindleStep;
         std::string bedStep;

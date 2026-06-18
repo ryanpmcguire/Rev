@@ -119,6 +119,8 @@ export namespace Cam::App {
         bool measured = false;       // false = assumed (machine def); true = probed
         double residual = 0.0;       // how well the 2-orientation fit closed (mm)
         double probeRadius = 0.0;    // effective cylindrical-probe radius, self-fit (mm)
+        double pointSigma  = 0.0;    // 1-sigma confidence on the axis Y/Z location (mm).
+                                     // Set by a machine-calibration run; 0 = unknown.
 
         void reset() { *this = RotaryAxis(); }
 

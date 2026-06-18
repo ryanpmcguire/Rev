@@ -510,6 +510,11 @@ export namespace Cam::App {
             updated.rotaryX = src.rotaryX;
             updated.rotaryY = src.rotaryY;
             updated.rotaryZ = src.rotaryZ;
+            updated.rotaryAxisX = src.rotaryAxisX;
+            updated.rotaryAxisY = src.rotaryAxisY;
+            updated.rotaryAxisZ = src.rotaryAxisZ;
+            updated.rotaryAxisCalibrated = src.rotaryAxisCalibrated;
+            updated.rotaryAxisSigma = src.rotaryAxisSigma;
 
             MachineLibrary::assignDefaultMachinesRootIfNeeded(machinesRootPath);
 

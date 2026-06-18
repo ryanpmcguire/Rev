@@ -32,6 +32,8 @@ import Cam.App;
 import Cam.App.MachineProfile;
 import Cam.App.MachineLibrary;
 import Cam.Gui.Theme;
+import Cam.Gui.MachineCalibrationWindow;
+import Cam.App.MachineCalibration;
 
 export namespace Cam::Gui {
 
@@ -154,6 +156,10 @@ export namespace Cam::Gui {
         Checkbox* rotaryYCheckbox = nullptr;
         Checkbox* rotaryZCheckbox = nullptr;
 
+        NumberInput* rotaryAxisXInput = nullptr;
+        NumberInput* rotaryAxisYInput = nullptr;
+        NumberInput* rotaryAxisZInput = nullptr;
+
         TextInput* spindleStepInput = nullptr;
         TextInput* bedStepInput = nullptr;
         TextInput* workpieceStepInput = nullptr;
@@ -161,6 +167,8 @@ export namespace Cam::Gui {
 
         Button* applyButton = nullptr;
         bool applyPendingAppearance = false;
+
+        MachineCalibrationWindow* calibrationWindow = nullptr;
 
         static std::string windowTitleFor(const std::string& name) {
             return name + " - Machine Settings";
@@ -405,6 +413,34 @@ export namespace Cam::Gui {
             rotaryXCheckbox = new Checkbox(rotaryRow, { .label = "A (X)", .def = false }, { &MachineSettingsLayout::CheckboxField });
             rotaryYCheckbox = new Checkbox(rotaryRow, { .label = "B (Y)", .def = false }, { &MachineSettingsLayout::CheckboxField });
             rotaryZCheckbox = new Checkbox(rotaryRow, { .label = "C (Z)", .def = false }, { &MachineSettingsLayout::CheckboxField });
+
+            // The rotary axis LOCATION (machine coords).  The work frame IS the
+            // machine frame, so this is where the part pivots -- inspectable + hand
+            // editable.  X is a reference point along the axis; Y/Z are the meaningful
+            // calibrated location.  Coords can be negative (machine space).
+            section(mid, "ROTARY AXIS (mm)");
+            auto axisField = [&](Box* parent, const char* label) {
+                NumberInput::Params p = numberParams(label, "0");
+                p.allowNegative = true;
+                p.maxDecimalPlaces = 3;
+                return new NumberInput(parent, p, { &MachineSettingsLayout::RowField });
+            };
+            Box* axisRow = row(mid, "RotaryAxisRow");
+            rotaryAxisXInput = axisField(axisRow, "X");
+            rotaryAxisYInput = axisField(axisRow, "Y");
+            rotaryAxisZInput = axisField(axisRow, "Z");
+            rotaryAxisXInput->onValueChange = [this](Event& e, std::optional<double>) { updateApplyButtonAppearance(e); };
+            rotaryAxisYInput->onValueChange = [this](Event& e, std::optional<double>) { updateApplyButtonAppearance(e); };
+            rotaryAxisZInput->onValueChange = [this](Event& e, std::optional<double>) { updateApplyButtonAppearance(e); };
+
+            // Probe-driven calibration of the rotary axis Y/Z location (opens a child
+            // window; uses a calibrated probe from the tool library).
+            Button* calibrateAxisButton = new Button(
+                mid,
+                Button::Params::Primary("Calibrate Rotary Axis"),
+                { &MachineSettingsLayout::SmallButton }
+            );
+            calibrateAxisButton->onClick([this](Event& e) { openCalibration(e); e.propagate = false; });
 
             section(right, "STEP MODELS");
             new Text(
@@ -687,6 +723,10 @@ export namespace Cam::Gui {
             rotaryYCheckbox->value = m.rotaryY;
             rotaryZCheckbox->value = m.rotaryZ;
 
+            if (rotaryAxisXInput) { rotaryAxisXInput->setValue(m.rotaryAxisX); }
+            if (rotaryAxisYInput) { rotaryAxisYInput->setValue(m.rotaryAxisY); }
+            if (rotaryAxisZInput) { rotaryAxisZInput->setValue(m.rotaryAxisZ); }
+
             const std::string folder = currentStorageFolder();
 
             auto displaySavedStep = [&](TextInput* input, const std::string& relativeName) {
@@ -734,7 +774,19 @@ export namespace Cam::Gui {
                 m.workpieceStep = existing->workpieceStep;
                 m.rotaryStep = existing->rotaryStep;
                 m.filePath = existing->filePath;
+                // Preserve calibration provenance + the calibrated location, so a
+                // blank/uncommitted field can never silently zero a measured axis;
+                // the inputs below override only when they actually hold a value.
+                m.rotaryAxisCalibrated = existing->rotaryAxisCalibrated;
+                m.rotaryAxisSigma = existing->rotaryAxisSigma;
+                m.rotaryAxisX = existing->rotaryAxisX;
+                m.rotaryAxisY = existing->rotaryAxisY;
+                m.rotaryAxisZ = existing->rotaryAxisZ;
             }
+
+            if (rotaryAxisXInput) { m.rotaryAxisX = rotaryAxisXInput->valueOr(m.rotaryAxisX); }
+            if (rotaryAxisYInput) { m.rotaryAxisY = rotaryAxisYInput->valueOr(m.rotaryAxisY); }
+            if (rotaryAxisZInput) { m.rotaryAxisZ = rotaryAxisZInput->valueOr(m.rotaryAxisZ); }
 
             if (pendingStepSources.spindle.empty() && spindleStepInput->text->content.get().empty()) {
                 m.spindleStep.clear();
@@ -787,6 +839,9 @@ export namespace Cam::Gui {
                 m.rotaryX != savedMachine.rotaryX ||
                 m.rotaryY != savedMachine.rotaryY ||
                 m.rotaryZ != savedMachine.rotaryZ ||
+                !nearlyEqual(m.rotaryAxisX, savedMachine.rotaryAxisX) ||
+                !nearlyEqual(m.rotaryAxisY, savedMachine.rotaryAxisY) ||
+                !nearlyEqual(m.rotaryAxisZ, savedMachine.rotaryAxisZ) ||
                 !steps.spindle.empty() ||
                 !steps.bed.empty() ||
                 !steps.workpiece.empty() ||
@@ -849,6 +904,11 @@ export namespace Cam::Gui {
 
             spindleMinInput->commit(e);
             spindleMaxInput->commit(e);
+            // The rotary-axis fields must be committed too, or currentMachine() reads
+            // their uncommitted defaults and Apply would WIPE the calibrated axis.
+            if (rotaryAxisXInput) { rotaryAxisXInput->commit(e); }
+            if (rotaryAxisYInput) { rotaryAxisYInput->commit(e); }
+            if (rotaryAxisZInput) { rotaryAxisZInput->commit(e); }
 
             Cam::App::MachineProfile m = currentMachine();
             Cam::App::MachineStepSources steps = currentStepSources();
@@ -916,6 +976,33 @@ export namespace Cam::Gui {
 
             refresh(e);
             return true;
+        }
+
+        // Open (or re-focus) the rotary-axis calibration child window.  It resolves
+        // a calibrated probe from the tool library itself.
+        void openCalibration(Event&) {
+            if (calibrationWindow && !calibrationWindow->shouldClose) {
+                calibrationWindow->show();
+                return;
+            }
+            calibrationWindow = new MachineCalibrationWindow(this);
+            calibrationWindow->onAxisCalibrated = [this](Cam::App::MachineCalibration& mc) {
+                // The calibrated axis is persistent machine geometry -- store it on
+                // the machine definition (machine frame) + reflect into the inputs.
+                if (rotaryAxisYInput) { rotaryAxisYInput->setValue(mc.resultAxisYAbs); }
+                if (rotaryAxisZInput) { rotaryAxisZInput->setValue(mc.resultAxisZ); }
+                if (Cam::App::MachineProfile* m = app ? app->selectedMachine() : nullptr) {
+                    Cam::App::MachineProfile src = *m;
+                    src.rotaryAxisY = mc.resultAxisYAbs;
+                    src.rotaryAxisZ = mc.resultAxisZ;
+                    src.rotaryAxisCalibrated = true;
+                    src.rotaryAxisSigma = std::sqrt(mc.resultAxisYSigma * mc.resultAxisYSigma +
+                                                    mc.resultAxisZSigma * mc.resultAxisZSigma);
+                    if (app) { app->saveMachine(m->name, src, {}); }
+                }
+                updateApplyButtonAppearance(this->event);
+            };
+            calibrationWindow->onClosed = [this](Event&) { calibrationWindow = nullptr; };
         }
 
         void discardIfUnsaved() {

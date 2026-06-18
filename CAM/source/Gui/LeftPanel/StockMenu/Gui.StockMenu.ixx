@@ -18,11 +18,13 @@ import Rev.Element.Text;
 import Rev.Element.Dropdown;
 import Rev.Element.NumberInput;
 import Rev.Element.Button;
+import Rev.Window;
 
 import Cam.App;
 import Cam.App.Project;
 
 import Cam.Gui.Theme;
+import Cam.Gui.MeasureStockWindow;
 
 export namespace Cam::Gui {
 
@@ -81,7 +83,10 @@ export namespace Cam::Gui {
 
         Text* title = nullptr;
         Button* generateButton = nullptr;
+        Button* measureButton = nullptr;
         Dropdown* typeDropdown = nullptr;
+
+        MeasureStockWindow* measureWindow = nullptr;
 
         Box* prismRow = nullptr;
         NumberInput* widthInput = nullptr;
@@ -226,6 +231,35 @@ export namespace Cam::Gui {
                 "Length (axis): -",
                 Theme::withMutedText({ &Styles::LengthLabel })
             );
+
+            // Probe the real stock against the calibrated rotary axis (child window).
+            measureButton = new Button(
+                this,
+                Button::Params::Secondary("Measure Stock"),
+                { &Styles::GenerateButton }
+            );
+            measureButton->onClick([this](Event& e) { openMeasure(e); e.propagate = false; });
+        }
+
+        static Rev::Window* rootWindow(Element* from) {
+            Element* node = from;
+            while (node && node->parent && node->parent != node) { node = node->parent; }
+            return static_cast<Rev::Window*>(node);
+        }
+
+        void openMeasure(Event& e) {
+            if (measureWindow && !measureWindow->shouldClose) {
+                measureWindow->show();
+                return;
+            }
+            Rev::Window* owner = rootWindow(this);
+            if (!owner || !owner->shared) { return; }
+            measureWindow = new MeasureStockWindow(owner);
+            measureWindow->onMeasured = [this](Cam::App::StockMeasurement&) {
+                populated = false;   // re-read the measured dimensions into the fields
+                if (onChanged && shared && shared->event) { onChanged(*shared->event); }
+            };
+            measureWindow->onClosed = [this](Event&) { measureWindow = nullptr; };
         }
 
         static NumberInput::Params dimensionParams(
@@ -342,6 +376,7 @@ export namespace Cam::Gui {
             if (generateButton) { generateButton->style->visibility = buttonVis; }
             if (typeDropdown)   { typeDropdown->style->visibility = fieldVis; }
             if (lengthLabel)    { lengthLabel->style->visibility = fieldVis; }
+            if (measureButton)  { measureButton->style->visibility = fieldVis; }
 
             if (!fields) {
                 if (prismRow)    { prismRow->style->visibility = Visibility::Hidden; }

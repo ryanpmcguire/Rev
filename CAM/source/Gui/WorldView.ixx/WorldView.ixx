@@ -182,17 +182,12 @@ export namespace Cam::Gui {
         //   pass 1: deliberately rotated +10 deg -- calibration
         //   pass 2: deliberately rotated -10 deg -- calibration
         //   pass 3: driven by the fitted work frame (physically squared) -- CONFIRM
-        // The three CALIBRATION passes give the over-determined >= 3 well-separated
-        // orientations the rotary-axis solver needs (RMS intersection of normal
-        // planes); only then is the work frame + axis fitted.  The CONFIRM pass
-        // applies that correction and measures the part's residual offset within
-        // the work frame.
-        static constexpr int    kProbeRepeatCount    = 6;     // flat + 4 tilts + confirm
-        // TWO distinct tilt magnitudes (probed at +/- each) so the axis solve can
-        // separate the true axis depth from the cylindrical-probe edge bias and
-        // self-calibrate the stylus radius.  +/-6 then +/-12 deg.
-        static constexpr double kProbeCalibAngle1Deg = 6.0;
-        static constexpr double kProbeCalibAngle2Deg = 12.0;
+        // The rotary axis is now established up front by MACHINE CALIBRATION (and
+        // the stock by Measure Stock), so a stage probe NO LONGER infers the axis.
+        // It runs a single pass that measures the part's offset WITHIN the known
+        // work frame (probeCorrection) -- the only residual a stage probe can still
+        // resolve.  (Was: flat + 4 deliberate tilts to locate the axis + a confirm.)
+        static constexpr int    kProbeRepeatCount    = 1;     // single part-offset pass
 
         // Trust thresholds gating whether a re-probe (pass > 0) is DRIVEN by the
         // prior pass's correction.  RMS is the REAL trust signal: a tight fit is
@@ -400,6 +395,12 @@ export namespace Cam::Gui {
                     project->partMeasurements.clear();
                     project->workCorrection.reset();
                     project->probeCorrection.reset();
+                    // STRATEGY B: the scene's work frame is anchored at the user
+                    // frame's axis origin (= the rotary axis); the part pivots about
+                    // it directly (buildWorkFrame's f.origin fallback).  The calibrated
+                    // axis lives on the machine definition and is used at Set Origin to
+                    // pin the machine-space Y/Z -- it does NOT need to ride in
+                    // workRotaryAxis, so clear any stale per-session inference here.
                     project->workRotaryAxis.reset();
                     project->dirty = true;
                 }
@@ -1849,23 +1850,19 @@ export namespace Cam::Gui {
             // work-frame + rotary-axis fit; the LAST one (all three orientations in)
             // actually fits.  The CONFIRM pass -- physically squared by the fitted
             // work frame -- feeds the part's residual offset within it.
-            const bool calibrating = !probeSessionConfirm_;
-
-            auto& bucket = calibrating ? project->workMeasurements
-                                       : project->partMeasurements;
+            // The work frame (rotary axis) is fixed up front by machine calibration,
+            // so a stage probe only measures the PART's offset within it -- the
+            // contacts feed partMeasurements directly (no axis inference, and the
+            // work correction is identity, so nothing to peel).
             for (const ProbeSessionEntry& s : probeSession_) {
                 if (s.stage != stage || !s.filled) { continue; }
                 Cam::App::ProbeMeasurement m;
                 m.angleDeg = s.commandedAngleDeg;
                 m.nominal  = s.nominalCad;
                 m.normal   = s.normalCad;
-                // CONFIRM contacts: peel the (physically applied) work correction so
-                // the fit sees the residual part offset.
-                m.measured = calibrating
-                    ? s.measuredCad
-                    : project->workCorrection.applyInverse(s.measuredCad);
-                m.machineContact = s.machineContact;   // absolute -- for axis fit
-                bucket.push_back(m);
+                m.measured = s.measuredCad;
+                m.machineContact = s.machineContact;
+                project->partMeasurements.push_back(m);
             }
 
             auto tiltOf = [](const double* m) {
@@ -1873,156 +1870,8 @@ export namespace Cam::Gui {
                 return std::acos(std::clamp((tr - 1.0) * 0.5, -1.0, 1.0)) * 57.29577951308232;
             };
 
-            if (calibrating && !probeSessionCalibComplete_) {
-                // More calibration angles still to come -- just record.
-                Carvera::MachineLink::instance().log(std::format(
-                    "Probe: calibration orientation recorded ({} contact(s) so far).",
-                    project->workMeasurements.size()));
-            }
-            else if (calibrating) {
-                // ALL THREE orientations are in.  LOCATE THE ROTARY AXIS from the
-                // RMS intersection of normal planes (>= 3 well-separated
-                // orientations), in absolute MACHINE coords, then fit the work frame
-                // pivoting about it.
-                const Rev::Core::Pos3 dirMach{
-                    probeFrameX_.dot(rotaryAxis),
-                    probeFrameY_.dot(rotaryAxis),
-                    probeFrameZ_.dot(rotaryAxis)
-                };
-
-                // Group the calibration contacts by commanded angle (one group per
-                // orientation), each -> (centroid, face normal) in machine coords.
-                struct Grp { double angle; Rev::Core::Pos3 cSum, nSum; int cnt; };
-                std::vector<Grp> grps;
-                for (const auto& m : project->workMeasurements) {
-                    Grp* g = nullptr;
-                    for (auto& q : grps) { if (std::fabs(q.angle - m.angleDeg) < 1.0) { g = &q; break; } }
-                    if (!g) { grps.push_back({ m.angleDeg, {}, {}, 0 }); g = &grps.back(); }
-                    g->cSum = g->cSum + m.machineContact;
-                    g->nSum = g->nSum + m.normal;
-                    g->cnt++;
-                }
-                std::vector<Rev::Core::Pos3> centroids, normals;
-                for (const auto& q : grps) {
-                    const float inv = 1.0f / float(q.cnt);
-                    const Rev::Core::Pos3 n0 = q.nSum * inv;
-                    const Rev::Core::Pos3 nMach{
-                        probeFrameX_.dot(n0), probeFrameY_.dot(n0), probeFrameZ_.dot(n0)
-                    };
-                    centroids.push_back(q.cSum * inv);
-                    normals.push_back(Cam::App::ProbeResult::rotateAboutLine(
-                        nMach, dirMach, Rev::Core::Pos3{}, q.angle));
-                }
-
-                Cam::App::RotaryAxis ax =
-                    Cam::App::RotaryAxis::inferFromNormalPlanes(centroids, normals, dirMach);
-
-                // DIAGNOSTIC.  Log each orientation's centroid rise, plus the solved
-                // axis depth D and the self-calibrated probe radius r.  D is now the
-                // TRUE axis->face distance (cylinder bias removed); r should land at
-                // the physical stylus radius.
-                {
-                    double flatA = 1e9, flatZ = 0.0;
-                    for (const auto& q : grps) {
-                        const double z = double((q.cSum * (1.0f / q.cnt)).z);
-                        if (std::fabs(q.angle) < std::fabs(flatA)) { flatA = q.angle; flatZ = z; }
-                    }
-                    for (const auto& q : grps) {
-                        if (std::fabs(q.angle - flatA) < 1.0) { continue; }
-                        const double z = double((q.cSum * (1.0f / q.cnt)).z);
-                        dbg("[Probe][axis] orient %+.2f deg: centroidZ=%.4f rise=%.4f",
-                            q.angle, z, z - flatZ);
-                    }
-                    double solvedD = 0.0;
-                    if (ax.measured && !centroids.empty()) {
-                        solvedD = double((centroids[0] - ax.point).dot(normals[0]));
-                    }
-                    dbg("[Probe][axis] solved D=%.3f mm | probe radius r=%.3f mm (residual %.4f)",
-                        solvedD, ax.probeRadius, ax.residual);
-                }
-
-                if (ax.measured && ax.residual <= kProbeReprobeMaxRmsMm) {
-                    float wox, woy, woz, wcx, wcy, wcz;
-                    if (Carvera::MachineLink::instance().workOrigin(wox, woy, woz, wcx, wcy, wcz)) {
-                        const Rev::Core::Pos3 inF{
-                            (ax.point.x - wox) + probeBeginWorkInFrame_.x,
-                            (ax.point.y - woy) + probeBeginWorkInFrame_.y,
-                            (ax.point.z - woz) + probeBeginWorkInFrame_.z
-                        };
-                        Cam::App::RotaryAxis axCad;
-                        axCad.direction = rotaryAxis;
-                        axCad.point     = probeFrameOrigin_
-                                        + probeFrameX_ * inF.x
-                                        + probeFrameY_ * inF.y
-                                        + probeFrameZ_ * inF.z;
-                        axCad.residual  = ax.residual;
-                        axCad.measured  = true;
-                        project->workRotaryAxis = axCad;
-                        Carvera::MachineLink::instance().log(std::format(
-                            "Probe: ROTARY AXIS located from {} orientations at part "
-                            "point ({:.3f},{:.3f},{:.3f}), residual {:.4f} mm.",
-                            grps.size(), axCad.point.x, axCad.point.y, axCad.point.z,
-                            axCad.residual));
-                    }
-                }
-                else {
-                    dbg("[Probe] rotary axis NOT located (groups=%zu residual %.3f) "
-                        "- keeping assumed axis", grps.size(), ax.residual);
-                }
-
-                // Fit the work-frame POSE from the FLAT orientation ONLY.  The +/-10
-                // deg tilts exist to LOCATE THE AXIS (above) -- their contacts are
-                // fixed-ray samples of a tilted face, NOT physical correspondences,
-                // so pooling them into the pose fit corrupts it (huge rms).  The flat
-                // pass is the part's actual mounted pose.
-                const Rev::Core::Pos3 axisPt = project->workRotaryAxis.measured
-                    ? project->workRotaryAxis.point : probeFrameOrigin_;
-                double flatAngle = 1e9;
-                for (const auto& q : grps) {
-                    if (std::fabs(q.angle) < std::fabs(flatAngle)) { flatAngle = q.angle; }
-                }
-                std::vector<Cam::App::ProbeMeasurement> flat;
-                for (const auto& m : project->workMeasurements) {
-                    if (std::fabs(m.angleDeg - flatAngle) < 1.0) { flat.push_back(m); }
-                }
-                project->workCorrection = Cam::App::ProbeResult::solve(
-                    flat, rotaryAxis, axisPt);
-
-                // ORIGIN-INVARIANCE: the rotary axis is a PHYSICAL line; it must not
-                // float with the initial set-origin / jog assumption.  The flat-pass
-                // work translation IS exactly that origin offset, and it is about to
-                // be folded into the machine origin (below) for the PART -- but the
-                // axis was mapped to CAD with the pre-fold origin, so without this it
-                // keeps the offset the part sheds.  Remove it here so the axis lands
-                // in the same re-anchored frame as the part (jogging + re-zeroing no
-                // longer shifts the reported axis).
-                if (project->workRotaryAxis.measured) {
-                    project->workRotaryAxis.point =
-                        project->workRotaryAxis.point - project->workCorrection.t;
-                }
-
-                // Re-anchor the work origin to the PROBE (jog-independent): fold the
-                // measured translation into the origin, once.
-                Carvera::MachineLink& mlink = Carvera::MachineLink::instance();
-                float wox, woy, woz, wcx, wcy, wcz;
-                if (mlink.workOrigin(wox, woy, woz, wcx, wcy, wcz)) {
-                    const Rev::Core::Pos3 wt = project->workCorrection.t;
-                    mlink.captureMachineOrigin(
-                        wox + probeFrameX_.dot(wt), woy + probeFrameY_.dot(wt),
-                        woz + probeFrameZ_.dot(wt), mlink.machineOriginA());
-                    project->workCorrection.t     = {};
-                    project->workCorrection.tTrue = {};
-                }
-
-                Carvera::MachineLink::instance().log(std::format(
-                    "Probe: WORK frame established from {} flat contact(s) (axis from "
-                    "{} orientations) - tilt={:.2f} deg, rms={:.4f} mm. Confirm pass "
-                    "will square the part and measure its offset.",
-                    flat.size(), grps.size(),
-                    tiltOf(project->workCorrection.r), project->workCorrection.rmsError));
-            }
-            else {
-                // CONFIRM pass: the part's residual offset within the work frame.
+            {
+                // PART offset within the (machine-calibrated) work frame.
                 const Rev::Core::Pos3 axisPt = project->workRotaryAxis.measured
                     ? project->workRotaryAxis.point : probeFrameOrigin_;
                 project->probeCorrection = Cam::App::ProbeResult::solve(
@@ -2602,49 +2451,18 @@ export namespace Cam::Gui {
             return frame;
         }
 
-        // The "begin work" origin: the centre of the top surface of the stock,
-        // expressed in CAD world space but computed IN THE USER FRAME so it
-        // tracks the user's defined axes (the stock is built along those axes).
-        // The operator physically jogs the tool tip here and zeroes; the program
-        // is streamed in user-frame coordinates relative to it.
+        // The reference origin that every streamed coordinate is expressed relative
+        // to.  STRATEGY B: the work frame IS the machine frame, whose origin is the
+        // ROTARY AXIS.  So the reference is the user frame's origin -- the part's
+        // axis origin, which lies on the rotary axis -- NOT the stock top.  At Set
+        // Origin this CAD axis point is declared to sit at the machine rotary axis
+        // (Y/Z from calibration, X/A from the operator), so the whole part is placed
+        // by its axis.  (The old "jog the tip to the stock top and zero" reference is
+        // vestigial -- it dates to visually positioning the bit for the first test
+        // cuts, before the axis/probe/tool were calibrated.)
         Rev::Core::Pos3 beginWorkOrigin(Cam::App::Project* project, const UserFrame& frame) {
-
-            if (!project) { return frame.origin; }
-
-            Cam::App::Stage* state = nullptr;
-
-            for (Cam::App::Stage* s : project->stages) {
-                if (s && s->stockGenerated) { state = s; }  // last stock state = full stock
-            }
-
-            if (!state) { state = project->stockBaseStage(); }
-            if (!state) { state = project->displayedStage; }
-            if (!state) { return frame.origin; }
-
-            const std::vector<Rev::Core::Vertex3>& tris = state->model.render.triangles;
-
-            if (tris.empty()) { return frame.origin; }
-
-            // Bounding box in the user frame: project every vertex onto X/Y/Z.
-            Rev::Core::Pos3 first = frame.toFrame(tris[0]);
-            Rev::Core::Pos3 mn = first;
-            Rev::Core::Pos3 mx = first;
-
-            for (const Rev::Core::Vertex3& v : tris) {
-                const Rev::Core::Pos3 f = frame.toFrame(v);
-                mn = Rev::Core::Pos3::min(mn, f);
-                mx = Rev::Core::Pos3::max(mx, f);
-            }
-
-            // Stock-top centre: centred in X/Y of the user frame, at max Z.
-            const Rev::Core::Pos3 frameCentre = {
-                (mn.x + mx.x) * 0.5f,
-                (mn.y + mx.y) * 0.5f,
-                mx.z
-            };
-
-            // Express back in CAD world for callers that need a world point.
-            return frame.toWorld(frameCentre);
+            (void)project;
+            return frame.origin;
         }
 
         // 1-based tool slot inferred from the library order (best effort, for
@@ -2662,6 +2480,14 @@ export namespace Cam::Gui {
             }
 
             return 0;
+        }
+
+        // The probe tool's slot (identified by Tool::Type::Probe), or -1.  Also
+        // pushed to Air so its spindle interlock knows which loaded slot is a probe.
+        int probeToolSlot() {
+            const int slot = (app && app->toolLibrary()) ? app->toolLibrary()->probeSlot() : -1;
+            Carvera::MachineLink::instance().setProbeSlot(slot);
+            return slot;
         }
 
         // EXECUTE: build the typed-operation program from the IK-solved
@@ -2826,15 +2652,11 @@ export namespace Cam::Gui {
                 const Cam::Machine::MachineToolPath solved =
                     Cam::Machine::IKSolver::solve(probePath, machineDef);
 
-                // A probe operation ALWAYS task-switches to the wired probe
-                // first: kProbeToolSlot (slot 0).  Air orchestrates the M6 like
-                // any tool change and its spindle interlock latches as soon as
-                // the probe is loaded (isProbeSlot(0)), so the probe can never
-                // spin.  Only the wired probe is supported for now; arbitrary
-                // probe selectors can be threaded through this slot later.
-                // (Historical note: M6 T0 was once seen to UNLOAD the spindle --
-                // if that recurs, this slot is where to fix the selector.)
-                Op op = Op::probe(Carvera::MachineLink::kProbeToolSlot, "Wired probe");
+                // A probe operation ALWAYS task-switches to the probe tool first
+                // (resolved by Tool::Type::Probe, not a magic slot).  Air orchestrates
+                // the M6 like any tool change and its spindle interlock latches as
+                // soon as the probe is loaded, so the probe can never spin.
+                Op op = Op::probe(probeToolSlot(), "Wired probe");
 
                 // Points come in (standoff, through) pairs, one pair per target.
                 for (size_t k = 0; (2 * k + 1) < solved.points.size(); k++) {
@@ -2973,62 +2795,17 @@ export namespace Cam::Gui {
                     probeFrameZ_           = frame.Z;
                     probeBeginWorkInFrame_ = beginWorkInFrame;
 
-                    // CALIBRATE + CONFIRM scheme (two tilt magnitudes so the axis
-                    // fit can self-calibrate the probe radius):
-                    //   pass 0 -> flat (nominal, A=0)            | calibration
-                    //   pass 1 -> deliberate +6  deg about rotary | calibration
-                    //   pass 2 -> deliberate -6  deg about rotary | calibration
-                    //   pass 3 -> deliberate +12 deg about rotary | calibration
-                    //   pass 4 -> deliberate -12 deg about rotary | calibration (last)
-                    //   pass 5 -> driven by fitted work frame     | CONFIRM
+                    // PART-OFFSET pass only.  The work frame (rotary axis) is fixed by
+                    // machine calibration, so the stage probe no longer tilts to infer
+                    // the axis -- it probes the part at its nominal orientation and
+                    // fits the part's residual offset WITHIN that known work frame.
+                    (void)passIndex;
                     probeSessionBase_.reset();
                     probeSessionComposed_      = false;
-                    probeSessionConfirm_       = (passIndex >= 5);
-                    probeSessionCalibComplete_ = (passIndex == 4);
-                    const Cam::App::ProbeResult* drive = nullptr;
-                    Cam::App::ProbeResult deliberate;   // local: valid for appendProbeOp call
+                    probeSessionConfirm_       = true;    // always the part-offset fit
+                    probeSessionCalibComplete_ = false;
 
-                    // Rotary axis (CAD) about which the deliberate tilts pivot.
-                    const Cam::Machine::MachineDefinition pdef = buildMachineDefinition();
-                    Rev::Core::Pos3 axisDir{ 1.0f, 0.0f, 0.0f };
-                    if (!pdef.part.dof.freeRotations.empty()) {
-                        axisDir = pdef.part.dof.freeRotations.front();
-                    }
-                    const Rev::Core::Pos3 axisPt =
-                        project->workRotaryAxis.measured ? project->workRotaryAxis.point
-                                                         : frame.origin;
-
-                    if (passIndex >= 1 && passIndex <= 4) {
-                        double ang = 0.0;
-                        switch (passIndex) {
-                            case 1: ang =  kProbeCalibAngle1Deg; break;
-                            case 2: ang = -kProbeCalibAngle1Deg; break;
-                            case 3: ang =  kProbeCalibAngle2Deg; break;
-                            case 4: ang = -kProbeCalibAngle2Deg; break;
-                        }
-                        deliberate = Cam::App::ProbeResult::pureRotation(axisDir, axisPt, ang);
-                        drive = &deliberate;
-                        dbg("[Probe] calibration pass %d: deliberate %+.1f deg tilt",
-                            passIndex, ang);
-                    }
-                    else if (passIndex >= 3) {
-                        if (project->workEstablished() &&
-                            project->workCorrection.trustedForReprobe(
-                                kProbeReprobeMaxRmsMm, kProbeReprobeMaxTiltDeg)) {
-                            probeSessionBase_     = project->workCorrection;
-                            probeSessionComposed_ = true;
-                            drive                 = &probeSessionBase_;
-                            dbg("[Probe] confirm pass DRIVEN by work frame (rms=%.4f, "
-                                "tilt=%.2f deg)", probeSessionBase_.rmsError,
-                                probeSessionBase_.drivenTiltDeg());
-                        }
-                        else {
-                            dbg("[Probe] confirm pass NOT driven (work unestablished/"
-                                "untrusted) - measuring nominal");
-                        }
-                    }
-
-                    appendProbeOp(state, drive);
+                    appendProbeOp(state, /*drive*/ nullptr);
                 }
                 opCursor++;
             };
@@ -3160,6 +2937,11 @@ export namespace Cam::Gui {
 
             representationDirty = true;
             markPreviewTimelineDirty();
+
+            // Keep Air's spindle interlock in step with the library: push which slot
+            // holds the probe (by type) so a manually-loaded probe inhibits the
+            // spindle even before any probe operation is built.
+            probeToolSlot();
 
             if (view3d) {
                 view3d->refresh(e);

@@ -62,6 +62,7 @@ export namespace Cam::App {
         bool   haveResult     = false;
         double resultRadius   = 0.0;   // inferred stylus edge radius (mm)
         double resultResidual = 0.0;   // fit residual (mm)
+        double resultRadiusSigma = 0.0;  // 1-sigma uncertainty on the radius (mm)
 
         // The tilt magnitudes to visit: the leveled 0, then `sampleAngles`
         // magnitudes spread linearly over [angleMin, angleMax], each at + and -
@@ -125,7 +126,7 @@ export namespace Cam::App {
             phase = Phase::Idle;
             samples.clear();
             haveResult = false;
-            resultRadius = resultResidual = 0.0;
+            resultRadius = resultResidual = resultRadiusSigma = 0.0;
         }
 
         static constexpr double kPi = 3.14159265358979;
@@ -184,6 +185,11 @@ export namespace Cam::App {
 
             resultRadius   = r;
             resultResidual = std::sqrt(sse / static_cast<double>(accs.size()));
+            // 1-sigma on r from the least-squares covariance: Cov = s^2 (A^T A)^-1,
+            // and the (r,r) entry of (A^T A)^-1 is Saa/det.  With only a couple of
+            // angles this is optimistic (few residual DOF), so it tightens as the
+            // operator runs more sample angles -- exactly the intended behavior.
+            resultRadiusSigma = resultResidual * std::sqrt(Saa / det);
             haveResult     = true;
             return true;
         }

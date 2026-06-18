@@ -48,6 +48,18 @@ export namespace Cam::App {
         double height = 0.0;        // prism full extent along axis Z
         double length = 0.0;        // extent along the axis (== part length)
 
+        // MEASURED placement (filled by the Measure Stock routine; everything else
+        // -- probe, machine axis, tool tip -- is already calibrated, so probing the
+        // stock against the known rotary axis resolves only these residual unknowns).
+        // They describe where the physical stock actually sits relative to the work
+        // frame, and feed the four material-state (Stock ±Y/±Z) steps so the nominal
+        // prism is transformed into the real stock.
+        bool   measured = false;
+        double angularOffsetDeg = 0.0;  // A rotation that levels the top face (deg)
+        double centerOffsetY = 0.0;     // stock cross-section centre vs rotary axis (mm)
+        double centerOffsetZ = 0.0;     // stock cross-section centre vs rotary axis (mm)
+        double measurementResidual = 0.0;
+
         void reset() {
             *this = StockDefinition();
         }
@@ -153,10 +165,17 @@ export namespace Cam::App {
         std::vector<ProbeMeasurement> workMeasurements;
         std::vector<ProbeMeasurement> partMeasurements;
 
-        // The full nominal->actual part pose: work frame correction with the part
-        // offset nested inside it (W o P).  Identity until the first probe.
+        // The full nominal->actual part pose.  In the work-frame == machine-frame
+        // model the rotary axis is fixed by calibration, so `workCorrection` is
+        // vestigial (always identity) and the part's measured offset lives entirely
+        // in `probeCorrection`.  Returning it directly avoids composedOnto's
+        // `valid = a.valid && b.valid` zeroing the flag when workCorrection is the
+        // (invalid-by-default) identity -- which would mislead any consumer that
+        // gates on totalPose().valid.  Identity until the first probe.
         ProbeResult totalPose() const {
-            return workCorrection.composedOnto(probeCorrection);
+            return workCorrection.valid
+                ? workCorrection.composedOnto(probeCorrection)
+                : probeCorrection;
         }
 
         bool workEstablished() const { return workCorrection.valid; }
@@ -534,6 +553,10 @@ export namespace Cam::App {
                     { "threadInternal", stage->toolPath.threadInternal },
                     { "threadPasses", stage->toolPath.threadPasses },
                     { "threadUpCut", stage->toolPath.threadUpCut },
+                    // Derived tool-fit requirements (cached so the selection
+                    // dropdown can filter on load, before any recompute).
+                    { "impliedMaxToolDiameter", stage->toolPath.implied.maxToolDiameter },
+                    { "impliedMinCuttingLength", stage->toolPath.implied.minCuttingLength },
                     { "sliceAxis", Json::array({
                         stage->toolPath.sliceAxis.x,
                         stage->toolPath.sliceAxis.y,
@@ -569,7 +592,12 @@ export namespace Cam::App {
                 { "radius", stock.radius },
                 { "width", stock.width },
                 { "height", stock.height },
-                { "length", stock.length }
+                { "length", stock.length },
+                { "measured", stock.measured },
+                { "angularOffsetDeg", stock.angularOffsetDeg },
+                { "centerOffsetY", stock.centerOffsetY },
+                { "centerOffsetZ", stock.centerOffsetZ },
+                { "measurementResidual", stock.measurementResidual }
             };
 
             return json;
@@ -767,6 +795,13 @@ export namespace Cam::App {
                             stage->toolPath.threadUpCut = toolPathJson["threadUpCut"].get<bool>();
                         }
 
+                        if (toolPathJson.contains("impliedMaxToolDiameter") && toolPathJson["impliedMaxToolDiameter"].is_number()) {
+                            stage->toolPath.implied.maxToolDiameter = toolPathJson["impliedMaxToolDiameter"].get<double>();
+                        }
+                        if (toolPathJson.contains("impliedMinCuttingLength") && toolPathJson["impliedMinCuttingLength"].is_number()) {
+                            stage->toolPath.implied.minCuttingLength = toolPathJson["impliedMinCuttingLength"].get<double>();
+                        }
+
                         if (toolPathJson.contains("insideOut") && toolPathJson["insideOut"].is_boolean()) {
                             stage->toolPath.insideOut = toolPathJson["insideOut"].get<bool>();
                         }
@@ -923,6 +958,21 @@ export namespace Cam::App {
                     }
                     if (stockJson.contains("length") && stockJson["length"].is_number()) {
                         stock.length = stockJson["length"].get<double>();
+                    }
+                    if (stockJson.contains("measured") && stockJson["measured"].is_boolean()) {
+                        stock.measured = stockJson["measured"].get<bool>();
+                    }
+                    if (stockJson.contains("angularOffsetDeg") && stockJson["angularOffsetDeg"].is_number()) {
+                        stock.angularOffsetDeg = stockJson["angularOffsetDeg"].get<double>();
+                    }
+                    if (stockJson.contains("centerOffsetY") && stockJson["centerOffsetY"].is_number()) {
+                        stock.centerOffsetY = stockJson["centerOffsetY"].get<double>();
+                    }
+                    if (stockJson.contains("centerOffsetZ") && stockJson["centerOffsetZ"].is_number()) {
+                        stock.centerOffsetZ = stockJson["centerOffsetZ"].get<double>();
+                    }
+                    if (stockJson.contains("measurementResidual") && stockJson["measurementResidual"].is_number()) {
+                        stock.measurementResidual = stockJson["measurementResidual"].get<double>();
                     }
                 }
 
@@ -1609,10 +1659,19 @@ export namespace Cam::App {
             double x0, x1, y0, y1, z0, z1;
             base->model.frameBounds({ 0.0f, 0.0f, 0.0f }, fx, fy, fz, x0, x1, y0, y1, z0, z1);
 
+            // The four Stock (+/-Y, +/-Z) steps extend the nominal prism out from
+            // this cross-section centre.  When the stock has been MEASURED, the real
+            // cross-section is offset from the rotary axis by (centerOffsetY,
+            // centerOffsetZ) (and tilted by angularOffsetDeg) -- shift the centre by
+            // that here so each face step extends to where the material actually is.
+            // (Angular offset is applied at execution via the work-frame A zero; the
+            // material-state geometry only needs the translational placement.)
+            const double measuredY = stock.measured ? stock.centerOffsetY : 0.0;
+            const double measuredZ = stock.measured ? stock.centerOffsetZ : 0.0;
             const Rev::Core::Pos3 worldCenter =
                 fx * float((x0 + x1) * 0.5) +
-                fy * float((y0 + y1) * 0.5) +
-                fz * float((z0 + z1) * 0.5);
+                fy * float((y0 + y1) * 0.5 + measuredY) +
+                fz * float((z0 + z1) * 0.5 + measuredZ);
 
             const Rev::Core::Pos3 sliceAxes[4] = {
                 fy, fy * -1.0f, fz, fz * -1.0f

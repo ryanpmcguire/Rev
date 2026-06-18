@@ -177,7 +177,22 @@ export namespace Cam::Gui {
         // (e.g. thread milling needs a thread mill whose pitch range fits the
         // callout).  Tools that fail are shown greyed-out in the dropdown.
         virtual bool toolCanPerform(const Cam::App::Tool& tool) const {
-            return tool.implied.canCut;
+            if (!tool.implied.canCut) { return false; }
+            return toolFitsFeature(tool);
+        }
+
+        // The feature's own requirements (computed on the toolpath from the delta):
+        // the tool must fit the narrowest passage and reach the full depth.
+        bool toolFitsFeature(const Cam::App::Tool& tool) const {
+            if (!state) { return true; }
+            const Cam::App::ToolPath::Implied& req = state->toolPath.implied;
+            if (req.maxToolDiameter > 1e-6 && tool.diameter > req.maxToolDiameter + 1e-6) {
+                return false;
+            }
+            if (req.minCuttingLength > 1e-6 && tool.implied.maxCutDepth < req.minCuttingLength - 1e-6) {
+                return false;
+            }
+            return true;
         }
 
         std::vector<Dropdown::Item> toolOptions() const {
@@ -209,6 +224,9 @@ export namespace Cam::Gui {
         void populate() {
             if (!state) { return; }
 
+            // The feature's tool requirements are derived from the strategy slices
+            // at compute() and persisted with the project, so they are available
+            // here (in-session and on load) to disable ill-fitting tools.
             const Cam::App::ToolPath& tp = state->toolPath;
 
             if (toolDropdown) {

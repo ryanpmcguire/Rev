@@ -311,6 +311,13 @@ export namespace Cam::App {
             json["axes"]["rotary"]["y"] = machine.rotaryY;
             json["axes"]["rotary"]["z"] = machine.rotaryZ;
 
+            json["rotaryAxis"] = Json::object();
+            json["rotaryAxis"]["x"] = machine.rotaryAxisX;
+            json["rotaryAxis"]["y"] = machine.rotaryAxisY;
+            json["rotaryAxis"]["z"] = machine.rotaryAxisZ;
+            json["rotaryAxis"]["calibrated"] = machine.rotaryAxisCalibrated;
+            json["rotaryAxis"]["sigma"] = machine.rotaryAxisSigma;
+
             json["stepFiles"] = Json::object();
             json["stepFiles"]["spindle"] = machine.spindleStep;
             json["stepFiles"]["bed"] = machine.bedStep;
@@ -359,6 +366,15 @@ export namespace Cam::App {
                     if (rotary.contains("y") && rotary["y"].is_boolean()) { out.rotaryY = rotary["y"].get<bool>(); }
                     if (rotary.contains("z") && rotary["z"].is_boolean()) { out.rotaryZ = rotary["z"].get<bool>(); }
                 }
+            }
+
+            if (json.contains("rotaryAxis") && json["rotaryAxis"].is_object()) {
+                const Json& ra = json["rotaryAxis"];
+                if (ra.contains("x") && ra["x"].is_number()) { out.rotaryAxisX = ra["x"].get<double>(); }
+                if (ra.contains("y") && ra["y"].is_number()) { out.rotaryAxisY = ra["y"].get<double>(); }
+                if (ra.contains("z") && ra["z"].is_number()) { out.rotaryAxisZ = ra["z"].get<double>(); }
+                if (ra.contains("calibrated") && ra["calibrated"].is_boolean()) { out.rotaryAxisCalibrated = ra["calibrated"].get<bool>(); }
+                if (ra.contains("sigma") && ra["sigma"].is_number()) { out.rotaryAxisSigma = ra["sigma"].get<double>(); }
             }
 
             if (json.contains("stepFiles") && json["stepFiles"].is_object()) {

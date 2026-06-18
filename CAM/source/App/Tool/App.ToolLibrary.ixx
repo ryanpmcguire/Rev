@@ -87,6 +87,20 @@ export namespace Cam::App {
             return 0;
         }
 
+        // The slot (1-based) of the PROBE tool -- identified by its TYPE, not a
+        // magic number -- or -1 if the library has no probe.  The single source of
+        // truth for "which slot is the probe": probe operations target it, and the
+        // spindle interlock treats it as spindle-forbidden.
+        int probeSlot() const {
+            for (size_t i = 0; i < order.size(); i++) {
+                auto it = byName.find(order[i]);
+                if (it != byName.end() && it->second.type == Tool::Type::Probe) {
+                    return static_cast<int>(i) + 1;
+                }
+            }
+            return -1;
+        }
+
         // Mutation
         //--------------------------------------------------
 
@@ -229,7 +243,8 @@ export namespace Cam::App {
                 { "tipGeometry",         Tool::tipGeometryToString(tool.probe.tipGeometry) },
                 { "stylusRadius",        tool.probe.stylusRadius },
                 { "calibrated",          tool.probe.calibrated },
-                { "calibrationResidual", tool.probe.calibrationResidual }
+                { "calibrationResidual", tool.probe.calibrationResidual },
+                { "stylusRadiusSigma",   tool.probe.stylusRadiusSigma }
             };
 
             // Owned named operation profiles.
@@ -388,6 +403,9 @@ export namespace Cam::App {
                 }
                 if (pj.contains("calibrationResidual") && pj["calibrationResidual"].is_number()) {
                     out.probe.calibrationResidual = pj["calibrationResidual"].get<double>();
+                }
+                if (pj.contains("stylusRadiusSigma") && pj["stylusRadiusSigma"].is_number()) {
+                    out.probe.stylusRadiusSigma = pj["stylusRadiusSigma"].get<double>();
                 }
             }
 

@@ -25,6 +25,7 @@ import CarveraAir;
 
 import Cam.App;
 import Cam.App.MachineSettings;
+import Cam.App.MachineProfile;
 import Cam.Gui.Theme;
 import Carvera.Gui.Style;
 
@@ -153,8 +154,12 @@ export namespace Carvera::Gui {
             Box* actionRow = new Box(this, { &Style::Row }, "OriginActionRow");
 
             Box* setBtn = makeBtn(actionRow, "Set Origin", Style::Btn);
-            setBtn->style->size = { .width = 100_px, .height = 30_px };
+            setBtn->style->size = { .width = 90_px, .height = 30_px };
             setBtn->onClick([this](Event& e) { onSetOrigin(e); e.propagate = false; });
+
+            Box* setPtBtn = makeBtn(actionRow, "Set Point", Style::Btn);
+            setPtBtn->style->size = { .width = 84_px, .height = 30_px };
+            setPtBtn->onClick([this](Event& e) { onSetPoint(e); e.propagate = false; });
 
             makeBtn(actionRow, "Goto", Style::Btn)->onClick([this](Event& e) { gotoOrigin(e); e.propagate = false; });
             makeBtn(actionRow, "Home", Style::Btn)->onClick([this](Event& e) { air().home(); refresh(e); e.propagate = false; });
@@ -259,9 +264,38 @@ export namespace Carvera::Gui {
             refresh(e);
         }
 
-        // "Set" overwrites the active alias with Air's current absolute
-        // position, then asks Air to zero the work coordinate system there.
+        // SET ORIGIN = establish the WORK FRAME, which IS the machine frame whose
+        // origin is the rotary axis.  Machine calibration has fixed the axis Y/Z, so
+        // those are KNOWN and Set Origin must NOT influence them -- it only contributes
+        // the components still up to the operator: X (where along the axis the work
+        // starts) and A (the angular index).  Y/Z are taken from the calibrated axis.
+        // Only when the axis is uncalibrated (zero confidence) does every component
+        // fall back to the live position -- the natural degenerate.
         void onSetOrigin(Event& e) {
+            Carvera::Air& a = air();
+            float x, y, z, aa;
+            if (!a.currentConfirmed(x, y, z, aa)) {
+                a.log("Connect and wait for a position before setting origin.");
+                refresh(e);
+                return;
+            }
+
+            double oy = y, oz = z;   // faith fallback (uncalibrated => zero confidence)
+            if (Cam::App::MachineProfile* m = app ? app->selectedMachine() : nullptr) {
+                if (m->rotaryAxisCalibrated) {
+                    oy = m->rotaryAxisY;   // KNOWN -- Set Origin cannot move it
+                    oz = m->rotaryAxisZ;
+                }
+            }
+            a.setWorkOrigin(x, (float)oy, (float)oz, aa);   // X,A on faith; Y,Z known
+            refresh(e);
+        }
+
+        // SET POINT = store a point of interest (the active alias / bookmark) at the
+        // current machine position.  This is purely a navigation bookmark (used by
+        // Goto); it does NOT touch the work frame.  Previously this was tangled into
+        // Set Origin -- they are now distinct intents.
+        void onSetPoint(Event& e) {
             commitOriginName();
             Carvera::Air& a = air();
             float x, y, z, aa;
@@ -271,7 +305,6 @@ export namespace Carvera::Gui {
                 loadOriginIntoFields();
                 persistMachine();
             }
-            a.setWorkOrigin();   // zeroes WCS + captures origin (or logs if not ready)
             refresh(e);
         }
 

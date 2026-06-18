@@ -104,6 +104,20 @@ export namespace Cam::App {
         int    threadPasses = 1;            // radial passes (1 = single-pass)
         bool   threadUpCut = true;          // true = bottom-up, false = top-down
 
+        // Implied tool REQUIREMENTS the feature imposes
+        //--------------------------------------------------
+        //
+        // DERIVED (recomputed each compute from the delta volume), never edited or
+        // serialized.  The counterpart to Tool::Implied: where the tool says what
+        // it CAN do, this says what the operation NEEDS.  A tool qualifies only if
+        // its diameter fits and its reach covers the feature -- so the selection
+        // dropdown can grey out, say, a 5 mm cutter for a 2 mm bore.
+        struct Implied {
+            double maxToolDiameter  = 0.0;   // widest tool the feature admits (0 = unbounded)
+            double minCuttingLength = 0.0;   // depth the tool's flutes/teeth must span
+        };
+        Implied implied;
+
         // Cached from the tool used at last compute (for preview geometry).
         double toolDiameter = 0.0;
         double toolLength = 0.0;
@@ -745,6 +759,112 @@ export namespace Cam::App {
         // Compute
         //--------------------------------------------------
 
+        // Derive the feature's tool REQUIREMENTS from the STRATEGY's own slices.
+        // minCuttingLength is the cut depth (surface to the deepest slice).
+        // maxToolDiameter is found by ASKING THE SLICER: a tool fits only while
+        // insetting the section by its radius preserves the section's topology --
+        // the moment a chain vanishes or the closed-chain count changes, the tool
+        // is too large.  (This is exactly generation 1's offset, so it agrees with
+        // what the cut would actually do, and it handles an annulus correctly: the
+        // ring pinches shut at half its width, not at the outer diameter.)
+        void computeImplied(const Slicer::Strategy::Strategy& strategyImpl) {
+
+            implied = Implied{};
+
+            const auto& slices = strategyImpl.slices();
+            if (slices.empty()) { return; }
+
+            auto countClosed = [](const auto& prof) {
+                size_t n = 0;
+                for (const auto& c : prof.chains) { if (c.closed) { n++; } }
+                return n;
+            };
+
+            // A loose upper bound on the inset radius: half the section's narrowest
+            // bounding span -- past this the inset has certainly collapsed.
+            auto bboxHalfSpan = [](const auto& prof) -> float {
+                bool first = true;
+                float uMin = 0.0f, uMax = 0.0f, vMin = 0.0f, vMax = 0.0f;
+                for (const auto& c : prof.chains) {
+                    for (const auto& e : c.edges) {
+                        for (int k = 0; k <= 8; k++) {
+                            const Pos q = Geo::Chain::edgePointAt(*e, float(k) / 8.0f);
+                            if (first) { uMin = uMax = q.x; vMin = vMax = q.y; first = false; }
+                            else {
+                                uMin = std::min(uMin, q.x); uMax = std::max(uMax, q.x);
+                                vMin = std::min(vMin, q.y); vMax = std::max(vMax, q.y);
+                            }
+                        }
+                    }
+                }
+                if (first) { return 0.0f; }
+                return 0.5f * std::min(uMax - uMin, vMax - vMin);
+            };
+
+            // Largest radius whose inset still has the SAME closed-chain count as
+            // the ancestor -- i.e. leaves the topology untouched.  A valid tool
+            // neither collapses a loop (too big for a bore) NOR mitoses one (splits
+            // a profile across a narrow neck).  Both show up as a changed chain
+            // count, and either can happen at an INTERMEDIATE radius, so we scan
+            // forward and stop at the FIRST change (a binary search would miss a
+            // mid-range split when both endpoints happen to match the ancestor).
+            auto maxFittingRadius = [&](const auto& seed) -> float {
+                const size_t n0 = countClosed(seed);
+                if (n0 == 0) { return 0.0f; }
+                const float hi = bboxHalfSpan(seed);
+                if (hi <= 1e-4f) { return 0.0f; }
+
+                const int steps = 24;
+                float good = 0.0f;   // largest scanned radius leaving topology intact
+                float bad  = hi;
+                bool  broke = false;
+
+                for (int i = 1; i <= steps; i++) {
+                    const float r = hi * float(i) / float(steps);
+                    if (countClosed(seed.offsetBy(r)) == n0) { good = r; }
+                    else { bad = r; broke = true; break; }   // first topology change
+                }
+
+                if (!broke) { return good; }   // never changed within the bound
+
+                // Refine the [good, bad] threshold.
+                for (int it = 0; it < 8; it++) {
+                    const float mid = 0.5f * (good + bad);
+                    if (countClosed(seed.offsetBy(mid)) == n0) { good = mid; }
+                    else { bad = mid; }
+                }
+                return good;
+            };
+
+            // Depth from the deepest cut; the tool-fit probe needs only ONE
+            // section -- the deepest slice (smallest z), the most constraining and
+            // the one a tool must actually reach.  (Z grows upward away from the
+            // material, so the deepest cut is the minimum z.)
+            bool   haveZ = false;
+            float  minZ = 0.0f;
+            size_t deepestIdx = slices.size();
+
+            for (size_t i = 0; i < slices.size(); i++) {
+
+                const float z = slices[i].z;
+                if (!haveZ || z < minZ) { minZ = z; haveZ = true; }
+
+                if (!slices[i].result.profiles.empty()) {
+                    if (deepestIdx == slices.size() || z < slices[deepestIdx].z) {
+                        deepestIdx = i;
+                    }
+                }
+            }
+
+            implied.minCuttingLength = std::max(0.0f, featureTopDepth - minZ);
+
+            // A single offset-topology probe on the deepest section.
+            if (deepestIdx < slices.size()) {
+                const float r = maxFittingRadius(slices[deepestIdx].result.profiles[0]);
+                if (r > 0.0f) { implied.maxToolDiameter = 2.0f * r; }
+            }
+        }
+
         bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
             clearPathData();
 
@@ -823,6 +943,10 @@ export namespace Cam::App {
 
             const Slicer::Strategy::Strategy& strategyImpl =
                 *strategyResult();
+
+            // The feature's tool requirements, read from the slices the strategy
+            // just produced (drives the selection dropdown).
+            computeImplied(strategyImpl);
 
             // Safe plane for every retract: the same clearance height the
             // approach/exit use.

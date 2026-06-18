@@ -76,6 +76,7 @@ export namespace Cam::Gui {
         bool toolCanPerform(const Cam::App::Tool& tool) const override {
 
             if (!tool.implied.canMillThreads) { return false; }
+            if (!toolFitsFeature(tool)) { return false; }   // reach the threaded depth
             if (!state) { return true; }
 
             const Cam::App::ToolPath& tp = state->toolPath;

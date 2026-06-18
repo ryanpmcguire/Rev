@@ -6,7 +6,7 @@ module;
 #include <memory>
 #include <functional>
 
-export module Cam.Gui.ProbeCalibrationWindow;
+export module Cam.Gui.MachineCalibrationWindow;
 
 import Rev.Window;
 import Rev.Element;
@@ -15,37 +15,35 @@ import Rev.Appearance;
 
 import Rev.Element.Box;
 import Rev.Element.Text;
-import Rev.Element.Dropdown;
 import Rev.Element.Button;
 import Rev.Element.NumberInput;
 
 import Cam.App;
 import Cam.App.Tool;
-import Cam.App.ToolLibrary;
-import Cam.App.ProbeCalibration;
+import Cam.App.Project;
+import Cam.App.MachineCalibration;
 import Cam.Gui.Theme;
 import Cam.Gui.Form;
 
 import CarveraAir;
 
 // ------------------------------------------------------------------
-// Cam::Gui::ProbeCalibrationWindow
+// Cam::Gui::MachineCalibrationWindow
 //
-// Child window of the tool-settings window (blue "Calibrate" button).  Drives a
-// calibration meta-program against a rectangular gauge/stock to infer the
-// probe's stylus radius, then stores it on the tool.  The routine:
+// Child window that calibrates the MACHINE DEFINITION: with a CALIBRATED probe
+// (known stylus radius r + 1-sigma), it probes a mounted flat aluminum plane at
+// a spread of tilt angles and lateral positions to locate the ROTARY (A) AXIS in
+// Y and Z -- with a stored confidence (sigma).  The flow mirrors probe
+// calibration; it differs only in what it solves for (the axis, not the radius)
+// and where it commits the result (the work frame's rotary axis, not the tool).
 //
-//   1. LEVEL  -- probe the flat top face to get a true A=0 zero reference.
+//   1. LEVEL  -- probe the flat top at A=0 for a true reference height.
 //   2. SAMPLE -- tilt across [angleMin, angleMax] (both signs) and probe
-//                `samplePoints` locations across `linearBound` at each.
-//   3. FIT    -- solve the contact model for the stylus radius.
-//   4. REVIEW -- show it; SAVE to the tool or REDO.
+//                `samplePoints` locations across `linearBound` (along Y) at each.
+//   3. FIT    -- de-bias by r, least-squares the axis Y/Z + confidences.
+//   4. REVIEW -- show the axis; COMMIT it to the work frame, or REDO.
 //
-// The window owns the SPEC + UI + state + result (Cam::App::ProbeCalibration).
-// The MACHINE DRIVER is injected via `onRunRequested` -- the world-view / Air
-// layer wires it to actually move the machine and feed contacts back (it then
-// fills `calib.samples`, calls `calib.fit()`, and calls `calibrationComplete()`).
-// This keeps the window testable and machine-agnostic.
+// The probe radius + its sigma are sourced from a loaded/selected probe tool.
 // ------------------------------------------------------------------
 
 export namespace Cam::Gui {
@@ -54,7 +52,7 @@ export namespace Cam::Gui {
     using namespace Rev::Element;
     using namespace Rev::Appearance;   // rgba(), sColor
 
-    namespace ProbeCalibrationLayout {
+    namespace MachineCalibrationLayout {
 
         Style Root = {
             .layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
@@ -88,42 +86,40 @@ export namespace Cam::Gui {
         };
     }
 
-    struct ProbeCalibrationWindow : public Rev::Window {
+    struct MachineCalibrationWindow : public Rev::Window {
 
         Cam::App::AppState* app = nullptr;
-        std::string toolName;
+        std::string probeToolName;   // probe whose calibrated r + sigma we use
 
-        Cam::App::ProbeCalibration calib;
+        Cam::App::MachineCalibration calib;
 
-        // Run-button state machine: Set Origin (blue) -> Start (green) -> Stop (red).
-        // The button only changes COLOUR (background) + label; its border/shape stay
-        // the rich primary look.  Jogging after Set Origin reverts it to Set Origin.
-        enum class RunState { NeedsOrigin, Ready, Running };
-        RunState   runState  = RunState::NeedsOrigin;
+        // Run-button state machine: Home & Touch Off (blue) -> Set Origin (blue) ->
+        // Start (green) -> Stop (red).  Machine calibration ALWAYS homes + touches
+        // off first, so the axis Y/Z is measured against the machine's true,
+        // repeatable zero (and the probe tip is referenced) before anything else.
+        enum class RunState { NeedsHome, NeedsOrigin, Ready, Running };
+        RunState   runState  = RunState::NeedsHome;
         Button*    runButton = nullptr;
-        Style      runBg{};   // background-color-only override (Null => primary blue)
+        Style      runBg{};
 
-        // Origin reference for "moved since Set Origin" detection (live telemetry).
         bool   originSet = false;
         double originX = 0, originY = 0, originZ = 0, originA = 0;
         double liveX = 0, liveY = 0, liveZ = 0, liveA = 0;
-        int    originSettle = 0;   // frames to ignore move-detect after the WCS re-zero
+        int    originSettle = 0;
         std::shared_ptr<bool> alive;
 
         // -- Machine driver: flat reference, then tilt sampling --------
         enum class DriverPhase { None, Reference, Sampling };
         DriverPhase driverPhase = DriverPhase::None;
-        double drvFlatZ = 0.0;                            // measured flat-face machine Z
-        std::vector<std::pair<double, double>> drvOrder;  // (angleDeg, lateral) per probe
+        double drvFlatZ = 0.0;
+        std::vector<std::pair<double, double>> drvOrder;
         std::size_t drvIdx = 0;
 
-        static constexpr double kClearance      = 3.0;    // standoff above expected (mm)
-        static constexpr double kTravel         = 9.0;    // plunge from standoff (mm)
-        static constexpr double kProbeFeed      = 100.0;  // mm/min (slow approach)
-        static constexpr double kAxisDepthGuess = 10.0;   // mm (standoff term only; small)
+        static constexpr double kClearance      = 3.0;
+        static constexpr double kTravel         = 9.0;
+        static constexpr double kProbeFeed      = 100.0;
+        static constexpr double kAxisDepthGuess = 10.0;
 
-        Dropdown*    artifactDropdown  = nullptr;
-        NumberInput* artifactSizeInput = nullptr;
         NumberInput* linearBoundInput  = nullptr;
         NumberInput* angleMinInput     = nullptr;
         NumberInput* angleMaxInput     = nullptr;
@@ -133,40 +129,42 @@ export namespace Cam::Gui {
         Text* planText   = nullptr;
         Text* statusText = nullptr;
 
-        // Injected machine driver: the world-view / Air layer wires this to run the
-        // level + tilt-and-probe sequence for `calib`, fill calib.samples, fit, and
-        // call calibrationComplete().  Unset => the window explains it isn't wired.
-        std::function<void(ProbeCalibrationWindow&)> onRunRequested;
-        // Abort an in-progress run (Stop).
-        std::function<void(ProbeCalibrationWindow&)> onStopRequested;
-        // Fired after a successful Save, so the settings window refreshes its copy.
-        std::function<void(double /*radius*/)> onCalibrated;
+        std::function<void(MachineCalibrationWindow&)> onStopRequested;
+        // Fired after a successful Commit, so an owner can persist / refresh.
+        std::function<void(Cam::App::MachineCalibration&)> onAxisCalibrated;
         std::function<void(Event&)> onClosed;
 
-        ProbeCalibrationWindow(Rev::Window* owner, const std::string& probeToolName)
+        MachineCalibrationWindow(Rev::Window* owner, const std::string& probeTool = "")
             : Rev::Window(
                 owner,
                 {
-                    .name = probeToolName + " - Calibrate Probe",
+                    .name = "Calibrate Machine",
                     .size = { .width = 460, .height = 560 },
                     .minimizeButton = false,
                     .maximizeButton = false
                 }
             ) {
-            toolName = probeToolName;
+            probeToolName = probeTool;
 
             if (owner && owner->shared) { shared->state = owner->shared->state; }
-
             app = Cam::App::AppState::Get(shared->state);
+
+            // Machine calibration needs a CALIBRATED probe but isn't tied to one, so
+            // resolve it ourselves when no specific probe was handed in (the machine
+            // settings context has no probe in hand).
+            resolveProbe();
+
+            // Seed the known probe radius + its uncertainty from the probe tool.
+            if (Cam::App::Tool* t = tool()) {
+                calib.probeRadius      = t->probe.stylusRadius;
+                calib.probeRadiusSigma = t->probe.stylusRadiusSigma;
+            }
 
             style->layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
             style->size = { .width = 100_pct, .height = 100_pct };
 
             buildUi();
 
-            // Watch live machine position so the button reverts to "Set Origin" the
-            // moment the operator jogs after setting it.  Guarded so the listener
-            // is inert once this window is gone.
             alive = std::make_shared<bool>(true);
             {
                 auto a = alive;
@@ -182,8 +180,7 @@ export namespace Cam::Gui {
                     });
             }
 
-            setTitle(probeToolName + " - Calibrate Probe");
-
+            setTitle("Calibrate Machine");
             if (owner) { setPos(owner->details.x + 60, owner->details.y + 70); }
             else       { setPos(280, 140); }
 
@@ -192,16 +189,37 @@ export namespace Cam::Gui {
         }
 
         Cam::App::Tool* tool() {
-            return app ? app->toolLibrary()->find(toolName) : nullptr;
+            return app ? app->toolLibrary()->find(probeToolName) : nullptr;
         }
 
-        // Slot of this probe tool (its library position), pushed to Air so the
-        // spindle interlock treats that loaded slot as a probe.  No magic number.
+        // Slot of the resolved probe tool (by its library position), pushed to Air so
+        // the spindle interlock treats that loaded slot as a probe.  No magic number.
         int probeOpSlot() {
-            int slot = (app && app->toolLibrary()) ? app->toolLibrary()->indexOf(toolName) : 0;
+            int slot = (app && app->toolLibrary()) ? app->toolLibrary()->indexOf(probeToolName) : 0;
             if (slot <= 0 && app && app->toolLibrary()) { slot = app->toolLibrary()->probeSlot(); }
             Carvera::MachineLink::instance().setProbeSlot(slot);
             return slot;
+        }
+
+        // Ensure `probeToolName` names a probe tool.  If the supplied name isn't a
+        // probe (or is empty), scan the library and adopt a probe -- preferring a
+        // CALIBRATED one (its radius + sigma are what make the fit trustworthy).
+        void resolveProbe() {
+            if (!app) { return; }
+            auto* lib = app->toolLibrary();
+            if (!lib) { return; }
+
+            Cam::App::Tool* given = lib->find(probeToolName);
+            if (given && given->type == Cam::App::Tool::Type::Probe) { return; }
+
+            std::string firstProbe;
+            for (const std::string& name : lib->order) {
+                Cam::App::Tool* t = lib->find(name);
+                if (!t || t->type != Cam::App::Tool::Type::Probe) { continue; }
+                if (firstProbe.empty()) { firstProbe = name; }
+                if (t->probe.calibrated) { probeToolName = name; return; }
+            }
+            if (!firstProbe.empty()) { probeToolName = firstProbe; }
         }
 
         // -- Build -----------------------------------------------------
@@ -210,24 +228,24 @@ export namespace Cam::Gui {
 
             Box* root = new Box(
                 this,
-                Theme::withSettingsDialog({ &ProbeCalibrationLayout::Root }),
-                "CalibRoot"
+                Theme::withSettingsDialog({ &MachineCalibrationLayout::Root }),
+                "MachineCalibRoot"
             );
 
             Box* header = new Box(
                 root,
-                Theme::layer({ &ProbeCalibrationLayout::Header }, { &Theme::Styles::SettingsHeader }),
+                Theme::layer({ &MachineCalibrationLayout::Header }, { &Theme::Styles::SettingsHeader }),
                 "Header"
             );
-            new Text(header, "PROBE CALIBRATION",
+            new Text(header, "MACHINE CALIBRATION",
                      Theme::layer({}, { &Theme::Styles::SettingsHeaderEyebrow }));
-            new Text(header, toolName,
+            new Text(header, "Rotary axis location",
                      Theme::layer({}, { &Theme::Styles::SettingsHeaderTitle }));
 
             Box* body = new Box(
                 root,
                 Theme::layer(
-                    { &ProbeCalibrationLayout::Body, &Theme::Styles::SettingsBody },
+                    { &MachineCalibrationLayout::Body, &Theme::Styles::SettingsBody },
                     { &Theme::Styles::Text }
                 ),
                 "Body"
@@ -236,25 +254,11 @@ export namespace Cam::Gui {
 
             new Text(
                 col,
-                "Mount a rectangular gauge / stock. Calibration levels the top face "
-                "for a true zero, then tilts and probes it across a range of angles "
-                "to infer the stylus radius. Done once per probe.",
-                Theme::layer({ &ProbeCalibrationLayout::Note }, { &Theme::Styles::MutedText })
+                "Mount a flat aluminum plane in the chuck. With a CALIBRATED probe "
+                "loaded, this levels the face, then tilts and probes it across a range "
+                "of angles to locate the rotary axis in Y and Z, with a confidence.",
+                Theme::layer({ &MachineCalibrationLayout::Note }, { &Theme::Styles::MutedText })
             );
-
-            // Artifact
-            Form::section(col, "REFERENCE ARTIFACT");
-            artifactDropdown = new Dropdown(col, {
-                .label = "Artifact",
-                .options = {
-                    { "Flat gauge block",   "gauge"    },
-                    { "Reference cylinder", "cylinder" }
-                },
-                .placeholder = "Select artifact",
-                .value = Cam::App::ProbeCalibration::artifactToString(calib.artifact)
-            });
-            artifactDropdown->onChange = [this](Event& e) { updatePlan(e); };
-            artifactSizeInput = Form::numberField(Form::row(col, "SizeRow"), "Artifact size (mm)", "10");
 
             // Linear sampling
             Form::section(col, "SAMPLING");
@@ -269,21 +273,17 @@ export namespace Cam::Gui {
             angleMaxInput = Form::numberField(angRow, "Max angle (deg)", "30");
             sampleAnglesInput = Form::numberField(Form::row(col, "AngCountRow"), "Sample angles", "5");
 
-            // Plan + result
             Form::section(col, "PLAN");
-            planText = new Text(col, "", Theme::layer({ &ProbeCalibrationLayout::Note }, { &Theme::Styles::MutedText }));
+            planText = new Text(col, "", Theme::layer({ &MachineCalibrationLayout::Note }, { &Theme::Styles::MutedText }));
             Form::section(col, "STATUS");
-            statusText = new Text(col, "", Theme::layer({ &ProbeCalibrationLayout::Note }, { &Theme::Styles::MutedText }));
+            statusText = new Text(col, "", Theme::layer({ &MachineCalibrationLayout::Note }, { &Theme::Styles::MutedText }));
 
-            // Seed inputs from the spec, then live-update the plan.
-            artifactSizeInput->setValue(calib.artifactSize);
             linearBoundInput->setValue(calib.linearBound);
             samplePointsInput->setValue(static_cast<double>(calib.samplePoints));
             angleMinInput->setValue(calib.angleMin);
             angleMaxInput->setValue(calib.angleMax);
             sampleAnglesInput->setValue(static_cast<double>(calib.sampleAngles));
 
-            bindLive(artifactSizeInput);
             bindLive(linearBoundInput);
             bindLive(samplePointsInput);
             bindLive(angleMinInput);
@@ -293,23 +293,20 @@ export namespace Cam::Gui {
             // Footer
             Box* footer = new Box(
                 root,
-                Theme::layer({ &ProbeCalibrationLayout::Footer }, { &Theme::Styles::SettingsFooter }),
+                Theme::layer({ &MachineCalibrationLayout::Footer }, { &Theme::Styles::SettingsFooter }),
                 "Footer"
             );
 
-            Button* closeButton = new Button(footer, Button::Params::Secondary("Close"), { &ProbeCalibrationLayout::FooterButton });
+            Button* closeButton = new Button(footer, Button::Params::Secondary("Close"), { &MachineCalibrationLayout::FooterButton });
             closeButton->onClick([this](Event& e) { requestClose(&e); e.propagate = false; });
 
-            Button* redoButton = new Button(footer, Button::Params::Secondary("Redo"), { &ProbeCalibrationLayout::FooterButton });
+            Button* redoButton = new Button(footer, Button::Params::Secondary("Redo"), { &MachineCalibrationLayout::FooterButton });
             redoButton->onClick([this](Event& e) { redo(e); e.propagate = false; });
 
-            Button* saveButton = new Button(footer, Button::Params::Secondary("Save"), { &ProbeCalibrationLayout::FooterButton });
-            saveButton->onClick([this](Event& e) { saveResult(e); e.propagate = false; });
+            Button* commitButton = new Button(footer, Button::Params::Secondary("Commit"), { &MachineCalibrationLayout::FooterButton });
+            commitButton->onClick([this](Event& e) { commitResult(e); e.propagate = false; });
 
-            // The stateful action button.  Built as the rich primary (border/shape/
-            // label styling), then a background-only override (`runBg`, added last so
-            // it wins) recolours it green/red per state without touching the border.
-            runButton = new Button(footer, Button::Params::Primary("Set Origin"), { &ProbeCalibrationLayout::FooterButton });
+            runButton = new Button(footer, Button::Params::Primary("Set Origin"), { &MachineCalibrationLayout::FooterButton });
             runButton->styles.add(&runBg);
             runButton->onClick([this](Event& e) { onRunButton(e); e.propagate = false; });
 
@@ -327,8 +324,6 @@ export namespace Cam::Gui {
         // -- Spec / plan / status -------------------------------------
 
         void captureSpec() {
-            if (artifactDropdown)  { calib.artifact = Cam::App::ProbeCalibration::artifactFromString(artifactDropdown->params.value); }
-            if (artifactSizeInput) { calib.artifactSize = artifactSizeInput->valueOr(calib.artifactSize); }
             if (linearBoundInput)  { calib.linearBound  = linearBoundInput->valueOr(calib.linearBound); }
             if (angleMinInput)     { calib.angleMin     = angleMinInput->valueOr(calib.angleMin); }
             if (angleMaxInput)     { calib.angleMax     = angleMaxInput->valueOr(calib.angleMax); }
@@ -340,67 +335,69 @@ export namespace Cam::Gui {
         void updatePlan(Event&) {
             captureSpec();
             if (!planText) { return; }
-            char buf[220];
+            char buf[320];
             const int orientations = static_cast<int>(calib.angleSchedule().size());
+            Cam::App::Tool* t = tool();
+            const char* probeName = t ? t->name.c_str() : "(no probe)";
+            const bool  cal = t && t->probe.calibrated;
             std::snprintf(
                 buf, sizeof(buf),
-                "%d orientations x %d points = %d contacts; %.0f-%.0f deg over %.0f mm.",
+                "%d orientations x %d points = %d contacts; %.0f-%.0f deg over %.0f mm.\n"
+                "Probe \"%s\": r=%.3f +/- %.3f mm%s",
                 orientations, calib.samplePoints, calib.plannedContacts(),
-                calib.angleMin, calib.angleMax, calib.linearBound
+                calib.angleMin, calib.angleMax, calib.linearBound,
+                probeName, calib.probeRadius, calib.probeRadiusSigma,
+                cal ? "." : "  -- NOT calibrated; calibrate the probe first."
             );
             planText->content = buf;
         }
 
         void updateStatus() {
             if (!statusText) { return; }
-
-            Cam::App::Tool* t = tool();
-            char cur[96] = "";
-            if (t) {
-                std::snprintf(cur, sizeof(cur), "Stored: %.3f mm (%s).",
-                    t->probe.stylusRadius, t->probe.calibrated ? "calibrated" : "assumed");
-            }
-
             if (calib.haveResult) {
-                char buf[200];
+                char buf[220];
                 std::snprintf(buf, sizeof(buf),
-                    "Inferred stylus radius %.3f +/- %.3f mm (residual %.4f). Save to store. %s",
-                    calib.resultRadius, calib.resultRadiusSigma, calib.resultResidual, cur);
+                    "Rotary axis  Y %.3f +/- %.3f mm,  Z %.3f +/- %.3f mm "
+                    "(depth %.3f, residual %.4f). Commit to store.",
+                    originY + calib.resultAxisY, calib.resultAxisYSigma,
+                    calib.resultAxisZ, calib.resultAxisZSigma,
+                    calib.resultDepth, calib.resultResidual);
                 statusText->content = buf;
             }
             else {
-                statusText->content =
-                    Cam::App::ProbeCalibration::phaseLabel(calib.phase) + std::string("  ") + cur;
+                statusText->content = Cam::App::MachineCalibration::phaseLabel(calib.phase);
             }
         }
 
-        // Called by the injected driver once samples are collected + fit.
         void calibrationComplete() {
-            calib.phase = calib.haveResult ? Cam::App::ProbeCalibration::Phase::Review
-                                           : Cam::App::ProbeCalibration::Phase::Failed;
-            runState = RunState::Ready;   // probing moved the machine; telemetry will
-            updateRunButton();            // revert to Set Origin if it's off-origin
+            calib.phase = calib.haveResult ? Cam::App::MachineCalibration::Phase::Review
+                                           : Cam::App::MachineCalibration::Phase::Failed;
+            runState = RunState::Ready;
+            updateRunButton();
             updateStatus();
             refresh(event);
         }
 
         // -- Run-button state machine ----------------------------------
 
-        // Recolour (background only) + relabel the action button for the state.
         void updateRunButton() {
             if (!runButton) { return; }
             const char* label = "Set Origin";
             switch (runState) {
+                case RunState::NeedsHome:
+                    runBg.background.color = sColor::Null();
+                    label = "Home & Touch Off";
+                    break;
                 case RunState::NeedsOrigin:
-                    runBg.background.color = sColor::Null();        // -> primary blue
+                    runBg.background.color = sColor::Null();
                     label = "Set Origin";
                     break;
                 case RunState::Ready:
-                    runBg.background.color = rgba(40, 170, 90, 1.0);   // green
+                    runBg.background.color = rgba(40, 170, 90, 1.0);
                     label = "Start";
                     break;
                 case RunState::Running:
-                    runBg.background.color = rgba(214, 64, 64, 1.0);   // red
+                    runBg.background.color = rgba(214, 64, 64, 1.0);
                     label = "Stop";
                     break;
             }
@@ -410,15 +407,29 @@ export namespace Cam::Gui {
 
         void onRunButton(Event&) {
             switch (runState) {
-                case RunState::NeedsOrigin: doSetOrigin(); break;
-                case RunState::Ready:       startRun();    break;
-                case RunState::Running:     stopRun();     break;
+                case RunState::NeedsHome:   doHomeTouchOff(); break;
+                case RunState::NeedsOrigin: doSetOrigin();    break;
+                case RunState::Ready:       startRun();       break;
+                case RunState::Running:     stopRun();        break;
             }
         }
 
-        // Set Origin: the canonical capture + WCS zero (so G90 == machine absolute,
-        // matching the validated cut/probe path).  Read the captured machine origin
-        // back for the driver waypoints + move detection.
+        // Home + touch off FIRST: reference the machine to its repeatable zero and
+        // the probe tip to the built-in sensor, so the axis Y/Z that calibration
+        // measures is expressed against that true zero.  Homing is async; advancing
+        // to Set Origin is fine -- the operator jogs to the artifact afterward.
+        void doHomeTouchOff() {
+            auto& link = Carvera::MachineLink::instance();
+            link.home();
+            link.touchOffProbe();
+            runState = RunState::NeedsOrigin;
+            statusText->content =
+                "Homing + touch-off issued. When motion settles, jog to the artifact "
+                "and press Set Origin.";
+            updateRunButton();
+            refresh(event);
+        }
+
         void doSetOrigin() {
             auto& link = Carvera::MachineLink::instance();
             link.setWorkOrigin();
@@ -427,7 +438,7 @@ export namespace Cam::Gui {
             if (link.machineOrigin(mx, my, mz, ma)) {
                 originX = mx; originY = my; originZ = mz; originA = ma;
                 originSet = true;
-                originSettle = 12;   // let telemetry settle past the WCS re-zero jump
+                originSettle = 12;
                 runState = RunState::Ready;
                 statusText->content = "Origin set. Press Start to run the calibration.";
             }
@@ -441,6 +452,10 @@ export namespace Cam::Gui {
         void startRun() {
             captureSpec();
             calib.reset();
+            if (Cam::App::Tool* t = tool()) {
+                calib.probeRadius      = t->probe.stylusRadius;
+                calib.probeRadiusSigma = t->probe.stylusRadiusSigma;
+            }
             runState = RunState::Running;
             updateRunButton();
             runDriver();
@@ -451,19 +466,16 @@ export namespace Cam::Gui {
             Carvera::MachineLink::instance().stop();
             driverPhase = DriverPhase::None;
             if (onStopRequested) { onStopRequested(*this); }
-            calib.phase = Cam::App::ProbeCalibration::Phase::Idle;
+            calib.phase = Cam::App::MachineCalibration::Phase::Idle;
             runState = RunState::Ready;
             updateRunButton();
             updateStatus();
             refresh(event);
         }
 
-        // Live position; revert to "Set Origin" if jogged after it was set.
         void onTelemetry(Carvera::MachineLink::TelemetryEvent& e) {
             liveX = e.x; liveY = e.y; liveZ = e.z; liveA = e.a;
             if (originSettle > 0) {
-                // Re-sync the origin to live while the WCS re-zero settles, so the
-                // one-time coordinate jump isn't read as a jog.
                 originX = liveX; originY = liveY; originZ = liveZ; originA = liveA;
                 originSettle--;
                 return;
@@ -482,8 +494,6 @@ export namespace Cam::Gui {
 
         // -- The driving sequence (machine coords; G90 == machine) ------
 
-        // Append one probe to an op: rapid to the standoff, G38.2 down to `through`,
-        // retract back to the standoff (so travel BETWEEN points stays high/safe).
         void addProbe(Carvera::MachineLink::Operation& op,
                       double offsetY, double angleDeg, double standoffZ, double throughZ) {
             using Pth = Carvera::MachineLink::Path;
@@ -504,7 +514,6 @@ export namespace Cam::Gui {
             op.paths.push_back(rt);
         }
 
-        // Phase 1: one probe at the centre, flat, to measure the true reference Z.
         void runDriver() {
             auto& link = Carvera::MachineLink::instance();
             if (!link.isArmed()) {
@@ -514,34 +523,33 @@ export namespace Cam::Gui {
                 return;
             }
 
-            calib.phase = Cam::App::ProbeCalibration::Phase::Leveling;
+            calib.phase = Cam::App::MachineCalibration::Phase::Leveling;
             driverPhase = DriverPhase::Reference;
             updateStatus();
 
             using Op = Carvera::MachineLink::Operation;
-            Op op = Op::probe(probeOpSlot(), "Calibrate: reference");
+            Op op = Op::probe(probeOpSlot(), "Machine calib: reference");
             addProbe(op, /*offsetY*/ 0.0, /*angle*/ 0.0,
                      /*standoff*/ originZ + kClearance,
                      /*through*/  originZ - kTravel);
             link.enqueueOperations({ op });
         }
 
-        // Phase 2: probe every (angle x lateral) with an `expectedRise`-safe standoff.
         void startSampling() {
             driverPhase = DriverPhase::Sampling;
             drvOrder.clear();
             drvIdx = 0;
-            calib.phase = Cam::App::ProbeCalibration::Phase::Sampling;
+            calib.phase = Cam::App::MachineCalibration::Phase::Sampling;
             updateStatus();
             refresh(event);
 
             using Op = Carvera::MachineLink::Operation;
-            Op op = Op::probe(probeOpSlot(), "Calibrate: samples");
+            Op op = Op::probe(probeOpSlot(), "Machine calib: samples");
 
             for (double ang : calib.angleSchedule()) {
                 for (double lat : calib.lateralSchedule()) {
                     if (std::fabs(ang) < 0.5 && std::fabs(lat) < 1e-6) { continue; }  // centre done
-                    const double rise = Cam::App::ProbeCalibration::expectedRise(ang, lat, kAxisDepthGuess);
+                    const double rise = Cam::App::MachineCalibration::expectedRise(ang, lat, kAxisDepthGuess);
                     const double standoff = drvFlatZ + rise + kClearance;
                     addProbe(op, lat, ang, standoff, standoff - kTravel);
                     drvOrder.push_back({ ang, lat });
@@ -550,14 +558,11 @@ export namespace Cam::Gui {
             Carvera::MachineLink::instance().enqueueOperations({ op });
         }
 
-        // Contacts stream back in enqueue order; route by phase, fit when done.
         void onCalibContact(Carvera::MachineLink::ProbeEvent& e) {
             if (driverPhase == DriverPhase::Reference) {
-                // No contact => the Z origin is too high; abort rather than sample
-                // against a bogus reference (every standoff would be wrong).
                 if (!e.triggered) {
                     driverPhase = DriverPhase::None;
-                    calib.phase = Cam::App::ProbeCalibration::Phase::Failed;
+                    calib.phase = Cam::App::MachineCalibration::Phase::Failed;
                     runState = RunState::Ready;
                     statusText->content =
                         "Reference probe didn't contact -- set the origin at/just above "
@@ -581,7 +586,7 @@ export namespace Cam::Gui {
                 }
                 if (drvIdx >= drvOrder.size()) {
                     driverPhase = DriverPhase::None;
-                    calib.phase = Cam::App::ProbeCalibration::Phase::Fitting;
+                    calib.phase = Cam::App::MachineCalibration::Phase::Fitting;
                     calib.fit();
                     calibrationComplete();
                 }
@@ -592,25 +597,22 @@ export namespace Cam::Gui {
             }
         }
 
-        void saveResult(Event&) {
+        // Commit the inferred axis into the work frame.  The fit is in MACHINE
+        // coordinates (the absolute frame established by Set Origin): axis Z is
+        // machine Z, axis Y is the lateral origin (machine Y at Set Origin) plus the
+        // fitted lateral offset.  Stored with measured=true + the 1-sigma confidence.
+        void commitResult(Event&) {
             if (!calib.haveResult) {
-                statusText->content = "Nothing to save yet -- run a calibration first.";
+                statusText->content = "Nothing to commit yet -- run a calibration first.";
                 refresh(event);
                 return;
             }
-
-            Cam::App::Tool* t = tool();
-            if (t) {
-                t->probe.stylusRadius        = calib.resultRadius;
-                t->probe.calibrated          = true;
-                t->probe.calibrationResidual = calib.resultResidual;
-                t->probe.stylusRadiusSigma   = calib.resultRadiusSigma;
-                if (!t->filePath.empty()) {
-                    Cam::App::ToolLibrary::saveToolFileAtPath(t->filePath, *t);
-                }
-                if (onCalibrated) { onCalibrated(calib.resultRadius); }
-            }
-            updateStatus();
+            // Resolve the axis Y into absolute machine coords; the owner persists it
+            // onto the MACHINE DEFINITION (the single source of truth -- the calibrated
+            // axis is machine geometry, used at Set Origin to pin the work frame).
+            calib.resultAxisYAbs = originY + calib.resultAxisY;
+            if (onAxisCalibrated) { onAxisCalibrated(calib); }
+            statusText->content = "Rotary axis committed to the machine definition.";
             refresh(event);
         }
 
@@ -620,10 +622,10 @@ export namespace Cam::Gui {
             refresh(event);
         }
 
-        // -- Close handling (no unsaved state to guard) -----------------
+        // -- Close handling --------------------------------------------
 
         void close(Event* event = nullptr) {
-            if (alive) { *alive = false; }   // stop the telemetry listener
+            if (alive) { *alive = false; }
             shouldClose = true;
             if (event && onClosed) { onClosed(*event); }
         }
@@ -633,7 +635,7 @@ export namespace Cam::Gui {
         }
 
         void onClose(bool& rejectClose) override {
-            if (alive) { *alive = false; }   // stop the telemetry listener
+            if (alive) { *alive = false; }
             rejectClose = false;
             if (onClosed) { onClosed(this->event); }
         }

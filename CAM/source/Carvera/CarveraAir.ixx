@@ -23,6 +23,10 @@ import Rev.Client;
 import Rev.Core.Animator;
 import Rev.Core.Dispatcher;
 
+import Cam.Machine.Operation;   // Waypoint / Path / Operation / OperationResult
+import Cam.Machine.Events;      // status enums + dispatched event payloads
+import Carvera.Steps;           // Step + the Operation -> wire-Step translation
+
 export namespace Carvera {
 
     // ==================================================================
@@ -76,9 +80,24 @@ export namespace Carvera {
         //   Confirming  the operator confirmed; the machine is finishing the
         //               cycle (tool touch-off / height measurement).
         //
-        // Each transition emits a discrete event (begin / standby / confirm /
-        // complete) so the GUI can react precisely.
-        enum class ToolChangePhase { None, Seeking, Standby, Confirming };
+        // The public status enums + event payloads are the abstract MACHINE's
+        // vocabulary (Cam::Machine), aliased here so callers + internal code are
+        // unchanged.  Only Air's INTERNAL orchestration enums (TcPhase, Exec) and
+        // wire types (Step) stay Carvera-specific.
+        using ConnectionStatus = Cam::Machine::ConnectionStatus;
+        using Activity         = Cam::Machine::Activity;
+        using ToolChangePhase  = Cam::Machine::ToolChangePhase;
+
+        using TelemetryEvent  = Cam::Machine::TelemetryEvent;
+        using StateEvent      = Cam::Machine::StateEvent;
+        using ConnectionEvent = Cam::Machine::ConnectionEvent;
+        using LogEvent        = Cam::Machine::LogEvent;
+        using ActivityEvent   = Cam::Machine::ActivityEvent;
+        using ArmEvent        = Cam::Machine::ArmEvent;
+        using StartEvent      = Cam::Machine::StartEvent;
+        using ProbeEvent      = Cam::Machine::ProbeEvent;
+        using SafetyEvent     = Cam::Machine::SafetyEvent;
+        using ToolChangeEvent = Cam::Machine::ToolChangeEvent;
 
         // Internal orchestration phase.  MORE granular than the public
         // ToolChangePhase because robustness demands separating "M6 sent,
@@ -97,71 +116,14 @@ export namespace Carvera {
             Aborted,      // Operation failed.  Operator must acknowledge / reset.
         };
 
-        enum class ConnectionStatus { Disconnected, Connecting, Connected, Error };
-
-        // What Air is doing RIGHT NOW, at the granularity of the typed paths it
-        // is executing.  This is the machine's self-awareness -- it never knows
-        // what the part/material looks like (that's the software's job), but it
-        // always knows whether it is travelling, cutting, probing, or changing a
-        // tool.  Derived purely from the operation/path being streamed.
-        enum class Activity { Idle, Traveling, Cutting, Probing, ToolChanging };
-
-        static const char* activityName(Activity a) {
-            switch (a) {
-                case Activity::Idle:         return "Idle";
-                case Activity::Traveling:    return "Traveling";
-                case Activity::Cutting:      return "Cutting";
-                case Activity::Probing:      return "Probing";
-                case Activity::ToolChanging: return "Changing tool";
-            }
-            return "?";
-        }
-
-        // -- Event payloads ------------------------------------------
-
-        struct TelemetryEvent  { float x = 0, y = 0, z = 0, a = 0; };
-        struct StateEvent      { std::string state; };
-        struct ConnectionEvent { ConnectionStatus status = ConnectionStatus::Disconnected; std::string message; };
-        struct LogEvent        { std::string line; };
-        struct ActivityEvent   { Activity activity = Activity::Idle; };
-        struct ArmEvent        { bool armed = false; bool spindleArmed = false; };
-        struct StartEvent      {};
-
-        // Result of a G38.x probe move.  `triggered` is the controller's
-        // success flag from the "[PRB:x,y,z:1|0]" reply -- 1 = the probe made
-        // contact, 0 = the move reached its target without ever triggering
-        // (a probe fail, which on Smoothie also raises an alarm).  x/y/z are
-        // the MACHINE position at the moment of contact.
-        struct ProbeEvent      { float x = 0, y = 0, z = 0; bool triggered = false; };
-
-        // Raised when a spindle-start command (M3/M4) was REFUSED because a
-        // probe / spindle-inhibited tool is loaded.  `blocked` is the exact
-        // line that was suppressed; `reason` is an operator-facing sentence.
-        // When this fires, Air has already forced the spindle off (M5) and
-        // stopped any running program -- a handler should surface it loudly.
-        struct SafetyEvent     { std::string reason; std::string blocked; };
-
-        // One payload shared by all four tool-change lifecycle channels; the
-        // `phase` field says which transition the machine just entered.
-        // `aborted` is set on the Complete channel when the change ended
-        // because of a failure rather than success; `reason` is a single
-        // operator-facing sentence explaining what went wrong.
-        struct ToolChangeEvent {
-            int             slot = 0;
-            ToolChangePhase phase = ToolChangePhase::None;
-            bool            aborted = false;
-            std::string     reason;
-        };
-
-        // Result of a precondition-checked operation.  The GUI surfaces
-        // `reason` directly to the operator when ok is false.
-        struct OperationResult {
-            bool        ok = true;
-            std::string reason;
-
-            static OperationResult success()                       { return { true, "" }; }
-            static OperationResult failure(std::string r)          { return { false, std::move(r) }; }
-        };
+        // The abstract-machine execution vocabulary lives in Cam::Machine; Air
+        // aliases it so every existing Carvera::MachineLink::Operation (etc.)
+        // reference is unchanged.  Air's job is to TRANSLATE these to its wire
+        // protocol (Steps), not to define them.
+        using OperationResult = Cam::Machine::OperationResult;
+        using Waypoint        = Cam::Machine::Waypoint;
+        using Path            = Cam::Machine::Path;
+        using Operation       = Cam::Machine::Operation;
 
         // -- Singleton -----------------------------------------------
 
@@ -524,29 +486,58 @@ export namespace Carvera {
                 pushLog("Connect and wait for position before setting origin.");
                 return;
             }
-            captureMachineOrigin(confX, confY, confZ, confA);
+            // No explicit origin given => take the current position on faith for
+            // EVERY component (the uncalibrated degenerate).
+            setWorkOrigin(confX, confY, confZ, confA);
+        }
+
+        // Locate the part origin at an EXPLICIT machine point.  The caller decides
+        // which components are taken on faith from the live position (X, A on a
+        // calibrated machine) and which are KNOWN (Y, Z = the calibrated rotary
+        // axis).  The WCS is still zeroed at the current controller position so G90
+        // == machine absolute; the captured origin is what the host offsets from.
+        void setWorkOrigin(float x, float y, float z, float a) {
+            if (!connected()) {
+                pushLog("Connect before setting origin.");
+                return;
+            }
+            captureMachineOrigin(x, y, z, a);
             sendLine("G10 L2 P1 X0 Y0 Z0 A0\n");   // WCS offset = 0 => G90 == machine absolute
             pushLog(std::format(
                 "Part origin located at machine (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}); "
                 "WCS zeroed to machine -- all program moves are now absolute.",
-                confX, confY, confZ, confA));
+                x, y, z, a));
 
             // The part has been re-referenced; any prior probe correction is now
             // stale.  Announce so the CAM view can clear it.
             if (onWorkOriginSet) { onWorkOriginSet(); }
         }
 
+        // Touch the loaded probe/tool off against the machine's built-in tool-length
+        // sensor.  NOTE: the exact Carvera touch-off command is unconfirmed on real
+        // hardware (M493 is the current best guess -- see CarveraREADME); verify and
+        // adjust here once observed.  Used by machine calibration to reference the
+        // tip to the machine's repeatable zero before measuring the axis.
+        void touchOffProbe() {
+            if (!requireConnected()) { return; }
+            sendLine("M493\n");
+            pushLog("Touch-off (M493) -- referencing tip to the built-in sensor "
+                    "(command unconfirmed; verify on hardware).");
+        }
+
         // ============================================================
         // Probing  (FIRST-STEP / EXPERIMENTAL -- see CarveraREADME.md)
         // ============================================================
         //
-        // Probe-tool selection is UNCONFIRMED on real hardware: `M6 T0` was
-        // observed to UNLOAD the spindle (drop the tool to the ATC), not pick
-        // up the wired probe -- so kProbeToolSlot=0 is almost certainly wrong.
-        // The community 3D probe registers as the pseudo-slot 999990.  Kept as
-        // a one-line constant until we confirm how this machine selects the
-        // probe (it may not be an ATC M6 at all).  See CarveraREADME.md.
-        static constexpr int kProbeToolSlot = 0;
+        // Which tool slot holds the PROBE.  Air is machine-agnostic, so it does NOT
+        // know tool TYPES -- the app resolves the probe by type (Tool::Type::Probe)
+        // and PUSHES its slot here via setProbeSlot().  The spindle interlock
+        // (isProbeSlot), tool-change routing and probe operations all read it.  -1 =
+        // no probe known (the app hasn't pushed one).  The community 3D probe still
+        // registers as the pseudo-slot >= 999990 and is always treated as a probe.
+        std::atomic<int> probeSlot_ { -1 };
+        void setProbeSlot(int slot) { probeSlot_.store(slot); }
+        int  probeSlot() const      { return probeSlot_.load(); }
 
         // Sentinel operation tool slot meaning "do not change tools -- use
         // whatever is currently in the spindle".  Handy for a bench probe test
@@ -562,7 +553,9 @@ export namespace Carvera {
         // any probe motion -- that waits for the change to actually complete.
         OperationResult ensureProbeTool() {
             if (!connected()) { return OperationResult::failure("Not connected to machine."); }
-            if (loadedSlot.load() == kProbeToolSlot) {
+            const int slot = probeSlot();
+            if (slot < 0) { return OperationResult::failure("No probe tool defined in the library."); }
+            if (loadedSlot.load() == slot) {
                 return OperationResult::success();   // already loaded -> nothing to do
             }
             // SAFETY: engage the interlock before the probe can be in the spindle.
@@ -570,7 +563,7 @@ export namespace Carvera {
             // (not the armed flag) is what guarantees the spindle never spins --
             // any M3/M4 is refused while inhibited, armed or not.
             setSpindleInhibited(true, "probe tool change requested");
-            return changeTool(kProbeToolSlot);
+            return changeTool(slot);
         }
 
         // Probe straight down until the probe triggers (or `maxDepthMm` of
@@ -607,7 +600,7 @@ export namespace Carvera {
         void probeTest() {
             if (!connected()) { pushLog("Probe: not connected."); return; }
 
-            if (loadedSlot.load() == kProbeToolSlot) {
+            if (probeSlot() >= 0 && loadedSlot.load() == probeSlot()) {
                 probeZDown();
                 return;
             }
@@ -849,35 +842,9 @@ export namespace Carvera {
         // telemetry the whole time rather than trusting the controller to keep
         // its place (neocortex vs. motor cortex: plan, but watch the body).
 
-        struct Step {
-            // Probe  = G38.2 toward (x,y,z,a) until contact (the "intersect" path).
-            // Note   = a runtime log line (not sent to the machine); marks the
-            //          boundaries of typed operations so the log narrates the
-            //          who/what/why as Air works through the queue.
-            enum class Kind { Move, ToolChange, Spindle, Dwell, Raw, Probe, Note };
-            Kind kind = Kind::Raw;
-
-            // Move (WCS): feed <= 0 -> rapid G0, feed > 0 -> G1 F<feed>.
-            double x = 0, y = 0, z = 0, a = 0;
-            double feed = 0;
-
-            int    slot    = 0;   // ToolChange
-            double rpm     = 0;   // Spindle (> 0 -> M3 S<rpm>, else M5)
-            double seconds = 0;   // Dwell (G4 P<seconds>)
-            std::string raw;      // Raw G-code line / Note message
-
-            static Step moveTo(double x, double y, double z, double a, double feed) {
-                Step s; s.kind = Kind::Move; s.x = x; s.y = y; s.z = z; s.a = a; s.feed = feed; return s;
-            }
-            static Step probeTo(double x, double y, double z, double a, double feed) {
-                Step s; s.kind = Kind::Probe; s.x = x; s.y = y; s.z = z; s.a = a; s.feed = feed; return s;
-            }
-            static Step toolChange(int slot) { Step s; s.kind = Kind::ToolChange; s.slot = slot; return s; }
-            static Step spindle(double rpm)   { Step s; s.kind = Kind::Spindle;    s.rpm  = rpm;  return s; }
-            static Step dwell(double seconds) { Step s; s.kind = Kind::Dwell;      s.seconds = seconds; return s; }
-            static Step raw_(std::string g)   { Step s; s.kind = Kind::Raw;        s.raw  = std::move(g); return s; }
-            static Step note(std::string m)   { Step s; s.kind = Kind::Note;       s.raw  = std::move(m); return s; }
-        };
+        // Step + the Operation->Step translation live in Carvera::Steps; alias the
+        // wire type so all of Air's streaming code is unchanged.
+        using Step = Carvera::Step;
 
         // ============================================================
         // Typed operations  (the "chapters" the GUI hands Air)
@@ -892,43 +859,8 @@ export namespace Carvera {
         // operation boundaries to the log.  This is what lets Air always know
         // the who/what/why of what it is doing.
 
-        // One waypoint in a path (target frame == the user/machine frame the
-        // caller already resolved; same convention as Step::moveTo coordinates).
-        struct Waypoint { double x = 0, y = 0, z = 0, a = 0; };
-
-        struct Path {
-            // Travel    = rapid repositioning (spindle/probe not engaging).
-            // Cut       = feed-rate cutting move (spindle on for a Cut op).
-            // Intersect = drive slowly toward the last point until the probe
-            //             contacts the part (G38.2); the contact is reported via
-            //             the [PRB:...] reply -> ProbeEvent.
-            enum class Kind { Travel, Cut, Intersect };
-            Kind kind = Kind::Travel;
-            std::vector<Waypoint> points;
-            double feed = 0;   // Cut: cutting feed; Intersect: probe feed; Travel: ignored
-
-            static Path travel()             { Path p; p.kind = Kind::Travel;    return p; }
-            static Path cut(double feed)      { Path p; p.kind = Kind::Cut;       p.feed = feed; return p; }
-            static Path intersect(double feed){ Path p; p.kind = Kind::Intersect; p.feed = feed; return p; }
-        };
-
-        struct Operation {
-            enum class Kind { Cut, Probe };
-            Kind kind = Kind::Cut;
-
-            int         toolSlot = 0;   // tool to ensure loaded for this operation
-            std::string toolName;       // human label (logs only)
-            double      rpm = 0;        // Cut spindle RPM (0 / Probe => spindle never runs)
-
-            std::vector<Path> paths;
-
-            static Operation cut(int slot, std::string name, double rpm) {
-                Operation o; o.kind = Kind::Cut; o.toolSlot = slot; o.toolName = std::move(name); o.rpm = rpm; return o;
-            }
-            static Operation probe(int slot, std::string name) {
-                Operation o; o.kind = Kind::Probe; o.toolSlot = slot; o.toolName = std::move(name); o.rpm = 0; return o;
-            }
-        };
+        // Waypoint / Path / Operation are defined in Cam::Machine and aliased near
+        // the top of Air (see the `using` block above).
 
         // THE PROGRAM PROVIDER -- the single seam between the planning world
         // (the CAM app) and the machine.  Whoever owns the current execute
@@ -963,7 +895,7 @@ export namespace Carvera {
         // ALARMS instantly, with nothing in the log to say why.  Refusing
         // here turns "the machine alarms for no reason" into a precise
         // operator-facing message naming the offending operation.
-        static OperationResult validateOperations(const std::vector<Operation>& ops) {
+        OperationResult validateOperations(const std::vector<Operation>& ops) const {
 
             auto finite = [](double v) { return std::isfinite(v); };
 
@@ -972,7 +904,7 @@ export namespace Carvera {
                 const Operation& op = ops[i];
                 const char* kind = (op.kind == Operation::Kind::Probe) ? "Probe" : "Cut";
 
-                if (op.toolSlot != NoToolChange && op.toolSlot != kProbeToolSlot &&
+                if (op.toolSlot != NoToolChange && !isProbeSlot(op.toolSlot) &&
                     (op.toolSlot < 1 || op.toolSlot > 6)) {
                     return OperationResult::failure(std::format(
                         "Operation {} ({}): invalid tool slot T{}.", i + 1, kind, op.toolSlot));
@@ -1023,8 +955,9 @@ export namespace Carvera {
                 pushLog(std::format("Program refused: {}", r.reason));
                 return false;
             }
-            const std::vector<Step> program = buildSteps(ops);
+            const std::vector<Step> program = Carvera::buildSteps(ops, isSpindleArmed());
             dbg("[Air] enqueueOperations: %zu ops -> %zu steps", ops.size(), program.size());
+            providerDriven_ = false;   // one-shot unless requestStart re-arms it
             return enqueueStepsInternal(program);
         }
 
@@ -1036,6 +969,7 @@ export namespace Carvera {
                 dbg("[Air] enqueueProgram refused (not armed); %zu steps", program.size());
                 return false;
             }
+            providerDriven_ = false;   // one-shot unless requestStart re-arms it
             return enqueueStepsInternal(program);
         }
 
@@ -1118,6 +1052,10 @@ export namespace Carvera {
                 return OperationResult::failure("Failed to enqueue the program.");
             }
 
+            // This IS the loaded program: keep pulling operations from the provider
+            // as each finishes (enqueueOperations just cleared the flag).
+            providerDriven_ = true;
+
             pushLog("Execution started.");
 
             StartEvent e{};
@@ -1136,6 +1074,17 @@ export namespace Carvera {
 
         float machineOriginA() const {
             return originValid.load() ? originMa.load() : 0.0f;
+        }
+
+        // The captured MACHINE-space part origin (set by setWorkOrigin), independent
+        // of whether a CAD origin has been registered.  Calibration / measurement
+        // routines work purely in machine coordinates, so they use this rather than
+        // workOrigin() (which also gates on cadOriginValid for the CAM transform).
+        bool machineOrigin(float& mx, float& my, float& mz, float& ma) const {
+            if (!originValid.load()) { return false; }
+            mx = originMx.load(); my = originMy.load();
+            mz = originMz.load(); ma = originMa.load();
+            return true;
         }
 
         void setCadOrigin(float cx, float cy, float cz) {
@@ -1342,6 +1291,13 @@ export namespace Carvera {
         // it advances and pulls the next.  Main-thread (pump/requestStart) only.
         size_t activeOpIndex_ = 0;
 
+        // True only while streaming the LOADED program (started via requestStart):
+        // the engine pulls the next operation from operationProvider as each one
+        // finishes.  A direct one-shot enqueueOperations/enqueueProgram (probe
+        // calibration, ad-hoc moves) sets this false so completion just goes Idle
+        // -- "run this operation" must never mean "start the whole loaded program".
+        bool providerDriven_ = false;
+
         // -- Program execution (action queue) + ATC gate -----------
 
         static constexpr int MaxInFlight = 2;
@@ -1464,12 +1420,13 @@ export namespace Carvera {
         // Spindle safety interlock
         // ============================================================
 
-        static bool isProbeSlot(int slot) {
-            // The wired probe (kProbeToolSlot) and the community 3D probe
-            // (pseudo-slot >= 999990) both forbid the spindle.  Slot 0 ("no /
-            // unknown tool") is treated as a probe slot too -- erring toward
-            // never spinning when we aren't certain a cutter is fitted.
-            return slot == kProbeToolSlot || slot >= 999990;
+        bool isProbeSlot(int slot) const {
+            // The probe tool's slot (resolved by TYPE in the app and pushed via
+            // setProbeSlot) and the community 3D probe (pseudo-slot >= 999990) both
+            // forbid the spindle.  -1 probeSlot_ = no probe known -> only the
+            // community pseudo-slot inhibits.
+            const int p = probeSlot_.load();
+            return (p >= 0 && slot == p) || slot >= 999990;
         }
 
         // Does `line` command the spindle to START (M3 / M4 / M03 / M04)?
@@ -2372,10 +2329,10 @@ export namespace Carvera {
                 return false;
             }
 
-            const std::vector<Step> program = buildSteps({ *next });
+            const std::vector<Step> program = Carvera::buildSteps({ *next }, isSpindleArmed());
 
             steps_.assign(program.begin(), program.end());
-            clearanceZ_       = computeClearance(program);
+            clearanceZ_       = Carvera::computeClearance(program);
             haveLast_         = false;
             haveReturn_       = false;
             returnMotionSeen_ = false;
@@ -2392,7 +2349,7 @@ export namespace Carvera {
             {
                 std::lock_guard<std::mutex> lock(queueMutex);
                 steps_.assign(program.begin(), program.end());
-                clearanceZ_       = computeClearance(program);
+                clearanceZ_       = Carvera::computeClearance(program);
                 haveLast_         = false;
                 haveReturn_       = false;
                 returnMotionSeen_ = false;
@@ -2411,101 +2368,8 @@ export namespace Carvera {
         // otherwise it is a motion-only dry run), spindle OFF at the end of each
         // operation, and G38.2 for intersect paths.  A Note step at each
         // boundary narrates the queue at runtime.
-        std::vector<Step> buildSteps(const std::vector<Operation>& ops) const {
-
-            std::vector<Step> program;
-            program.push_back(Step::raw_("G90\n"));   // absolute positioning
-
-            for (const Operation& op : ops) {
-
-                const char* kindName = (op.kind == Operation::Kind::Probe) ? "Probe" : "Cut";
-                program.push_back(Step::note(std::format(
-                    "== {} operation: T{}{} ==",
-                    kindName, op.toolSlot,
-                    op.toolName.empty() ? std::string() : " (" + op.toolName + ")")));
-
-                // Spindle off, then ensure the operation's tool is loaded.  A
-                // negative slot means "don't change tools" -- use whatever is in
-                // the spindle (e.g. a probe the operator inserted by hand for a
-                // bench test).  Otherwise the pump skips the change when that
-                // slot is already loaded.
-                program.push_back(Step::spindle(0.0));
-                if (op.toolSlot >= 0) {
-                    program.push_back(Step::toolChange(op.toolSlot));
-                }
-
-                bool spindleOn = false;
-
-                // Track the last commanded ABSOLUTE position so a probe can be
-                // emitted as a RELATIVE move from it (the standoff).
-                double lastX = 0, lastY = 0, lastZ = 0, lastA = 0;
-                bool   havePos = false;
-
-                for (const Path& path : op.paths) {
-
-                    // Spin up just before the first cut move of a cut op -- but
-                    // only when the spindle is armed (else a dry run).
-                    if (op.kind == Operation::Kind::Cut &&
-                        path.kind == Path::Kind::Cut &&
-                        op.rpm > 0.0 && !spindleOn && isSpindleArmed()) {
-                        program.push_back(Step::spindle(op.rpm));
-                        spindleOn = true;
-                    }
-
-                    for (const Waypoint& w : path.points) {
-                        switch (path.kind) {
-                            case Path::Kind::Travel:
-                                program.push_back(Step::moveTo(w.x, w.y, w.z, w.a, 0.0));   // rapid
-                                break;
-                            case Path::Kind::Cut:
-                                program.push_back(Step::moveTo(w.x, w.y, w.z, w.a, path.feed));
-                                break;
-                            case Path::Kind::Intersect: {
-                                // A probe is a RELATIVE plunge from where the tool
-                                // already is (the standoff) along the approach,
-                                // until contact: position is set absolutely by the
-                                // preceding Travel, then G91 G38.2 by the delta,
-                                // then restore G90.  Relative semantics make the
-                                // move correct regardless of WHEN it is sent --
-                                // the controller anchors it to wherever it is when
-                                // it runs it -- so no position confirmation or
-                                // timing delay is ever needed, only in-order
-                                // execution.  (Absolute G38.2 was driving the
-                                // probe along the target VECTOR instead of toward
-                                // the target point.)
-                                const double dx = havePos ? w.x - lastX : 0.0;
-                                const double dy = havePos ? w.y - lastY : 0.0;
-                                const double dz = havePos ? w.z - lastZ : 0.0;
-                                const double da = havePos ? w.a - lastA : 0.0;
-                                program.push_back(Step::raw_("G91\n"));
-                                program.push_back(Step::probeTo(dx, dy, dz, da, path.feed));
-                                program.push_back(Step::raw_("G90\n"));
-                                break;
-                            }
-                        }
-                        lastX = w.x; lastY = w.y; lastZ = w.z; lastA = w.a;
-                        havePos = true;
-                    }
-                }
-
-                if (spindleOn) { program.push_back(Step::spindle(0.0)); }
-            }
-
-            program.push_back(Step::spindle(0.0));   // belt-and-braces spindle off
-            return program;
-        }
-
-        static double computeClearance(const std::vector<Step>& program) {
-            double maxZ = 0.0;
-            bool   any  = false;
-            for (const Step& s : program) {
-                if (s.kind == Step::Kind::Move) {
-                    maxZ = any ? std::max(maxZ, s.z) : s.z;
-                    any  = true;
-                }
-            }
-            return (any ? maxZ : 0.0) + 5.0;
-        }
+        // buildSteps() + computeClearance() now live in Carvera::Steps (the wire
+        // translation), called with isSpindleArmed() passed in.
 
         // Translate a non-tool-change step to a G-code line, tracking the last
         // commanded position so we know where to return after a change.
@@ -2726,10 +2590,13 @@ export namespace Carvera {
                     }
 
                     if (steps_.empty() && inFlight == 0) {
-                        // This operation finished.  Pull the next one (built fresh
-                        // against the latest world model) and keep streaming.  If
-                        // there is none, the program is complete.
-                        if (advanceToNextOperationLocked()) {
+                        // This operation finished.  ONLY when this run is the loaded
+                        // program (provider-driven, via requestStart) do we pull the
+                        // next operation and keep streaming.  A one-shot enqueue
+                        // (e.g. probe calibration) is NOT the loaded program -- it
+                        // must stop here, never spill into running whatever the CAM
+                        // view happens to have loaded.
+                        if (providerDriven_ && advanceToNextOperationLocked()) {
                             break;
                         }
                         dbg("[Air] exec: Streaming -> Idle (program complete)");

@@ -115,6 +115,10 @@ export namespace Cam::App {
             double      stylusRadius        = 0.5;   // mm, calibrated edge radius
             bool        calibrated          = false; // set true by a calibration run
             double      calibrationResidual = 0.0;   // mm, fit residual of last calib
+            double      stylusRadiusSigma   = 0.0;   // mm, 1-sigma uncertainty on the
+                                                     // calibrated radius -- propagated
+                                                     // into machine calibration + any
+                                                     // future probing that uses r.
         };
         ProbeSettings probe;
 
