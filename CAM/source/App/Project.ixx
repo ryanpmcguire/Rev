@@ -1659,19 +1659,15 @@ export namespace Cam::App {
             double x0, x1, y0, y1, z0, z1;
             base->model.frameBounds({ 0.0f, 0.0f, 0.0f }, fx, fy, fz, x0, x1, y0, y1, z0, z1);
 
-            // The four Stock (+/-Y, +/-Z) steps extend the nominal prism out from
-            // this cross-section centre.  When the stock has been MEASURED, the real
-            // cross-section is offset from the rotary axis by (centerOffsetY,
-            // centerOffsetZ) (and tilted by angularOffsetDeg) -- shift the centre by
-            // that here so each face step extends to where the material actually is.
-            // (Angular offset is applied at execution via the work-frame A zero; the
-            // material-state geometry only needs the translational placement.)
-            const double measuredY = stock.measured ? stock.centerOffsetY : 0.0;
-            const double measuredZ = stock.measured ? stock.centerOffsetZ : 0.0;
+            // The four Stock (+/-Y, +/-Z) steps extend the nominal prism out from the
+            // part's cross-section centre.  The stock geometry is centred on the PART
+            // (its size comes from the measurement); the stock's MOUNT relative to the
+            // work frame -- eccentricity + angle -- is NOT applied here but as the
+            // part's pose (locateStockInWorkFrame), so it isn't double-counted.
             const Rev::Core::Pos3 worldCenter =
                 fx * float((x0 + x1) * 0.5) +
-                fy * float((y0 + y1) * 0.5 + measuredY) +
-                fz * float((z0 + z1) * 0.5 + measuredZ);
+                fy * float((y0 + y1) * 0.5) +
+                fz * float((z0 + z1) * 0.5);
 
             const Rev::Core::Pos3 sliceAxes[4] = {
                 fy, fy * -1.0f, fz, fz * -1.0f
@@ -1723,6 +1719,32 @@ export namespace Cam::App {
                 parent = s;
             }
 
+            dirty = true;
+        }
+
+        // Locate the measured stock -- and therefore the PART -- relative to the work
+        // frame.  Measure Stock reports the mount as a rotation about the rotary axis
+        // (angleDeg) plus a Y/Z eccentricity of the cross-section centre.  We express
+        // that as the part's pose WITHIN the work frame (probeCorrection): a rotation
+        // about the rotary axis + a perpendicular translation.  The view then shows
+        // the part where it is actually mounted AND the cut compensates (the chuck
+        // swings to square it), exactly like a stage probe or Set Top -- so the
+        // system's idea of where the stock sits matches reality.  X along the axis is
+        // still taken on faith (Set Origin) until an end-face probe measures it.
+        void locateStockInWorkFrame(double angleDeg, double eccY, double eccZ) {
+            Stage* s = displayedStage ? displayedStage : stockBaseStage();
+            if (!s) { return; }
+            Rev::Core::Pos3 fx, fy, fz;
+            s->model.getOrthonormalAxisFrame(fx, fy, fz);
+            const Rev::Core::Pos3 origin =
+                s->model.hasAxisOrigin ? s->model.axisOrigin : Rev::Core::Pos3{};
+            // Rotation about the rotary axis (pivoting on the axis line), then the
+            // perpendicular eccentricity (measured in the work frame's Y/Z).
+            probeCorrection = ProbeResult::pureRotation(fx, origin, angleDeg);
+            const Rev::Core::Pos3 ecc = fy * float(eccY) + fz * float(eccZ);
+            probeCorrection.t     = probeCorrection.t + ecc;
+            probeCorrection.tTrue = probeCorrection.tTrue + ecc;
+            probeCorrection.valid = true;
             dirty = true;
         }
 

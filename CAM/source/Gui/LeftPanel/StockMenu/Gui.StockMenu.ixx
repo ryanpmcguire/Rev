@@ -25,6 +25,7 @@ import Cam.App.Project;
 
 import Cam.Gui.Theme;
 import Cam.Gui.MeasureStockWindow;
+import Cam.App.StockMeasurement;
 
 export namespace Cam::Gui {
 

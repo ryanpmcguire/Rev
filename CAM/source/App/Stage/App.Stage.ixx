@@ -329,6 +329,11 @@ export namespace Cam::App {
             if (!delta.loaded) { return; }
             if (!parent->model.loaded) { return; }
 
+            // A toolpath with no tool yet is being created for the first time --
+            // we'll auto-pick the largest sensible tool once the feature's
+            // requirements are known (below).
+            const bool autoSelect = toolPath.toolName.empty();
+
             if (toolPath.toolName.empty()) {
                 toolPath.toolName = activeToolName;
             }
@@ -341,6 +346,12 @@ export namespace Cam::App {
             }
 
             if (!tool) {
+                // Last resort: any tool, just to derive the feature requirements.
+                tool = library.at(0);
+                if (tool) { toolPath.toolName = tool->name; }
+            }
+
+            if (!tool) {
                 dbg(
                     "[Stage] Tool \"%s\" not in library",
                     toolPath.toolName.c_str()
@@ -349,6 +360,25 @@ export namespace Cam::App {
             }
 
             hasToolPath = toolPath.compute(delta, parent->model, *tool);
+
+            // First creation: now that compute() has established the feature's
+            // requirements (toolPath.implied), select the LARGEST tool that can
+            // actually perform the operation, and recompute with it.
+            if (autoSelect) {
+
+                const Tool* best = nullptr;
+
+                for (size_t i = 0; i < library.size(); i++) {
+                    const Tool* t = library.at(i);
+                    if (!t || !toolPath.accepts(*t)) { continue; }
+                    if (!best || t->diameter > best->diameter) { best = t; }
+                }
+
+                if (best && best->name != toolPath.toolName) {
+                    toolPath.toolName = best->name;
+                    hasToolPath = toolPath.compute(delta, parent->model, *best);
+                }
+            }
         }
 
         bool link(Stage* nextStage) {

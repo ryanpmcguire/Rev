@@ -1123,47 +1123,70 @@ export namespace Cam::App {
                 ).Shape();
             };
 
-            // Full stock solid.
-            TopoDS_Shape stockSolid;
+            // Build the bounding stock solid slightly LARGER than both the part and
+            // the requested stock, so every clip box below sits STRICTLY inside it.
+            // When the stock equals (or is smaller than) the part, an un-padded solid
+            // is identical to a clip box and BRepAlgoAPI_Common operates on fully
+            // COINCIDENT faces -- the classic OCC boolean failure, which throws a
+            // Standard_Failure that (unguarded) crashed the app.  The clip boxes still
+            // define the real stage geometry, so padding the bounding solid does not
+            // change the result -- it just removes the coincidence.  `pad` is
+            // geometric slop, far below any real tolerance.
+            constexpr double pad = 0.01;
 
-            if (sp.cylinder) {
-                gp_Ax2 ax(worldPoint(x0, cy, cz), gx, gy);
-                stockSolid = BRepPrimAPI_MakeCylinder(ax, sp.radius, x1 - x0).Shape();
+            try {
+                TopoDS_Shape stockSolid;
+
+                if (sp.cylinder) {
+                    gp_Ax2 ax(worldPoint(x0 - pad, cy, cz), gx, gy);
+                    stockSolid = BRepPrimAPI_MakeCylinder(
+                        ax, sp.radius + pad, (x1 - x0) + 2.0 * pad).Shape();
+                }
+                else {
+                    const double SY0 = std::min(Y0, y0) - pad, SY1 = std::max(Y1, y1) + pad;
+                    const double SZ0 = std::min(Z0, z0) - pad, SZ1 = std::max(Z1, z1) + pad;
+                    stockSolid = makeBox(x0 - pad, x1 + pad, SY0, SY1, SZ0, SZ1);
+                }
+
+                if (stockSolid.IsNull()) { return steps; }
+
+                // Four progressively-extended clip boxes (the real stage shapes),
+                // all strictly inside the padded solid.
+                const double clip[4][6] = {
+                    { x0, x1, y0, Y1, z0, z1 },  // extend +Y
+                    { x0, x1, Y0, Y1, z0, z1 },  // extend -Y
+                    { x0, x1, Y0, Y1, z0, Z1 },  // extend +Z
+                    { x0, x1, Y0, Y1, Z0, Z1 },  // extend -Z (full)
+                };
+
+                for (int i = 0; i < 4; i++) {
+
+                    TopoDS_Shape box = makeBox(
+                        clip[i][0], clip[i][1],
+                        clip[i][2], clip[i][3],
+                        clip[i][4], clip[i][5]
+                    );
+
+                    if (box.IsNull()) { steps.clear(); return steps; }
+
+                    BRepAlgoAPI_Common common(stockSolid, box);
+                    common.Build();
+
+                    if (!common.IsDone()) { steps.clear(); return steps; }
+
+                    TopoDS_Shape result = common.Shape();
+
+                    if (result.IsNull()) { steps.clear(); return steps; }
+
+                    steps.push_back(result);
+                }
             }
-            else {
-                stockSolid = makeBox(x0, x1, Y0, Y1, Z0, Z1);
-            }
-
-            if (stockSolid.IsNull()) { return steps; }
-
-            // Four progressively-extended clip boxes.
-            const double clip[4][6] = {
-                { x0, x1, y0, Y1, z0, z1 },  // extend +Y
-                { x0, x1, Y0, Y1, z0, z1 },  // extend -Y
-                { x0, x1, Y0, Y1, z0, Z1 },  // extend +Z
-                { x0, x1, Y0, Y1, Z0, Z1 },  // extend -Z (full)
-            };
-
-            for (int i = 0; i < 4; i++) {
-
-                TopoDS_Shape box = makeBox(
-                    clip[i][0], clip[i][1],
-                    clip[i][2], clip[i][3],
-                    clip[i][4], clip[i][5]
-                );
-
-                if (box.IsNull()) { steps.clear(); return steps; }
-
-                BRepAlgoAPI_Common common(stockSolid, box);
-                common.Build();
-
-                if (!common.IsDone()) { steps.clear(); return steps; }
-
-                TopoDS_Shape result = common.Shape();
-
-                if (result.IsNull()) { steps.clear(); return steps; }
-
-                steps.push_back(result);
+            catch (const Standard_Failure& failure) {
+                // Never let an OpenCASCADE boolean failure crash the app (mirrors
+                // Model::Difference) -- fail gracefully so the stock just isn't built.
+                dbg("[Stock] buildStockStepShapes exception: %s", safeFailureMessage(failure));
+                steps.clear();
+                return steps;
             }
 
             return steps;

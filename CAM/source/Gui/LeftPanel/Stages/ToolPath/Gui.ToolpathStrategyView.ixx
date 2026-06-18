@@ -176,23 +176,12 @@ export namespace Cam::Gui {
         // Strategy subclasses tighten this using the tool's implied capabilities
         // (e.g. thread milling needs a thread mill whose pitch range fits the
         // callout).  Tools that fail are shown greyed-out in the dropdown.
+        // The toolpath itself is the single authority on whether a tool fits the
+        // operation (capability + feature requirements); the dropdown greys out
+        // whatever it rejects.
         virtual bool toolCanPerform(const Cam::App::Tool& tool) const {
-            if (!tool.implied.canCut) { return false; }
-            return toolFitsFeature(tool);
-        }
-
-        // The feature's own requirements (computed on the toolpath from the delta):
-        // the tool must fit the narrowest passage and reach the full depth.
-        bool toolFitsFeature(const Cam::App::Tool& tool) const {
             if (!state) { return true; }
-            const Cam::App::ToolPath::Implied& req = state->toolPath.implied;
-            if (req.maxToolDiameter > 1e-6 && tool.diameter > req.maxToolDiameter + 1e-6) {
-                return false;
-            }
-            if (req.minCuttingLength > 1e-6 && tool.implied.maxCutDepth < req.minCuttingLength - 1e-6) {
-                return false;
-            }
-            return true;
+            return state->toolPath.accepts(tool);
         }
 
         std::vector<Dropdown::Item> toolOptions() const {

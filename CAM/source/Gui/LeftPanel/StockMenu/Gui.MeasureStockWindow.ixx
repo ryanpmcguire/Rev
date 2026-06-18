@@ -596,9 +596,17 @@ export namespace Cam::Gui {
                 p->stock.measurementResidual = meas.resultResidual;
                 p->stock.defined             = true;
                 p->regenerateStockStages();
+
+                // LOCATE the stock relative to the work frame: turn the measured mount
+                // (angle about the rotary axis + Y/Z eccentricity) into the part's pose
+                // within the work frame, so the view shows the part where it's actually
+                // mounted AND the cut compensates -- the system's idea of where the
+                // stock is now matches reality.  (X along the axis is still on faith.)
+                p->locateStockInWorkFrame(
+                    meas.resultAngleDeg, meas.resultCenterY, meas.resultCenterZ);
             }
             if (onMeasured) { onMeasured(meas); }
-            statusText->content = "Stock measurement committed.";
+            statusText->content = "Stock measured and located in the work frame.";
             refresh(event);
         }
 

@@ -865,6 +865,35 @@ export namespace Cam::App {
             }
         }
 
+        // Whether `tool` can actually perform THIS operation -- the single
+        // authority shared by the selection dropdown (grey-out) and the auto-tool
+        // picker.  Combines the tool's own capability envelope with the feature's
+        // requirements (computed into `implied` at the last compute).
+        bool accepts(const Tool& tool) const {
+
+            // Must be able to cut at all (a probe cannot).
+            if (!tool.implied.canCut) { return false; }
+
+            // Thread milling: needs a thread mill whose pitch range covers the
+            // callout and whose crest fits inside the thread's major diameter.
+            if (strategy == ThreadMill::name()) {
+                if (!tool.implied.canMillThreads) { return false; }
+                if (threadPitch > 0.0 && !tool.canCutThreadPitch(threadPitch)) { return false; }
+                if (threadMajorDiameter > 0.0 && tool.diameter >= threadMajorDiameter) { return false; }
+            }
+
+            // Feature fit (all strategies): the tool must pass through the
+            // narrowest section and reach the full depth.
+            if (implied.maxToolDiameter > 1e-6 && tool.diameter > implied.maxToolDiameter + 1e-6) {
+                return false;
+            }
+            if (implied.minCuttingLength > 1e-6 && tool.implied.maxCutDepth < implied.minCuttingLength - 1e-6) {
+                return false;
+            }
+
+            return true;
+        }
+
         bool compute(Model& toCarve, Model& toAvoid, const Tool& tool) {
             clearPathData();
 
