@@ -221,6 +221,13 @@ export namespace Carvera::Gui {
             // "Probe TRIGGERED" line.  See CarveraREADME.md (Probing section).
             Box* r3 = new Box(grid, { &Style::JogGridRow }, "R3");
             makeJogBtn(r3, "PROBE")->onClick([this](Event& e) { air().probeTest(); e.propagate = false; });
+            // Force the machine to re-run its tool-length touch-off so it corrects
+            // its OWN idea of the tip (WPos).  We never apply a length ourselves --
+            // this just makes the controller re-measure the loaded tool.
+            makeJogBtn(r3, "TOUCH OFF")->onClick([this](Event& e) {
+                air().forceTouchOff();
+                e.propagate = false;
+            });
             // Probe the part's top face and immediately set the part coordinate
             // system's Z relative to the work frame (handled by the CAM view, which
             // knows the selected material state's known top).

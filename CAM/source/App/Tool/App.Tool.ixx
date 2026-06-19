@@ -217,6 +217,7 @@ export namespace Cam::App {
             bool   canCut          = true;   // removes material (false for probes)
             bool   canProbe        = false;  // touch-probing (probes only)
             bool   canMillThreads  = false;  // helical thread milling (thread mills only)
+            bool   canChamfer      = false;  // angled-edge chamfering (chamfer bits only)
 
             double minHoleDiameter = 0.0;    // smallest bore/hole it can create (mm)
             double maxCutDepth     = 0.0;    // deepest the flutes/teeth reach (mm)
@@ -501,6 +502,7 @@ export namespace Cam::App {
             implied.canCut         = cutter;
             implied.canProbe       = (type == Type::Probe);
             implied.canMillThreads = (type == Type::ThreadMill);
+            implied.canChamfer     = (type == Type::Chamfer);
 
             // A rotating cutter cannot bore a hole smaller than its own diameter,
             // and cannot reach deeper than its cutting length.
@@ -543,6 +545,20 @@ export namespace Cam::App {
             if (pitchMm < implied.minThreadPitch - 1e-4) { return false; }
             if (implied.maxThreadPitch > 1e-9 && pitchMm > implied.maxThreadPitch + 1e-4) { return false; }
             return true;
+        }
+
+        // Acceptable slop (degrees) between a chamfer bit's ground angle and the
+        // requested chamfer angle.  A little tolerance keeps small numerical /
+        // geometry errors -- and a near-but-not-exact bit -- from being banned; a
+        // slightly-off bit just cuts a slightly different chamfer, which is fine.
+        static constexpr double kChamferAngleToleranceDeg = 5.0;
+
+        // Can this (chamfer bit) cut a chamfer of the given angle?  False for
+        // non-chamfer tools; otherwise the bit's ground taper must be within the
+        // tolerance of the requested angle.
+        bool canChamferAngle(double angleDeg) const {
+            if (!implied.canChamfer) { return false; }
+            return std::fabs(taperAngle - angleDeg) <= kChamferAngleToleranceDeg;
         }
 
         // Keep the cached length + mesh + implied envelope consistent with the

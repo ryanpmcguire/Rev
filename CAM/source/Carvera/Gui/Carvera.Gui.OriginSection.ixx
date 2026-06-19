@@ -282,12 +282,16 @@ export namespace Carvera::Gui {
 
             double oy = y, oz = z;   // faith fallback (uncalibrated => zero confidence)
             if (Cam::App::MachineProfile* m = app ? app->selectedMachine() : nullptr) {
-                if (m->rotaryAxisCalibrated) {
-                    oy = m->rotaryAxisY;   // KNOWN -- Set Origin cannot move it
-                    oz = m->rotaryAxisZ;
+                // The axis is stored in MPos; convert it into the current WPos (tip)
+                // frame via the live MPos-WPos offset before pinning.
+                float mmx, mmy, mmz, mma, wwx, wwy, wwz, wwa;
+                double dY = 0.0, dZ = 0.0;
+                if (a.telemetry(mmx, mmy, mmz, mma) && a.tipTelemetry(wwx, wwy, wwz, wwa)) {
+                    dY = mmy - wwy; dZ = mmz - wwz;
                 }
+                m->pinWorkOriginYZ(oy, oz, dY, dZ);   // Y/Z from the rotary axis, never the tip
             }
-            a.setWorkOrigin(x, (float)oy, (float)oz, aa);   // X,A on faith; Y,Z known
+            a.setWorkOrigin(x, (float)oy, (float)oz, aa);   // X,A on faith; Y,Z derived from the axis
             refresh(e);
         }
 

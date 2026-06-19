@@ -36,6 +36,9 @@ export namespace Rev::Element {
             std::string placeholder;
             size_t maxLength = 500;
             bool selectAllOnFocus = true;
+            // Disabled / locked: the value is shown but cannot be edited or
+            // focused, and the field renders in a muted, display-only style.
+            bool disabled = false;
 
             static Params Default() {
                 return {
@@ -49,6 +52,7 @@ export namespace Rev::Element {
 
         Params params;
         Observable<bool> value;
+        bool disabled = false;
 
         Text* label = nullptr;
         Box* container = nullptr;
@@ -65,23 +69,53 @@ export namespace Rev::Element {
             this->params = p;
 
             label = new Text(this, params.label, { &Label });
-            container = new Box(this, { &Field, &FieldFocus });
+            container = new Box(this, { &Field, &FieldFocus, &FieldDisabled });
             field = new Box(container, { &FieldInner });
             placeholderText = new PlaceholderText(field, params.placeholder, { &Placeholder });
-            text = new Text(field, "", { &FieldText });
+            text = new Text(field, "", { &FieldText, &FieldTextDisabled });
 
             text->editable = true;
             text->selectable = true;
             text->selectAllOnFocus = params.selectAllOnFocus;
+
+            setDisabled(params.disabled);
+        }
+
+        // Lock/unlock the input.  A disabled input shows its value but cannot be
+        // edited, focused, or selected, and renders muted (display-only) -- used,
+        // e.g., for coordinates that are derived/locked (the work frame's Y/Z, which
+        // are pinned to the rotary axis) while leaving editable siblings (the X) live.
+        void setDisabled(bool d) {
+            disabled = d;
+
+            // Drive the appearance flag so the *Disabled styles apply, on every
+            // element that carries one.
+            container->resolved.disabled = d;
+            field->resolved.disabled     = d;
+            text->resolved.disabled      = d;
+            container->dirty.style = true;
+            text->dirty.style      = true;
+
+            // A locked field is inert: not editable, not focusable/selectable.
+            text->editable   = !d;
+            text->selectable = !d;
+
+            // If we lock while focused, drop focus so no caret lingers.
+            if (d && text->targetFlags.focus) {
+                text->targetFlags.focus = false;
+                text->dirty.style = true;
+            }
         }
 
         void keyDown(Event& e) override {
+            if (disabled) return;   // locked: display-only, ignore keys
             tell(&Element::keyDown, e);
             if (!e.propagate) return;
             if (text->targetFlags.focus) text->keyDown(e);
         }
 
         void textInput(Event& e) override {
+            if (disabled) return;   // locked: display-only, ignore input
             tell(&Element::textInput, e);
             if (!e.propagate || !text->targetFlags.focus) {
                 return;
@@ -119,7 +153,12 @@ export namespace Rev::Element {
         }
 
         void computeStyle(Event& e) override {
-            bool showFieldFocus = text->targetFlags.focus;
+            // Keep the appearance flag in sync (cheap; survives any external reset).
+            if (container->resolved.disabled != disabled) { container->resolved.disabled = disabled; }
+            if (field->resolved.disabled != disabled)     { field->resolved.disabled = disabled; }
+            if (text->resolved.disabled != disabled)      { text->resolved.disabled = disabled; }
+
+            bool showFieldFocus = !disabled && text->targetFlags.focus;
 
             if (container->targetFlags.focus != showFieldFocus) {
                 container->targetFlags.focus = showFieldFocus;

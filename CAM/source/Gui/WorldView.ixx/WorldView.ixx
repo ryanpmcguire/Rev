@@ -73,6 +73,7 @@ export namespace Cam::Gui {
         ExtendFeature,
         ExtrudeFeature,
         ThreadMill,
+        Chamfer,
         AddTab,
         CenterOrigin,
         DefineAxisX,
@@ -124,6 +125,29 @@ export namespace Cam::Gui {
 
         View3d::Actor* spindlePreviewActor = nullptr;
         std::vector<Rev::Core::Vertex3> spindlePreviewTriangles;
+
+        // The rotary-axis fixture (chuck) STEP, displayed AT the rotary axis frame.
+        View3d::Actor* rotaryFixtureActor = nullptr;
+        std::vector<Rev::Core::Vertex3> rotaryFixtureTriangles;
+        std::size_t previewRotaryMeshRevision = 0;
+
+        // The rotary-axis BODY/housing STEP: pinned to the axis origin, oriented +Z,
+        // never rotating.
+        View3d::Actor* rotaryBodyActor = nullptr;
+        std::vector<Rev::Core::Vertex3> rotaryBodyTriangles;
+        std::size_t previewRotaryBodyMeshRevision = 0;
+
+        // Cached chuck back-face extent (min local X), recomputed only when the
+        // chuck mesh changes -- never per frame.
+        float       cachedChuckMinX = 0.0f;
+        std::size_t cachedChuckMinXRevision = static_cast<std::size_t>(-1);
+
+        // THE MACHINE FRAME: a fixed reference coordinate system at the machine
+        // origin (MPos 0,0,0), axes +X/+Y/+Z.  Drawn project-independently so the
+        // scene always shows where the machine's own datum is -- the anchor the rest
+        // of the machine-element display will be re-based onto.
+        View3d::Actor* machineFrameActor = nullptr;
+        std::vector<Rev::Core::Vertex3> machineFrameVerts;
 
         // The tool whose cached mesh the preview actor currently points at;
         // used to re-upload to the GPU only when the tool/geometry changes.
@@ -261,6 +285,7 @@ export namespace Cam::Gui {
             { "ef", WorldViewCommand::ExtendFeature },
             { "exf", WorldViewCommand::ExtrudeFeature },
             { "tm", WorldViewCommand::ThreadMill },
+            { "cm", WorldViewCommand::Chamfer },
             { "co", WorldViewCommand::CenterOrigin },
             { "ax", WorldViewCommand::DefineAxisX },
             { "ay", WorldViewCommand::DefineAxisY },
@@ -290,6 +315,9 @@ export namespace Cam::Gui {
             createRotaryAxisActor();
             createToolPreviewActor();
             createSpindlePreviewActor();
+            createRotaryFixtureActor();
+            createRotaryBodyActor();
+            createMachineFrameActor();
             syncAxisLines();
 
             syncRepresentedProject();
@@ -504,6 +532,11 @@ export namespace Cam::Gui {
                         break;
                     }
 
+                    case WorldViewCommand::Chamfer: {
+                        chamferFeature(e);
+                        break;
+                    }
+
                     case WorldViewCommand::AddTab: {
                         dbg("[WorldView] AddTab gesture (not implemented)");
                         break;
@@ -584,6 +617,18 @@ export namespace Cam::Gui {
             delete spindlePreviewActor;
             spindlePreviewActor = nullptr;
             spindlePreviewTriangles.clear();
+
+            delete rotaryFixtureActor;
+            rotaryFixtureActor = nullptr;
+            rotaryFixtureTriangles.clear();
+
+            delete rotaryBodyActor;
+            rotaryBodyActor = nullptr;
+            rotaryBodyTriangles.clear();
+
+            delete machineFrameActor;
+            machineFrameActor = nullptr;
+            machineFrameVerts.clear();
         }
 
         // Axis lines
@@ -1000,6 +1045,25 @@ export namespace Cam::Gui {
             if (axisLineActor && axisLineActor->lines) {
                 axisLineActor->lines->dirty = true;
             }
+
+            // THE MACHINE FRAME: a fixed +X/+Y/+Z gizmo at the machine origin
+            // (scene origin = MPos datum).  Drawn unconditionally -- independent of
+            // any project, part, toolpath, or work origin -- so the scene always
+            // shows the machine's own coordinate system as a stable reference.
+            machineFrameVerts.clear();
+            if (machineFrameActor && machineFrameActor->lines) {
+                const Cam::Coord::CoordinateSystem machineCS =
+                    Cam::Coord::CoordinateSystem::fromBasis(
+                        { 0.0f, 0.0f, 0.0f },
+                        { 1.0f, 0.0f, 0.0f },
+                        { 0.0f, 1.0f, 0.0f },
+                        { 0.0f, 0.0f, 1.0f });
+                drawFrame(machineCS, machineFrameVerts, 60.0f);
+                machineFrameActor->lines->dirty = true;
+            }
+
+            // Seat the chuck STEP on the same rotary axis frame we just drew.
+            syncRotaryFixture();
         }
 
         void createRotaryAxisActor() {
@@ -1019,6 +1083,27 @@ export namespace Cam::Gui {
 
             if (view3d) {
                 view3d->addActor(axisLineActor);
+            }
+        }
+
+        void createMachineFrameActor() {
+
+            machineFrameActor = new View3d::Actor();
+
+            machineFrameActor->visible = true;
+            machineFrameActor->selectable = false;
+            machineFrameActor->ownsLines = true;
+            machineFrameActor->includeInFit = false;
+
+            machineFrameActor->lines = new Rev::Primitives::Lines3d(shared->canvas, {
+                .lines = &machineFrameVerts
+            });
+
+            // Per-vertex colours from drawFrame win; this is just a default.
+            machineFrameActor->lines->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+            if (view3d) {
+                view3d->addActor(machineFrameActor);
             }
         }
 
@@ -1121,6 +1206,145 @@ export namespace Cam::Gui {
 
             if (view3d) {
                 view3d->addActor(spindlePreviewActor);
+            }
+        }
+
+        void createRotaryFixtureActor() {
+
+            rotaryFixtureActor = new View3d::Actor();
+
+            rotaryFixtureActor->visible = false;
+            rotaryFixtureActor->selectable = false;
+            rotaryFixtureActor->ownsMesh = true;
+            rotaryFixtureActor->ownsTriangles = true;
+            rotaryFixtureActor->includeInFit = false;
+
+            rotaryFixtureActor->mesh = new Rev::Primitives::Mesh3d(shared->canvas, {
+                .triangles = &rotaryFixtureTriangles
+            });
+
+            rotaryFixtureActor->mesh->color = {
+                0.55f, 0.57f, 0.60f, 0.92f   // machined-steel grey for the chuck
+            };
+
+            if (view3d) {
+                view3d->addActor(rotaryFixtureActor);
+            }
+        }
+
+        void createRotaryBodyActor() {
+
+            rotaryBodyActor = new View3d::Actor();
+
+            rotaryBodyActor->visible = false;
+            rotaryBodyActor->selectable = false;
+            rotaryBodyActor->ownsMesh = true;
+            rotaryBodyActor->ownsTriangles = true;
+            rotaryBodyActor->includeInFit = false;
+
+            rotaryBodyActor->mesh = new Rev::Primitives::Mesh3d(shared->canvas, {
+                .triangles = &rotaryBodyTriangles
+            });
+
+            rotaryBodyActor->mesh->color = {
+                0.40f, 0.42f, 0.45f, 0.92f   // darker housing grey
+            };
+
+            if (view3d) {
+                view3d->addActor(rotaryBodyActor);
+            }
+        }
+
+        // Place the rotary-axis fixture (chuck) STEP at the rotary axis frame as it
+        // is represented in the scene -- currentUserFrame, the work frame whose
+        // origin sits on the rotary axis and whose X is the rotation axis.  The
+        // STEP's origin is the centre of its +X-facing face, so mapping the model's
+        // local +X to the frame's X seats the chuck face on the axis origin with the
+        // body extending back along the axis.
+        void syncRotaryFixture() {
+
+            if (rotaryFixtureActor) { rotaryFixtureActor->visible = false; }
+            if (rotaryBodyActor)    { rotaryBodyActor->visible = false; }
+
+            if (!app || !app->machineVisible.rotary) { return; }
+
+            Cam::App::MachineProfile* machine = app->selectedMachine();
+            Cam::App::Project* project = activeProject();
+            if (!machine || !project) { return; }
+
+            const UserFrame f = currentUserFrame(project);
+
+            // CHUCK: seated on the rotary axis frame -- local +X -> frame.X (the STEP
+            // origin is the centre of the +X face), +Y/+Z -> frame.Y/Z, origin ->
+            // frame.origin.  Its worldTransform (the A-rotation) is set per frame in
+            // applyWorldTransforms, so it turns with the rotary coordinate system.
+            if (rotaryFixtureActor && rotaryFixtureActor->mesh &&
+                !machine->rotaryModel.render.triangles.empty()) {
+
+                rotaryFixtureActor->mesh->pTriangles = &machine->rotaryModel.render.triangles;
+                if (machine->rotaryMeshRevision != previewRotaryMeshRevision) {
+                    rotaryFixtureActor->mesh->dirty = true;
+                    previewRotaryMeshRevision = machine->rotaryMeshRevision;
+                }
+
+                float m[16] = {
+                    f.X.x, f.X.y, f.X.z, 0.0f,
+                    f.Y.x, f.Y.y, f.Y.z, 0.0f,
+                    f.Z.x, f.Z.y, f.Z.z, 0.0f,
+                    f.origin.x, f.origin.y, f.origin.z, 1.0f
+                };
+                for (int i = 0; i < 16; i++) { rotaryFixtureActor->modelTransform[i] = m[i]; }
+                rotaryFixtureActor->visible = true;
+            }
+
+            // BODY/housing: seated ON the rotary axis line (colinear, like the
+            // chuck) but just BEHIND the chuck's back face, and ALWAYS oriented +Z-up
+            // in the machine/world frame (identity rotation, never rotating with the
+            // chuck -- its worldTransform is left identity).  We find the chuck's back
+            // by its bounding box along the axis: the chuck STEP origin is the centre
+            // of its +X face, so the body extends to the chuck's most-negative local
+            // X; the body sits ~1 mm beyond that along the axis direction.
+            if (rotaryBodyActor && rotaryBodyActor->mesh &&
+                !machine->rotaryBodyModel.render.triangles.empty()) {
+
+                rotaryBodyActor->mesh->pTriangles = &machine->rotaryBodyModel.render.triangles;
+                if (machine->rotaryBodyMeshRevision != previewRotaryBodyMeshRevision) {
+                    rotaryBodyActor->mesh->dirty = true;
+                    previewRotaryBodyMeshRevision = machine->rotaryBodyMeshRevision;
+                }
+
+                // Chuck extent along its local X (the axis): most-negative vertex X is
+                // the back face.  CACHED per chuck-mesh revision -- recomputing this
+                // over every chuck triangle EVERY frame needlessly loaded the main
+                // thread (which also drives the status-poll heartbeat).
+                if (cachedChuckMinXRevision != machine->rotaryMeshRevision) {
+                    float minX = 0.0f;
+                    bool  firstV = true;
+                    for (const Rev::Core::Vertex3& v : machine->rotaryModel.render.triangles) {
+                        if (firstV || v.x < minX) { minX = v.x; firstV = false; }
+                    }
+                    cachedChuckMinX = minX;
+                    cachedChuckMinXRevision = machine->rotaryMeshRevision;
+                }
+
+                // Position on the axis line, 1 mm behind the chuck's back face.
+                const float backOffset = cachedChuckMinX - 1.0f;
+                const Rev::Core::Pos3 p = {
+                    f.origin.x + f.X.x * backOffset,
+                    f.origin.y + f.X.y * backOffset,
+                    f.origin.z + f.X.z * backOffset
+                };
+
+                // Identity rotation => the body's modelled axes map to world axes, so
+                // it always points +Z-up in the CAD/world view regardless of the chuck.
+                float b[16] = {
+                    1.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 1.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 1.0f, 0.0f,
+                    p.x, p.y, p.z, 1.0f
+                };
+                for (int i = 0; i < 16; i++) { rotaryBodyActor->modelTransform[i] = b[i]; }
+                rotaryBodyActor->visible = true;
             }
         }
 
@@ -1321,39 +1545,32 @@ export namespace Cam::Gui {
 
                 link.setCadOrigin(cadBeginWork.x, cadBeginWork.y, cadBeginWork.z);
 
-                // When the live origin is absent (never set this session, OR just
-                // dropped by a home), re-anchor.  CRITICAL ordering: a PERSISTED
-                // origin is a real machine-absolute anchor that survives homing, so
-                // it must take precedence -- otherwise we would silently re-anchor to
-                // wherever the tool happens to sit after homing and the part would
-                // appear "at the origin" while really far above it (the power-cycle
-                // bug).  Only with NO persisted anchor do we fall back to capturing
-                // the current tip (a convenience so fresh jogging shows relative
-                // motion before the operator has pressed Set Origin).
-                float tcx, tcy, tcz, tca;
+                // The work frame origin is a FIXED, EXPLICIT thing.  It is
+                // established ONLY by an operator Set Origin, by machine calibration,
+                // or by auto-restoring the persisted machine-absolute anchor (which
+                // is itself just a prior Set Origin that survives a power cycle).  It
+                // must NEVER silently follow the live tool tip -- doing so made the
+                // origin "drift with the tool" and appear to jump whenever a touch-off
+                // corrected the tip, which is exactly the confusion we are removing.
+                // So here we ONLY auto-restore a real persisted anchor; with no anchor
+                // and no Set Origin, the origin stays honestly unset until the
+                // operator establishes it.
                 float mx, my, mz, ocx2, ocy2, ocz2;
 
-                if (link.currentTip(tcx, tcy, tcz, tca) &&
+                if (app && app->machine.workOrigin.valid &&
                     !link.workOrigin(mx, my, mz, ocx2, ocy2, ocz2)) {
 
-                    if (app && app->machine.workOrigin.valid) {
-                        // AUTO-RESTORE the persisted machine-absolute origin (e.g. after
-                        // a power cycle + re-home + re-touch).  The part has not moved,
-                        // so its location is reproduced exactly.
-                        const bool wasInvalid = !link.tipOrigin(mx, my, mz, ocx2);
-                        const auto& w = app->machine.workOrigin;
-                        link.captureTipOrigin(
-                            static_cast<float>(w.mx), static_cast<float>(w.my),
-                            static_cast<float>(w.mz), static_cast<float>(w.ma));
-                        if (wasInvalid) {
-                            link.log("Work origin auto-restored from the persisted "
-                                     "machine anchor -- the part is located again.");
-                        }
-                    }
-                    else {
-                        // No persisted anchor: capture the current tip on all four
-                        // axes so the A reference is set even before Set Origin.
-                        link.captureTipOrigin(tcx, tcy, tcz, tca);
+                    // AUTO-RESTORE the persisted machine-absolute origin (e.g. after a
+                    // power cycle + re-home + re-touch).  The part has not moved, so
+                    // its location is reproduced exactly.
+                    const bool wasInvalid = !link.tipOrigin(mx, my, mz, ocx2);
+                    const auto& w = app->machine.workOrigin;
+                    link.captureTipOrigin(
+                        static_cast<float>(w.mx), static_cast<float>(w.my),
+                        static_cast<float>(w.mz), static_cast<float>(w.ma));
+                    if (wasInvalid) {
+                        link.log("Work origin auto-restored from the persisted "
+                                 "machine anchor -- the part is located again.");
                     }
                 }
             }
@@ -1419,7 +1636,12 @@ export namespace Cam::Gui {
                 };
 
                 tip = frame.toWorld(inFrame);
-                dir = frame.Z;   // tool axis is the user's +Z
+                // The spindle/tool axis is the MACHINE's fixed vertical, NOT the work
+                // frame Z.  On a 3+1 machine the spindle never tilts -- the PART
+                // rotates about the rotary axis -- so the displayed tool must stay
+                // vertical regardless of the work frame's orientation (and so the
+                // spindle no longer swings when the work frame is re-oriented).
+                dir = { 0.0f, 0.0f, 1.0f };
                 haveTip = true;
             }
             else if (target.state &&
@@ -1522,7 +1744,18 @@ export namespace Cam::Gui {
             float toolPlacement[16];
             toolPlacementMatrix(tip, dir, toolPlacement);
 
-            const float collarTop = static_cast<float>(tool->totalLength());
+            // The spindle sits above the tip by the TELEMETRIC tool offset
+            // (MPos.z - WPos.z), NOT the tool's STL length -- so the spindle STEP and
+            // the tool TIP stay correctly separated even if the tool's generated mesh
+            // is wrong.  This is exactly the machine's reported Z difference: when we
+            // home, the spindle STEP origin tracks MPos and the tool origin tracks
+            // WPos.  Falls back to the STL length only if telemetry is unavailable.
+            Carvera::MachineLink& link = Carvera::MachineLink::instance();
+            float mx, my, mz, ma, wx, wy, wz, wa;
+            float collarTop = static_cast<float>(tool->totalLength());
+            if (link.telemetry(mx, my, mz, ma) && link.tipTelemetry(wx, wy, wz, wa)) {
+                collarTop = mz - wz;   // real spindle->tip Z offset from the machine
+            }
             float offset[16];
             translationMatrix(0.0f, 0.0f, collarTop, offset);
 
@@ -1956,8 +2189,15 @@ export namespace Cam::Gui {
                 return;
             }
 
+            // A contact with no pending session entry is a BENCH / JOG probe (the
+            // jog-panel "Probe" button = "just move the probe down until it touches").
+            // By design it influences NOTHING: it never fits a correction and never
+            // moves the work origin or the part CS -- only a real probe OPERATION
+            // (which pre-loads probeSession_ with its targets) does that.  The tip
+            // frame the jog probe's tool change establishes is a separate, legitimate
+            // matter handled by the touch-off, not by this contact.
             if (probeFillIndex_ >= probeSession_.size()) {
-                dbg("[Probe] contact with no pending session entry - ignoring");
+                dbg("[Probe] bench/jog probe contact (no session) - inert by design");
                 return;
             }
 
@@ -2167,6 +2407,26 @@ export namespace Cam::Gui {
         // puts it.  There are not two tracks (part + tool); there is one rigid
         // transform applied to the whole scene.  This is what makes the machine
         // view exactly the IK output, with zero per-vertex CPU work.
+        // The CHUCK's rotation: RAW telemetry A about the rotary axis, pivoted at the
+        // axis origin.  Deliberately PROJECT-INDEPENDENT -- it reflects the machine's
+        // actual angular position whether or not a part/toolpath exists, and uses the
+        // raw machine A (the chuck's physical angle), not the part-relative angle.
+        bool rotaryChuckMatrix(float out[16]) {
+            Cam::Machine::Pose::identityMatrix(out);
+
+            Carvera::MachineLink& link = Carvera::MachineLink::instance();
+            float tx, ty, tz, ta;
+            if (!link.telemetry(tx, ty, tz, ta)) { return false; }   // raw machine A
+
+            // The rotary axis as represented in the scene: currentUserFrame's X
+            // through its origin (valid even with no project -- a default frame).
+            const UserFrame f = currentUserFrame(activeProject());
+
+            constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+            Cam::Machine::Pose::axisAngleMatrix(f.X, ta * kDegToRad, f.origin, out);
+            return true;
+        }
+
         bool currentPartMatrix(float outM[16]) {
 
             Cam::Machine::Pose::identityMatrix(outM);
@@ -2566,6 +2826,18 @@ export namespace Cam::Gui {
                 if (v->probePlanActor)   { v->probePlanActor->setWorldTransform(Mc); }
             }
 
+            // The CHUCK rides the rotary axis and turns with RAW TELEMETRY A -- the
+            // machine's actual angular position -- NOT the project's part matrix.
+            // This is genuine MACHINE state: it rotates even with no part/toolpath
+            // loaded, and it is the chuck's PHYSICAL angle (raw A), distinct from the
+            // part, which turns by A relative to where Set Origin was taken.  The BODY
+            // never rotates (worldTransform left identity in syncRotaryFixture).
+            if (rotaryFixtureActor) {
+                float chuckM[16];
+                if (rotaryChuckMatrix(chuckM)) { rotaryFixtureActor->setWorldTransform(chuckM); }
+                else { Cam::Machine::Pose::identityMatrix(chuckM); rotaryFixtureActor->setWorldTransform(chuckM); }
+            }
+
             // THE FRAMES are drawn DIRECTLY from their CoordinateSystem objects --
             // the lines are baked at each frame's pose, so the actors carry NO
             // transform (identity); what is on screen IS the CoordinateSystem.
@@ -2657,6 +2929,34 @@ export namespace Cam::Gui {
             m.getOrthonormalAxisFrame(frame.X, frame.Y, frame.Z);
 
             if (m.hasAxisOrigin) { frame.origin = m.axisOrigin; }
+
+            // ORIENTATION DERIVED FROM THE ROTARY AXIS FRAME, not the part's CAD Y/Z.
+            // Keep X = the rotary axis direction, but force the frame +Z-UP: Z is
+            // world "up" projected perpendicular to X, Y completes the right-handed
+            // frame.  So the work frame is ALWAYS upright relative to the rotary axis,
+            // however the part happens to be modelled -- "Set Origin sets the work
+            // frame orientation relative to the rotary axis".  This is the SINGLE
+            // frame feeding both the IK/cuts (buildMachineDefinition) and the position
+            // map (toMachine), so they can never disagree.
+            Rev::Core::Pos3 X = frame.X;
+            const float xl = X.pythag();
+            X = (xl > 1e-6f) ? X * (1.0f / xl) : Rev::Core::Pos3{ 1.0f, 0.0f, 0.0f };
+
+            const Rev::Core::Pos3 up = { 0.0f, 0.0f, 1.0f };
+            Rev::Core::Pos3 Z = up - X * up.dot(X);
+            float zl = Z.pythag();
+            if (zl <= 1e-6f) {   // axis is vertical: any perpendicular serves as "up"
+                const Rev::Core::Pos3 ref =
+                    (std::fabs(X.x) < 0.9f) ? Rev::Core::Pos3{ 1.0f, 0.0f, 0.0f }
+                                            : Rev::Core::Pos3{ 0.0f, 1.0f, 0.0f };
+                Z = ref - X * ref.dot(X);
+                zl = Z.pythag();
+            }
+            Z = (zl > 1e-6f) ? Z * (1.0f / zl) : Rev::Core::Pos3{ 0.0f, 0.0f, 1.0f };
+
+            frame.X = X;
+            frame.Z = Z;
+            frame.Y = Z.cross(X);   // right-handed: X x Y = Z
 
             return frame;
         }
@@ -3668,6 +3968,25 @@ export namespace Cam::Gui {
             sync(e);
 
             dbg("thread mill started on selected hole");
+
+            notifyStateChanged(e);
+
+            return true;
+        }
+
+        // Chamfer the selected chamfer face(s): defeature them (leaving the sharp
+        // edge) and auto-select the Chamfer toolpath strategy.  The operation
+        // infers the bevel angle from the selected face.
+        bool chamferFeature(Event& e) {
+
+            if (!app || !app->beginChamfer()) {
+                dbg("chamfer failed: select a chamfer face first");
+                return false;
+            }
+
+            sync(e);
+
+            dbg("chamfer started on selected face(s)");
 
             notifyStateChanged(e);
 

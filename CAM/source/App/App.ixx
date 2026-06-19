@@ -519,6 +519,9 @@ export namespace Cam::App {
             updated.rotaryAxisX = src.rotaryAxisX;
             updated.rotaryAxisY = src.rotaryAxisY;
             updated.rotaryAxisZ = src.rotaryAxisZ;
+            updated.rotaryAxisDirX = src.rotaryAxisDirX;
+            updated.rotaryAxisDirY = src.rotaryAxisDirY;
+            updated.rotaryAxisDirZ = src.rotaryAxisDirZ;
             updated.rotaryAxisCalibrated = src.rotaryAxisCalibrated;
             updated.rotaryAxisSigma = src.rotaryAxisSigma;
 
@@ -544,6 +547,8 @@ export namespace Cam::App {
             }
 
             MachineLibrary::reloadSpindleModel(updated);
+            MachineLibrary::reloadRotaryModel(updated);
+            MachineLibrary::reloadRotaryBodyModel(updated);
 
             if (!machineLibrary.replaceMachine(originalName, updated)) { return false; }
 
@@ -825,6 +830,13 @@ export namespace Cam::App {
             if (!activeProject) { return false; }
 
             return activeProject->beginThreadMillFromSelection();
+        }
+
+        bool beginChamfer() {
+
+            if (!activeProject) { return false; }
+
+            return activeProject->beginChamferFromSelection();
         }
 
         // Set a thread-mill operation's callout (the feature step owns it) and

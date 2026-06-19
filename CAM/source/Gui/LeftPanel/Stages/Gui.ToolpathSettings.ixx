@@ -19,6 +19,7 @@ import Cam.App.Slicer.Strategy.Strategies.Bore;
 import Cam.App.Slicer.Strategy.Strategies.Profile;
 import Cam.App.Slicer.Strategy.Strategies.Hatch;
 import Cam.App.Slicer.Strategy.Strategies.ThreadMill;
+import Cam.App.Slicer.Strategy.Strategies.Chamfer;
 
 import Cam.Gui.Theme;
 import Cam.Gui.ToolpathStrategyView;
@@ -26,6 +27,7 @@ import Cam.Gui.ProfileToolpathView;
 import Cam.Gui.HatchToolpathView;
 import Cam.Gui.BoreToolpathView;
 import Cam.Gui.ThreadMillToolpathView;
+import Cam.Gui.ChamferToolpathView;
 
 export namespace Cam::Gui {
 
@@ -92,7 +94,8 @@ export namespace Cam::Gui {
                         { "Hatch",       Cam::App::Slicer::Strategy::Strategies::Hatch::name() },
                         { "Profile",     Cam::App::Slicer::Strategy::Strategies::Profile::name() },
                         { "Bore",        Cam::App::Slicer::Strategy::Strategies::Bore::name() },
-                        { "Thread Mill", Cam::App::Slicer::Strategy::Strategies::ThreadMill::name() }
+                        { "Thread Mill", Cam::App::Slicer::Strategy::Strategies::ThreadMill::name() },
+                        { "Chamfer",     Cam::App::Slicer::Strategy::Strategies::Chamfer::name() }
                     },
                     .placeholder = "Strategy",
                     .value = ""
@@ -114,6 +117,7 @@ export namespace Cam::Gui {
             if (strategy == Profile::name())    { return new ProfileToolpathView(parent); }
             if (strategy == Bore::name())       { return new BoreToolpathView(parent); }
             if (strategy == ThreadMill::name()) { return new ThreadMillToolpathView(parent); }
+            if (strategy == Chamfer::name())    { return new ChamferToolpathView(parent); }
             return new HatchToolpathView(parent);   // default
         }
 

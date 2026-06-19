@@ -164,6 +164,7 @@ export namespace Cam::Gui {
         TextInput* bedStepInput = nullptr;
         TextInput* workpieceStepInput = nullptr;
         TextInput* rotaryStepInput = nullptr;
+        TextInput* rotaryBodyStepInput = nullptr;
 
         Button* applyButton = nullptr;
         bool applyPendingAppearance = false;
@@ -456,6 +457,7 @@ export namespace Cam::Gui {
             bedStepInput = addStepFileRow(right, "Bed");
             workpieceStepInput = addStepFileRow(right, "Workpiece");
             rotaryStepInput = addStepFileRow(right, "Rotary axis");
+            rotaryBodyStepInput = addStepFileRow(right, "Rotary body");
 
             populateFrom(machine);
             syncFolderHint();
@@ -607,6 +609,7 @@ export namespace Cam::Gui {
             else if (input == bedStepInput) { pendingStepSources.bed = path; }
             else if (input == workpieceStepInput) { pendingStepSources.workpiece = path; }
             else if (input == rotaryStepInput) { pendingStepSources.rotary = path; }
+            else if (input == rotaryBodyStepInput) { pendingStepSources.rotaryBody = path; }
         }
 
         std::string pendingSourceForInput(TextInput* input) const {
@@ -614,6 +617,7 @@ export namespace Cam::Gui {
             if (input == bedStepInput) { return pendingStepSources.bed; }
             if (input == workpieceStepInput) { return pendingStepSources.workpiece; }
             if (input == rotaryStepInput) { return pendingStepSources.rotary; }
+            if (input == rotaryBodyStepInput) { return pendingStepSources.rotaryBody; }
             return "";
         }
 
@@ -747,6 +751,7 @@ export namespace Cam::Gui {
             displaySavedStep(bedStepInput, m.bedStep);
             displaySavedStep(workpieceStepInput, m.workpieceStep);
             displaySavedStep(rotaryStepInput, m.rotaryStep);
+            displaySavedStep(rotaryBodyStepInput, m.rotaryBodyStep);
 
             pendingStepSources = {};
         }
@@ -773,20 +778,41 @@ export namespace Cam::Gui {
                 m.bedStep = existing->bedStep;
                 m.workpieceStep = existing->workpieceStep;
                 m.rotaryStep = existing->rotaryStep;
+                m.rotaryBodyStep = existing->rotaryBodyStep;
                 m.filePath = existing->filePath;
-                // Preserve calibration provenance + the calibrated location, so a
-                // blank/uncommitted field can never silently zero a measured axis;
+                // Preserve calibration provenance + the calibrated location/orientation,
+                // so a blank/uncommitted field can never silently zero a measured axis;
                 // the inputs below override only when they actually hold a value.
                 m.rotaryAxisCalibrated = existing->rotaryAxisCalibrated;
                 m.rotaryAxisSigma = existing->rotaryAxisSigma;
                 m.rotaryAxisX = existing->rotaryAxisX;
                 m.rotaryAxisY = existing->rotaryAxisY;
                 m.rotaryAxisZ = existing->rotaryAxisZ;
+                m.rotaryAxisDirX = existing->rotaryAxisDirX;
+                m.rotaryAxisDirY = existing->rotaryAxisDirY;
+                m.rotaryAxisDirZ = existing->rotaryAxisDirZ;
             }
 
-            if (rotaryAxisXInput) { m.rotaryAxisX = rotaryAxisXInput->valueOr(m.rotaryAxisX); }
-            if (rotaryAxisYInput) { m.rotaryAxisY = rotaryAxisYInput->valueOr(m.rotaryAxisY); }
-            if (rotaryAxisZInput) { m.rotaryAxisZ = rotaryAxisZInput->valueOr(m.rotaryAxisZ); }
+            // "999" SPINDLE-CAPTURE HACK.  Because the rotary axis is now MACHINE
+            // (MPos) geometry and the spindle is a genuine telemetry object, you can
+            // locate the axis by jogging the spindle/tool over the real feature and
+            // typing the sentinel 999 into a box: it captures the spindle's live MPos
+            // for that component (X box -> MPos X, etc.).  Other values pass through.
+            float smx, smy, smz, sma;
+            const bool haveSpindle =
+                Carvera::MachineLink::instance().telemetry(smx, smy, smz, sma);
+            auto capture = [&](NumberInput* in, double current, double spindle) -> double {
+                if (!in) { return current; }
+                const double v = in->valueOr(current);
+                if (haveSpindle && std::fabs(v - 999.0) < 0.5) {
+                    in->setValue(spindle);   // reflect the captured value back into the box
+                    return spindle;
+                }
+                return v;
+            };
+            m.rotaryAxisX = capture(rotaryAxisXInput, m.rotaryAxisX, smx);
+            m.rotaryAxisY = capture(rotaryAxisYInput, m.rotaryAxisY, smy);
+            m.rotaryAxisZ = capture(rotaryAxisZInput, m.rotaryAxisZ, smz);
 
             if (pendingStepSources.spindle.empty() && spindleStepInput->text->content.get().empty()) {
                 m.spindleStep.clear();
@@ -799,6 +825,9 @@ export namespace Cam::Gui {
             }
             if (pendingStepSources.rotary.empty() && rotaryStepInput->text->content.get().empty()) {
                 m.rotaryStep.clear();
+            }
+            if (pendingStepSources.rotaryBody.empty() && rotaryBodyStepInput->text->content.get().empty()) {
+                m.rotaryBodyStep.clear();
             }
 
             return m;
@@ -988,13 +1017,24 @@ export namespace Cam::Gui {
             calibrationWindow = new MachineCalibrationWindow(this);
             calibrationWindow->onAxisCalibrated = [this](Cam::App::MachineCalibration& mc) {
                 // The calibrated axis is persistent machine geometry -- store it on
-                // the machine definition (machine frame) + reflect into the inputs.
-                if (rotaryAxisYInput) { rotaryAxisYInput->setValue(mc.resultAxisYAbs); }
-                if (rotaryAxisZInput) { rotaryAxisZInput->setValue(mc.resultAxisZ); }
+                // the machine definition (machine frame) in MACHINE coords (MPos), so
+                // it is STABLE across Set Origin.  Calibration produces it in the tip
+                // (WPos) frame, so convert with the live MPos-WPos offset.
+                Carvera::MachineLink& link = Carvera::MachineLink::instance();
+                float mmx, mmy, mmz, mma, wwx, wwy, wwz, wwa;
+                double dY = 0.0, dZ = 0.0;
+                if (link.telemetry(mmx, mmy, mmz, mma) && link.tipTelemetry(wwx, wwy, wwz, wwa)) {
+                    dY = mmy - wwy; dZ = mmz - wwz;
+                }
+                const double axisYMPos = mc.resultAxisYAbs + dY;
+                const double axisZMPos = mc.resultAxisZ + dZ;
+
+                if (rotaryAxisYInput) { rotaryAxisYInput->setValue(axisYMPos); }
+                if (rotaryAxisZInput) { rotaryAxisZInput->setValue(axisZMPos); }
                 if (Cam::App::MachineProfile* m = app ? app->selectedMachine() : nullptr) {
                     Cam::App::MachineProfile src = *m;
-                    src.rotaryAxisY = mc.resultAxisYAbs;
-                    src.rotaryAxisZ = mc.resultAxisZ;
+                    src.rotaryAxisY = axisYMPos;
+                    src.rotaryAxisZ = axisZMPos;
                     src.rotaryAxisCalibrated = true;
                     src.rotaryAxisSigma = std::sqrt(mc.resultAxisYSigma * mc.resultAxisYSigma +
                                                     mc.resultAxisZSigma * mc.resultAxisZSigma);

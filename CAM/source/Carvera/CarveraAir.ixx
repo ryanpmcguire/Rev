@@ -576,6 +576,26 @@ export namespace Carvera {
             changeTool(slot, /*force*/ true);
         }
 
+        // Operator-initiated "Touch Off": force the machine to RE-RUN its own
+        // tool-length touch-off for whatever tool is currently loaded, so the
+        // controller re-references the tip and its reported WPos is corrected.
+        // We change nothing ourselves -- the ATC swap runs the machine's built-in
+        // tool-length probe as part of the (forced) change, and we simply consume
+        // the WPos it reports afterward.  If nothing is loaded, we fall back to
+        // referencing the probe (the one tool we can touch off unattended).
+        void forceTouchOff() {
+            if (!requireConnected()) { return; }
+            const int slot = loadedSlot.load();
+            if (slot <= 0) {
+                touchOffProbe();   // handles the no-probe case + spindle interlock
+                return;
+            }
+            pushLog(std::format(
+                "Touch-off: forcing a tool-length reference for the loaded tool "
+                "T{} to correct its reported tip position (WPos).", slot));
+            changeTool(slot, /*force*/ true);
+        }
+
         // ============================================================
         // Probing  (FIRST-STEP / EXPERIMENTAL -- see CarveraREADME.md)
         // ============================================================

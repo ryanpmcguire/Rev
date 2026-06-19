@@ -909,6 +909,27 @@ export namespace Cam::App {
             return surf.Cylinder().Radius() * 2.0;
         }
 
+        // The chamfer angle (degrees from horizontal) of a chamfer face -- the
+        // angle between its (mid-)normal and the +Z up axis, which by construction
+        // equals the face's tilt from horizontal (a flat top reads 0, a vertical
+        // wall reads 90, a 45-degree chamfer reads 45).  Matches the tool's
+        // taperAngle convention.
+        //
+        // Works for a curved edge-break (FILLET) too: faceNormal samples the
+        // surface midpoint, so a symmetric fillet reads ~45 -- i.e. the fillet is
+        // treated as the equivalent chamfer (a common shop practice).  The result
+        // is an APPROXIMATION for a fillet (the toolpath cuts flats, not the round).
+        double faceChamferAngle(size_t faceId) const {
+
+            if (faceId >= faces.size()) { return 0.0; }
+
+            const Rev::Core::Pos3 n = faceNormal(faceId);
+            double nz = std::fabs(static_cast<double>(n.z));
+            nz = std::clamp(nz, 0.0, 1.0);
+
+            return std::acos(nz) * (180.0 / 3.14159265358979);
+        }
+
         Rev::Core::Pos3 facePoint(size_t faceId) const {
 
             if (faceId >= faces.size()) {

@@ -28,6 +28,7 @@ import Cam.App.Slicer.Strategy.Strategies.Bore;
 import Cam.App.Slicer.Strategy.Strategies.Profile;
 import Cam.App.Slicer.Strategy.Strategies.Hatch;
 import Cam.App.Slicer.Strategy.Strategies.ThreadMill;
+import Cam.App.Slicer.Strategy.Strategies.Chamfer;
 
 export namespace Cam::App {
 
@@ -57,8 +58,9 @@ export namespace Cam::App {
         using Profile = Slicer::Strategy::Strategies::Profile;
         using Hatch = Slicer::Strategy::Strategies::Hatch;
         using ThreadMill = Slicer::Strategy::Strategies::ThreadMill;
+        using Chamfer = Slicer::Strategy::Strategies::Chamfer;
 
-        using StrategyInstance = std::variant<Bore, Profile, Hatch, ThreadMill>;
+        using StrategyInstance = std::variant<Bore, Profile, Hatch, ThreadMill, Chamfer>;
 
         // Settings
         //
@@ -109,6 +111,10 @@ export namespace Cam::App {
         bool   threadInternal = true;       // internal (tapped hole) vs external
         int    threadPasses = 1;            // radial passes (1 = single-pass)
         bool   threadUpCut = true;          // true = bottom-up, false = top-down
+
+        // Chamfer callout (used only by the Chamfer strategy).  Seeded from the
+        // ChamferOperation (inferred from the selected chamfer face).
+        double chamferAngle = 45.0;         // degrees from horizontal
 
         // Implied tool REQUIREMENTS the feature imposes
         //--------------------------------------------------
@@ -901,6 +907,12 @@ export namespace Cam::App {
                 if (threadMajorDiameter > 0.0 && tool.diameter >= threadMajorDiameter) { return false; }
             }
 
+            // Chamfering: needs a chamfer bit whose ground taper matches the
+            // chamfer angle (within tolerance).
+            if (strategy == Chamfer::name()) {
+                if (!tool.canChamferAngle(chamferAngle)) { return false; }
+            }
+
             // Feature fit (all strategies): the tool must pass through the
             // narrowest section and reach the full depth.
             if (implied.maxToolDiameter > 1e-6 && tool.diameter > implied.maxToolDiameter + 1e-6) {
@@ -1007,12 +1019,14 @@ export namespace Cam::App {
                 .threadInternal = threadInternal,
                 .threadPasses = threadPasses,
                 .threadUpCut = threadUpCut,
+                .chamferAngle = static_cast<float>(chamferAngle),
                 .frame = frame
             };
 
             if (strategy == Bore::name()) { strategyInstance = Bore {}; }
             else if (strategy == Profile::name()) { strategyInstance = Profile {}; }
             else if (strategy == ThreadMill::name()) { strategyInstance = ThreadMill {}; }
+            else if (strategy == Chamfer::name()) { strategyInstance = Chamfer {}; }
             else {
                 strategy = Hatch::name();
                 strategyInstance = Hatch {};

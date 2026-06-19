@@ -392,7 +392,16 @@ export namespace Cam::Gui {
             // and take only X (where along the axis) + A (the index) from the jog.
             // Uncalibrated -> fall back to the live position (the degenerate case).
             double oy = y, oz = z;
-            if (machineAxisCalibrated()) { oy = meas.axisY; oz = meas.axisZ; }
+            if (Cam::App::MachineProfile* m = machine()) {
+                // The axis is stored in MPos; convert to the current WPos (tip) frame
+                // via the live MPos-WPos offset before pinning.
+                float mmx, mmy, mmz, mma, wwx, wwy, wwz, wwa;
+                double dY = 0.0, dZ = 0.0;
+                if (link.telemetry(mmx, mmy, mmz, mma) && link.tipTelemetry(wwx, wwy, wwz, wwa)) {
+                    dY = mmy - wwy; dZ = mmz - wwz;
+                }
+                m->pinWorkOriginYZ(oy, oz, dY, dZ);   // Y/Z from the rotary axis, never the tip
+            }
             link.setWorkOrigin(x, static_cast<float>(oy), static_cast<float>(oz), a);
 
             float mx, my, mz, ma;

@@ -315,6 +315,9 @@ export namespace Cam::App {
             json["rotaryAxis"]["x"] = machine.rotaryAxisX;
             json["rotaryAxis"]["y"] = machine.rotaryAxisY;
             json["rotaryAxis"]["z"] = machine.rotaryAxisZ;
+            json["rotaryAxis"]["dirX"] = machine.rotaryAxisDirX;
+            json["rotaryAxis"]["dirY"] = machine.rotaryAxisDirY;
+            json["rotaryAxis"]["dirZ"] = machine.rotaryAxisDirZ;
             json["rotaryAxis"]["calibrated"] = machine.rotaryAxisCalibrated;
             json["rotaryAxis"]["sigma"] = machine.rotaryAxisSigma;
 
@@ -323,6 +326,7 @@ export namespace Cam::App {
             json["stepFiles"]["bed"] = machine.bedStep;
             json["stepFiles"]["workpiece"] = machine.workpieceStep;
             json["stepFiles"]["rotary"] = machine.rotaryStep;
+            json["stepFiles"]["rotaryBody"] = machine.rotaryBodyStep;
 
             return json;
         }
@@ -373,6 +377,9 @@ export namespace Cam::App {
                 if (ra.contains("x") && ra["x"].is_number()) { out.rotaryAxisX = ra["x"].get<double>(); }
                 if (ra.contains("y") && ra["y"].is_number()) { out.rotaryAxisY = ra["y"].get<double>(); }
                 if (ra.contains("z") && ra["z"].is_number()) { out.rotaryAxisZ = ra["z"].get<double>(); }
+                if (ra.contains("dirX") && ra["dirX"].is_number()) { out.rotaryAxisDirX = ra["dirX"].get<double>(); }
+                if (ra.contains("dirY") && ra["dirY"].is_number()) { out.rotaryAxisDirY = ra["dirY"].get<double>(); }
+                if (ra.contains("dirZ") && ra["dirZ"].is_number()) { out.rotaryAxisDirZ = ra["dirZ"].get<double>(); }
                 if (ra.contains("calibrated") && ra["calibrated"].is_boolean()) { out.rotaryAxisCalibrated = ra["calibrated"].get<bool>(); }
                 if (ra.contains("sigma") && ra["sigma"].is_number()) { out.rotaryAxisSigma = ra["sigma"].get<double>(); }
             }
@@ -390,6 +397,9 @@ export namespace Cam::App {
                 }
                 if (steps.contains("rotary") && steps["rotary"].is_string()) {
                     out.rotaryStep = steps["rotary"].get<std::string>();
+                }
+                if (steps.contains("rotaryBody") && steps["rotaryBody"].is_string()) {
+                    out.rotaryBodyStep = steps["rotaryBody"].get<std::string>();
                 }
             }
 
@@ -622,11 +632,98 @@ export namespace Cam::App {
             );
         }
 
+        // Load the rotary-axis fixture (the chuck) from its STEP.  Mirrors the
+        // spindle loader: the STEP's own origin is the centre of the +X-facing
+        // cylinder face, so the model is placed UNTRANSFORMED here and positioned at
+        // the rotary axis frame by the view.
+        static void reloadRotaryModel(MachineProfile& machine) {
+            machine.rotaryModel.clear();
+            machine.rotaryMeshRevision++;
+
+            if (machine.rotaryStep.empty()) { return; }
+
+            const std::string path = resolveStepPathForProfile(machine, machine.rotaryStep);
+            if (path.empty()) { return; }
+
+            Rev::OS::File file({ .pathname = path });
+            if (!file.exists) {
+                dbg("[MachineLibrary] Rotary STEP missing for \"%s\": %s",
+                    machine.name.c_str(), path.c_str());
+                return;
+            }
+
+            try {
+                machine.rotaryModel = Model::FromStep(file);
+            }
+            catch (...) {
+                dbg("[MachineLibrary] Failed to load rotary STEP for \"%s\": %s",
+                    machine.name.c_str(), path.c_str());
+                machine.rotaryModel.clear();
+                machine.rotaryMeshRevision++;
+                return;
+            }
+
+            if (machine.rotaryModel.render.triangles.empty()) {
+                dbg("[MachineLibrary] Rotary STEP produced no triangles for \"%s\"",
+                    machine.name.c_str());
+                machine.rotaryModel.clear();
+                machine.rotaryMeshRevision++;
+                return;
+            }
+
+            machine.rotaryMeshRevision++;
+            dbg("[MachineLibrary] Loaded rotary model for \"%s\" (%zu vertices)",
+                machine.name.c_str(), machine.rotaryModel.render.triangles.size());
+        }
+
+        // The rotary BODY/housing: same load path as the chuck, different asset.
+        static void reloadRotaryBodyModel(MachineProfile& machine) {
+            machine.rotaryBodyModel.clear();
+            machine.rotaryBodyMeshRevision++;
+
+            if (machine.rotaryBodyStep.empty()) { return; }
+
+            const std::string path = resolveStepPathForProfile(machine, machine.rotaryBodyStep);
+            if (path.empty()) { return; }
+
+            Rev::OS::File file({ .pathname = path });
+            if (!file.exists) {
+                dbg("[MachineLibrary] Rotary BODY STEP missing for \"%s\": %s",
+                    machine.name.c_str(), path.c_str());
+                return;
+            }
+
+            try {
+                machine.rotaryBodyModel = Model::FromStep(file);
+            }
+            catch (...) {
+                dbg("[MachineLibrary] Failed to load rotary BODY STEP for \"%s\": %s",
+                    machine.name.c_str(), path.c_str());
+                machine.rotaryBodyModel.clear();
+                machine.rotaryBodyMeshRevision++;
+                return;
+            }
+
+            if (machine.rotaryBodyModel.render.triangles.empty()) {
+                dbg("[MachineLibrary] Rotary BODY STEP produced no triangles for \"%s\"",
+                    machine.name.c_str());
+                machine.rotaryBodyModel.clear();
+                machine.rotaryBodyMeshRevision++;
+                return;
+            }
+
+            machine.rotaryBodyMeshRevision++;
+            dbg("[MachineLibrary] Loaded rotary BODY model for \"%s\" (%zu vertices)",
+                machine.name.c_str(), machine.rotaryBodyModel.render.triangles.size());
+        }
+
         void reloadAllStepModels() {
             for (const std::string& name : order) {
                 MachineProfile* machine = find(name);
                 if (machine) {
                     reloadSpindleModel(*machine);
+                    reloadRotaryModel(*machine);
+                    reloadRotaryBodyModel(*machine);
                 }
             }
         }
@@ -670,6 +767,11 @@ export namespace Cam::App {
             }
             if (!sources.rotary.empty()) {
                 if (!copyStepAsset(folderPath, "rotary", sources.rotary, machine.rotaryStep)) {
+                    ok = false;
+                }
+            }
+            if (!sources.rotaryBody.empty()) {
+                if (!copyStepAsset(folderPath, "rotaryBody", sources.rotaryBody, machine.rotaryBodyStep)) {
                     ok = false;
                 }
             }

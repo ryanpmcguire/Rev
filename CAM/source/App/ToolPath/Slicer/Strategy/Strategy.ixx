@@ -92,6 +92,10 @@ export namespace Cam::App::Slicer::Strategy {
         int   threadPasses = 1;
         bool  threadUpCut = true;
 
+        // Chamfer callout (only the Chamfer strategy reads it): the bevel angle
+        // from horizontal, matching the chamfer tool's taper.
+        float chamferAngle = 45.0f;
+
         CutFrame frame = CutFrame::fromAxis({ 0.0f, 0.0f, 1.0f });
     };
 

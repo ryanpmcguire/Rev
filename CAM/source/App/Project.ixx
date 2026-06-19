@@ -555,6 +555,7 @@ export namespace Cam::App {
                     { "threadInternal", stage->toolPath.threadInternal },
                     { "threadPasses", stage->toolPath.threadPasses },
                     { "threadUpCut", stage->toolPath.threadUpCut },
+                    { "chamferAngle", stage->toolPath.chamferAngle },
                     // Derived tool-fit requirements (cached so the selection
                     // dropdown can filter on load, before any recompute).
                     { "impliedMaxToolDiameter", stage->toolPath.implied.maxToolDiameter },
@@ -801,6 +802,9 @@ export namespace Cam::App {
                         }
                         if (toolPathJson.contains("threadUpCut") && toolPathJson["threadUpCut"].is_boolean()) {
                             stage->toolPath.threadUpCut = toolPathJson["threadUpCut"].get<bool>();
+                        }
+                        if (toolPathJson.contains("chamferAngle") && toolPathJson["chamferAngle"].is_number()) {
+                            stage->toolPath.chamferAngle = toolPathJson["chamferAngle"].get<double>();
                         }
 
                         if (toolPathJson.contains("impliedMaxToolDiameter") && toolPathJson["impliedMaxToolDiameter"].is_number()) {
@@ -1875,6 +1879,13 @@ export namespace Cam::App {
                 stage->toolPath.threadInternal = op->internal;
             }
 
+            // Chamfer: the operation owns the inferred angle; mirror it onto the
+            // toolpath so the chamfer strategy + tool selection match the feature.
+            if (stage->operation->type() == OperationType::Chamfer) {
+                ChamferOperation* op = static_cast<ChamferOperation*>(stage->operation);
+                stage->toolPath.chamferAngle = op->chamferAngle;
+            }
+
             stage->computeDelta(toolLibrary, selectedToolName);
 
             dirty = true;
@@ -2070,6 +2081,54 @@ export namespace Cam::App {
             op->internal = internal;
 
             return recomputeOperation(stage);
+        }
+
+        // Set the chamfer operation's bevel angle (the feature owns it) and
+        // recompute -- which mirrors the angle onto the toolpath so tool selection
+        // and the chamfer strategy match.
+        bool setChamferAngle(Stage* stage, double angle) {
+
+            if (!stage || !stage->operation) { return false; }
+            if (stage->operation->type() != OperationType::Chamfer) { return false; }
+
+            static_cast<ChamferOperation*>(stage->operation)->chamferAngle = angle;
+
+            return recomputeOperation(stage);
+        }
+
+        // Begin a chamfer on the selected chamfer face(s): a geometry-aware
+        // defeature.  The chamfer angle is inferred from the (first) selected
+        // face; removing the faces leaves the pre-chamfer edge, so the delta
+        // volume is the chamfer wedge the Chamfer toolpath cuts.
+        bool beginChamferFromSelection() {
+
+            if (!workingStage || !workingStage->parent) { return false; }
+
+            const auto& sel = workingStage->model.selectedFaceIds;
+            if (sel.empty()) { return false; }
+
+            ChamferOperation* op = new ChamferOperation();
+
+            // Infer the bevel angle from the first selected (planar) chamfer face.
+            const double angle = workingStage->model.faceChamferAngle(*sel.begin());
+            if (angle > 1e-3) { op->chamferAngle = angle; }
+
+            op->referencedFaces.assign(sel.begin(), sel.end());
+
+            delete workingStage->operation;
+            workingStage->operation = op;
+            workingStage->highlightedOperationFaces = op->referencedFaces;
+
+            // Auto-select the Chamfer toolpath strategy; recomputeOperation
+            // mirrors the inferred angle onto the toolpath.
+            workingStage->toolPath.strategy = "Chamfer";
+            workingStage->toolPath.strategyAuto = false;
+
+            selectComponent(workingStage, 2 /* Operation */);
+            recomputeOperation(workingStage);
+
+            dirty = true;
+            return true;
         }
 
         bool beginExtrudeFromSelection() {

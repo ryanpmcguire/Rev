@@ -57,6 +57,16 @@ export namespace Rev::Element::ControlTheme {
         .size = { Grow() }
     };
 
+    // DISABLED / LOCKED field: display-only.  A muted, recessed surface with no
+    // focus affordance + the default cursor, so the value reads as "shown, not
+    // editable".  Applied when the element's resolved.disabled is set.
+    Style FieldDisabled = {
+        .applies = { .disabled = true },
+        .background = { .color = rgba(241, 245, 249, 1.0) },   // slate-100, recessed
+        .border = { .color = rgba(226, 232, 240, 1.0) },
+        .cursor = Cursor::Default
+    };
+
     Style FieldText = {
         .size = { Grow() },
         .text = {
@@ -64,6 +74,12 @@ export namespace Rev::Element::ControlTheme {
             .size = 13_px,
             .wrap = Wrap::BreakWord
         }
+    };
+
+    // Muted text for a disabled / locked field.
+    Style FieldTextDisabled = {
+        .applies = { .disabled = true },
+        .text = { .color = rgba(148, 163, 184, 1.0) }   // slate-400
     };
 
     Style Placeholder = {
@@ -313,6 +329,8 @@ export namespace Rev::Element::ControlTheme {
         FieldFocus.border.color = colors.focusBorder;
 
         FieldText.text.color = colors.fieldText;
+        FieldDisabled.border.color = colors.fieldBorder;
+        FieldTextDisabled.text.color = colors.optionDisabledText;
         Placeholder.text.color = colors.placeholderText;
         DropdownArrow.text.color = colors.dropdownArrow;
 
@@ -363,7 +381,9 @@ export namespace Rev::Element::ControlTheme {
         markDirty(Label);
         markDirty(Field);
         markDirty(FieldFocus);
+        markDirty(FieldDisabled);
         markDirty(FieldText);
+        markDirty(FieldTextDisabled);
         markDirty(Placeholder);
         markDirty(DropdownArrow);
         markDirty(OptionsContainer);

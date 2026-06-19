@@ -20,7 +20,8 @@ export namespace Cam::App {
         Defeature,      // remove selected feature(s)
         ExtendFeature,  // extend selected face(s) outward
         Extrude,        // extrude a profile face up to an end face
-        ThreadMill      // reduce a hole to its pre-thread bore; thread cut by the toolpath
+        ThreadMill,     // reduce a hole to its pre-thread bore; thread cut by the toolpath
+        Chamfer         // remove a chamfer (defeature) leaving the sharp edge; chamfer cut by the toolpath
     };
 
     // A named, editable single-face reference exposed by an operation. The GUI
@@ -147,6 +148,41 @@ export namespace Cam::App {
 
         bool apply(Model& model) override {
             return model.defeatureSelected();
+        }
+    };
+
+    // Chamfer = a geometry-aware DEFEATURE.  In the reverse-process model the
+    // final part HAS the chamfer; this operation removes the selected chamfer
+    // face(s) -- leaving the pre-chamfer sharp edge -- so the resulting delta
+    // volume IS the chamfer wedge the toolpath then cuts with a chamfer bit.  The
+    // only extra datum over a plain defeature is the chamfer ANGLE (inferred from
+    // the selected face at creation), which seeds the toolpath + tool selection.
+    struct ChamferOperation : Operation {
+        double chamferAngle = 45.0;   // degrees from horizontal
+
+        OperationType type() const override { return OperationType::Chamfer; }
+        const char* typeName() const override { return "Chamfer"; }
+        std::string displayName() const override { return "Chamfer"; }
+
+        bool apply(Model& model) override {
+            // Restore the selection this op was created from -- a recompute clears
+            // it -- so we always remove exactly the chamfer faces we referenced.
+            model.clearSelection();
+            for (std::size_t id : referencedFaces) { model.selectFace(id); }
+            return model.defeatureSelected();
+        }
+
+        Json getState() const override {
+            Json json = Operation::getState();
+            json["chamferAngle"] = chamferAngle;
+            return json;
+        }
+
+        void setState(const Json& json) override {
+            Operation::setState(json);
+            if (json.contains("chamferAngle") && json["chamferAngle"].is_number()) {
+                chamferAngle = json["chamferAngle"].get<double>();
+            }
         }
     };
 
@@ -328,6 +364,7 @@ export namespace Cam::App {
         else if (type == "ExtendFeature") { op = new ExtendFeatureOperation(); }
         else if (type == "Extrude") { op = new ExtrudeOperation(); }
         else if (type == "ThreadMill") { op = new ThreadMillOperation(); }
+        else if (type == "Chamfer") { op = new ChamferOperation(); }
         else { op = new ImportOperation(); }
 
         op->setState(json);

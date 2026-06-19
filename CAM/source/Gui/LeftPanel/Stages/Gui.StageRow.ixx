@@ -32,6 +32,7 @@ import Cam.Gui.Theme;
 import Cam.Gui.OperationView;
 import Cam.Gui.FaceOperationView;
 import Cam.Gui.ThreadMillOperationView;
+import Cam.Gui.ChamferOperationView;
 import Cam.Gui.ImportOperationView;
 import Cam.Gui.ProbeView;
 import Cam.Gui.ToolPathSettingsWindow;
@@ -250,8 +251,8 @@ export namespace Cam::Gui {
         // Component indices.
         enum Component { PriorModel = 0, Model = 1, Operation = 2, Delta = 3, Toolpath = 4, Probe = 5 };
 
-        static bool isCollapsible(int c) { return c == Operation || c == Delta || c == Toolpath || c == Probe; }
-        static bool hasSettings(int c)   { return c == Operation || c == Toolpath; }
+        static bool isCollapsible(int c) { return c == Component::Operation || c == Delta || c == Toolpath || c == Probe; }
+        static bool hasSettings(int c)   { return c == Component::Operation || c == Toolpath; }
 
         // Eye opacity stops: faint when visible, fainter when hidden, near-opaque
         // on hover to signal clickability.
@@ -263,7 +264,7 @@ export namespace Cam::Gui {
             switch (component) {
                 case PriorModel: return "Prior Model";
                 case Model:      return "Model";
-                case Operation:  return "Operation";
+                case Component::Operation:  return "Operation";
                 case Delta:      return "Delta";
                 case Toolpath:   return "Toolpath";
                 case Probe:      return "Probe";
@@ -276,7 +277,7 @@ export namespace Cam::Gui {
             switch (component) {
                 case PriorModel: return &state->visible.priorModel;
                 case Model:      return &state->visible.model;
-                case Operation:  return &state->visible.operation;
+                case Component::Operation:  return &state->visible.operation;
                 case Delta:      return &state->visible.delta;
                 case Toolpath:   return &state->visible.toolPath;
                 case Probe:      return &state->visible.probe;
@@ -289,7 +290,7 @@ export namespace Cam::Gui {
         // the toolpath. Each File literal must appear so the embedder bundles it.
         static Rev::Core::Resource iconResourceFor(int component) {
             switch (component) {
-                case Operation: return File("./Operation.svg");
+                case Component::Operation: return File("./Operation.svg");
                 case Delta:     return File("./Delta.svg");
                 case Toolpath:  return File("./Toolpath.svg");
                 case Probe:     return File("./Operation.svg");   // reuse until a probe glyph exists
@@ -299,7 +300,7 @@ export namespace Cam::Gui {
 
         static StyleList iconStylesFor(int component) {
             switch (component) {
-                case Operation: return { &Styles::PropIcon, &Styles::PropIconOperation };
+                case Component::Operation: return { &Styles::PropIcon, &Styles::PropIconOperation };
                 case Delta:     return { &Styles::PropIcon, &Styles::PropIconDelta };
                 case Toolpath:  return { &Styles::PropIcon, &Styles::PropIconToolpath };
                 case Probe:     return { &Styles::PropIcon, &Styles::PropIconProbe };
@@ -402,7 +403,7 @@ export namespace Cam::Gui {
                         if (onSettingsChanged) { onSettingsChanged(e); }
                     };
                 }
-                else if (i == Operation) {
+                else if (i == Component::Operation) {
                     // The operation body hosts a per-type operation view, created
                     // and refreshed in computeChildren.
                     operationBody = propCollapsible[i]->container;
@@ -512,7 +513,7 @@ export namespace Cam::Gui {
             // Hovering the Operation property highlights the faces it referenced
             // (in the prior model) in the world view — a quick way to see which
             // faces participated in the operation.
-            if (i == Operation) {
+            if (i == Component::Operation) {
 
                 propHeader[i]->onMouseEnter([this](Event& e) {
                     if (state && state->operation) {
@@ -551,7 +552,7 @@ export namespace Cam::Gui {
 
             if (!state) { return; }
 
-            if (componentSelected(Operation) && state->operation) {
+            if (componentSelected(Component::Operation) && state->operation) {
                 state->highlightedOperationFaces = state->operation->referencedFaces;
             }
             else {
@@ -640,6 +641,8 @@ export namespace Cam::Gui {
                     return new ImportOperationView(parent);
                 case Cam::App::OperationType::ThreadMill:
                     return new ThreadMillOperationView(parent);
+                case Cam::App::OperationType::Chamfer:
+                    return new ChamferOperationView(parent);
                 default:
                     return new FaceOperationView(parent);
             }
@@ -713,17 +716,17 @@ export namespace Cam::Gui {
             syncProbeView(e);
 
             // The Operation property label reflects the actual operation type.
-            if (componentLabels[Operation]) {
-                componentLabels[Operation]->content =
+            if (componentLabels[Component::Operation]) {
+                componentLabels[Component::Operation]->content =
                     (state && state->operation) ? state->operation->displayName() : "Operation";
             }
 
             // While a face slot of this stage is being filled, auto-expand the
             // Operation item so the slot to fill is visible.
-            if (propCollapsible[Operation] && !propCollapsible[Operation]->open) {
+            if (propCollapsible[Component::Operation] && !propCollapsible[Component::Operation]->open) {
                 Cam::App::Project* p = activeProject();
                 if (p && p->activeRefStage == state) {
-                    propCollapsible[Operation]->expand(&e);
+                    propCollapsible[Component::Operation]->expand(&e);
                 }
             }
 
