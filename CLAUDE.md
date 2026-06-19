@@ -37,6 +37,37 @@ cmake --build build --target HelloWorld
 - Pass styles at construction: `new Box(parent, { &baseStyle, &hoverStyle })`
 - Or mutate inline: `box->style->background.color = rgba(0, 87, 255, 1)`
 
+### Axis::Vertical layout field semantics (non-obvious)
+
+For a container with `layout.direction = Axis::Vertical`:
+- `layout.horizontal` = **cross-axis** (left/right alignment of children)
+- `layout.vertical` = **main-axis** (top/bottom distribution of children — Start, End, Center)
+
+This is the opposite of what the field name implies. `Align::Start` on `layout.vertical` packs children to the top. `Align::End` pushes children to the bottom of the container's layout rect.
+
+### Wrap::False is required for vertical scroll containers
+
+Always set `layout.wrap = Wrap::False` on vertically-scrolling content columns. `Wrap::True` (the default) causes the layout engine to create additional columns when children overflow, breaking scroll. Symptom: content appears wider than the parent and scroll stops working.
+
+```cpp
+sidebarContent->style->layout.direction  = Axis::Vertical;
+sidebarContent->style->layout.wrap       = Wrap::False;   // required
+sidebarContent->style->layout.position   = Position::Absolute;
+```
+
+### Position::Absolute coordinate system
+
+In Rev, absolute positioning is relative to the **direct parent's rect**, not the nearest positioned ancestor (unlike CSS). `position.top = 100_pct` resolves against the direct parent's `size.h.val`:
+
+```cpp
+// optionsContainer is a child of `dropdown`; top=100_pct positions it just below
+optionsContainer->style->position.top = 100_pct;  // = dropdown.rect.h below dropdown.rect.y
+```
+
+### Overflow::Hide clips visuals but not hit-testing
+
+`Overflow::Hide` on a parent sets an OpenGL stencil that clips drawing. However, `setTargets()` uses `elem.rect.contains(pos)` without checking whether the rect falls inside an overflow-clipping ancestor. Elements that render outside an `Overflow::Hide` parent may be invisible but still receive mouse events.
+
 ## Element lifecycle
 
 - Elements are heap-allocated, parented via constructor: `new Text(parent, "hello")`
@@ -45,6 +76,65 @@ cmake --build build --target HelloWorld
 - `computeStyle(Event& e)` — called every frame, safe to update style properties and observable content
 - `computeChildren(Event& e)` — called when child list may need rebuilding; gate rebuilds with a dirty flag
 - Always call the parent `computeStyle` / `computeChildren` at the end: `Box::computeStyle(e)`
+
+### Frame execution order (per draw call)
+
+```
+computeChildrenTopDown   ← tree structure changes here (addChild/removeChild)
+calculateQueues          ← rebuilds topDown/bottomUp traversal lists
+computeStyle (topDown)   ← style property updates here
+resolveStyle             ← merges active conditional styles into resolved.style
+cascadeStyle             ← propagates resolved.hidden down the tree
+calcFlexLayouts:
+  resetResolved (topDown) ← zeroes all resolved sizes and rects
+  resolveMinima (bottomUp)
+  resolveMaxima (topDown)
+  resolveLayout (bottomUp) ← builds row.members; hidden elements INCLUDED
+  resolveDims (topDown)
+  resolveRects (topDown)  ← assigns final rect.x/y/w/h
+computePrimitives (topDown) ← GPU primitive data set from rect
+draw                     ← renders; skips resolved.hidden elements
+setTargets               ← called on mouse events; skips resolved.hidden elements
+```
+
+Key consequence: **do not modify the element tree in `computeStyle`**. The `computeChildrenTopDown` pass has already finished; adding/removing children during the style pass corrupts the in-progress traversal and crashes.
+
+### Visibility::Hidden vs. addChild/removeChild (slot pattern)
+
+`Visibility::Hidden` sets `resolved.hidden = true` and causes `resolveMinima`, `resolveDims`, and `resolveRects` to return early for the element — resulting in **0 width, 0 height, and zero margin contribution**. The element is therefore invisible and occupies no layout space. However, it **remains in `row.members`** from the parent's `resolveLayout` pass, which runs before hidden-state is considered.
+
+This can cause subtle hit-area offset bugs when an element transitions between hidden and visible states. The safe and proven pattern is the **slot + addChild/removeChild**:
+
+```cpp
+// In build function: create slot, build row as child, immediately remove
+Box* mySlot = new Box(parent);
+mySlot->style->layout.direction = Axis::Vertical;
+mySlot->style->size.width = 100_pct;
+
+Box* myRow = new Box(mySlot);
+// ... populate myRow ...
+mySlot->removeChild(myRow);  // start hidden
+
+// In computeChildren: toggle presence
+bool wantVisible = someCondition;
+auto& kids = mySlot->children;
+bool inSlot = std::find(kids.begin(), kids.end(), (Element*)myRow) != kids.end();
+if (wantVisible && !inSlot)  mySlot->addChild(myRow);
+if (!wantVisible && inSlot)  mySlot->removeChild(myRow);
+```
+
+This is exactly how `platformRowSlot`, `sendChkSlot`, and `hdmiDisplaySlot` are implemented in LithoControl.
+
+### Measuring content height for scroll (measureSpread)
+
+An absolutely-positioned container's own `rect.h` is clamped to its parent (since it's in absolute flow). To measure the actual spread of its children for scroll range calculations, use `measureSpread(element)` — it returns `max(child.rect.y + child.rect.h) - element.rect.y` across all children.
+
+```cpp
+float contentH = measureSpread(sidebarContent);
+float maxScroll = std::max(0.0f, contentH - sidebarBox->rect.h);
+```
+
+Do **not** use `sidebarContent->rect.h` — it will always equal the sidebar viewport height, making `maxScroll` always 0.
 
 ## Observable<T>
 
@@ -105,6 +195,25 @@ WinSock2 TCP client. Connects synchronously with 5-second timeout; receives line
 ## LithoControl Interface
 
 `Demo/source/LithoControl/Interface.ixx` exports `LithoControl::Interface : public Box`.
+
+#### Show/hide patterns used in LithoControl
+
+| Element | Technique | Reason |
+|---|---|---|
+| `stmPortRow` / `piHostRow` | `addChild`/`removeChild` on `platformRowSlot` | One-at-a-time swap without layout shift |
+| `sendTargetChk` | `addChild`/`removeChild` on `sendChkSlot` | Pi-only; hides on STM32 platform |
+| `hdmiDisplayRow` | `addChild`/`removeChild` on `hdmiDisplaySlot` | Toggled by HDMI passthrough checkbox; `Visibility::Hidden` caused a click-offset equal to the row height |
+
+All three use the same slot pattern. Do not revert to `Visibility::Hidden` for these — the hit-area offset bug returns.
+
+#### Sidebar scrolling implementation
+
+The sidebar uses a manually-driven scroll (no Rev scrollbar widget) because the scrollable content is an absolutely-positioned `sidebarContent` box shifted by `position.top = Px(-sidebarScrollY)`. Key points:
+
+- `Overflow::Hide` on `sidebarBox` clips the content visually
+- `sidebarScrollY` is updated immediately in the `onMouseWheel` handler and also clamped in `computeStyle` each frame
+- `measureSpread(sidebarContent)` is the only correct way to get content height (see above)
+- The scrollbar thumb is an absolutely-positioned child of `sidebarScrollTrackBox`; its position and size are computed from `sidebarScrollY / maxScroll` in `computeStyle`
 
 ### Dependencies for LithoControl
 

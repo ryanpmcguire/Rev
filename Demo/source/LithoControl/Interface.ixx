@@ -697,6 +697,7 @@ export namespace LithoControl {
         struct HdmiDisplay { std::string devName; std::string label; RECT rect; };
         std::vector<HdmiDisplay> hdmiDisplays;
         Checkbox*   hdmiPassthroughChk = nullptr;
+        Box*        hdmiDisplaySlot    = nullptr;
         Box*        hdmiDisplayRow     = nullptr;
         Dropdown*   hdmiDisplayDrop    = nullptr;
         HWND        hdmiHwnd           = nullptr;
@@ -1062,12 +1063,22 @@ export namespace LithoControl {
             hdmiPassthroughChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
             hdmiPassthroughChk->label->style->text.size  = 11_px;
 
-            // Display selector row -- only visible when checkbox is on
-            hdmiDisplayRow = new Box(body);
+            // Slot: display selector row is added/removed here so it takes no layout space
+            // when hidden. Using addChild/removeChild (not Visibility::Hidden) avoids the
+            // hit-area offset that occurs when a zero-height hidden element stays in the
+            // layout row.members list.
+            hdmiDisplaySlot = new Box(body);
+            hdmiDisplaySlot->style->layout.direction  = Axis::Vertical;
+            hdmiDisplaySlot->style->layout.horizontal = Align::Start;
+            hdmiDisplaySlot->style->size.width        = 100_pct;
+
+            // Display selector row -- built as child of slot so shared/canvas is valid,
+            // then immediately removed (checkbox starts unchecked).
+            hdmiDisplayRow = new Box(hdmiDisplaySlot);
             hdmiDisplayRow->style->layout    = { Axis::Vertical, Align::Start, Align::Start };
             hdmiDisplayRow->style->size.width = 100_pct;
             hdmiDisplayRow->style->margin.top = 6_px;
-            hdmiDisplayRow->style->visibility = Visibility::Hidden;
+            hdmiDisplaySlot->removeChild(hdmiDisplayRow);
 
             Text* dispLbl = new Text(hdmiDisplayRow, "DISPLAY");
             dispLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
@@ -1887,10 +1898,17 @@ export namespace LithoControl {
                 jobListDirty = false;
             }
 
-            // Show/hide the display selector row based on the passthrough checkbox
-            if (hdmiPassthroughChk && hdmiDisplayRow) {
-                hdmiDisplayRow->style->visibility = hdmiPassthroughChk->value.get()
-                    ? Visibility::Inherit : Visibility::Hidden;
+            // Show/hide the display selector row based on the passthrough checkbox.
+            // Use addChild/removeChild (slot pattern) so the row is fully absent from
+            // the layout tree when hidden — this prevents the hit-area offset caused by
+            // a zero-height Visibility::Hidden element lingering in row.members.
+            if (hdmiPassthroughChk && hdmiDisplaySlot && hdmiDisplayRow) {
+                bool wantVisible = hdmiPassthroughChk->value.get();
+                auto& kids = hdmiDisplaySlot->children;
+                bool inSlot = std::find(kids.begin(), kids.end(),
+                                        (Element*)hdmiDisplayRow) != kids.end();
+                if (wantVisible && !inSlot)  hdmiDisplaySlot->addChild(hdmiDisplayRow);
+                if (!wantVisible && inSlot)  hdmiDisplaySlot->removeChild(hdmiDisplayRow);
             }
 
             Box::computeChildren(e);
