@@ -769,7 +769,7 @@ export namespace Carvera {
                 pushLog(std::format("Tool change skipped: T{} is already loaded.", slot));
                 return OperationResult::success();
             }
-            if (auto r = preflightToolChange(slot); !r.ok) {
+            if (auto r = preflightToolChange(slot, force); !r.ok) {
                 pushLog(std::format("[changeTool] refused: {}", r.reason));
                 return r;
             }
@@ -857,7 +857,7 @@ export namespace Carvera {
         // truth for "can we do X right now?" -- called both by GUI actions
         // before the user even invokes them (to enable/disable buttons) and
         // by the action methods themselves (defence in depth).
-        OperationResult preflightToolChange(int slot) const {
+        OperationResult preflightToolChange(int slot, bool force = false) const {
             if (!connected())                { return OperationResult::failure("Not connected to machine."); }
             if (!isProbeSlot(slot) && (slot < 1 || slot > 6))
                                              { return OperationResult::failure(std::format("Invalid slot T{}. Carvera ATC has slots 1-6 (plus the probe slot).", slot)); }
@@ -867,7 +867,11 @@ export namespace Carvera {
             if (machineState_ == "Tool")     { return OperationResult::failure("Machine is ALREADY in an ATC cycle from a previous session. Press Reset (Ctrl-X / 0x18) to clear it, then retry."); }
             if (machineState_ == "Hold")     { return OperationResult::failure("Machine is in Hold. Resume or Reset before changing tool."); }
             if (executing.load())            { return OperationResult::failure("A program is executing. Stop it before changing tool."); }
-            if (slot == loadedSlot.load())   { return OperationResult::failure(std::format("T{} is already the loaded tool.", slot)); }
+            // Same-slot is normally a no-op -- but a FORCED change is exactly how we
+            // re-run the ATC tool-length touch-off on the tool that is already loaded,
+            // so do NOT refuse it when force is set.
+            if (!force && slot == loadedSlot.load())
+                                             { return OperationResult::failure(std::format("T{} is already the loaded tool.", slot)); }
             return OperationResult::success();
         }
 
@@ -1285,6 +1289,13 @@ export namespace Carvera {
         float confWX = 0, confWY = 0, confWZ = 0;
         bool  confWValid = false;
 
+        // Cached work coordinate offset (MPos = WPos + WCO).  Reported periodically;
+        // worker-thread only (used in the status parse to derive the omitted position).
+        float wcoCacheX = 0, wcoCacheY = 0, wcoCacheZ = 0;
+        bool  wcoCacheValid = false;
+
+        int   statusLogCount_ = 0;   // TEMP: dump the first few raw status frames
+
         // -- Intent / display estimator -----------------------------
         //
         // The displayed position is a TIME-BASED ESTIMATE, never a snap:
@@ -1636,6 +1647,9 @@ export namespace Carvera {
             pendingWcsAValid    = false;
             pendingProbe        = false;
             confValid           = false;
+            confWValid          = false;
+            wcoCacheValid       = false;
+            statusLogCount_     = 0;
             dispReady           = false;
             machineState_.clear();
             lastMachineState_.clear();
@@ -1693,8 +1707,35 @@ export namespace Carvera {
                 int    wn   = (wp != std::string::npos)
                     ? sscanf(msg.c_str() + wp + 5, "%f,%f,%f,%f", &wx, &wy, &wz, &wa)
                     : 0;
-                const bool wposPosOk = wn >= 3;   // X/Y/Z (the tool tip)
-                const bool wposOk    = wn >= 4;   // includes the A angle
+                bool wposPosOk = wn >= 3;   // X/Y/Z (the tool tip)
+                bool wposOk    = wn >= 4;   // includes the A angle
+
+                // WCO (work coordinate offset = work offset + tool-length offset).
+                // Grbl/Smoothie reports only ONE position type per frame (MPos OR
+                // WPos, per $10) plus a PERIODIC WCO line, expecting the host to
+                // derive the other: MPos = WPos + WCO.  We cache the last WCO (it
+                // persists between the frames that carry it) and fill in whichever
+                // position the frame omits -- so the spindle (MPos) and the tool tip
+                // (WPos) are always BOTH available and correctly tool-length apart,
+                // instead of collapsing onto the same point.
+                {
+                    float cx, cy, cz, ca;
+                    size_t wco = msg.find("WCO:");
+                    if (wco != std::string::npos &&
+                        sscanf(msg.c_str() + wco + 4, "%f,%f,%f,%f", &cx, &cy, &cz, &ca) >= 3) {
+                        wcoCacheX = cx; wcoCacheY = cy; wcoCacheZ = cz; wcoCacheValid = true;
+                    }
+                }
+                if (wcoCacheValid) {
+                    if (posOk && !wposPosOk) {                 // have MPos -> derive WPos
+                        wx = x - wcoCacheX; wy = y - wcoCacheY; wz = z - wcoCacheZ; wa = a;
+                        wposPosOk = true;
+                    }
+                    else if (!posOk && wposPosOk) {            // have WPos -> derive MPos
+                        x = wx + wcoCacheX; y = wy + wcoCacheY; z = wz + wcoCacheZ; a = wa;
+                        posOk = true;
+                    }
+                }
 
                 // Some Carvera/Smoothie builds include the loaded tool number
                 // in the status frame as "|T:<n>" or "|TLO:..." -- parse it so
@@ -2056,25 +2097,23 @@ export namespace Carvera {
                 intentX = confX; intentY = confY; intentZ = confZ; intentA = confA;
             }
 
-            // Dead-reckon the confirmed position forward along the estimated
-            // velocity, capped so a missing frame can't run the estimate away.
-            const float age = std::chrono::duration<float, std::milli>(now - confAt_).count();
-            const float horizon = std::min(age, PredictCapMs);
-
-            float estX = confX + velX * horizon;
-            float estY = confY + velY * horizon;
-            float estZ = confZ + velZ * horizon;
-            float estA = confA + velA * horizon;
-
-            // Jog lead: for a short window after a jog command, head for the
-            // commanded target for instant feedback; otherwise follow the
-            // machine estimate.
+            // BONA-FIDE TELEMETRY: when not actively jog-leading, head for the RAW
+            // confirmed machine position (confX) -- NEVER a dead-reckoned
+            // extrapolation.  Velocity dead-reckoning overshot wildly during homing:
+            // the fast reversals leave the velocity estimate stale and pointing the
+            // wrong way, so `confX + vel*horizon` shot past the machine frame before
+            // snapping back.  Following the confirmed position can lag a touch but can
+            // NEVER overshoot the machine's real position (the exponential relaxation
+            // below still prevents any teleport).
+            //
+            // Jog lead: for a short window after a jog command, head for the commanded
+            // target for instant operator feedback; otherwise the confirmed position.
             const bool lead = (now < jogLeadUntil_) && !quiet;
 
-            const float tX = lead ? intentX : estX;
-            const float tY = lead ? intentY : estY;
-            const float tZ = lead ? intentZ : estZ;
-            const float tA = lead ? intentA : estA;
+            const float tX = lead ? intentX : confX;
+            const float tY = lead ? intentY : confY;
+            const float tZ = lead ? intentZ : confZ;
+            const float tA = lead ? intentA : confA;
 
             // Exponential relaxation toward the target: a true time constant,
             // frame-rate independent, and incapable of teleporting.

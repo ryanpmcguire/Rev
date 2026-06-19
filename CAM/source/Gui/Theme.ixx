@@ -527,6 +527,7 @@ export namespace Cam::Gui::Theme {
         if (value.useShadow) {
             return Rev::Element::ControlTheme::Palette {
                 .fieldSurface = rgba(255, 255, 255, 1.0),
+                .fieldDisabledSurface = rgba(241, 245, 249, 1.0),   // slate-100, recessed
                 .fieldBorder = rgba(226, 232, 240, 1.0),
                 .fieldText = value.text,
                 .labelText = value.textMuted,
@@ -558,6 +559,7 @@ export namespace Cam::Gui::Theme {
 
         return Rev::Element::ControlTheme::Palette {
             .fieldSurface = value.solidButtonSurface,
+            .fieldDisabledSurface = value.background,   // recessed into the panel (dark-aware)
             .fieldBorder = value.buttonBorder,
             .fieldText = value.text,
             .labelText = value.textMuted,

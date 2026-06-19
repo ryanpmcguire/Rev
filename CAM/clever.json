@@ -236,6 +236,8 @@
         "source/Gui/Gui.ixx",
         "source/Gui/LeftPanel/Gui.LeftPanel.ixx",
         "source/Gui/LeftPanel/Machine/Gui.MachineTree.ixx",
+        "source/Gui/Controls/Gui.LockableNumberInput.ixx",
+        "source/Gui/LeftPanel/Frames/Gui.FramesTree.ixx",
         "source/Gui/LeftPanel/Stages/Gui.StageRow.ixx",
         "source/Gui/LeftPanel/Stages/Gui.Stages.ixx",
         "source/Gui/LeftPanel/Stages/Gui.ToolPathSettingsWindow.ixx",

@@ -19,6 +19,7 @@ import Cam.App;
 import Cam.App.Project;
 
 import Cam.Gui.MachineTree;
+import Cam.Gui.FramesTree;
 import Cam.Gui.Stages;
 import Cam.Gui.StockMenu;
 import Cam.Gui.Theme;
@@ -83,6 +84,7 @@ export namespace Cam::Gui {
         Text* fileButtonLabel = nullptr;
 
         MachineTree* machineTree = nullptr;
+        FramesTree* framesTree = nullptr;
         Stages* materialStates = nullptr;
         StockMenu* stockMenu = nullptr;
 
@@ -139,6 +141,16 @@ export namespace Cam::Gui {
             machineTree = new MachineTree(contentHost);
 
             machineTree->onChanged = [this](Event& e) {
+                if (onMachineChanged) { onMachineChanged(e); }
+            };
+
+            // Coordinate-system frames (machine / rotary / work / part), each with a
+            // visibility eye.  Sits between the machine node and the material states.
+            framesTree = new FramesTree(contentHost);
+
+            framesTree->onChanged = [this](Event& e) {
+                // Toggling a frame's visibility just needs the 3D view to re-sync;
+                // reuse the machine-changed channel (which refreshes the view).
                 if (onMachineChanged) { onMachineChanged(e); }
             };
 

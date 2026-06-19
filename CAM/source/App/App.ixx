@@ -37,6 +37,14 @@ export namespace Cam::App {
         bool workpiece = true;
     };
 
+    // Visibility requests for the on-screen coordinate-system gizmos.
+    struct FrameVisibility {
+        bool machine = true;   // absolute machine frame (MPos 0,0,0)
+        bool rotary  = true;   // calibrated rotary-axis frame (machine geometry)
+        bool work    = true;   // work frame (Set Origin)
+        bool part    = true;   // part frame (work frame + probe correction)
+    };
+
     struct AppState {
 
         // Projects
@@ -57,6 +65,9 @@ export namespace Cam::App {
 
         // Visibility requests for the machine's renderable components.
         MachineComponentVisibility machineVisible;
+
+        // Visibility requests for the coordinate-system gizmos (frames tree).
+        FrameVisibility frameVisible;
 
         // Create
         //--------------------------------------------------

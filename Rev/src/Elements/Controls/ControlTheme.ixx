@@ -276,6 +276,7 @@ export namespace Rev::Element::ControlTheme {
     struct Palette {
 
         sColor fieldSurface;
+        sColor fieldDisabledSurface;   // recessed surface for a locked/disabled field
         sColor fieldBorder;
         sColor fieldText;
         sColor labelText;
@@ -329,6 +330,7 @@ export namespace Rev::Element::ControlTheme {
         FieldFocus.border.color = colors.focusBorder;
 
         FieldText.text.color = colors.fieldText;
+        FieldDisabled.background.color = colors.fieldDisabledSurface;
         FieldDisabled.border.color = colors.fieldBorder;
         FieldTextDisabled.text.color = colors.optionDisabledText;
         Placeholder.text.color = colors.placeholderText;

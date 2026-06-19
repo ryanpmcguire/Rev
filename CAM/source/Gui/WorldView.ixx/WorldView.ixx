@@ -1019,28 +1019,25 @@ export namespace Cam::Gui {
             }
             lineActor->lines->dirty = true;
 
-            // The MEASURED rotary axis line (orange), drawn static at its located
-            // position once probing has determined it.  This is the physical line
-            // the part turns about -- the answer to "where is the chuck centreline".
+            // THE ROTARY AXIS + ROTARY FRAME, drawn in ABSOLUTE MACHINE COORDINATES
+            // from the calibrated MachineProfile frame (MPos) -- NOT the work frame --
+            // so they sit at the physical chuck centreline and never jump on Set
+            // Origin.  Orange centreline + an RGB coordinate gizmo at the axis origin.
             axisLineVerts.clear();
-            if (Cam::App::Project* prj = activeProject()) {
-                // The rotary (chuck) CENTRELINE = the work frame's X axis through its
-                // origin.  In the work-frame == machine-frame model the work frame IS
-                // the rotary axis, so draw it directly from there (no longer gated on
-                // the now-vestigial workRotaryAxis.measured, which never sets in this
-                // model).  Long + orange so the operator sees where the part turns.
-                const UserFrame f = currentUserFrame(prj);
-                Rev::Core::Pos3 dir = f.X;
-                const float dl = dir.pythag();
-                if (dl > 1e-6f) {
-                    dir = dir * (1.0f / dl);
-                    const float L = 120.0f;
-                    const Rev::Core::Color c = { 1.0f, 0.55f, 0.0f, 1.0f };
-                    const Rev::Core::Pos3 a = f.origin - dir * L;
-                    const Rev::Core::Pos3 b = f.origin + dir * L;
-                    axisLineVerts.push_back({ a.x, a.y, a.z, c });
-                    axisLineVerts.push_back({ b.x, b.y, b.z, c });
-                }
+            if (Cam::App::MachineProfile* machine = app ? app->selectedMachine() : nullptr) {
+                Rev::Core::Pos3 ao, aX, aY, aZ;
+                machine->rotaryAxisFrame(ao, aX, aY, aZ);
+
+                const float L = 120.0f;
+                const Rev::Core::Color c = { 1.0f, 0.55f, 0.0f, 1.0f };
+                const Rev::Core::Pos3 a = ao - aX * L;
+                const Rev::Core::Pos3 b = ao + aX * L;
+                axisLineVerts.push_back({ a.x, a.y, a.z, c });
+                axisLineVerts.push_back({ b.x, b.y, b.z, c });
+
+                const Cam::Coord::CoordinateSystem rotaryCS =
+                    Cam::Coord::CoordinateSystem::fromBasis(ao, aX, aY, aZ);
+                drawFrame(rotaryCS, axisLineVerts, 50.0f);
             }
             if (axisLineActor && axisLineActor->lines) {
                 axisLineActor->lines->dirty = true;
@@ -1060,6 +1057,14 @@ export namespace Cam::Gui {
                         { 0.0f, 0.0f, 1.0f });
                 drawFrame(machineCS, machineFrameVerts, 60.0f);
                 machineFrameActor->lines->dirty = true;
+            }
+
+            // Honour the Frames tree's visibility toggles for each gizmo.
+            if (app) {
+                if (lineActor)         { lineActor->visible        = app->frameVisible.work; }
+                if (axisLineActor)     { axisLineActor->visible    = app->frameVisible.rotary; }
+                if (machineFrameActor) { machineFrameActor->visible = app->frameVisible.machine; }
+                if (partFrameActor)    { partFrameActor->visible   = app->frameVisible.part; }
             }
 
             // Seat the chuck STEP on the same rotary axis frame we just drew.
@@ -1272,7 +1277,14 @@ export namespace Cam::Gui {
             Cam::App::Project* project = activeProject();
             if (!machine || !project) { return; }
 
-            const UserFrame f = currentUserFrame(project);
+            // ABSOLUTE MACHINE COORDINATES: the chuck/body ride the calibrated rotary
+            // axis frame on the MachineProfile (MPos), straight from machine geometry
+            // -- NOT the work frame -- so they never jump on Set Origin.  Build a
+            // UserFrame from it so the placement math below is unchanged.
+            Rev::Core::Pos3 ao, aX, aY, aZ;
+            machine->rotaryAxisFrame(ao, aX, aY, aZ);
+            UserFrame f;
+            f.origin = ao; f.X = aX; f.Y = aY; f.Z = aZ;
 
             // CHUCK: seated on the rotary axis frame -- local +X -> frame.X (the STEP
             // origin is the centre of the +X face), +Y/+Z -> frame.Y/Z, origin ->
@@ -1605,42 +1617,17 @@ export namespace Cam::Gui {
             Rev::Core::Pos3 dir = { 0.0f, 0.0f, 1.0f };
             bool haveTip = false;
 
-            // EXECUTE: show where the TOOL TIP actually is.  We read the
-            // controller's own tip position (WPos) -- tool-length already folded
-            // in by the machine -- rather than reconstructing the tip from MPos
-            // minus a tool length we'd have to track.  This is why a long probe
-            // and a short endmill both display correctly: the machine, not us,
-            // owns the tip math.  Falls back to MPos until a WPos arrives.
+            // EXECUTE: draw the tool straight from telemetry, NO work origin -- so it
+            // never disappears or jumps on Set Origin.  The tip sits AT the machine's
+            // reported WPos (the controller owns the tip math via touch-off); the tool
+            // body extends +Z UP from there toward the spindle.  We do NOT reconstruct
+            // the tip from MPos minus a model length.  Falls back to MPos only until a
+            // WPos has been reported.  Spindle never tilts (3+1), so the tool is +Z.
             float tx, ty, tz, ta;
-            float omx, omy, omz, ocx, ocy, ocz;
 
-            if (executeMode &&
-                link.connected() &&
-                (link.tipTelemetry(tx, ty, tz, ta) || link.telemetry(tx, ty, tz, ta)) &&
-                link.workOrigin(omx, omy, omz, ocx, ocy, ocz)) {
-
-                // tipPos - tipOrigin = the tip in the user/machine frame.  Add
-                // the begin-work offset (also in-frame) and rotate back into CAD
-                // via frame.toWorld -- the exact inverse of the streamer's
-                // transform, no ad-hoc axis swaps.
-                const Rev::Core::Pos3 wcsInFrame = {
-                    tx - omx,
-                    ty - omy,
-                    tz - omz
-                };
-
-                const Rev::Core::Pos3 inFrame = {
-                    wcsInFrame.x + beginWorkInFrame.x,
-                    wcsInFrame.y + beginWorkInFrame.y,
-                    wcsInFrame.z + beginWorkInFrame.z
-                };
-
-                tip = frame.toWorld(inFrame);
-                // The spindle/tool axis is the MACHINE's fixed vertical, NOT the work
-                // frame Z.  On a 3+1 machine the spindle never tilts -- the PART
-                // rotates about the rotary axis -- so the displayed tool must stay
-                // vertical regardless of the work frame's orientation (and so the
-                // spindle no longer swings when the work frame is re-oriented).
+            if (executeMode && link.connected() &&
+                (link.tipTelemetry(tx, ty, tz, ta) || link.telemetry(tx, ty, tz, ta))) {
+                tip = { tx, ty, tz };
                 dir = { 0.0f, 0.0f, 1.0f };
                 haveTip = true;
             }
@@ -1741,36 +1728,27 @@ export namespace Cam::Gui {
                 previewSpindleMeshRevision = machine->spindleMeshRevision;
             }
 
-            float toolPlacement[16];
-            toolPlacementMatrix(tip, dir, toolPlacement);
-
-            // The spindle sits above the tip by the TELEMETRIC tool offset
-            // (MPos.z - WPos.z), NOT the tool's STL length -- so the spindle STEP and
-            // the tool TIP stay correctly separated even if the tool's generated mesh
-            // is wrong.  This is exactly the machine's reported Z difference: when we
-            // home, the spindle STEP origin tracks MPos and the tool origin tracks
-            // WPos.  Falls back to the STL length only if telemetry is unavailable.
+            // The spindle is drawn at the MACHINE position (MPos) -- the spindle
+            // gauge, straight from telemetry.  The tool TIP is drawn SEPARATELY at the
+            // WORK position (WPos); their full difference (MPos - WPos) is the measured
+            // tool length, so the tool spans the gap between the tip and the spindle.
+            // (Earlier this used the tool's WPos X/Y by mistake, coinciding with the
+            // tool.)  Identity orientation -- the modelled spindle, never reoriented.
             Carvera::MachineLink& link = Carvera::MachineLink::instance();
-            float mx, my, mz, ma, wx, wy, wz, wa;
-            float collarTop = static_cast<float>(tool->totalLength());
-            if (link.telemetry(mx, my, mz, ma) && link.tipTelemetry(wx, wy, wz, wa)) {
-                collarTop = mz - wz;   // real spindle->tip Z offset from the machine
-            }
-            float offset[16];
-            translationMatrix(0.0f, 0.0f, collarTop, offset);
+            float mx, my, mz, ma;
+            if (!link.telemetry(mx, my, mz, ma)) { return; }   // MPos (spindle gauge)
 
             float spindlePlacement[16];
-            multiplyMatrix4(toolPlacement, offset, spindlePlacement);
+            translationMatrix(mx, my, mz, spindlePlacement);   // identity rotation
 
             for (int i = 0; i < 16; i++) {
                 spindlePreviewActor->modelTransform[i] = spindlePlacement[i];
             }
 
-            if (executeMode) {
-                float identity[16];
-                identityMatrix(identity);
-                spindlePreviewActor->setWorldTransform(identity);
-            }
+            // Absolute machine space: never a scene/world rotation on the spindle.
+            float identity[16];
+            identityMatrix(identity);
+            spindlePreviewActor->setWorldTransform(identity);
 
             spindlePreviewActor->visible = true;
             repositionSpindlePreviewDrawOrder();
@@ -2418,12 +2396,16 @@ export namespace Cam::Gui {
             float tx, ty, tz, ta;
             if (!link.telemetry(tx, ty, tz, ta)) { return false; }   // raw machine A
 
-            // The rotary axis as represented in the scene: currentUserFrame's X
-            // through its origin (valid even with no project -- a default frame).
-            const UserFrame f = currentUserFrame(activeProject());
+            // The rotary axis in ABSOLUTE MACHINE coords -- the calibrated frame on
+            // the MachineProfile (MPos), NOT the work frame.  Rotate the chuck about
+            // that axis by the raw machine A.
+            Cam::App::MachineProfile* machine = app ? app->selectedMachine() : nullptr;
+            if (!machine) { return false; }
+            Rev::Core::Pos3 ao, aX, aY, aZ;
+            machine->rotaryAxisFrame(ao, aX, aY, aZ);
 
             constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
-            Cam::Machine::Pose::axisAngleMatrix(f.X, ta * kDegToRad, f.origin, out);
+            Cam::Machine::Pose::axisAngleMatrix(aX, ta * kDegToRad, ao, out);
             return true;
         }
 
@@ -2832,10 +2814,18 @@ export namespace Cam::Gui {
             // loaded, and it is the chuck's PHYSICAL angle (raw A), distinct from the
             // part, which turns by A relative to where Set Origin was taken.  The BODY
             // never rotates (worldTransform left identity in syncRotaryFixture).
-            if (rotaryFixtureActor) {
+            //
+            // CRITICAL: the ROTARY AXIS FRAME gizmo (axisLineActor: the orange
+            // centreline + the RGB coordinate system) must ride the SAME rotation, so
+            // the displayed coordinate system and the chuck stay locked in one
+            // orientation -- the chuck DERIVES its pose from this frame, so they can
+            // never disagree.  (The work frame and machine frame are separate and stay
+            // static.)
+            {
                 float chuckM[16];
-                if (rotaryChuckMatrix(chuckM)) { rotaryFixtureActor->setWorldTransform(chuckM); }
-                else { Cam::Machine::Pose::identityMatrix(chuckM); rotaryFixtureActor->setWorldTransform(chuckM); }
+                if (!rotaryChuckMatrix(chuckM)) { Cam::Machine::Pose::identityMatrix(chuckM); }
+                if (rotaryFixtureActor) { rotaryFixtureActor->setWorldTransform(chuckM); }
+                if (axisLineActor)      { axisLineActor->setWorldTransform(chuckM); }
             }
 
             // THE FRAMES are drawn DIRECTLY from their CoordinateSystem objects --
@@ -2875,7 +2865,9 @@ export namespace Cam::Gui {
             }
             if (partFrameActor) { partFrameActor->setWorldTransform(identity); }
             if (lineActor)      { lineActor->setWorldTransform(identity); }
-            if (axisLineActor)  { axisLineActor->setWorldTransform(identity); }
+            // NOTE: axisLineActor (the rotary axis frame) is DELIBERATELY left with
+            // the chuck's A-rotation set above -- it must ride the rotary axis with
+            // the chuck, NOT be reset to identity like the work/part frames.
 
             // In Execute mode the tool preview is positioned from live telemetry
             // (already absolute CAD), so it is NOT transformed here.  In the sim
