@@ -700,10 +700,23 @@ export namespace Cam::App {
 
             if (points.empty()) { return; }
 
+            // The operation's START and END height is a DIFFERENT matter from the
+            // intra-operation retract height.  `safeDepth` (= feature top +
+            // retractHeight, a user setting) governs the internal retract/rapid/
+            // plunge links between cut moves.  But the very first and very last
+            // points of the operation are where the inter-OPERATION link arc
+            // attaches and swings the part to a new angle, so they need a much
+            // more generous, FIXED clearance -- hardcoded here, independent of the
+            // retract-height setting.  We raise them to at least kStartEndHeightMm
+            // above the same reference plane safeDepth measured from.
+            constexpr float kStartEndHeightMm = 10.0f;
+            const float startEndDepth =
+                safeDepth + std::max(0.0f, kStartEndHeightMm - retractHeight);
+
             // Points are in true forward execution order: FRONT executes first,
             // BACK executes last.
 
-            // Approach: arrive on the safe plane directly above the first cut
+            // Approach: arrive on the START/END plane directly above the first cut
             // point, then plunge straight in.  Prepended so it runs first.
             {
                 const Pos3 first = points.front().position;
@@ -711,7 +724,7 @@ export namespace Cam::App {
 
                 points.insert(
                     points.begin(),
-                    makePoint(frame.uvToWorld(uv, safeDepth), true, false)
+                    makePoint(frame.uvToWorld(uv, startEndDepth), true, false)
                 );
             }
 
@@ -742,7 +755,7 @@ export namespace Cam::App {
                     }
                 }
 
-                addWorldPoint(frame.uvToWorld(uv, safeDepth), true, false);
+                addWorldPoint(frame.uvToWorld(uv, startEndDepth), true, false);
             }
         }
 

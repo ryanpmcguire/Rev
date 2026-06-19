@@ -396,7 +396,7 @@ export namespace Cam::Gui {
             link.setWorkOrigin(x, static_cast<float>(oy), static_cast<float>(oz), a);
 
             float mx, my, mz, ma;
-            if (link.machineOrigin(mx, my, mz, ma)) {
+            if (link.tipOrigin(mx, my, mz, ma)) {
                 originX = mx; originY = my; originZ = mz; originA = ma;
                 originSet = true;
                 originSettle = 12;

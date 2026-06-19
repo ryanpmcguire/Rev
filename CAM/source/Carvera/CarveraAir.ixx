@@ -514,7 +514,7 @@ export namespace Carvera {
         // values.  The host then transforms every part-space point (toolpaths,
         // probe points) into absolute machine coordinates itself and emits them
         // absolutely -- nothing is ever interpreted relative to a controller-side
-        // offset.  captureMachineOrigin records the part placement the host uses.
+        // offset.  captureTipOrigin records the part placement the host uses.
         void setWorkOrigin() {
             if (!connected() || !confValid) {
                 pushLog("Connect and wait for position before setting origin.");
@@ -540,8 +540,14 @@ export namespace Carvera {
                 pushLog("Connect before setting origin.");
                 return;
             }
-            captureMachineOrigin(x, y, z, a);
-            sendLine("G10 L2 P1 X0 Y0 Z0 A0\n");   // WCS offset = 0 => G90 == machine absolute
+            captureTipOrigin(x, y, z, a);
+            // Zero the WCS so G90 == machine absolute and WPos == (MPos - tool len).
+            // NOTE: the captured tip values were read in the CURRENT WCS; this assumes
+            // that offset is already 0 (true after any prior Set Origin, since we zero
+            // it here every time).  The one exception -- a stale non-zero G54 from a
+            // power-cycle with no Set Origin yet -- makes only the FIRST capture off by
+            // that offset; it self-corrects on the next Set Origin (offset now 0).
+            sendLine("G10 L2 P1 X0 Y0 Z0 A0\n");
             pushLog(std::format(
                 "Part origin located at machine (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}); "
                 "WCS zeroed to machine -- all program moves are now absolute.",
@@ -1125,20 +1131,24 @@ export namespace Carvera {
         // Work-origin reference / WCS (consumed by the CAM world view)
         // ============================================================
 
-        void captureMachineOrigin(float mx, float my, float mz, float ma = 0.0f) {
+        // Store the captured work origin.  The values are in the TOOL-TIP (WPos)
+        // frame -- the part origin is located by where the TIP is, so probe contacts
+        // (also tip-referenced) and the origin share one frame.  (Named "tip" rather
+        // than "machine" to make that explicit; A has no tool-length offset.)
+        void captureTipOrigin(float mx, float my, float mz, float ma = 0.0f) {
             originMx.store(mx); originMy.store(my); originMz.store(mz); originMa.store(ma);
             originValid.store(true);
         }
 
-        float machineOriginA() const {
+        float tipOriginA() const {
             return originValid.load() ? originMa.load() : 0.0f;
         }
 
-        // The captured MACHINE-space part origin (set by setWorkOrigin), independent
-        // of whether a CAD origin has been registered.  Calibration / measurement
-        // routines work purely in machine coordinates, so they use this rather than
-        // workOrigin() (which also gates on cadOriginValid for the CAM transform).
-        bool machineOrigin(float& mx, float& my, float& mz, float& ma) const {
+        // The captured work origin in the TOOL-TIP (WPos) frame, independent of
+        // whether a CAD origin has been registered.  Calibration / measurement /
+        // probing read this (they work tip-referenced) rather than workOrigin()
+        // (which also gates on cadOriginValid for the CAM transform).
+        bool tipOrigin(float& mx, float& my, float& mz, float& ma) const {
             if (!originValid.load()) { return false; }
             mx = originMx.load(); my = originMy.load();
             mz = originMz.load(); ma = originMa.load();

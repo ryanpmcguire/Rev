@@ -530,10 +530,12 @@ export namespace Carvera::Gui {
 
         // End the session: jog-cancel any in-flight motion, then emit ONE
         // final $J=G91 whose delta snaps each moving axis from its current
-        // MPos UP to the next jogStepMm multiple (in the direction of motion).
-        // The safety margin keeps the snap forward of the cancel deceleration
-        // so the final move is never a reversal.  Axes that weren't moving in
-        // this leg get a 0 delta (omitted from the $J entirely).
+        // TOOL-TIP position (WPos) UP to the next jogStepMm multiple (in the
+        // direction of motion) -- so the WPos readout lands on the grid, matching
+        // every other position in the app.  The delta is relative ($J=G91), so it is
+        // frame-independent; only the grid TARGET is taken in the tip frame.  The
+        // safety margin keeps the snap forward of the cancel deceleration so the
+        // final move is never a reversal.  Axes not moving this leg get a 0 delta.
         void endSessionAtGrid() {
 
             sessionActive_ = false;
@@ -541,7 +543,8 @@ export namespace Carvera::Gui {
             air().jogCancel();
 
             float fx, fy, fz, fa;
-            if (!air().livePosition(fx, fy, fz, fa)) { return; }
+            if (!air().tipTelemetry(fx, fy, fz, fa) &&
+                !air().livePosition(fx, fy, fz, fa)) { return; }
 
             const float step  = jogStepMm  * (sessionFineMode_ ? kFineFactor : 1.0f);
             const float stepA = jogStepDeg * (sessionFineMode_ ? kFineFactor : 1.0f);

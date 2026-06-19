@@ -187,16 +187,21 @@ export namespace Cam::Gui {
         // It runs a single pass that measures the part's offset WITHIN the known
         // work frame (probeCorrection) -- the only residual a stage probe can still
         // resolve.  (Was: flat + 4 deliberate tilts to locate the axis + a confirm.)
-        static constexpr int    kProbeRepeatCount    = 1;     // single part-offset pass
+        //
+        // TWO passes: pass 0 probes the part NOMINAL and fits probeCorrection.  Pass
+        // 1 is the CONDITIONAL re-probe -- it only physically re-probes (DRIVEN to the
+        // corrected pose, so the probe meets the part where it now is) when pass 0
+        // found the part needs a rotary adjustment greater than kReprobeTiltDeg;
+        // otherwise pass 1 is a no-op that just advances the run to the cut.  The op
+        // COUNT is fixed at 2 so the pull-model indices stay stable (a path-less op
+        // still produces a non-empty step program, so "skip" never looks like "done").
+        static constexpr int    kProbeRepeatCount    = 2;     // nominal + conditional re-probe
 
-        // Trust thresholds gating whether a re-probe (pass > 0) is DRIVEN by the
-        // prior pass's correction.  RMS is the REAL trust signal: a tight fit is
-        // trustworthy no matter how large the measured misalignment, and a large
-        // misalignment is exactly what we WANT to physically correct before the
-        // confirmation probe.  The tilt cap is therefore only a generous SANITY /
-        // anti-collision bound -- it rejects numerically degenerate fits and
-        // refuses to auto-swing the probe by an absurd amount in one shot, but it
-        // must NOT block a confident, ordinary mis-mount (e.g. 20 deg).
+        // A fitted rotary adjustment larger than this (deg) means the part was
+        // mounted meaningfully off-axis: the nominal pass approached the part at
+        // off-feature spots, so we MUST re-probe (driven to the corrected pose) for
+        // an accurate fit.  At or below it, the nominal fit is trusted as-is.
+        static constexpr double kReprobeTiltDeg         = 1.0;
 
         // Trust thresholds gating whether a re-probe (pass > 0) is DRIVEN by the
         // prior pass's correction.  RMS is the REAL trust signal: a tight fit is
@@ -418,26 +423,42 @@ export namespace Cam::Gui {
                 // the HOST's matching part-origin location.
                 if (app) {
                     float mx, my, mz, ma;
-                    if (Carvera::MachineLink::instance().machineOrigin(mx, my, mz, ma)) {
+                    if (Carvera::MachineLink::instance().tipOrigin(mx, my, mz, ma)) {
                         app->machine.workOrigin = { true, mx, my, mz, ma };
                         app->saveSession();
                     }
+                }
+
+                // MODELING-CONTRACT guard: the work frame (and thus the rotary pivot)
+                // is placed at the part's axis origin.  If the part has no axis origin
+                // defined, it defaults to the model origin -- which may NOT be the
+                // rotary centre, so cuts would pivot about the wrong point.  Warn.
+                if (Cam::App::Project* p = activeProject();
+                    p && p->displayedStage && !p->displayedStage->model.hasAxisOrigin) {
+                    Carvera::MachineLink::instance().log(
+                        "Note: this part has no rotary-axis origin defined -- the work "
+                        "frame is assumed at the model origin. Define the part's axis "
+                        "so the work frame sits on the real rotary centre.");
                 }
             };
 
             // "Set Top": probe the part's top, then set the part Z from the contact.
             Carvera::MachineLink::instance().onSetTop = [this]() { armSetTop(); };
 
-            // Homing makes the captured work origin stale -- forget the persisted
-            // copy + part corrections so the operator must re-Set Origin (no driving
-            // to a stale absolute position).
+            // Homing makes the LIVE origin stale (Air drops originValid), but the
+            // anchor is machine-ABSOLUTE: homing re-references MPos off the home
+            // switches (repeatable) and re-touching the same tool restores the tool
+            // length, while the WCS stays zero -- so the persisted origin (and the
+            // part correction, since the part has not moved) are STILL geometrically
+            // valid.  We therefore KEEP both and let the execute-mode sync auto-
+            // restore them once a valid tip position returns (see setCadOrigin block).
+            // Nothing is wiped, so a power-cycle mid-job recovers without re-Set
+            // Origin -- the part is right where it was.
             Carvera::MachineLink::instance().onWorkOriginInvalidated = [this]() {
-                if (app) { app->machine.workOrigin.valid = false; app->saveSession(); }
-                if (Cam::App::Project* project = activeProject()) {
-                    project->workCorrection.reset();
-                    project->probeCorrection.reset();
-                    project->dirty = true;
-                }
+                Carvera::MachineLink::instance().log(
+                    "Homing: live position dropped. The work origin and part location "
+                    "will auto-restore once the machine reports a tip position "
+                    "(re-touch the tool after homing).");
                 machineToolPathsDirty = true;
                 previewTimelineDirty  = true;
             };
@@ -450,12 +471,13 @@ export namespace Cam::Gui {
             // can't be detected -- so warn the operator to re-Set Origin if unsure.
             if (app && app->machine.workOrigin.valid) {
                 const auto& w = app->machine.workOrigin;
-                Carvera::MachineLink::instance().captureMachineOrigin(
+                Carvera::MachineLink::instance().captureTipOrigin(
                     static_cast<float>(w.mx), static_cast<float>(w.my),
                     static_cast<float>(w.mz), static_cast<float>(w.ma));
                 Carvera::MachineLink::instance().log(
-                    "Work origin restored from the last session. If the machine was "
-                    "homed since, press Set Origin again before running.");
+                    "Work origin restored from the last session (machine-absolute "
+                    "anchor). It also auto-restores after homing + re-touching the "
+                    "tool, so a power cycle mid-job recovers without re-Set Origin.");
             }
 
             gestures.onGesture = [this](WorldViewCommand command, Event& e) {
@@ -957,19 +979,22 @@ export namespace Cam::Gui {
             // the part turns about -- the answer to "where is the chuck centreline".
             axisLineVerts.clear();
             if (Cam::App::Project* prj = activeProject()) {
-                if (prj->workRotaryAxis.measured) {
-                    Rev::Core::Pos3 dir = prj->workRotaryAxis.direction;
-                    const float dl = dir.pythag();
-                    if (dl > 1e-6f) {
-                        dir = dir * (1.0f / dl);
-                        const Rev::Core::Pos3 p = prj->workRotaryAxis.point;
-                        const float L = 120.0f;
-                        const Rev::Core::Color c = { 1.0f, 0.55f, 0.0f, 1.0f };
-                        const Rev::Core::Pos3 a = p - dir * L;
-                        const Rev::Core::Pos3 b = p + dir * L;
-                        axisLineVerts.push_back({ a.x, a.y, a.z, c });
-                        axisLineVerts.push_back({ b.x, b.y, b.z, c });
-                    }
+                // The rotary (chuck) CENTRELINE = the work frame's X axis through its
+                // origin.  In the work-frame == machine-frame model the work frame IS
+                // the rotary axis, so draw it directly from there (no longer gated on
+                // the now-vestigial workRotaryAxis.measured, which never sets in this
+                // model).  Long + orange so the operator sees where the part turns.
+                const UserFrame f = currentUserFrame(prj);
+                Rev::Core::Pos3 dir = f.X;
+                const float dl = dir.pythag();
+                if (dl > 1e-6f) {
+                    dir = dir * (1.0f / dl);
+                    const float L = 120.0f;
+                    const Rev::Core::Color c = { 1.0f, 0.55f, 0.0f, 1.0f };
+                    const Rev::Core::Pos3 a = f.origin - dir * L;
+                    const Rev::Core::Pos3 b = f.origin + dir * L;
+                    axisLineVerts.push_back({ a.x, a.y, a.z, c });
+                    axisLineVerts.push_back({ b.x, b.y, b.z, c });
                 }
             }
             if (axisLineActor && axisLineActor->lines) {
@@ -1296,18 +1321,40 @@ export namespace Cam::Gui {
 
                 link.setCadOrigin(cadBeginWork.x, cadBeginWork.y, cadBeginWork.z);
 
-                // If no precise origin has been set yet (via Set Origin), anchor
-                // to the current TOOL TIP (WPos) so jogging shows relative motion
-                // immediately -- the same tip frame everything else uses, NOT the
-                // spindle.  Set Origin later re-anchors precisely.
+                // When the live origin is absent (never set this session, OR just
+                // dropped by a home), re-anchor.  CRITICAL ordering: a PERSISTED
+                // origin is a real machine-absolute anchor that survives homing, so
+                // it must take precedence -- otherwise we would silently re-anchor to
+                // wherever the tool happens to sit after homing and the part would
+                // appear "at the origin" while really far above it (the power-cycle
+                // bug).  Only with NO persisted anchor do we fall back to capturing
+                // the current tip (a convenience so fresh jogging shows relative
+                // motion before the operator has pressed Set Origin).
                 float tcx, tcy, tcz, tca;
                 float mx, my, mz, ocx2, ocy2, ocz2;
 
                 if (link.currentTip(tcx, tcy, tcz, tca) &&
                     !link.workOrigin(mx, my, mz, ocx2, ocy2, ocz2)) {
-                    // Auto-capture all four axes so the A reference is set
-                    // even before the operator presses "Set Origin".
-                    link.captureMachineOrigin(tcx, tcy, tcz, tca);
+
+                    if (app && app->machine.workOrigin.valid) {
+                        // AUTO-RESTORE the persisted machine-absolute origin (e.g. after
+                        // a power cycle + re-home + re-touch).  The part has not moved,
+                        // so its location is reproduced exactly.
+                        const bool wasInvalid = !link.tipOrigin(mx, my, mz, ocx2);
+                        const auto& w = app->machine.workOrigin;
+                        link.captureTipOrigin(
+                            static_cast<float>(w.mx), static_cast<float>(w.my),
+                            static_cast<float>(w.mz), static_cast<float>(w.ma));
+                        if (wasInvalid) {
+                            link.log("Work origin auto-restored from the persisted "
+                                     "machine anchor -- the part is located again.");
+                        }
+                    }
+                    else {
+                        // No persisted anchor: capture the current tip on all four
+                        // axes so the A reference is set even before Set Origin.
+                        link.captureTipOrigin(tcx, tcy, tcz, tca);
+                    }
                 }
             }
 
@@ -1355,7 +1402,7 @@ export namespace Cam::Gui {
                 (link.tipTelemetry(tx, ty, tz, ta) || link.telemetry(tx, ty, tz, ta)) &&
                 link.workOrigin(omx, omy, omz, ocx, ocy, ocz)) {
 
-                // tipPos - machineOrigin = the tip in the user/machine frame.  Add
+                // tipPos - tipOrigin = the tip in the user/machine frame.  Add
                 // the begin-work offset (also in-frame) and rotate back into CAD
                 // via frame.toWorld -- the exact inverse of the streamer's
                 // transform, no ad-hoc axis swaps.
@@ -1844,7 +1891,7 @@ export namespace Cam::Gui {
             }
             Carvera::MachineLink& link = Carvera::MachineLink::instance();
             float omx, omy, omz, oma;
-            if (!link.machineOrigin(omx, omy, omz, oma)) {
+            if (!link.tipOrigin(omx, omy, omz, oma)) {
                 link.log("Set Top: set the work origin first.");
                 return;
             }
@@ -2027,9 +2074,12 @@ export namespace Cam::Gui {
                 const Cam::App::ProbeResult& p = project->probeCorrection;
                 Carvera::MachineLink::instance().log(std::format(
                     "Probe: PART offset within work frame from {} contact(s) - "
-                    "tilt={:.2f} deg, t=({:.3f},{:.3f},{:.3f}) rms={:.4f} mm.",
+                    "tilt={:.2f} deg, t=({:.3f},{:.3f},{:.3f}) rms={:.4f} mm.{}",
                     project->partMeasurements.size(), tiltOf(p.r),
-                    p.t.x, p.t.y, p.t.z, p.rmsError));
+                    p.t.x, p.t.y, p.t.z, p.rmsError,
+                    (tiltOf(p.r) > kReprobeTiltDeg)
+                        ? std::format(" Exceeds {:.2f} deg -> will re-probe.", kReprobeTiltDeg)
+                        : std::string()));
             }
             project->dirty = true;
 
@@ -2174,7 +2224,7 @@ export namespace Cam::Gui {
                 rotaryPivot = def.part.defaultPose.position;
             }
 
-            // Part-relative rotary angle = MPos A − machineOriginA.
+            // Part-relative rotary angle = MPos A − tipOriginA.
             //
             // We now drive the machine in ABSOLUTE coordinates (the WCS offset is
             // zeroed, so WPos == MPos and is NOT part-relative).  The part's
@@ -2184,7 +2234,7 @@ export namespace Cam::Gui {
             // not depend on any controller-side offset.
             constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
 
-            const float angleRad = (ta - link.machineOriginA()) * kDegToRad;
+            const float angleRad = (ta - link.tipOriginA()) * kDegToRad;
 
             Cam::Machine::Pose::axisAngleMatrix(
                 rotaryAxis, angleRad, rotaryPivot, out
@@ -2708,7 +2758,19 @@ export namespace Cam::Gui {
             // offset is zeroed on the controller, so G90 == machine absolute.)
             float omx = 0, omy = 0, omz = 0, ocx = 0, ocy = 0, ocz = 0;
             const bool haveOrigin = link.workOrigin(omx, omy, omz, ocx, ocy, ocz);
-            const double omA = link.machineOriginA();
+            const double omA = link.tipOriginA();
+
+            // CONSERVATIVE INTER-OPERATION LINKING.  Every cut operation is bracketed
+            // with a "safe link" waypoint: on the rotary axis (machine Y = omy),
+            // retracted straight up to a UNIFORM safe radius above the axis (machine
+            // Z = omz + linkSafeRadius).  Because every op both starts and ends there,
+            // ALL rotary repositioning between operations -- which is where the tool
+            // would otherwise sweep through the part on its way to a new angle --
+            // happens fully clear of the stock.  linkSafeRadius is the part's max
+            // radial extent from the rotary axis (over every material state) plus a
+            // fixed margin, computed below once the stage sequence is known.
+            constexpr double kLinkSafetyMarginMm = 10.0;
+            double linkSafeRadius = 0.0;
 
             if (!haveOrigin) {
                 dbg("[Execute] no work origin set - cannot emit absolute coords; aborting");
@@ -2904,6 +2966,30 @@ export namespace Cam::Gui {
 
                 Op op = Op::cut(slot, toolName, 12000.0);
 
+                // A "safe link" waypoint at the given rotary angle and along-axis X:
+                // ON the rotary axis radially (machine Y = omy) and retracted to the
+                // uniform safe radius above it (machine Z = omz + linkSafeRadius), so
+                // any rotation to/from this point clears the whole stock.
+                auto safeLink = [&](double machineX, double aDeg) -> Wp {
+                    return Wp{ machineX, static_cast<double>(omy),
+                               static_cast<double>(omz) + linkSafeRadius, aDeg + omA };
+                };
+
+                // ENTRY: before touching the part, go to the safe radius AT THIS OP'S
+                // first angle.  Combined with the previous op's matching exit, every
+                // inter-operation rotation happens fully backed off from the stock.
+                const Cam::Machine::MachinePose& firstPose = path->points.front();
+                const Cam::Machine::MachinePose& lastPose  = path->points.back();
+                const Wp firstM = toMachine(firstPose.toolWorldPose.position,
+                                            firstPose.rotaryAngle * radToDeg);
+                const Wp lastM  = toMachine(lastPose.toolWorldPose.position,
+                                            lastPose.rotaryAngle * radToDeg);
+                {
+                    Pth entry = Pth::travel();
+                    entry.points.push_back(safeLink(firstM.x, firstPose.rotaryAngle * radToDeg));
+                    op.paths.push_back(entry);
+                }
+
                 Pth  current;
                 bool haveCurrent  = false;
                 bool currentRapid = true;
@@ -2928,6 +3014,14 @@ export namespace Cam::Gui {
                 }
 
                 flush();
+
+                // EXIT: retract straight up to the safe radius at the LAST angle
+                // before the op ends, so the part is clear before the next op rotates.
+                {
+                    Pth exit = Pth::travel();
+                    exit.points.push_back(safeLink(lastM.x, lastPose.rotaryAngle * radToDeg));
+                    op.paths.push_back(exit);
+                }
 
                 if (!op.paths.empty()) { ops.push_back(std::move(op)); }
             };
@@ -2955,17 +3049,57 @@ export namespace Cam::Gui {
                     probeFrameZ_           = frame.Z;
                     probeBeginWorkInFrame_ = beginWorkInFrame;
 
-                    // PART-OFFSET pass only.  The work frame (rotary axis) is fixed by
+                    // PART-OFFSET pass.  The work frame (rotary axis) is fixed by
                     // machine calibration, so the stage probe no longer tilts to infer
-                    // the axis -- it probes the part at its nominal orientation and
-                    // fits the part's residual offset WITHIN that known work frame.
-                    (void)passIndex;
+                    // the axis -- it probes the part and fits the part's residual offset
+                    // WITHIN that known work frame.
                     probeSessionBase_.reset();
                     probeSessionComposed_      = false;
                     probeSessionConfirm_       = true;    // always the part-offset fit
                     probeSessionCalibComplete_ = false;
 
-                    appendProbeOp(state, /*drive*/ nullptr);
+                    // Pass 0 ALWAYS probes nominal (drive == null): the fragile probe
+                    // is never swung by an as-yet-unknown correction.  Pass >0 is the
+                    // CONDITIONAL re-probe: re-probe (driven to the corrected pose) only
+                    // when pass 0 found the part needs more than kReprobeTiltDeg of
+                    // rotary adjustment AND the fit is trustworthy; otherwise emit a
+                    // path-less no-op so the run advances straight to the cut.
+                    bool driveReprobe = false;
+                    if (passIndex > 0) {
+                        const Cam::App::ProbeResult& p = project->probeCorrection;
+                        const double tr   = p.r[0] + p.r[4] + p.r[8];
+                        const double tilt = std::acos(std::clamp((tr - 1.0) * 0.5, -1.0, 1.0))
+                                          * 57.29577951308232;
+                        driveReprobe = p.valid
+                                    && tilt        >  kReprobeTiltDeg
+                                    && tilt        <= kProbeReprobeMaxTiltDeg
+                                    && p.rmsError  <  kProbeReprobeMaxRmsMm;
+
+                        if (!driveReprobe) {
+                            Carvera::MachineLink::instance().log(std::format(
+                                "Probe: part within {:.2f} deg of nominal (tilt={:.2f}) "
+                                "-- skipping re-probe.", kReprobeTiltDeg,
+                                p.valid ? tilt : 0.0));
+                            // Path-less op: keeps the op index occupied (stable
+                            // pull-model indices) without any physical motion.
+                            ops.push_back(Op::cut(-1, "re-probe not needed", 0.0));
+                            opCursor++;
+                            return;
+                        }
+
+                        // Trusted re-probe: drive by a STASHED copy of the pass-0 fit
+                        // so the probe approaches the part where it now sits.
+                        probeSessionBase_ = project->probeCorrection;
+                        Carvera::MachineLink::instance().log(std::format(
+                            "Probe: part off-axis by {:.2f} deg (> {:.2f}) -- re-probing "
+                            "driven to the corrected pose.",
+                            (std::acos(std::clamp((project->probeCorrection.r[0]
+                              + project->probeCorrection.r[4]
+                              + project->probeCorrection.r[8] - 1.0) * 0.5, -1.0, 1.0))
+                              * 57.29577951308232), kReprobeTiltDeg));
+                    }
+
+                    appendProbeOp(state, driveReprobe ? &probeSessionBase_ : nullptr);
                 }
                 opCursor++;
             };
@@ -2990,6 +3124,31 @@ export namespace Cam::Gui {
 
             const std::vector<Cam::App::Stage*> sequence =
                 ToolPathPreviewTimeline::previewSequence(project);
+
+            // Size the uniform safe link radius: the largest radial extent of any
+            // material state from the rotary axis (frame.X through cadBeginWork),
+            // plus a fixed margin.  frameBounds projects every vertex onto the work
+            // frame, so the Y/Z extents (relative to the axis origin) are the radial
+            // reach; the worst corner is sqrt(maxY^2 + maxZ^2).
+            {
+                double maxRadial = 0.0;
+                auto considerModel = [&](Cam::App::Stage* s) {
+                    if (!s) { return; }
+                    double bx0, bx1, by0, by1, bz0, bz1;
+                    s->model.frameBounds(cadBeginWork, frame.X, frame.Y, frame.Z,
+                                         bx0, bx1, by0, by1, bz0, bz1);
+                    const double ry = std::max(std::abs(by0), std::abs(by1));
+                    const double rz = std::max(std::abs(bz0), std::abs(bz1));
+                    maxRadial = std::max(maxRadial, std::sqrt(ry * ry + rz * rz));
+                };
+                for (Cam::App::Stage* s : sequence) { considerModel(s); }
+                if (sequence.empty()) {
+                    considerModel(materialStateWithToolPathForPreview(project));
+                }
+                linkSafeRadius = maxRadial + kLinkSafetyMarginMm;
+                dbg("[Execute] inter-op link safe radius = %.2f mm (part radial %.2f + %.1f margin)",
+                    linkSafeRadius, maxRadial, kLinkSafetyMarginMm);
+            }
 
             if (!sequence.empty()) {
                 for (Cam::App::Stage* state : sequence) {
@@ -3641,30 +3800,36 @@ export namespace Cam::Gui {
 
             if (!app || !view3d) { return false; }
 
-            // Picking uses the (invisible, selectable) pick actor, which is only
-            // enabled on the editable working state -- same gate as face picking.
-            if (!displayedModelIsEditable()) {
-                dbg("[Probe] select the working state to add probe points");
-                return false;
-            }
-
+            // Probe points may be placed on ANY currently selected/displayed material
+            // state -- NOT only the editable working state (face picking is restricted
+            // to the working state, but probing a feature is valid on any state).
             Cam::App::Stage* state = displayedState();
             if (!state) { return false; }
 
             Cam::Gui::World::Stage* worldState = displayedMaterialView();
             if (!worldState || !worldState->pickActor) { return false; }
 
-            Cam::App::Model* model = selectionModel();
-            if (!model) { return false; }
+            Cam::App::Model* model = worldState->displayModel();   // the DISPLAYED model
+            if (!model || !model->loaded) { return false; }
 
-            // GPU pick: gives BOTH the world-space surface point and the triangle
-            // (-> face -> outward normal) under the cursor.
+            // GPU pick against the displayed state's geometry: temporarily make its
+            // pick actor selectable (it is normally only selectable on the working
+            // state) and point it at the displayed model's triangles for the hit.
+            View3d::Actor* pickActor = worldState->pickActor;
+            const bool wasSelectable = pickActor->selectable;
+            pickActor->mesh->pTriangles = &model->render.triangles;
+            pickActor->selectable = true;
+
             View3d::Hit hit;
-            if (!view3d->hitTest(mousePos, hit)) {
+            const bool gotHit = view3d->hitTest(mousePos, hit);
+
+            pickActor->selectable = wasSelectable;
+
+            if (!gotHit) {
                 dbg("[Probe] cursor not over the part");
                 return false;
             }
-            if (hit.actor != worldState->pickActor) { return false; }
+            if (hit.actor != pickActor) { return false; }
             if (hit.triangleId >= model->render.triangleFaceIds.size()) { return false; }
 
             const size_t faceId = model->render.triangleFaceIds[hit.triangleId];

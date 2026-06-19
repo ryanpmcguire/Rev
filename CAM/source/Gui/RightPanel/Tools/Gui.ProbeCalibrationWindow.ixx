@@ -425,7 +425,7 @@ export namespace Cam::Gui {
             link.setWorkOrigin();
 
             float mx, my, mz, ma;
-            if (link.machineOrigin(mx, my, mz, ma)) {
+            if (link.tipOrigin(mx, my, mz, ma)) {
                 originX = mx; originY = my; originZ = mz; originA = ma;
                 originSet = true;
                 originSettle = 12;   // let telemetry settle past the WCS re-zero jump
