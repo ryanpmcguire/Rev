@@ -472,6 +472,11 @@ export namespace Rev {
 
         inline static HGLRC sharedRoot = nullptr;
         HWND handle = nullptr;
+
+        // Window icons (alt-tab/taskbar + title bar), owned here and destroyed
+        // in the destructor. See setIcon().
+        HICON hIconBig = nullptr;
+        HICON hIconSmall = nullptr;
         
         Size size;
         float scale = 1.0f;
@@ -709,9 +714,78 @@ export namespace Rev {
             SetForegroundWindow(handle);
         }
 
+        // Set the window icon from raw RGBA8 pixels (top row first). `big`
+        // selects the alt-tab/taskbar icon (ICON_BIG, ~32px) vs the title-bar
+        // icon (ICON_SMALL, ~16px); call once per size. The caller rasterizes at
+        // the desired size (e.g. via Rev::Core::Svg::rasterize) and owns its
+        // pixels -- we copy into a GDI bitmap. The previous HICON of that slot is
+        // destroyed here, and both are destroyed in the destructor.
+        void setIcon(const unsigned char* rgba, int w, int h, bool big) {
+
+            if (!handle || !rgba || w <= 0 || h <= 0) { return; }
+
+            // 32-bit top-down BGRA DIB for the colour plane. nanosvg gives RGBA,
+            // Windows DIBs are BGRA, so swap R<->B on copy. Negative height makes
+            // the DIB top-down to match the incoming pixel order.
+            BITMAPV5HEADER bi = {};
+            bi.bV5Size        = sizeof(BITMAPV5HEADER);
+            bi.bV5Width       = w;
+            bi.bV5Height      = -h;
+            bi.bV5Planes      = 1;
+            bi.bV5BitCount    = 32;
+            bi.bV5Compression = BI_BITFIELDS;
+            bi.bV5RedMask     = 0x00FF0000;
+            bi.bV5GreenMask   = 0x0000FF00;
+            bi.bV5BlueMask    = 0x000000FF;
+            bi.bV5AlphaMask   = 0xFF000000;
+
+            void* dibPixels = nullptr;
+            HDC dc = GetDC(nullptr);
+            HBITMAP color = CreateDIBSection(dc, (BITMAPINFO*)&bi, DIB_RGB_COLORS, &dibPixels, nullptr, 0);
+            ReleaseDC(nullptr, dc);
+
+            if (!color || !dibPixels) {
+                if (color) { DeleteObject(color); }
+                return;
+            }
+
+            unsigned char* dst = static_cast<unsigned char*>(dibPixels);
+            for (int i = 0; i < w * h; i++) {
+                dst[i * 4 + 0] = rgba[i * 4 + 2];   // B
+                dst[i * 4 + 1] = rgba[i * 4 + 1];   // G
+                dst[i * 4 + 2] = rgba[i * 4 + 0];   // R
+                dst[i * 4 + 3] = rgba[i * 4 + 3];   // A
+            }
+
+            // A mask bitmap is required by ICONINFO; the alpha channel does the
+            // real compositing, so an empty (all-zero) mask is fine.
+            HBITMAP mask = CreateBitmap(w, h, 1, 1, nullptr);
+
+            ICONINFO ii = {};
+            ii.fIcon    = TRUE;
+            ii.hbmColor = color;
+            ii.hbmMask  = mask;
+
+            HICON icon = CreateIconIndirect(&ii);
+
+            DeleteObject(color);
+            DeleteObject(mask);
+
+            if (!icon) { return; }
+
+            HICON& slot = big ? hIconBig : hIconSmall;
+            if (slot) { DestroyIcon(slot); }
+            slot = icon;
+
+            SendMessageW(handle, WM_SETICON, big ? ICON_BIG : ICON_SMALL, (LPARAM)icon);
+        }
+
         ~NativeWindow() {
             //dbg("[NativeWindow] destroying");
-        
+
+            if (hIconBig)   { DestroyIcon(hIconBig);   hIconBig = nullptr; }
+            if (hIconSmall) { DestroyIcon(hIconSmall); hIconSmall = nullptr; }
+
             if (hglrc) {
                 wglMakeCurrent(nullptr, nullptr);
                 wglDeleteContext(hglrc);

@@ -72,16 +72,30 @@ export namespace Machine::Gui {
 
                 // Equal-width control: faint fill, hairline border, hand cursor.
                 // Height comes from the label plus vertical padding, not a fixed
-                // value.
+                // value. Fill/border transition so hover eases in and out.
                 static inline Style Btn = {
                     .layout     = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
                     .size       = { .width = Grow() },
                     .margin     = { .left = 4_px, .right = 4_px },
                     .padding    = { .top = 8_px, .bottom = 8_px },
-                    .background = { .color = rgba(255, 255, 255, 0.06) },
-                    .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 6_px, .width = 1_px },
+                    .background = { .color = rgba(255, 255, 255, 0.06), .transition = 120_ms },
+                    .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 6_px, .width = 1_px, .transition = 120_ms },
                     .cursor     = Cursor::Hand
                 };
+
+                    // Hover: brighter fill + border to read as interactive (the
+                    // hand cursor already comes from Btn).
+                    static inline Style BtnHover = {
+                        .applies    = { .hover = true },
+                        .background = { .color = rgba(255, 255, 255, 0.12) },
+                        .border     = { .color = rgba(255, 255, 255, 0.22) }
+                    };
+
+                    // Press: momentary brighter flash for tactile feedback.
+                    static inline Style BtnPress = {
+                        .applies    = { .press = true },
+                        .background = { .color = rgba(255, 255, 255, 0.18) }
+                    };
 
                     // Light label legible on the dark button fill.
                     static inline Style BtnLabel = {
@@ -136,13 +150,13 @@ export namespace Machine::Gui {
 
             // Open / close the connection.
             ioRow = new Box(this, { &Row }, "IoRow");
-                connectButton    = new Button(ioRow, { .label = "Connect",    .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
-                disconnectButton = new Button(ioRow, { .label = "Disconnect", .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
+                connectButton    = new Button(ioRow, { .label = "Connect",    .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnHover, &BtnPress, &BtnDisabled });
+                disconnectButton = new Button(ioRow, { .label = "Disconnect", .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnHover, &BtnPress, &BtnDisabled });
 
             // Clear an alarm / soft-reset the controller.
             ctrlRow = new Box(this, { &Row }, "CtrlRow");
-                unlockButton = new Button(ctrlRow, { .label = "Unlock", .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
-                resetButton  = new Button(ctrlRow, { .label = "Reset",  .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
+                unlockButton = new Button(ctrlRow, { .label = "Unlock", .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnHover, &BtnPress, &BtnDisabled });
+                resetButton  = new Button(ctrlRow, { .label = "Reset",  .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnHover, &BtnPress, &BtnDisabled });
         }
 
         // Destroy

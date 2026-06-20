@@ -70,72 +70,70 @@ export namespace Rev::Core {
             if (texture) { delete texture; }
         }
 
-        void bake() {
+        // CPU-only rasterization: parse `resource` and render it, aspect-fit and
+        // centred, into a freshly allocated RGBA8 buffer of outW x outH. No GPU,
+        // no Canvas -- the caller owns bitmap.data and frees it with delete[].
+        // On any failure the returned Bitmap has data == nullptr. This is the
+        // shared SVG pipeline; bake() layers a texture upload on top, and the
+        // window icon path (NativeWindow) consumes the raw pixels directly.
+        static Bitmap rasterize(const Resource& resource, int outW, int outH) {
 
-            //dbg("[Svg] Baking");
+            Bitmap out{};
 
-            // Free old resources if rebaking
-            if (texture) { delete texture; texture = nullptr; }
-            if (bitmap.data) { delete[] bitmap.data; bitmap.data = nullptr; }
-            if (rast) { nsvgDeleteRasterizer(rast); rast = nullptr; }
-            if (image) { nsvgDelete(image); image = nullptr; }
-
-            // Ensure resource is valid
-            if (!resource.data || resource.size == 0) {
-                throw std::runtime_error("Svg::bake(): resource is empty.");
-            }
+            if (!resource.data || resource.size == 0) { return out; }
+            if (outW <= 0 || outH <= 0) { return out; }
 
             // SVG text must be null-terminated for NanoSVG
             std::string svgText((char*)resource.data, resource.size);
 
-            // Parse SVG from memory
-            image = nsvgParse(
-                (char*)svgText.c_str(),
-                "px",   // units
-                96.0f   // DPI
-            );
+            NSVGimage* image = nsvgParse((char*)svgText.c_str(), "px", 96.0f);
+            if (!image) { return out; }
 
-            if (!image) {
-                throw std::runtime_error("Svg::bake(): failed to parse SVG.");
-            }
-
-            if (width <= 0 || height <= 0) {
-                throw std::runtime_error("Svg::bake(): invalid SVG dimensions.");
+            if (image->width <= 0 || image->height <= 0) {
+                nsvgDelete(image);
+                return out;
             }
 
             // Allocate pixel buffer (RGBA 8-bit)
-            bitmap.width = width; bitmap.height = height;
-            bitmap.size = bitmap.width * bitmap.height * 4 * sizeof(char);
-            bitmap.data = new unsigned char[bitmap.size];
-            std::memset(bitmap.data, 0, bitmap.size);
+            out.width = outW; out.height = outH;
+            out.size = out.width * out.height * 4 * sizeof(char);
+            out.data = new unsigned char[out.size];
+            std::memset(out.data, 0, out.size);
 
-            // Create rasterizer
-            rast = nsvgCreateRasterizer();
+            NSVGrasterizer* rast = nsvgCreateRasterizer();
             if (!rast) {
-                throw std::runtime_error("Svg::bake(): failed to create rasterizer.");
+                nsvgDelete(image);
+                delete[] out.data;
+                return Bitmap{};
             }
 
-            scale = std::fmin(width / image->width, height / image->height);
+            // Aspect-fit and centre the artwork within the target box.
+            float s = std::fmin(outW / image->width, outH / image->height);
+            float tx = (outW - image->width  * s) * 0.5f;
+            float ty = (outH - image->height * s) * 0.5f;
 
-            float scaledW = image->width * scale;
-            float scaledH = image->height * scale;
+            nsvgRasterize(rast, image, tx, ty, s, out.data, out.width, out.height, out.width * 4);
 
-            float tx = (width - scaledW) * 0.5f;
-            float ty = (height - scaledH) * 0.5f;
+            nsvgDeleteRasterizer(rast);
+            nsvgDelete(image);
 
-            nsvgRasterize(
-                rast,
-                image,
-                tx,
-                ty,
-                scale,
-                bitmap.data,
-                bitmap.width,
-                bitmap.height,
-                bitmap.width * 4
-            );
+            return out;
+        }
 
-            // Upload to GPU texture
+        void bake() {
+
+            // Free old resources if rebaking
+            if (texture) { delete texture; texture = nullptr; }
+            if (bitmap.data) { delete[] bitmap.data; bitmap.data = nullptr; }
+
+            // Render through the shared CPU pipeline...
+            bitmap = rasterize(resource, (int)width, (int)height);
+
+            if (!bitmap.data) {
+                throw std::runtime_error("Svg::bake(): rasterization failed (empty/invalid SVG).");
+            }
+
+            // ...then upload the pixels to a GPU texture for drawing.
             texture = new Texture(canvas->context, {
                 .data = bitmap.data,
                 .width  = bitmap.width,

@@ -22,6 +22,9 @@ import Rev.Element.Event;
 import Rev.NativeWindow;
 import Rev.Graphics.Canvas;
 
+import Rev.Core.Resource;
+import Rev.Core.Svg;
+
 export namespace Rev {
 
     using namespace Rev::Element;
@@ -44,6 +47,11 @@ export namespace Rev {
 
             std::string name = "Hello World";
             Size size = {};
+
+            // Optional window icon, supplied as an SVG resource (e.g.
+            // File("./Logo.svg")). Rasterized to the OS icon sizes and applied in
+            // unifiedConstructor. Empty (data == nullptr) leaves the default.
+            Core::Resource icon = {};
 
             int x = 0, y = 0;
 
@@ -278,6 +286,32 @@ export namespace Rev {
                 if (shared && shared->canvas) {
                     shared->canvas->flags.resize = true;
                 }
+            }
+
+            applyIcon();
+        }
+
+        // Rasterize the optional Details::icon SVG at the OS icon sizes and hand
+        // the raw pixels to the native window. Done at this layer (not in
+        // NativeWindow) because SVG rasterization lives above the native layer.
+        void applyIcon() {
+
+            if (!window) { return; }
+            if (!details.icon.data || details.icon.size == 0) { return; }
+
+            // Title-bar (small) and alt-tab/taskbar (big) icons, each rasterized
+            // at its native size for crispness rather than scaling one bitmap.
+            Core::Svg::Bitmap iconBig   = Core::Svg::rasterize(details.icon, 32, 32);
+            Core::Svg::Bitmap iconSmall = Core::Svg::rasterize(details.icon, 16, 16);
+
+            if (iconBig.data) {
+                window->setIcon(iconBig.data, (int)iconBig.width, (int)iconBig.height, true);
+                delete[] iconBig.data;
+            }
+
+            if (iconSmall.data) {
+                window->setIcon(iconSmall.data, (int)iconSmall.width, (int)iconSmall.height, false);
+                delete[] iconSmall.data;
             }
         }
 
