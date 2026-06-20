@@ -1,6 +1,6 @@
 module;
 
-export module Machine.App.Command;
+export module App.Command;
 
 export namespace App {
 

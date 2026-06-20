@@ -4,13 +4,13 @@ module;
 #include <vector>
 #include <charconv>
 
-export module Machine.App.Machines.Carvera.Adapter;
+export module App.Machines.Carvera.Adapter;
 
 import Rev.Client;
 
-import Machine.App.Adapter;
-import Machine.App.Events;
-import Machine.App.Command;
+import App.Adapter;
+import App.Events;
+import App.Command;
 
 export namespace App::Carvera {
 
@@ -26,7 +26,7 @@ export namespace App::Carvera {
 
         Rev::Client client;        // the transport (composed, never subclassed)
 
-        std::string host = "192.168.1.1";
+        std::string host = "192.168.1.104";
         int         port = 2222;
 
         std::string              rxBuffer;   // raw bytes until a full line arrives
@@ -40,10 +40,27 @@ export namespace App::Carvera {
         };
 
         Adapter() {
-            wireTransport();
+            
+            client.onConnect([this](Rev::Client::ConnectEvent& e) {
+                emit(App::ConnectionEvent{ App::ConnectionStatus::Connected, e.address });
+            });
+
+            client.onDisconnect([this](Rev::Client::DisconnectEvent&) {
+                emit(App::ConnectionEvent{ App::ConnectionStatus::Disconnected, "" });
+            });
+
+            client.onError([this](Rev::Client::ErrorEvent& e) {
+                emit(App::ConnectionEvent{ App::ConnectionStatus::Error, e.reason });
+            });
+
+            client.onData([this](Rev::Client::DataEvent& e) {
+                ingest(e.data);
+            });
         }
 
-        ~Adapter() {}
+        ~Adapter() {
+
+        }
 
         // Lifecycle
         //--------------------------------------------------
@@ -117,25 +134,6 @@ export namespace App::Carvera {
 
         // Transport wiring + framing
         //--------------------------------------------------
-
-        void wireTransport() {
-
-            client.onConnect([this](Rev::Client::ConnectEvent& e) {
-                emit(App::ConnectionEvent{ App::ConnectionStatus::Connected, e.address });
-            });
-
-            client.onDisconnect([this](Rev::Client::DisconnectEvent&) {
-                emit(App::ConnectionEvent{ App::ConnectionStatus::Disconnected, "" });
-            });
-
-            client.onError([this](Rev::Client::ErrorEvent& e) {
-                emit(App::ConnectionEvent{ App::ConnectionStatus::Error, e.reason });
-            });
-
-            client.onData([this](Rev::Client::DataEvent& e) {
-                ingest(e.data);
-            });
-        }
 
         // Framing only -- carve bytes into whole lines; does not decode.
         void ingest(const std::vector<char>& bytes) {

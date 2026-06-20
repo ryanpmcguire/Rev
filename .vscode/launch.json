@@ -9,7 +9,8 @@
       "cleverJobs": 8,
       "args": [],
       "stopAtEntry": false,
-      "console": "internalConsole"
+      "console": "internalConsole",
+      "internalConsoleOptions": "openOnSessionStart"
     }
   ]
 }

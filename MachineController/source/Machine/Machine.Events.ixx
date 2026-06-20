@@ -2,7 +2,7 @@ module;
 
 #include <string>
 
-export module Machine.App.Events;
+export module App.Events;
 
 export namespace App {
 

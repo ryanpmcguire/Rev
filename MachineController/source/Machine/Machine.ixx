@@ -1,19 +1,18 @@
 module;
 
 #include <functional>
+#include <vector>
 
-export module Machine.App.Machine;
+export module App.Machine;
 
 import Rev.Core.Dispatcher;
 import Rev.Core.Observable;
 
-import Machine.App.Events;
-import Machine.App.Command;
-import Machine.App.Adapter;
+import App.Events;
+import App.Command;
+import App.Adapter;
 
 export namespace App {
-
-    using namespace Rev;
 
     // A machine: what the system listens to. Owns its dispatchers, binds one
     // adapter, and re-broadcasts the adapter's channels as its own.
@@ -23,7 +22,7 @@ export namespace App {
         Adapter* adapter = nullptr;
 
         // Latest connection status, for a late subscriber.
-        Core::Observable<ConnectionStatus> status;
+        Rev::Core::Observable<ConnectionStatus> status;
 
         bool connected() const { return status.value == ConnectionStatus::Connected; }
 
@@ -35,18 +34,34 @@ export namespace App {
         virtual void stateKey     (StateEvent&)      {}
         virtual void logKey       (LogEvent&)        {}
 
-        Core::Dispatcher<ConnectionEvent> connectionDispatcher;
-        Core::Dispatcher<TelemetryEvent>  telemetryDispatcher;
-        Core::Dispatcher<StateEvent>      stateDispatcher;
-        Core::Dispatcher<LogEvent>        logDispatcher;
+        Rev::Core::Dispatcher<ConnectionEvent> connectionDispatcher;
+        Rev::Core::Dispatcher<TelemetryEvent>  telemetryDispatcher;
+        Rev::Core::Dispatcher<StateEvent>      stateDispatcher;
+        Rev::Core::Dispatcher<LogEvent>        logDispatcher;
 
         void onConnection(const std::function<void(ConnectionEvent&)>& f) { connectionDispatcher.listen(&Machine::connectionKey, f); }
         void onTelemetry (const std::function<void(TelemetryEvent&)>&  f) { telemetryDispatcher.listen(&Machine::telemetryKey, f); }
         void onState     (const std::function<void(StateEvent&)>&      f) { stateDispatcher.listen(&Machine::stateKey, f); }
         void onLog       (const std::function<void(LogEvent&)>&        f) { logDispatcher.listen(&Machine::logKey, f); }
 
+        // Convenience edge signals: fired when the connection comes up / goes down.
+        std::vector<std::function<void()>> connectListeners;
+        std::vector<std::function<void()>> disconnectListeners;
+
+        void onConnect   (std::function<void()> f) { connectListeners.push_back(std::move(f)); }
+        void onDisconnect(std::function<void()> f) { disconnectListeners.push_back(std::move(f)); }
+
         // Cache what is worth holding, then fan out. Fed by the bound adapter.
-        void report(ConnectionEvent e) { status = e.status; connectionDispatcher.tell(&Machine::connectionKey, e); }
+        void report(ConnectionEvent e) {
+            status = e.status;
+            connectionDispatcher.tell(&Machine::connectionKey, e);
+
+            if (e.status == ConnectionStatus::Connected) {
+                for (auto& f : connectListeners) { f(); }
+            } else if (e.status == ConnectionStatus::Disconnected || e.status == ConnectionStatus::Error) {
+                for (auto& f : disconnectListeners) { f(); }
+            }
+        }
         void report(TelemetryEvent e)  { telemetryDispatcher.tell(&Machine::telemetryKey, e); }
         void report(StateEvent e)      { stateDispatcher.tell(&Machine::stateKey, e); }
         void report(LogEvent e)        { logDispatcher.tell(&Machine::logKey, e); }

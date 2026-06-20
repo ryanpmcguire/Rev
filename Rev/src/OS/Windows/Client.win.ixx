@@ -131,14 +131,31 @@ export namespace Rev {
         }
 
         void disconnect() {
+
+            // Nothing to do if no worker was ever started / we are already down.
+            if (!running && !worker_.joinable()) { return; }
+
             running     = false;
             isConnected = false;
+
             SOCKET s = sock_.load();
             if (s != INVALID_SOCKET) {
                 shutdown(s, SD_BOTH);
                 closesocket(s);
                 sock_.store(INVALID_SOCKET);
             }
+
+            // Join the worker so a later connect() can safely start a fresh one
+            // (assigning over a joinable std::thread calls std::terminate). Guard
+            // against joining ourselves if ever called from inside a callback.
+            if (worker_.joinable() && std::this_thread::get_id() != worker_.get_id()) {
+                worker_.join();
+            }
+
+            // The recv loop exits silently on our own close, so a user-initiated
+            // disconnect would otherwise go unannounced. Fire it here, on the
+            // caller's thread.
+            fireDisconnect();
         }
 
         // -- Internal virtual event slots (Dispatcher keys) --------------

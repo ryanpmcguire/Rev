@@ -2,7 +2,9 @@ module;
 
 #include <string>
 
-export module Machine.Gui.Machine.Connect;
+#include <dbg.hpp>
+
+export module Gui.Machine.Connect;
 
 import Rev.Element;
 import Rev.Appearance;
@@ -12,7 +14,10 @@ import Rev.Element.Button;
 
 import Rev.Core.Observable;
 
-export namespace Machine::Gui {
+import App.Machine;
+import App.Events;
+
+export namespace Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
@@ -41,6 +46,11 @@ export namespace Machine::Gui {
             .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
         };
 
+        // Connected -- a green ring overlaid on the panel.
+        static inline Style SectionConnected = {
+            .border = { .color = rgba(64, 200, 120, 0.85), .radius = 8_px, .width = 1_px }
+        };
+
             // Full-width horizontal strip, vertically centred, gap below. Height
             // comes from its tallest child, not a fixed value.
             static inline Style Row = {
@@ -59,6 +69,11 @@ export namespace Machine::Gui {
                 // Disconnected default -- a dim, inert indicator.
                 static inline Style DotDisconnected = {
                     .background = { .color = rgba(96, 102, 112, 1.0) }
+                };
+
+                // Connected -- bright green.
+                static inline Style DotConnected = {
+                    .background = { .color = rgba(64, 200, 120, 1.0) }
                 };
 
                 // Machine name -- bright, slightly larger.
@@ -144,10 +159,14 @@ export namespace Machine::Gui {
         // when it actually flips -- connection changes are rare.
         Core::Observer<bool> connectionObserver;
 
+        // The machine this section reflects and drives.
+        App::Machine& machine;
+
         // Create
         //--------------------------------------------------
 
-        ConnectSection(Element* parent) : Box(parent, { &Section }, "ConnectSection") {
+        ConnectSection(Element* parent, App::Machine& machine)
+            : Box(parent, { &Section }, "ConnectSection"), machine(machine) {
 
             // Status indicator, machine name, and network address -- all inline.
             titleRow = new Box(this, { &Row }, "TitleRow");
@@ -166,6 +185,22 @@ export namespace Machine::Gui {
             ctrlRow = new Box(this, { &Row }, "CtrlRow");
                 unlockButton = new Button(ctrlRow, { .label = "Unlock", .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnHover, &BtnPress, &BtnDisabled });
                 resetButton  = new Button(ctrlRow, { .label = "Reset",  .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnHover, &BtnPress, &BtnDisabled });
+
+            // Drive the machine.
+            connectButton->onClick   ([this](Event&) { this->machine.connect();    });
+            disconnectButton->onClick([this](Event&) { this->machine.disconnect(); });
+
+            // Proof of life: log the connection status as it changes. (Fires on
+            // the socket worker thread for now -- the console is the safe readout
+            // until the main-thread marshal lands.)
+            machine.onConnection([](App::ConnectionEvent& e) {
+                dbg("[Connect] %s %s", App::connectionStatusName(e.status), e.message.c_str());
+            });
+
+            // Reflect connection edges: flip our state and let computeChildren do
+            // the rest. The status itself is read from the machine in there.
+            machine.onConnect   ([this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
+            machine.onDisconnect([this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
         }
 
         // Destroy
@@ -180,10 +215,19 @@ export namespace Machine::Gui {
         // structure -- but only when it actually changes (see connectionObserver).
         void computeChildren(Event& e) override {
 
-            const bool connected = false;   // TODO: read from the Machine system
+            const bool connected = machine.connected();
 
             if (connectionObserver.changed(connected)) {
-                
+
+                // Status dot: green when connected, dim grey otherwise.
+                statusDot->styles.remove(&DotDisconnected);
+                statusDot->styles.remove(&DotConnected);
+                statusDot->styles.add(connected ? &DotConnected : &DotDisconnected);
+
+                // Panel border: green ring while connected.
+                if (connected) { this->styles.add(&SectionConnected); }
+                else           { this->styles.remove(&SectionConnected); }
+
                 connectButton->setDisabled(connected);
                 disconnectButton->setDisabled(!connected);
                 unlockButton->setDisabled(!connected);

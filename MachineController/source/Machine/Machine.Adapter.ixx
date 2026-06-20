@@ -2,16 +2,14 @@ module;
 
 #include <functional>
 
-export module Machine.App.Adapter;
+export module App.Adapter;
 
 import Rev.Core.Dispatcher;
 
-import Machine.App.Events;
-import Machine.App.Command;
+import App.Events;
+import App.Command;
 
 export namespace App {
-
-    using namespace Rev;
 
     // Pure translation between the system's vocabulary and one machine's wire
     // dialect. Accepts Commands, emits decoded events; knows no consumer.
@@ -25,10 +23,10 @@ export namespace App {
         virtual void stateKey     (StateEvent&)      {}
         virtual void logKey       (LogEvent&)        {}
 
-        Core::Dispatcher<ConnectionEvent> connectionDispatcher;
-        Core::Dispatcher<TelemetryEvent>  telemetryDispatcher;
-        Core::Dispatcher<StateEvent>      stateDispatcher;
-        Core::Dispatcher<LogEvent>        logDispatcher;
+        Rev::Core::Dispatcher<ConnectionEvent> connectionDispatcher;
+        Rev::Core::Dispatcher<TelemetryEvent>  telemetryDispatcher;
+        Rev::Core::Dispatcher<StateEvent>      stateDispatcher;
+        Rev::Core::Dispatcher<LogEvent>        logDispatcher;
 
         void onConnection(const std::function<void(ConnectionEvent&)>& f) { connectionDispatcher.listen(&Adapter::connectionKey, f); }
         void onTelemetry (const std::function<void(TelemetryEvent&)>&  f) { telemetryDispatcher.listen(&Adapter::telemetryKey, f); }

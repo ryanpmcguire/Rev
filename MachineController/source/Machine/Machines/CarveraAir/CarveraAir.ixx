@@ -1,9 +1,9 @@
 module;
 
-export module Machine.App.Machines.CarveraAir;
+export module App.Machines.CarveraAir;
 
-import Machine.App.Machine;
-import Machine.App.Machines.Carvera.Adapter;
+import App.Machine;
+import App.Machines.Carvera.Adapter;
 
 export namespace App {
 

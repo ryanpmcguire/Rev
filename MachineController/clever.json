@@ -51,7 +51,7 @@
       "output": "Rev/Rev.lib"
     },
     {
-      "name": "Machine",
+      "name": "MachineController",
       "kind": "exe",
       "include_dirs": [
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src",
@@ -80,7 +80,7 @@
         { "glob": "source/**/*.ixx" },
         "main.cpp"
       ],
-      "output": "Machine/Machine.exe",
+      "output": "MachineController/MachineController.exe",
       "depends": [
         "Rev"
       ],
@@ -109,9 +109,9 @@
         "/subsystem:console",
         "-fuse-ld=lld-link"
       ],
-      "implib": "Machine/Machine.lib",
-      "pdb": "Machine/Machine.pdb",
-      "post_build": "C:\\Windows\\system32\\cmd.exe /C \"cd /D C:\\Users\\Ryan\\Desktop\\Ryan\\Rev\\build\\Machine && C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noprofile -executionpolicy Bypass -file C:/Users/Ryan/Desktop/Ryan/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary C:/Users/Ryan/Desktop/Ryan/Rev/build/Machine/Machine.exe -installedDir C:/Users/Ryan/Desktop/Ryan/Rev/build/vcpkg_installed/x64-windows/debug/bin -OutVariable out\""
+      "implib": "MachineController/MachineController.lib",
+      "pdb": "MachineController/MachineController.pdb",
+      "post_build": "C:\\Windows\\system32\\cmd.exe /C \"cd /D C:\\Users\\Ryan\\Desktop\\Ryan\\Rev\\build\\MachineController && C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noprofile -executionpolicy Bypass -file C:/Users/Ryan/Desktop/Ryan/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary C:/Users/Ryan/Desktop/Ryan/Rev/build/MachineController/MachineController.exe -installedDir C:/Users/Ryan/Desktop/Ryan/Rev/build/vcpkg_installed/x64-windows/debug/bin -OutVariable out\""
     }
   ]
 }

@@ -1,14 +1,15 @@
 module;
 
-export module Machine.Gui.Machine;
+export module Gui.Machine;
 
 import Rev.Element;
 import Rev.Appearance;
 import Rev.Element.Box;
 
-import Machine.Gui.Machine.Connect;
+import App.Machine;
+import Gui.Machine.Connect;
 
-export namespace Machine::Gui {
+export namespace Gui {
 
     using namespace Rev;
     using namespace Rev::Element;
@@ -31,9 +32,9 @@ export namespace Machine::Gui {
         // Create
         //--------------------------------------------------
 
-        MachinePanel(Element* parent) : Box(parent, { &Panel }, "MachinePanel") {
+        MachinePanel(Element* parent, App::Machine& machine) : Box(parent, { &Panel }, "MachinePanel") {
 
-            connect = new ConnectSection(this);
+            connect = new ConnectSection(this, machine);
         }
 
         // Destroy
