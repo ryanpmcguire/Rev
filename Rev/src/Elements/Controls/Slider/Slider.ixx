@@ -66,7 +66,7 @@ export namespace Rev::Element {
         ) : Element(parent, styles, name) {
 
             this->data = sliderData;
-            this->styles.add(&SliderStyle::Self);
+            this->styles.prepend(&SliderStyle::Self);
 
             textContainer = new Element(this, { &SliderStyle::TextRow });
                 

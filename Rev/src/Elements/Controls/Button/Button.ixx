@@ -20,6 +20,11 @@ export namespace Rev::Element {
             std::string label = "Button";
             Variant variant = Variant::Secondary;
 
+            // Optional caller styles for the label Text. Applied AFTER the
+            // theme's label style so the caller wins -- the same ordering
+            // contract the box styles follow.
+            StyleList labelStyles = {};
+
             static Params Primary(const std::string& label) { return { .label = label, .variant = Variant::Primary }; }
             static Params Secondary(const std::string& label) { return { .label = label, .variant = Variant::Secondary }; }
         };
@@ -29,16 +34,23 @@ export namespace Rev::Element {
         Button(Element* parent, Params params, StyleList styles = {}) : Box(parent, styles) {
             name = "Button";
 
+            // The control's own theme styles are the DEFAULT: they must sit
+            // ahead of the caller-supplied styles so anything passed in the
+            // constructor overrides them. Prepend the pair in reverse (hover,
+            // then base) so the final order is [base, hover, ...caller].
             if (params.variant == Variant::Primary) {
-                this->styles.add(&ControlTheme::ButtonPrimary);
-                this->styles.add(&ControlTheme::ButtonPrimaryHover);
+                this->styles.prepend(&ControlTheme::ButtonPrimaryHover);
+                this->styles.prepend(&ControlTheme::ButtonPrimary);
             } else {
-                this->styles.add(&ControlTheme::ButtonSecondary);
-                this->styles.add(&ControlTheme::ButtonSecondaryHover);
+                this->styles.prepend(&ControlTheme::ButtonSecondaryHover);
+                this->styles.prepend(&ControlTheme::ButtonSecondary);
             }
 
             Style* labelStyle = params.variant == Variant::Primary ? &ControlTheme::ButtonPrimaryLabel : &ControlTheme::ButtonSecondaryLabel;
             labelText = new Text(this, params.label, { labelStyle });
+
+            // Caller label styles override the theme default (see Params).
+            for (Style* style : params.labelStyles.styles) { labelText->styles.add(style); }
 
             onKeyDown([this](Event& e) { click(e); e.propagate = false; });
         }

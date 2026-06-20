@@ -1,0 +1,28 @@
+{
+  "name": "clever-vscode",
+  "displayName": "Clever",
+  "description": "Build clever projects with output in a dedicated Clever channel; F5 builds then debugs.",
+  "version": "0.0.1",
+  "publisher": "creative3d",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onStartupFinished",
+    "onDebugResolve:cppvsdbg"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "clever.setCurrent",
+        "title": "Set Current Project",
+        "category": "Clever"
+      },
+      {
+        "command": "clever.build",
+        "title": "Build",
+        "category": "Clever"
+      }
+    ]
+  }
+}

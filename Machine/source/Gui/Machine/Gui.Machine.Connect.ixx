@@ -1,0 +1,148 @@
+module;
+
+#include <string>
+
+export module Machine.Gui.Machine.Connect;
+
+import Rev.Element;
+import Rev.Appearance;
+import Rev.Element.Box;
+import Rev.Element.Text;
+import Rev.Element.Button;
+
+export namespace Machine::Gui {
+
+    using namespace Rev;
+    using namespace Rev::Element;
+    using namespace Rev::Appearance;
+
+    // The Connect section: the machine's connection controls -- a thin
+    // reflection of the machine's connection state. It DECLARES its structure
+    // (status, address, the four IO controls) once, in the constructor; it never
+    // rebuilds. Reflecting live state (dot colour, address, enablement) is the
+    // job of computeChildren -- which here just holds the disconnected default.
+    //
+    // Indentation in the three sections below (styles, pointers, construction)
+    // mirrors the element tree: each level of nesting is one level of indent, so
+    // all three read as the same shape.
+    struct ConnectSection : public Box {
+
+        // Styles
+        //--------------------------------------------------
+
+        // Full-width dark panel: rounded, hairline-bordered, padded column.
+        static inline Style Section = {
+            .layout  = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size    = { .width = 100_pct },
+            .padding = { 14_px, 14_px, 14_px, 14_px },
+            .background = { .color = rgba(255, 255, 255, 0.03) },
+            .border  = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
+        };
+
+            // Full-width horizontal strip, vertically centred, gap below.
+            static inline Style Row = {
+                .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False, CrossAlign::True },
+                .size   = { .width = 100_pct, .height = 34_px },
+                .margin = { .bottom = 8_px }
+            };
+
+                // Round dot with right margin.
+                static inline Style Dot = {
+                    .size   = { .width = 10_px, .height = 10_px },
+                    .margin = { .right = 9_px },
+                    .border = { .radius = 5_px }
+                };
+
+                // Disconnected default -- a dim, inert indicator.
+                static inline Style DotDisconnected = {
+                    .background = { .color = rgba(96, 102, 112, 1.0) }
+                };
+
+                // Machine name -- bright, slightly larger.
+                static inline Style Title = {
+                    .text = { .color = rgba(236, 238, 242, 1.0), .size = 15_px }
+                };
+
+                // Address readout -- muted and small.
+                static inline Style Address = {
+                    .text = { .color = rgba(140, 146, 156, 1.0), .size = 12_px }
+                };
+
+                // Equal-width control: faint fill, hairline border, hand cursor.
+                static inline Style Btn = {
+                    .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+                    .size   = { .width = Grow(), .height = 32_px },
+                    .margin = { .right = 8_px },
+                    .background = { .color = rgba(255, 255, 255, 0.06) },
+                    .border = { .color = rgba(255, 255, 255, 0.10), .radius = 6_px, .width = 1_px },
+                    .cursor = Cursor::Hand
+                };
+
+                    // Light label legible on the dark button fill.
+                    static inline Style BtnLabel = {
+                        .text = { .color = rgba(220, 224, 230, 1.0), .size = 13_px }
+                    };
+
+        // Elements
+        //--------------------------------------------------
+
+            // Status indicator + machine name.
+            Box* titleRow = nullptr;
+                Box*  statusDot = nullptr;
+                Text* title     = nullptr;
+
+            // Where the machine lives on the network.
+            Box* addressRow = nullptr;
+                Text* address = nullptr;
+
+            // Open / close the connection.
+            Box* ioRow = nullptr;
+                Button* connectButton    = nullptr;
+                Button* disconnectButton = nullptr;
+
+            // Clear an alarm / soft-reset the controller.
+            Box* ctrlRow = nullptr;
+                Button* unlockButton = nullptr;
+                Button* resetButton  = nullptr;
+
+        // Create
+        //--------------------------------------------------
+
+        ConnectSection(Element* parent) : Box(parent, { &Section }, "ConnectSection") {
+
+            // Status indicator + machine name.
+            titleRow = new Box(this, { &Row }, "TitleRow");
+                statusDot = new Box(titleRow, { &Dot, &DotDisconnected }, "StatusDot");
+                title     = new Text(titleRow, "Carvera Air", { &Title });
+
+            // Where the machine lives on the network.
+            addressRow = new Box(this, { &Row }, "AddressRow");
+                address = new Text(addressRow, "Not connected", { &Address });
+
+            // Open / close the connection.
+            ioRow = new Box(this, { &Row }, "IoRow");
+                connectButton    = new Button(ioRow, { .label = "Connect",    .labelStyles = { &BtnLabel } }, { &Btn });
+                disconnectButton = new Button(ioRow, { .label = "Disconnect", .labelStyles = { &BtnLabel } }, { &Btn });
+
+            // Clear an alarm / soft-reset the controller.
+            ctrlRow = new Box(this, { &Row }, "CtrlRow");
+                unlockButton = new Button(ctrlRow, { .label = "Unlock", .labelStyles = { &BtnLabel } }, { &Btn });
+                resetButton  = new Button(ctrlRow, { .label = "Reset",  .labelStyles = { &BtnLabel } }, { &Btn });
+        }
+
+        // Destroy
+        //--------------------------------------------------
+
+        ~ConnectSection() {}
+
+        // Reflect
+        //--------------------------------------------------
+
+        // The seam where live connection state will be reflected onto the
+        // already-declared structure. For now it asserts nothing beyond the
+        // disconnected default, so it simply defers to the base.
+        void computeChildren(Event& e) override {
+            Box::computeChildren(e);
+        }
+    };
+}

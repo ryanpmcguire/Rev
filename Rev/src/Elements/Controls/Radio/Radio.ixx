@@ -114,7 +114,7 @@ export namespace Rev::Element {
             // Self
             this->name = "Radio";
             this->params = p;
-            this->styles.add(&Styles::Self);
+            this->styles.prepend(&Styles::Self);
 
             //this->params.value = { "Select... ", "null" };
 

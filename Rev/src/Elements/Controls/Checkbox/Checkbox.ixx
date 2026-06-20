@@ -52,7 +52,7 @@ export namespace Rev::Element {
         Checkbox(Element* parent, Params p = Params::Default(), StyleList styles = {}) : Element(parent, styles) {
 
             this->name = "Checkbox";
-            this->styles.add(&Control);
+            this->styles.prepend(&Control);
             
             this->params = p;
             this->value = params.def;

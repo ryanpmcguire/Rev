@@ -1,0 +1,44 @@
+module;
+
+export module Machine.Gui.Machine;
+
+import Rev.Element;
+import Rev.Appearance;
+import Rev.Element.Box;
+
+import Machine.Gui.Machine.Connect;
+
+export namespace Machine::Gui {
+
+    using namespace Rev;
+    using namespace Rev::Element;
+    using namespace Rev::Appearance;
+
+    // The on-screen reflection of the Machine system. It composes the machine's
+    // sections (connection, and later jog / origin / tool) as a column. It owns
+    // no machine logic -- it mirrors the system tree (source/Machine/...), one
+    // reflection per concern.
+    struct MachinePanel : public Box {
+
+        static inline Style Panel = {
+            .layout  = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size    = { .width = 320_px },
+            .padding = { 16_px, 16_px, 16_px, 16_px }
+        };
+
+        ConnectSection* connect = nullptr;
+
+        // Create
+        //--------------------------------------------------
+
+        MachinePanel(Element* parent) : Box(parent, { &Panel }, "MachinePanel") {
+
+            connect = new ConnectSection(this);
+        }
+
+        // Destroy
+        //--------------------------------------------------
+
+        ~MachinePanel() {}
+    };
+}
