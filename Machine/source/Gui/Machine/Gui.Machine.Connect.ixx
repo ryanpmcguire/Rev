@@ -10,6 +10,8 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Button;
 
+import Rev.Core.Observable;
+
 export namespace Machine::Gui {
 
     using namespace Rev;
@@ -135,6 +137,13 @@ export namespace Machine::Gui {
                 Button* unlockButton = nullptr;
                 Button* resetButton  = nullptr;
 
+        // State
+        //--------------------------------------------------
+
+        // Watches the connection flag so the button states are only re-applied
+        // when it actually flips -- connection changes are rare.
+        Core::Observer<bool> connectionObserver;
+
         // Create
         //--------------------------------------------------
 
@@ -168,17 +177,18 @@ export namespace Machine::Gui {
         //--------------------------------------------------
 
         // Reflect the machine's live connection state onto the declared
-        // structure. Connect is the only action available while disconnected;
-        // Disconnect / Unlock / Reset require a live connection. (setDisabled is
-        // idempotent, so calling it every frame is free unless the state flips.)
+        // structure -- but only when it actually changes (see connectionObserver).
         void computeChildren(Event& e) override {
 
             const bool connected = false;   // TODO: read from the Machine system
 
-            connectButton->setDisabled(connected);
-            disconnectButton->setDisabled(!connected);
-            unlockButton->setDisabled(!connected);
-            resetButton->setDisabled(!connected);
+            if (connectionObserver.changed(connected)) {
+                
+                connectButton->setDisabled(connected);
+                disconnectButton->setDisabled(!connected);
+                unlockButton->setDisabled(!connected);
+                resetButton->setDisabled(!connected);
+            }
 
             Box::computeChildren(e);
         }
