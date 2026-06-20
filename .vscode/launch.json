@@ -9,7 +9,7 @@
       "cleverJobs": 8,
       "args": [],
       "stopAtEntry": false,
-      "console": "integratedTerminal"
+      "console": "internalConsole"
     }
   ]
 }

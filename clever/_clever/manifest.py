@@ -13,6 +13,8 @@ recipes). The result is meant to be committed and hand-editable.
 
 from __future__ import annotations
 
+import fnmatch
+import glob
 import json
 from pathlib import Path
 
@@ -143,5 +145,66 @@ def write(cmake_build: Path, out_path: Path) -> Path:
     return out_path
 
 
+def _excluded(abs_path: str, rel_path: str, patterns: list[str]) -> bool:
+    """A glob result is excluded if any pattern matches its absolute path, its
+    path relative to the manifest dir, or its bare filename (so `*.mac.ixx`,
+    `**/Vulkan/*`, and a full path all work as one would expect)."""
+    name = Path(abs_path).name
+    return any(fnmatch.fnmatch(abs_path, p) or fnmatch.fnmatch(rel_path, p)
+               or fnmatch.fnmatch(name, p) for p in patterns)
+
+
+def _expand_sources(entries: list, target_exclude: list[str], root: Path) -> list[str]:
+    """Expand a target's `sources` list. Each entry is either:
+      * a plain path (relative to the manifest dir, or absolute) -- kept verbatim
+        so existing manifests and their build caches are unaffected; or
+      * a glob string with magic (`*?[`), e.g. "Rev/src/**/*.ixx"; or
+      * an object {"glob": "...", "exclude": ["...", ...]} for per-pattern excludes.
+    Glob results are filtered by the per-entry excludes plus the target-level
+    `exclude` list, stored relative to the manifest dir when inside it (matching
+    how `generate` stores them), de-duplicated, and sorted for determinism.
+    Literal entries always survive (they are explicit intent)."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def key(p: str) -> str:
+        try:
+            return str(Path(p if Path(p).is_absolute() else root / p).resolve()).lower()
+        except OSError:
+            return p.replace("\\", "/").lower()
+
+    def add(stored: str) -> None:
+        k = key(stored)
+        if k not in seen:
+            seen.add(k)
+            out.append(stored)
+
+    globbed: list[str] = []
+    for e in entries:
+        if isinstance(e, dict):
+            pattern, excl = e.get("glob", ""), list(target_exclude) + list(e.get("exclude", []))
+        elif isinstance(e, str) and glob.has_magic(e):
+            pattern, excl = e, list(target_exclude)
+        else:                                   # literal path -- keep as authored
+            add(e.replace("\\", "/"))
+            continue
+        if not pattern:
+            continue
+        full = pattern if Path(pattern).is_absolute() else str(root / pattern)
+        for hit in glob.glob(full, recursive=True):
+            ab = str(Path(hit).resolve()).replace("\\", "/")
+            rel = _rel(ab, root)
+            if not _excluded(ab, rel, excl):
+                globbed.append(rel)
+    for g in sorted(set(globbed), key=str.lower):
+        add(g)
+    return out
+
+
 def load(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    root = path.resolve().parent
+    for t in manifest.get("targets", []):
+        if "sources" in t:
+            t["sources"] = _expand_sources(t["sources"], t.get("exclude", []), root)
+    return manifest
