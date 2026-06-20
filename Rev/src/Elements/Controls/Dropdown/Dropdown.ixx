@@ -401,9 +401,17 @@ export namespace Rev::Element {
                     { &Option, &OptionHover, &OptionDisabled }
                 );
 
-                options[i]->onClick([this, item](Event& ev) {
-                    if (item.disabled) { return; }
-                    select(item, &ev);
+                // Capture the row INDEX, not the Item: option elements are reused when
+                // the options list is rebuilt (only content/disabled are refreshed
+                // below, NOT this handler), so a by-value Item capture goes stale and the
+                // row fires the wrong entry (e.g. a newly-prepended "None" row running
+                // the old tool's handler).  Resolving params.options[i] at click time
+                // always acts on whatever the row currently shows.
+                options[i]->onClick([this, i](Event& ev) {
+                    if (i >= params.options.size()) { return; }
+                    const Item& cur = params.options[i];
+                    if (cur.disabled) { return; }
+                    select(cur, &ev);
                 });
             }
 

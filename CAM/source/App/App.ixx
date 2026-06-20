@@ -43,6 +43,7 @@ export namespace Cam::App {
         bool rotary  = true;   // calibrated rotary-axis frame (machine geometry)
         bool work    = true;   // work frame (Set Origin)
         bool part    = true;   // part frame (work frame + probe correction)
+        bool tip     = true;   // tool-tip / WPos(0,0,0) frame, at (MPos - WPos)
     };
 
     struct AppState {

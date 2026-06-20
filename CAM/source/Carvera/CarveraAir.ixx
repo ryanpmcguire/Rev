@@ -228,6 +228,7 @@ export namespace Carvera {
                 pushLog(std::format("Connected to {}", e.address));
                 queueConnection(ConnectionStatus::Connected, e.address);
                 resetTelemetryState();
+                wcsClearPending_.store(true);   // wipe any stale offset once machine is ready
                 sendStatus();          // kick off the chain poll
                 // Ask the controller for its parser state -- the response (a
                 // bracketed line like "[G0 G54 ... T1 F0 S0]") is parsed by
@@ -300,6 +301,33 @@ export namespace Carvera {
         // Alias kept for existing call sites in the CAM world view.
         bool telemetry(float& x, float& y, float& z, float& a) const {
             return livePosition(x, y, z, a);
+        }
+
+        // The host-measured tool length (gauge -> tip, mm), from the last touch-off.
+        // Valid only once BOTH the touch-off gauge Z and the tool-setter reference Z
+        // are known.  This is the offset we apply ourselves instead of trusting the
+        // machine's WPos (which omits it on this Carvera).
+        bool manualToolLengthZ(float& outLen) const {
+            if (!touchOffValid_.load() || !toolSetterZValid_.load()) { return false; }
+            outLen = touchOffGaugeZ_.load() - toolSetterZ_.load();
+            return true;
+        }
+        // The tool setter's surface in machine Z (a fixed machine constant).  Set once
+        // by the app from the machine profile; without it we cannot turn a touch-off
+        // gauge position into an absolute tool length.
+        void  setToolSetterReferenceZ(float z) { toolSetterZ_.store(z); toolSetterZValid_.store(true); }
+        // Calibrate the setter reference from a tool whose length is already known:
+        // setterZ = (gauge at its touch-off) - knownLen.  One-shot alternative to
+        // typing in the setter Z.
+        bool  calibrateToolSetterFromKnownLength(float knownLenMm) {
+            if (!touchOffValid_.load()) { return false; }
+            toolSetterZ_.store(touchOffGaugeZ_.load() - knownLenMm);
+            toolSetterZValid_.store(true);
+            return true;
+        }
+        bool  touchOffGaugeZ(float& z) const {
+            if (!touchOffValid_.load()) { return false; }
+            z = touchOffGaugeZ_.load(); return true;
         }
 
         // Last confirmed (raw, un-smoothed) machine position (MPos -- the spindle).
@@ -377,8 +405,6 @@ export namespace Carvera {
 
         void jog(float dx, float dy, float dz) {
             if (!connected() || !confValid) { return; }
-            intentX += dx; intentY += dy; intentZ += dz;
-            beginJogLead();
             std::string cmd = "$J=G91";
             if (dx != 0.0f) cmd += std::format(" X{:.3f}", dx);
             if (dy != 0.0f) cmd += std::format(" Y{:.3f}", dy);
@@ -389,8 +415,6 @@ export namespace Carvera {
 
         void jogA(float degrees) {
             if (!connected() || !confValid) { return; }
-            intentA += degrees;
-            beginJogLead();
             rawSend(std::format("$J=G91 A{:.3f} F{}\n", degrees, jogFeedRateA));
         }
 
@@ -421,13 +445,6 @@ export namespace Carvera {
 
             cmd += std::format(" F{}\n", feedMmMin);
             rawSend(cmd);
-
-            // Nudge intent so the display leads in the right direction.
-            if (confValid) {
-                intentX += dx; intentY += dy;
-                intentZ += dz; intentA += da;
-                beginJogLead();
-            }
         }
 
         // GRBL real-time jog cancel (0x85): decelerates the current jog and
@@ -455,13 +472,8 @@ export namespace Carvera {
                 return;
             }
             sendLine(std::format("G90 G0 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}\n", x, y, z, a));
-            // Display-lead intent is in MPos (the spindle display): WPos target + the
-            // machine's tip->spindle delta, so the displayed TIP leads to (x,y,z).
-            const float dx = (confValid && confWValid) ? (confX - confWX) : 0.0f;
-            const float dy = (confValid && confWValid) ? (confY - confWY) : 0.0f;
-            const float dz = (confValid && confWValid) ? (confZ - confWZ) : 0.0f;
-            intentX = x + dx; intentY = y + dy; intentZ = z + dz; intentA = a;
-            beginJogLead();
+            // We do NOT pre-empt the display to the commanded target -- it follows the
+            // machine's reported position (see tickDisplay: pure listening).
         }
 
         void home() {
@@ -476,6 +488,21 @@ export namespace Carvera {
             cadOriginValid.store(false);
             if (onWorkOriginInvalidated) { onWorkOriginInvalidated(); }
         }
+
+        // Reset any STALE work-coordinate offset still sitting on the controller -- a
+        // leftover G54 (from a past Set Origin's G10) or a G92 -- back to ZERO, so the
+        // machine reports clean ABSOLUTE coordinates (WPos == MPos, apart from the
+        // controller's own tool length).  This is a CLEANUP: it removes an offset our
+        // own old code left behind, which was polluting the WPos we read.  It does NOT
+        // impose a custom frame.  Run once per connection (when the machine is ready).
+        void clearWorkOffsets() {
+            if (!connected()) { return; }
+            sendLine("G92.1\n");                    // cancel any G92 offset
+            sendLine("G10 L2 P1 X0 Y0 Z0 A0\n");    // zero the G54 work offset
+            pushLog("Reset work-coordinate offsets (G92/G54 -> 0); coordinates are now "
+                    "absolute machine.");
+        }
+
         void unlock() {
             if (!requireConnected()) { return; }
             sendLine("$X\n");
@@ -536,26 +563,16 @@ export namespace Carvera {
         // axis).  The WCS is still zeroed at the current controller position so G90
         // == machine absolute; the captured origin is what the host offsets from.
         void setWorkOrigin(float x, float y, float z, float a) {
-            if (!connected()) {
-                pushLog("Connect before setting origin.");
-                return;
-            }
-            captureTipOrigin(x, y, z, a);
-            // Zero the WCS so G90 == machine absolute and WPos == (MPos - tool len).
-            // NOTE: the captured tip values were read in the CURRENT WCS; this assumes
-            // that offset is already 0 (true after any prior Set Origin, since we zero
-            // it here every time).  The one exception -- a stale non-zero G54 from a
-            // power-cycle with no Set Origin yet -- makes only the FIRST capture off by
-            // that offset; it self-corrects on the next Set Origin (offset now 0).
-            sendLine("G10 L2 P1 X0 Y0 Z0 A0\n");
-            pushLog(std::format(
-                "Part origin located at machine (X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}); "
-                "WCS zeroed to machine -- all program moves are now absolute.",
-                x, y, z, a));
-
-            // The part has been re-referenced; any prior probe correction is now
-            // stale.  Announce so the CAM view can clear it.
-            if (onWorkOriginSet) { onWorkOriginSet(); }
+            // DISABLED.  The "work origin" concept has been removed for now: frames are
+            // derived purely from the machine's own geometry (the calibrated rotary
+            // axis frame), NOT from a separately-stored origin.  Set Origin used to
+            // capture a tip position AND zero the WCS (G10 L2), which silently shifted
+            // the frames into congruence -- altering things that are not the origin's
+            // business.  Until a real, deliberately-scoped origin feature is re-added,
+            // this is a NO-OP: it captures nothing and sends no machine command.
+            (void)x; (void)y; (void)z; (void)a;
+            pushLog("Set Origin is currently disabled -- frames come from the machine's "
+                    "rotary-axis geometry; there is no separate origin to set.");
         }
 
         // Reference the probe tip against the machine's built-in tool-length sensor
@@ -802,41 +819,18 @@ export namespace Carvera {
                     tcPhaseName(tcPhase_)));
             }
 
-            struct Candidate {
-                std::string payload;
-                const char* desc;
-            };
-            static const Candidate kCandidates[] = {
-                { std::string(1, char(0x2A)),       "'*'  (0x2A)  Smoothie play/continue"     },
-                { std::string(1, char(0x7E)),       "'~'  (0x7E)  Grbl cycle start"            },
-                { std::string("\n"),                "'\\n' bare newline"                       },
-                { std::string("M600\n"),            "M600 (Marlin/Smoothie filament-change resume)" },
-                { std::string("M601\n"),            "M601 (Smoothie continue from pause)"      },
-                { std::string("M0\n"),              "M0   (program stop / skip pause)"         },
-                { std::string("M6\n"),              "M6   (re-issue bare tool change)"         },
-                { std::string("M491\n"),            "M491 (Carvera M-code adjacent to M490)"   },
-                { std::string("M492\n"),            "M492 (Carvera M-code adjacent to M490)"   },
-                { std::string("M493\n"),            "M493 (Carvera tool-length probe)"         },
-                { std::string("M495\n"),            "M495 (Carvera ATC sub-op)"                },
-                { std::string("M496\n"),            "M496 (Carvera ATC sub-op)"                },
-            };
-            static constexpr size_t kCount = sizeof(kCandidates) / sizeof(kCandidates[0]);
-
-            if (confirmProbeStandbyGen_ != tcStandbyGen_) {
-                confirmProbeStandbyGen_ = tcStandbyGen_;
-                confirmProbeIndex_      = 0;
-            }
-
-            const size_t i = confirmProbeIndex_ % kCount;
-            const Candidate& c = kCandidates[i];
-
-            client->send(c.payload);
-            pushLog(std::format(
-                "[confirm probe {}/{}] {} - if the next line is "
-                "\"machine state 'Tool' -> 'Run'\", this is the command",
-                i + 1, kCount, c.desc));
-
-            confirmProbeIndex_ = i + 1;
+            // CRITICAL: the Carvera ATC is AUTONOMOUS.  After M6 it moves to the tool
+            // setter, probes the tool length (M493.1), retracts, and leaves Tool state
+            // on its own -- no host confirm is needed (the gate sees it leave Tool and
+            // advances Standby -> Finishing -> complete).  We must therefore inject
+            // NOTHING here.  This used to cycle through candidate commands to "guess"
+            // the confirm -- but several of them (especially M493, the tool-length
+            // probe) RE-RAN the touch-off from wherever the spindle happened to be
+            // (NOT the setter), corrupting the tool length to ~0.  That was us breaking
+            // the machine's own touch-off.  Confirm is now a NO-OP.
+            pushLog("Tool change: the Carvera ATC runs and touches off automatically -- "
+                    "just wait for it to finish (no host confirm needed). If the machine "
+                    "is genuinely stuck at a MANUAL prompt, use its physical button.");
             return OperationResult::success();
         }
 
@@ -859,8 +853,11 @@ export namespace Carvera {
         // by the action methods themselves (defence in depth).
         OperationResult preflightToolChange(int slot, bool force = false) const {
             if (!connected())                { return OperationResult::failure("Not connected to machine."); }
-            if (!isProbeSlot(slot) && (slot < 1 || slot > 6))
-                                             { return OperationResult::failure(std::format("Invalid slot T{}. Carvera ATC has slots 1-6 (plus the probe slot).", slot)); }
+            // T0 = UNLOAD (empty spindle) -- a legitimate target: M6 T0 drops the tool
+            // and touches off the bare spindle nose, which is how we reference the tool
+            // setter.  The probe is NOT T0; it has its own configurable slot.
+            if (!isProbeSlot(slot) && (slot < 0 || slot > 6))
+                                             { return OperationResult::failure(std::format("Invalid slot T{}. Carvera ATC has slots 1-6, T0 = unload (plus the probe slot).", slot)); }
             if (tcPhase_ == TcPhase::Aborted){ return OperationResult::failure("Previous tool change was aborted. Acknowledge and reset before retrying."); }
             if (tcPhase_ != TcPhase::None)   { return OperationResult::failure(std::format("Another tool change is in progress (phase: {}).", tcPhaseName(tcPhase_))); }
             if (machineState_ == "Alarm")    { return OperationResult::failure("Machine is in Alarm. Press Unlock ($X) or Reset before changing tool."); }
@@ -1289,52 +1286,39 @@ export namespace Carvera {
         float confWX = 0, confWY = 0, confWZ = 0;
         bool  confWValid = false;
 
-        // Cached work coordinate offset (MPos = WPos + WCO).  Reported periodically;
-        // worker-thread only (used in the status parse to derive the omitted position).
-        float wcoCacheX = 0, wcoCacheY = 0, wcoCacheZ = 0;
-        bool  wcoCacheValid = false;
+        // HOST-MEASURED TOOL LENGTH.  This Carvera does NOT fold the absolute tool
+        // length into its reported WPos (M-W is only a small RELATIVE offset vs the ATC
+        // reference tool), so we measure it ourselves.  At every tool-change touch-off
+        // the [PRB] reports the GAUGE (MPos) Z while the tip rests on the tool setter,
+        // so:  toolLength = touchOffGaugeZ - toolSetterZ  (setterZ = the setter surface
+        // in machine Z, a fixed machine constant supplied by the app).  The displayed
+        // tip is then the spindle MPos with this length subtracted in Z -- coaxial with
+        // the spindle, the real tool length below it.  Both atomics so the worker thread
+        // can capture the touch-off while the main thread reads it.
+        std::atomic<float> touchOffGaugeZ_   { 0.0f };
+        std::atomic<bool>  touchOffValid_    { false };
+        std::atomic<float> toolSetterZ_      { 0.0f };
+        std::atomic<bool>  toolSetterZValid_ { false };
 
-        int   statusLogCount_ = 0;   // TEMP: dump the first few raw status frames
+        // One-shot: clear any stale work offset the first time the machine is Idle after
+        // connecting (see clearWorkOffsets()), so we start every session in clean
+        // absolute coordinates regardless of what a previous session left behind.
+        std::atomic<bool>  wcsClearPending_  { false };
 
-        // -- Intent / display estimator -----------------------------
+        // -- Display follower (PURE LISTENING) ----------------------
         //
-        // The displayed position is a TIME-BASED ESTIMATE, never a snap:
-        //
-        //   * Each confirmed telemetry frame updates a per-axis VELOCITY
-        //     estimate (blended across frames to reject single-frame noise).
-        //   * Between frames the confirmed position is DEAD-RECKONED forward
-        //     along that velocity (capped, so a stale frame can't run away).
-        //   * The displayed position relaxes toward that estimate through an
-        //     exponential time constant -- so it is always smooth, always
-        //     converging to ground truth, and never teleports.
-        //
-        // The jog INTENT survives only as a short LEAD: for a brief window
-        // after a jog/goTo command the display heads for the commanded target
-        // (instant operator feedback); after the window it follows the
-        // machine estimate again.
-
-        float intentX = 0, intentY = 0, intentZ = 0, intentA = 0;
+        // The displayed position is NOT an estimate and NEVER a guess.  It simply
+        // RELAXES toward the machine's last confirmed position (confX == reported MPos)
+        // through an exponential time constant -- frame-rate independent smoothing of a
+        // real, reported value.  No velocity dead-reckoning, no jog-lead "intent": we
+        // show where the machine SAYS it is, not where we told it to go.  It can lag a
+        // touch but can never overshoot or teleport.
         float dispX = 0, dispY = 0, dispZ = 0, dispA = 0;
         bool  dispReady = false;
         Clock::time_point lastFrameTime = Clock::now();
 
-        // Velocity estimate (units per ms) from consecutive confirmed frames.
-        float velX = 0, velY = 0, velZ = 0, velA = 0;
-        float lastConfX_ = 0, lastConfY_ = 0, lastConfZ_ = 0, lastConfA_ = 0;
-        Clock::time_point confAt_ = Clock::now();
-        bool  haveConfSample_ = false;
-
-        // Jog lead window: until this instant, the display heads for the jog
-        // intent instead of the machine estimate.
-        Clock::time_point jogLeadUntil_ = Clock::now();
-
-        static constexpr float TauLinearMs    = 70.0f;    // display smoothing time constant
-        static constexpr float TauAngularMs   = 70.0f;
-        static constexpr float PredictCapMs   = 150.0f;   // max dead-reckoning horizon
-        static constexpr float VelBlend       = 0.5f;     // per-frame velocity blend factor
-        static constexpr float MaxVelLinear   = 0.20f;    // mm/ms sanity clamp (12 m/min)
-        static constexpr float MaxVelAngular  = 0.36f;    // deg/ms sanity clamp
-        static constexpr int   JogLeadMs      = 400;
+        static constexpr float TauLinearMs  = 70.0f;    // display smoothing time constant
+        static constexpr float TauAngularMs = 70.0f;
 
         // -- Telemetry mirror (atomic, read by the CAM view) --------
 
@@ -1648,8 +1632,6 @@ export namespace Carvera {
             pendingProbe        = false;
             confValid           = false;
             confWValid          = false;
-            wcoCacheValid       = false;
-            statusLogCount_     = 0;
             dispReady           = false;
             machineState_.clear();
             lastMachineState_.clear();
@@ -1710,32 +1692,14 @@ export namespace Carvera {
                 bool wposPosOk = wn >= 3;   // X/Y/Z (the tool tip)
                 bool wposOk    = wn >= 4;   // includes the A angle
 
-                // WCO (work coordinate offset = work offset + tool-length offset).
-                // Grbl/Smoothie reports only ONE position type per frame (MPos OR
-                // WPos, per $10) plus a PERIODIC WCO line, expecting the host to
-                // derive the other: MPos = WPos + WCO.  We cache the last WCO (it
-                // persists between the frames that carry it) and fill in whichever
-                // position the frame omits -- so the spindle (MPos) and the tool tip
-                // (WPos) are always BOTH available and correctly tool-length apart,
-                // instead of collapsing onto the same point.
-                {
-                    float cx, cy, cz, ca;
-                    size_t wco = msg.find("WCO:");
-                    if (wco != std::string::npos &&
-                        sscanf(msg.c_str() + wco + 4, "%f,%f,%f,%f", &cx, &cy, &cz, &ca) >= 3) {
-                        wcoCacheX = cx; wcoCacheY = cy; wcoCacheZ = cz; wcoCacheValid = true;
-                    }
-                }
-                if (wcoCacheValid) {
-                    if (posOk && !wposPosOk) {                 // have MPos -> derive WPos
-                        wx = x - wcoCacheX; wy = y - wcoCacheY; wz = z - wcoCacheZ; wa = a;
-                        wposPosOk = true;
-                    }
-                    else if (!posOk && wposPosOk) {            // have WPos -> derive MPos
-                        x = wx + wcoCacheX; y = wy + wcoCacheY; z = wz + wcoCacheZ; a = wa;
-                        posOk = true;
-                    }
-                }
+                // LISTEN, do not GUESS.  We take MPos and WPos EXACTLY as the machine
+                // reports them and never fabricate one from the other.  The old code
+                // derived a missing position as WPos +/- a cached WCO -- but a stale WCO
+                // (left behind by an offset WE once set) makes that fabricated MPos
+                // wildly wrong, e.g. shooting the spindle past the machine frame the
+                // moment a homing frame omits MPos.  The Carvera reports BOTH MPos and
+                // WPos in every status frame, so there is nothing to derive: whatever a
+                // frame omits simply keeps its last real value.
 
                 // Some Carvera/Smoothie builds include the loaded tool number
                 // in the status frame as "|T:<n>" or "|TLO:..." -- parse it so
@@ -1965,6 +1929,25 @@ export namespace Carvera {
 
             // Emit probe result.
             if (probeDirty) {
+                // TOOL-LENGTH TOUCH-OFF.  When a tool change is in progress, this [PRB]
+                // is the machine's own tool-length probe: the tip is resting on the tool
+                // setter, so probeZ (the GAUGE / MPos) is exactly "the MPos when the tool
+                // finishes measuring."  We track this tool's length ourselves because the
+                // Carvera never reports the absolute length in WPos.
+                //
+                // SELF-CALIBRATING via T0: when the change is to slot 0 (NO tool), the
+                // BARE SPINDLE NOSE lands on the setter, so the gauge Z here IS the
+                // setter surface (zero tool length) -- our absolute reference.  Touch off
+                // T0 once and every real tool afterward measures correctly; no number to
+                // type.  toolLength(tool) = gauge(tool) - gauge(T0).
+                if (toolChangeGated()) {
+                    if (tcSlot == 0) {
+                        toolSetterZ_.store(probeZ);
+                        toolSetterZValid_.store(true);
+                    }
+                    touchOffGaugeZ_.store(probeZ);
+                    touchOffValid_.store(true);
+                }
                 // [PRB] is reported at the SPINDLE (MPos).  Express the contact at the
                 // TOOL TIP using the MACHINE'S OWN spindle->tip delta (confX - confWX
                 // = tool length + work offset, set by the tool-change touch-off) --
@@ -2038,92 +2021,42 @@ export namespace Carvera {
             float dtMs = std::chrono::duration<float, std::milli>(now - lastFrameTime).count();
             lastFrameTime = now;
 
-            bool freshFrame = drainTelemetry();
+            drainTelemetry();
 
             if (!statusInFlight) { sendStatus(); }
 
-            if (!confValid) { dispReady = false; haveConfSample_ = false; return; }
+            if (!confValid) { dispReady = false; return; }
 
             if (!dispReady) {
-                dispX = intentX = lastConfX_ = confX;
-                dispY = intentY = lastConfY_ = confY;
-                dispZ = intentZ = lastConfZ_ = confZ;
-                dispA = intentA = lastConfA_ = confA;
-                velX = velY = velZ = velA = 0.0f;
-                confAt_ = now;
-                haveConfSample_ = true;
+                dispX = confX; dispY = confY; dispZ = confZ; dispA = confA;
                 dispReady = true;
                 publishLivePosition();
                 return;
             }
 
-            // A fresh confirmed frame updates the VELOCITY estimate -- it never
-            // snaps the display.  Velocity is blended across frames; a stale or
-            // first sample contributes zero.
-            if (freshFrame) {
-
-                const float dtc = std::chrono::duration<float, std::milli>(now - confAt_).count();
-
-                if (haveConfSample_ && dtc > 1.0f && dtc < 500.0f) {
-                    auto blendVel = [&](float& v, float to, float from, float cap) {
-                        float nv = (to - from) / dtc;
-                        nv = std::clamp(nv, -cap, cap);
-                        v += (nv - v) * VelBlend;
-                    };
-                    blendVel(velX, confX, lastConfX_, MaxVelLinear);
-                    blendVel(velY, confY, lastConfY_, MaxVelLinear);
-                    blendVel(velZ, confZ, lastConfZ_, MaxVelLinear);
-                    blendVel(velA, confA, lastConfA_, MaxVelAngular);
-                }
-                else {
-                    velX = velY = velZ = velA = 0.0f;
-                }
-
-                lastConfX_ = confX; lastConfY_ = confY;
-                lastConfZ_ = confZ; lastConfA_ = confA;
-                confAt_ = now;
-                haveConfSample_ = true;
-            }
-
             if (!machineState_.empty()) { lastMachineState_ = machineState_; }
 
-            // A quiet machine is not moving: kill the velocity estimate and
-            // re-anchor the jog intent so nothing creeps.
-            const bool quiet = (machineState_ == "Idle" ||
-                                machineState_ == "Alarm" ||
-                                machineState_ == "Hold");
-            if (quiet) {
-                velX = velY = velZ = velA = 0.0f;
-                intentX = confX; intentY = confY; intentZ = confZ; intentA = confA;
+            // One-shot per connection: once the machine is genuinely ready (Idle), wipe
+            // any stale work offset left on the controller so WPos/MPos are clean.  Done
+            // here (not at connect) so we never send G10 into an Alarm/startup state.
+            if (wcsClearPending_.load() && machineState_ == "Idle") {
+                wcsClearPending_.store(false);
+                clearWorkOffsets();
             }
 
-            // BONA-FIDE TELEMETRY: when not actively jog-leading, head for the RAW
-            // confirmed machine position (confX) -- NEVER a dead-reckoned
-            // extrapolation.  Velocity dead-reckoning overshot wildly during homing:
-            // the fast reversals leave the velocity estimate stale and pointing the
-            // wrong way, so `confX + vel*horizon` shot past the machine frame before
-            // snapping back.  Following the confirmed position can lag a touch but can
-            // NEVER overshoot the machine's real position (the exponential relaxation
-            // below still prevents any teleport).
-            //
-            // Jog lead: for a short window after a jog command, head for the commanded
-            // target for instant operator feedback; otherwise the confirmed position.
-            const bool lead = (now < jogLeadUntil_) && !quiet;
-
-            const float tX = lead ? intentX : confX;
-            const float tY = lead ? intentY : confY;
-            const float tZ = lead ? intentZ : confZ;
-            const float tA = lead ? intentA : confA;
-
-            // Exponential relaxation toward the target: a true time constant,
-            // frame-rate independent, and incapable of teleporting.
+            // PURE LISTENING.  The display relaxes toward the RAW confirmed machine
+            // position (confX == reported MPos) and NOTHING ELSE -- no velocity
+            // dead-reckoning, no jog-lead "intent".  We never show a commanded or
+            // extrapolated position, only where the machine REPORTS it is.  The
+            // exponential relaxation is purely frame-rate-independent smoothing of that
+            // reported value: it can lag a touch but can NEVER overshoot or teleport.
             const float aLin = 1.0f - std::exp(-dtMs / TauLinearMs);
             const float aAng = 1.0f - std::exp(-dtMs / TauAngularMs);
 
-            dispX += (tX - dispX) * aLin;
-            dispY += (tY - dispY) * aLin;
-            dispZ += (tZ - dispZ) * aLin;
-            dispA += (tA - dispA) * aAng;
+            dispX += (confX - dispX) * aLin;
+            dispY += (confY - dispY) * aLin;
+            dispZ += (confZ - dispZ) * aLin;
+            dispA += (confA - dispA) * aAng;
 
             publishLivePosition();
         }
@@ -2144,10 +2077,27 @@ export namespace Carvera {
             // reckoning, jog lead, quiet anchoring -- for free, and steps once
             // (correctly) when the tip reference changes at a tool change.  A is
             // a rotary axis with no tool-length offset, so tip A == machine A.
-            if (confWValid) {
-                tipTelemX.store(dispX - (confX - confWX));
-                tipTelemY.store(dispY - (confY - confWY));
-                tipTelemZ.store(dispZ - (confZ - confWZ));
+            float toolLenZ = 0.0f;
+            if (manualToolLengthZ(toolLenZ)) {
+                // HOST-MEASURED tool length, from the touch-off [PRB] (raw MPos, immune
+                // to any work offset).  The tip is COAXIAL with the spindle, toolLenZ
+                // below it.  This is the ONLY offset we trust.
+                tipTelemX.store(dispX);
+                tipTelemY.store(dispY);
+                tipTelemZ.store(dispZ - toolLenZ);
+                tipTelemValid.store(true);
+            }
+            else {
+                // NO host measurement yet -> the tip IS the spindle (coincident).  We
+                // deliberately do NOT fall back to the machine's WPos: on this Carvera
+                // WPos carries a STALE work-coordinate offset (a leftover G54 from a past
+                // Set Origin) that has nothing to do with tool length, so trusting it
+                // drew the tip at a polluted position and looked like the measurement was
+                // being "undone."  Coincident-until-measured is honest; touch off T0 then
+                // the tool to get the real offset.
+                tipTelemX.store(dispX);
+                tipTelemY.store(dispY);
+                tipTelemZ.store(dispZ);
                 tipTelemValid.store(true);
             }
 
@@ -2155,13 +2105,6 @@ export namespace Carvera {
 
             TelemetryEvent e{ dispX, dispY, dispZ, dispA };
             telemetryDispatcher.tell(&Air::telemetryEvent, e);
-        }
-
-        // Open the jog-lead window: for the next JogLeadMs the display heads
-        // for the commanded intent (instant operator feedback) before falling
-        // back to the telemetry estimate.
-        void beginJogLead() {
-            jogLeadUntil_ = Clock::now() + std::chrono::milliseconds(JogLeadMs);
         }
 
         // -- Tool-change gate + lifecycle events --------------------

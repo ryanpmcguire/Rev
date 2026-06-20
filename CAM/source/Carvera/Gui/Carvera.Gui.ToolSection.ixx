@@ -188,7 +188,11 @@ export namespace Carvera::Gui {
 
             auto markLoaded = [&](Dropdown::Item it) {
                 const int slot = std::stoi(it.value);
-                if (slot == loaded && loaded > 0) {
+                // Disable ONLY the loaded REAL tool (slot > 0) -- re-selecting it would
+                // be a no-op the Carvera never acks.  "None" (slot 0) is ALWAYS
+                // selectable: it is an action (unload + touch off the bare nose), and the
+                // operator must be able to choose it even when no tool is loaded.
+                if (slot > 0 && slot == loaded) {
                     it.name    += " (loaded)";
                     it.disabled = true;
                 }
@@ -197,6 +201,13 @@ export namespace Carvera::Gui {
 
             std::vector<Dropdown::Item> items;
 
+            // PERMANENT "None" (T0): unload the spindle.  Changing to None runs the
+            // machine's touch-off on the BARE SPINDLE NOSE, which is how we reference
+            // the tool setter (zero tool length) for host-side tool-length tracking.
+            // Always present so the operator can actually select "no tool".
+            items.push_back(markLoaded({ "None", "0" }));
+
+            const size_t beforeTools = items.size();
             if (app) {
                 const size_t count = app->toolCount();
                 for (size_t i = 0; i < count; i++) {
@@ -206,7 +217,7 @@ export namespace Carvera::Gui {
                 }
             }
 
-            if (items.empty()) {
+            if (items.size() == beforeTools) {   // no real tools -> slot placeholders
                 for (int s = 1; s <= 6; s++) {
                     items.push_back(markLoaded({ "Tool " + std::to_string(s), std::to_string(s) }));
                 }
@@ -313,7 +324,13 @@ export namespace Carvera::Gui {
 
             // No auto-confirm -- the operator must explicitly press Ok (either
             // on the panel or on the machine itself) when Standby is reached.
-            air_->changeTool(currentToolSlot());
+            //
+            // T0 (None / unload) is FORCED: the point of selecting it is to drop the
+            // tool and touch off the bare spindle nose (our tool-length reference), so we
+            // want it to run even when the spindle is already empty -- otherwise the
+            // "already loaded T0" no-op would swallow it.
+            const int slot = currentToolSlot();
+            air_->changeTool(slot, /*force=*/slot == 0);
             refreshAfterUserAction(e);
         }
 
