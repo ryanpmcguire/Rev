@@ -12,7 +12,7 @@ int main() {
 
     Machine::Application* application = new Machine::Application();
 
-    Machine::Gui::Window* gui = new Machine::Gui::Window(application->windows, {
+    Machine::Gui::AppWindow* gui = new Machine::Gui::AppWindow(application->windows, {
         .name = "Machine",
         .size = { 1280, 720, .min = { 640, 480 }, .max = { 3840, 2160 } }
     });
