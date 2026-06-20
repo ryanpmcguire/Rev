@@ -181,7 +181,7 @@ export namespace Rev::Element {
                 Option& option = params.options[i];
                 RadioOption* optionElem = options[i];
 
-                optionElem->resolved.disabled = option.disabled;
+                optionElem->setDisabled(option.disabled);
                 optionElem->label->content = option.name;
 
                 sColor backgroundColor = option.value == params.value ? rgb(51, 106, 255) : sColor::Null();

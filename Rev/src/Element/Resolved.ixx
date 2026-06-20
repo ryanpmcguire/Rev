@@ -186,6 +186,9 @@ export namespace Rev::Element {
         int depth = 0;
 
         bool hidden = false;
+
+        // Effective disabled state, cascaded from ancestors (own intent OR a
+        // disabled ancestor) in cascadeStyle -- parallel to `hidden`.
         bool disabled = false;
 
         bool wrap = false;

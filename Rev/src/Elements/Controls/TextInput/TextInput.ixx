@@ -88,13 +88,11 @@ export namespace Rev::Element {
         void setDisabled(bool d) {
             disabled = d;
 
-            // Drive the appearance flag so the *Disabled styles apply, on every
-            // element that carries one.
-            container->resolved.disabled = d;
-            field->resolved.disabled     = d;
-            text->resolved.disabled      = d;
-            container->dirty.style = true;
-            text->dirty.style      = true;
+            // Drive the disabled style state so the *Disabled styles apply, on
+            // every element that carries one.
+            container->setDisabled(d);
+            field->setDisabled(d);
+            text->setDisabled(d);
 
             // A locked field is inert: not editable, not focusable/selectable.
             text->editable   = !d;
@@ -153,10 +151,11 @@ export namespace Rev::Element {
         }
 
         void computeStyle(Event& e) override {
-            // Keep the appearance flag in sync (cheap; survives any external reset).
-            if (container->resolved.disabled != disabled) { container->resolved.disabled = disabled; }
-            if (field->resolved.disabled != disabled)     { field->resolved.disabled = disabled; }
-            if (text->resolved.disabled != disabled)      { text->resolved.disabled = disabled; }
+            // Keep the disabled style state in sync (idempotent; survives any
+            // external reset).
+            container->setDisabled(disabled);
+            field->setDisabled(disabled);
+            text->setDisabled(disabled);
 
             bool showFieldFocus = !disabled && text->targetFlags.focus;
 

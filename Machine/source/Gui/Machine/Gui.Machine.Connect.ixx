@@ -32,25 +32,26 @@ export namespace Machine::Gui {
 
         // Full-width dark panel: rounded, hairline-bordered, padded column.
         static inline Style Section = {
-            .layout  = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size    = { .width = 100_pct },
-            .padding = { 14_px, 14_px, 14_px, 14_px },
+            .layout     = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size       = { .width = 100_pct },
+            .padding    = { 14_px, 14_px, 14_px, 14_px },
             .background = { .color = rgba(255, 255, 255, 0.03) },
-            .border  = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
+            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
         };
 
-            // Full-width horizontal strip, vertically centred, gap below.
+            // Full-width horizontal strip, vertically centred, gap below. Height
+            // comes from its tallest child, not a fixed value.
             static inline Style Row = {
-                .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False, CrossAlign::True },
-                .size   = { .width = 100_pct, .height = 34_px },
-                .margin = { .bottom = 8_px }
+                .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False, CrossAlign::True },
+                .size   = { .width = 100_pct },
+                .margin = { .top = 4_px, .bottom = 4_px }
             };
 
                 // Round dot with right margin.
                 static inline Style Dot = {
-                    .size   = { .width = 10_px, .height = 10_px },
-                    .margin = { .right = 9_px },
-                    .border = { .radius = 5_px }
+                    .size   = { .width = 12_px, .height = 12_px },
+                    .margin = { .right = 8_px },
+                    .border = { .radius = 6_px }
                 };
 
                 // Disconnected default -- a dim, inert indicator.
@@ -60,22 +61,26 @@ export namespace Machine::Gui {
 
                 // Machine name -- bright, slightly larger.
                 static inline Style Title = {
-                    .text = { .color = rgba(236, 238, 242, 1.0), .size = 15_px }
+                    .text = { .color = rgba(236, 238, 242, 1.0), .size = 16_px }
                 };
 
-                // Address readout -- muted and small.
+                // Address readout -- muted and small, set off from the name.
                 static inline Style Address = {
-                    .text = { .color = rgba(140, 146, 156, 1.0), .size = 12_px }
+                    .margin = { .left = 8_px },
+                    .text   = { .color = rgba(140, 146, 156, 1.0), .size = 12_px }
                 };
 
                 // Equal-width control: faint fill, hairline border, hand cursor.
+                // Height comes from the label plus vertical padding, not a fixed
+                // value.
                 static inline Style Btn = {
-                    .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-                    .size   = { .width = Grow(), .height = 32_px },
-                    .margin = { .right = 8_px },
+                    .layout     = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+                    .size       = { .width = Grow() },
+                    .margin     = { .left = 4_px, .right = 4_px },
+                    .padding    = { .top = 8_px, .bottom = 8_px },
                     .background = { .color = rgba(255, 255, 255, 0.06) },
-                    .border = { .color = rgba(255, 255, 255, 0.10), .radius = 6_px, .width = 1_px },
-                    .cursor = Cursor::Hand
+                    .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 6_px, .width = 1_px },
+                    .cursor     = Cursor::Hand
                 };
 
                     // Light label legible on the dark button fill.
@@ -83,17 +88,28 @@ export namespace Machine::Gui {
                         .text = { .color = rgba(220, 224, 230, 1.0), .size = 13_px }
                     };
 
+                // Disabled control: dimmed fill/border, inert cursor.
+                static inline Style BtnDisabled = {
+                    .applies    = { .disabled = true },
+                    .background = { .color = rgba(255, 255, 255, 0.02) },
+                    .border     = { .color = rgba(255, 255, 255, 0.05), .radius = 6_px, .width = 1_px },
+                    .cursor     = Cursor::NotAllowed
+                };
+
+                    // Dimmed label for a disabled control.
+                    static inline Style BtnLabelDisabled = {
+                        .applies = { .disabled = true },
+                        .text    = { .color = rgba(110, 114, 122, 1.0) }
+                    };
+
         // Elements
         //--------------------------------------------------
 
-            // Status indicator + machine name.
+            // Status indicator, machine name, and network address -- all inline.
             Box* titleRow = nullptr;
                 Box*  statusDot = nullptr;
                 Text* title     = nullptr;
-
-            // Where the machine lives on the network.
-            Box* addressRow = nullptr;
-                Text* address = nullptr;
+                Text* address   = nullptr;
 
             // Open / close the connection.
             Box* ioRow = nullptr;
@@ -110,24 +126,23 @@ export namespace Machine::Gui {
 
         ConnectSection(Element* parent) : Box(parent, { &Section }, "ConnectSection") {
 
-            // Status indicator + machine name.
+            // Status indicator, machine name, and network address -- all inline.
             titleRow = new Box(this, { &Row }, "TitleRow");
-                statusDot = new Box(titleRow, { &Dot, &DotDisconnected }, "StatusDot");
-                title     = new Text(titleRow, "Carvera Air", { &Title });
+            titleRow->style->margin.bottom = 12_px;
 
-            // Where the machine lives on the network.
-            addressRow = new Box(this, { &Row }, "AddressRow");
-                address = new Text(addressRow, "Not connected", { &Address });
+                statusDot = new Box(titleRow, { &Dot, &DotDisconnected }, "StatusDot");
+                title     = new Text(titleRow, "Carvera Air",   { &Title });
+                address   = new Text(titleRow, "Not connected", { &Address });
 
             // Open / close the connection.
             ioRow = new Box(this, { &Row }, "IoRow");
-                connectButton    = new Button(ioRow, { .label = "Connect",    .labelStyles = { &BtnLabel } }, { &Btn });
-                disconnectButton = new Button(ioRow, { .label = "Disconnect", .labelStyles = { &BtnLabel } }, { &Btn });
+                connectButton    = new Button(ioRow, { .label = "Connect",    .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
+                disconnectButton = new Button(ioRow, { .label = "Disconnect", .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
 
             // Clear an alarm / soft-reset the controller.
             ctrlRow = new Box(this, { &Row }, "CtrlRow");
-                unlockButton = new Button(ctrlRow, { .label = "Unlock", .labelStyles = { &BtnLabel } }, { &Btn });
-                resetButton  = new Button(ctrlRow, { .label = "Reset",  .labelStyles = { &BtnLabel } }, { &Btn });
+                unlockButton = new Button(ctrlRow, { .label = "Unlock", .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
+                resetButton  = new Button(ctrlRow, { .label = "Reset",  .labelStyles = { &BtnLabel, &BtnLabelDisabled } }, { &Btn, &BtnDisabled });
         }
 
         // Destroy
@@ -138,11 +153,24 @@ export namespace Machine::Gui {
         // Reflect
         //--------------------------------------------------
 
-        // The seam where live connection state will be reflected onto the
-        // already-declared structure. For now it asserts nothing beyond the
-        // disconnected default, so it simply defers to the base.
+        // Reflect the machine's live connection state onto the declared
+        // structure. Connect is the only action available while disconnected;
+        // Disconnect / Unlock / Reset require a live connection. (setDisabled is
+        // idempotent, so calling it every frame is free unless the state flips.)
         void computeChildren(Event& e) override {
+
+            const bool connected = false;   // TODO: read from the Machine system
+
+            connectButton->setDisabled(connected);
+            disconnectButton->setDisabled(!connected);
+            unlockButton->setDisabled(!connected);
+            resetButton->setDisabled(!connected);
+
             Box::computeChildren(e);
+        }
+
+        void computeStyle(Event& e) override {
+            Box::computeStyle(e);
         }
     };
 }

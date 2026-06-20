@@ -256,6 +256,16 @@ export namespace Rev::Element {
                 resolved.affectsParentSize = false;
             }
 
+            // Cascade disabled state: effective = own intent OR a disabled
+            // ancestor. reset() leaves resolved.disabled alone, so its prior
+            // value survives here -- if the effective value flips, mark the
+            // styles dirty so the applies.disabled styles re-resolve. This lets a
+            // single setDisabled on a section disable its whole subtree.
+            bool wasDisabled = resolved.disabled;
+            resolved.disabled = targetFlags.disabled;
+            if (parent->resolved.disabled) { resolved.disabled = true; }
+            if (resolved.disabled != wasDisabled) { styles.dirty = true; }
+
             // Set depth
             resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;            
 
@@ -1540,10 +1550,23 @@ export namespace Rev::Element {
             bool press = false;
             bool focus = false;
             bool drag = false;
+            bool disabled = false;
         };
 
         TargetFlags targetFlags;
         bool tabStop = false;
+
+        // Set this element's disabled INTENT (like hover/focus, a style state).
+        // The effective disabled value is cascaded to descendants in
+        // cascadeStyle, so disabling a section disables its whole subtree. Marks
+        // dirty to kick a recompute; cascadeStyle then re-resolves what changed.
+        // Does not itself gate input -- each control decides what "disabled"
+        // MEANS behaviourally (Button swallows clicks, TextInput ignores keys).
+        void setDisabled(bool d) {
+            if (targetFlags.disabled == d) { return; }
+            targetFlags.disabled = d;
+            styles.dirty = true;
+        }
 
         // When true and this element contains the cursor, elements drawn behind it
         // (earlier in draw order) do not receive hit for this frame.

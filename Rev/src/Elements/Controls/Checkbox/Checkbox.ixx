@@ -64,7 +64,7 @@ export namespace Rev::Element {
 
             checkbox->onClick([this](Event& e) {
 
-                if (this->resolved.disabled) { return; }
+                if (this->targetFlags.disabled) { return; }
                 this->value = !value;
 
                 this->refresh(e);

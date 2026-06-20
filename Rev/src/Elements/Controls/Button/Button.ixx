@@ -31,6 +31,10 @@ export namespace Rev::Element {
 
         Text* labelText = nullptr;
 
+        // A disabled button renders its *Disabled styles (applies.disabled) and
+        // ignores clicks/keys. Display-only, like a locked TextInput.
+        bool disabled = false;
+
         Button(Element* parent, Params params, StyleList styles = {}) : Box(parent, styles) {
             name = "Button";
 
@@ -53,6 +57,20 @@ export namespace Rev::Element {
             for (Style* style : params.labelStyles.styles) { labelText->styles.add(style); }
 
             onKeyDown([this](Event& e) { click(e); e.propagate = false; });
+        }
+
+        // Enable / disable the button. The disabled state cascades to the label
+        // automatically (see Element::cascadeStyle), so we only set our own
+        // intent here. Idempotent, so it is safe to call every frame.
+        void setDisabled(bool d) {
+            disabled = d;
+            Element::setDisabled(d);
+        }
+
+        // A disabled button is inert: it dispatches no click to listeners.
+        void click(Event& e) override {
+            if (disabled) { e.propagate = false; return; }
+            Box::click(e);
         }
 
         void computeStyle(Event& e) override { Box::computeStyle(e); }

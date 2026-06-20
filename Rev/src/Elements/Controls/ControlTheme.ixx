@@ -59,7 +59,7 @@ export namespace Rev::Element::ControlTheme {
 
     // DISABLED / LOCKED field: display-only.  A muted, recessed surface with no
     // focus affordance + the default cursor, so the value reads as "shown, not
-    // editable".  Applied when the element's resolved.disabled is set.
+    // editable".  Applied when the element's disabled style state is set.
     Style FieldDisabled = {
         .applies = { .disabled = true },
         .background = { .color = rgba(241, 245, 249, 1.0) },   // slate-100, recessed

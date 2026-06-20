@@ -420,10 +420,7 @@ export namespace Rev::Element {
                 Item& item = params.options[i];
                 options[i]->content = item.name;
 
-                if (options[i]->resolved.disabled != item.disabled) {
-                    options[i]->resolved.disabled = item.disabled;
-                    options[i]->dirty.style = true;
-                }
+                options[i]->setDisabled(item.disabled);
             }
 
             syncOptionStyles();
