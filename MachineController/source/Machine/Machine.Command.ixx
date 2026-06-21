@@ -4,11 +4,13 @@ module;
 
 export module Machine.Command;
 
-export namespace Machine {
+// Commands live in their own namespace: one base (CommandBase) subclassed per
+// intent. A concrete machine defines its own commands (in its own Command
+// namespace) deriving from this base; `type` tags the kind so a stored
+// CommandBase* can be downcast.
+export namespace Machine::Command {
 
-    // An intent sent to a machine. Each concrete command emit()s its own wire
-    // form; `type` tags the kind so a stored Command* can be downcast.
-    struct Command {
+    struct CommandBase {
 
         // Command types (allows for later casting)
         enum class Type {
@@ -31,8 +33,8 @@ export namespace Machine {
         Type type;
 
         // Construct/destruct
-        Command(Type type) : type(type) {}
-        virtual ~Command() {}
+        CommandBase(Type type) : type(type) {}
+        virtual ~CommandBase() {}
 
         // Stringify command (derived classes must implement)
         virtual std::string emit() const = 0;

@@ -7,42 +7,44 @@ export module Machine.Machines.Carvera.Commands;
 
 import Machine.Command;
 
-export namespace Machine::Carvera {
+// The Carvera command vocabulary: one struct per command, each emit()s its wire
+// form. They live in Carvera's own Command namespace and derive from the shared
+// Machine::Command::CommandBase. Reference them as Carvera::Command::Unlock, ...
+export namespace Machine::Carvera::Command {
 
-    // The Carvera command vocabulary: one struct per command, each emit()s its
-    // wire form. (`Command` is Machine::Command, the parent-namespace base.)
+    using Base = Machine::Command::CommandBase;
 
     // Actions
     //--------------------------------------------------
 
-    struct Unlock : Command {
-        Unlock() : Command(Command::Type::Unlock) {}
+    struct Unlock : Base {
+        Unlock() : Base(Type::Unlock) {}
         std::string emit() const override { return "$X\n"; }                 // clear alarm
     };
 
-    struct Reset : Command {
-        Reset() : Command(Command::Type::Reset) {}
+    struct Reset : Base {
+        Reset() : Base(Type::Reset) {}
         std::string emit() const override { return std::string(1, '\x18'); } // ctrl-x soft reset
     };
 
-    struct Home : Command {
-        Home() : Command(Command::Type::Home) {}
+    struct Home : Base {
+        Home() : Base(Type::Home) {}
         std::string emit() const override { return "$H\n"; }                 // home all axes
     };
 
-    struct ChangeTool : Command {
+    struct ChangeTool : Base {
         int tool = 0;
-        ChangeTool(int tool) : Command(Command::Type::ChangeTool), tool(tool) {}
+        ChangeTool(int tool) : Base(Type::ChangeTool), tool(tool) {}
         std::string emit() const override { return "M6 T" + std::to_string(tool) + "\n"; }
     };
 
     // A relative ($J=G91) jog: each non-zero axis moves by its delta at `feed`.
     // Zero axes are omitted so the planner never reads "go to here" on an axis.
-    struct Jog : Command {
+    struct Jog : Base {
         float x = 0, y = 0, z = 0, a = 0;
         int   feed = 1000;
         Jog(float x, float y, float z, float a, int feed)
-            : Command(Command::Type::Jog), x(x), y(y), z(z), a(a), feed(feed) {}
+            : Base(Type::Jog), x(x), y(y), z(z), a(a), feed(feed) {}
         std::string emit() const override {
             std::string cmd = "$J=G91";
             if (x != 0.0f) { cmd += std::format(" X{:.3f}", x); }
@@ -57,28 +59,28 @@ export namespace Machine::Carvera {
     // Queries -- the reply is decoded by the adapter into telemetry / info.
     //--------------------------------------------------
 
-    struct QueryStatus : Command {
-        QueryStatus() : Command(Command::Type::QueryStatus) {}
+    struct QueryStatus : Base {
+        QueryStatus() : Base(Type::QueryStatus) {}
         std::string emit() const override { return "?"; }                    // live status frame
     };
 
-    struct QueryOffsets : Command {
-        QueryOffsets() : Command(Command::Type::QueryOffsets) {}
+    struct QueryOffsets : Base {
+        QueryOffsets() : Base(Type::QueryOffsets) {}
         std::string emit() const override { return "$#\n"; }                 // WCS / TLO / PRB
     };
 
-    struct QueryState : Command {
-        QueryState() : Command(Command::Type::QueryState) {}
+    struct QueryState : Base {
+        QueryState() : Base(Type::QueryState) {}
         std::string emit() const override { return "$G\n"; }                 // modal / parser state
     };
 
-    struct QuerySwitches : Command {
-        QuerySwitches() : Command(Command::Type::QuerySwitches) {}
+    struct QuerySwitches : Base {
+        QuerySwitches() : Base(Type::QuerySwitches) {}
         std::string emit() const override { return "$S\n"; }                 // switch states
     };
 
-    struct QueryVersion : Command {
-        QueryVersion() : Command(Command::Type::QueryVersion) {}
+    struct QueryVersion : Base {
+        QueryVersion() : Base(Type::QueryVersion) {}
         std::string emit() const override { return "version\n"; }            // firmware version
     };
 }

@@ -202,7 +202,7 @@ export namespace Gui {
             // edges just flag + nudge a refresh; computeChildren reads the machine.
             // (onTelemetry is a no-payload signal: "it changed, go read the cache".)
             machine.telemetry.onUpdate(this, [this]()                   { dirty = true; bump(); });
-            machine.onState           (this, [this](Machine::StateEvent& e) { stateText = e.state; dirty = true; bump(); });
+            machine.onState           (this, [this](Machine::Event::State& e) { stateText = e.state; dirty = true; bump(); });
         }
 
         // Destroy

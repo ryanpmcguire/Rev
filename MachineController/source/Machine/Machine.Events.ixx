@@ -4,33 +4,6 @@ module;
 
 export module Machine.Events;
 
-export namespace Machine {
-
-    // Connection status -- a value carried by Event::Connection and cached on the
-    // network (not itself an event).
-    enum class ConnectionStatus {
-        Disconnected,
-        Connecting,
-        Connected,
-        Error
-    };
-
-    inline const char* connectionStatusName(ConnectionStatus s) {
-        switch (s) {
-            case ConnectionStatus::Disconnected: return "Disconnected";
-            case ConnectionStatus::Connecting:   return "Connecting";
-            case ConnectionStatus::Connected:    return "Connected";
-            case ConnectionStatus::Error:        return "Error";
-        }
-        return "?";
-    }
-
-    // A no-payload channel ping ("something here changed, go read it"). Drives the
-    // SignalChannel notify channels; carries nothing, so it stands apart from the
-    // events below.
-    struct Signal {};
-}
-
 // The machine's event vocabulary lives in its own namespace: one base (EventBase)
 // subclassed per kind. Reference them by namespace -- Event::Telemetry,
 // Event::Connection, ... (Machine::Event::Telemetry from outside) -- and downcast
@@ -53,14 +26,23 @@ export namespace Machine::Event {
         virtual ~EventBase() {}
     };
 
-    // Connection came up / changed / failed
+    // Connection came up / changed / failed. `Status` is the ADAPTER's notion of
+    // the transport's state -- the machine adapts it into its own
+    // MachineBase::Info::Network::ConnectionStatus at the boundary.
     struct Connection : EventBase {
 
-        ConnectionStatus status = ConnectionStatus::Disconnected;
-        std::string      message;
+        enum class Status {
+            Disconnected,
+            Connecting,
+            Connected,
+            Error
+        };
+
+        Status      status = Status::Disconnected;
+        std::string message;
 
         Connection() : EventBase(Type::Connection) {}
-        Connection(ConnectionStatus status, std::string message)
+        Connection(Status status, std::string message)
             : EventBase(Type::Connection), status(status), message(std::move(message)) {}
     };
 

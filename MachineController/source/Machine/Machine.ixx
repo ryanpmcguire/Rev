@@ -14,6 +14,10 @@ import Machine.Adapter;
 
 export namespace Machine {
 
+    // A no-payload channel ping ("something here changed, go read it"). Carries
+    // nothing; it is the payload type of the SignalChannel notify channels below.
+    struct Signal {};
+
     // A no-payload notification channel: "something here changed, go read it".
     // Subscribers attach AS an owner so they can drop their subscription on death.
     // (One dispatcher per channel, so a single fixed key groups all its listeners.)
@@ -84,7 +88,7 @@ export namespace Machine {
             void unsubscribe (void* owner) { updateChannel.unsubscribe(owner); machinePosChannel.unsubscribe(owner); workPosChannel.unsubscribe(owner); }
 
             // Fold a decoded status frame in, then announce.
-            void apply(const TelemetryEvent& e) {
+            void apply(const Event::Telemetry& e) {
 
                 spindle.pos    = { e.mx, e.my, e.mz, e.ma, e.mb };
                 spindle.rpm    = e.spindleRpm;
@@ -122,9 +126,20 @@ export namespace Machine {
                 std::string name;
             };
 
-            // Network -- connection target + live connection status. Owns the
-            // connection channels (the GUI's connect section listens here).
+            // Network -- connection target + live connection status. Owns both the
+            // machine's notion of connection status (its own type, distinct from
+            // the adapter's Event::Connection::Status) and the connection channels
+            // (the GUI's connect section listens here).
             struct Network {
+
+                // The MACHINE's connection status -- adapted from the adapter's at
+                // the boundary (see apply()).
+                enum class ConnectionStatus {
+                    Disconnected,
+                    Connecting,
+                    Connected,
+                    Error
+                };
 
                 std::string      ip;
                 std::string      mac;
@@ -140,8 +155,31 @@ export namespace Machine {
                 void onDisconnect(void* owner, std::function<void()> f) { disconnectChannel.on(owner, std::move(f)); }
                 void unsubscribe (void* owner) { updateChannel.unsubscribe(owner); connectChannel.unsubscribe(owner); disconnectChannel.unsubscribe(owner); }
 
-                void apply(const ConnectionEvent& e) {
-                    status = e.status;
+                bool isConnected() const { return status == ConnectionStatus::Connected; }
+
+                const char* statusName() const {
+                    switch (status) {
+                        case ConnectionStatus::Disconnected: return "Disconnected";
+                        case ConnectionStatus::Connecting:   return "Connecting";
+                        case ConnectionStatus::Connected:    return "Connected";
+                        case ConnectionStatus::Error:        return "Error";
+                    }
+                    return "?";
+                }
+
+                // Adapt the adapter's transport status into the machine's own.
+                static ConnectionStatus adapt(Event::Connection::Status s) {
+                    switch (s) {
+                        case Event::Connection::Status::Disconnected: return ConnectionStatus::Disconnected;
+                        case Event::Connection::Status::Connecting:   return ConnectionStatus::Connecting;
+                        case Event::Connection::Status::Connected:    return ConnectionStatus::Connected;
+                        case Event::Connection::Status::Error:        return ConnectionStatus::Error;
+                    }
+                    return ConnectionStatus::Disconnected;
+                }
+
+                void apply(const Event::Connection& e) {
+                    status = adapt(e.status);
                     updateChannel.notify();
                     if (status == ConnectionStatus::Connected) {
                         connectChannel.notify();
@@ -185,22 +223,22 @@ export namespace Machine {
             void unsubscribe(void* owner) { updateChannel.unsubscribe(owner); }
 
             // Fold one decoded "$#" fact in, then announce.
-            void apply(const InfoEvent& e) {
+            void apply(const Event::Info& e) {
 
                 Coord c{ e.x, e.y, e.z, e.a, e.b };
 
                 switch (e.field) {
-                    case InfoEvent::Field::FrameG54:         frames.g54 = c; break;
-                    case InfoEvent::Field::FrameG55:         frames.g55 = c; break;
-                    case InfoEvent::Field::FrameG56:         frames.g56 = c; break;
-                    case InfoEvent::Field::FrameG57:         frames.g57 = c; break;
-                    case InfoEvent::Field::FrameG58:         frames.g58 = c; break;
-                    case InfoEvent::Field::FrameG59:         frames.g59 = c; break;
-                    case InfoEvent::Field::FrameG28:         frames.g28 = c; break;
-                    case InfoEvent::Field::FrameG30:         frames.g30 = c; break;
-                    case InfoEvent::Field::FrameG92:         frames.g92 = c; break;
-                    case InfoEvent::Field::ToolLengthOffset: frames.toolLengthOffset = e.tlo; break;
-                    case InfoEvent::Field::Probe:            probe.position = c; probe.triggered = e.probeTriggered; break;
+                    case Event::Info::Field::FrameG54:         frames.g54 = c; break;
+                    case Event::Info::Field::FrameG55:         frames.g55 = c; break;
+                    case Event::Info::Field::FrameG56:         frames.g56 = c; break;
+                    case Event::Info::Field::FrameG57:         frames.g57 = c; break;
+                    case Event::Info::Field::FrameG58:         frames.g58 = c; break;
+                    case Event::Info::Field::FrameG59:         frames.g59 = c; break;
+                    case Event::Info::Field::FrameG28:         frames.g28 = c; break;
+                    case Event::Info::Field::FrameG30:         frames.g30 = c; break;
+                    case Event::Info::Field::FrameG92:         frames.g92 = c; break;
+                    case Event::Info::Field::ToolLengthOffset: frames.toolLengthOffset = e.tlo; break;
+                    case Event::Info::Field::Probe:            probe.position = c; probe.triggered = e.probeTriggered; break;
                 }
 
                 updateChannel.notify();
@@ -219,7 +257,7 @@ export namespace Machine {
         Telemetry telemetry;
         Info      info;
 
-        bool connected() const { return info.network.status == ConnectionStatus::Connected; }
+        bool connected() const { return info.network.isConnected(); }
 
         // Construct / destruct
         //--------------------------------------------------
@@ -233,14 +271,14 @@ export namespace Machine {
         // Telemetry / Info / connection channels live on the sub-structs above;
         // only state + log -- which have no cached home -- remain machine-level.
 
-        virtual void stateKey(StateEvent&) {}
-        virtual void logKey  (LogEvent&)   {}
+        virtual void stateKey(Event::State&) {}
+        virtual void logKey  (Event::Log&)   {}
 
-        Rev::Core::Dispatcher<StateEvent> stateDispatcher;
-        Rev::Core::Dispatcher<LogEvent>   logDispatcher;
+        Rev::Core::Dispatcher<Event::State> stateDispatcher;
+        Rev::Core::Dispatcher<Event::Log>   logDispatcher;
 
-        void onState(void* owner, const std::function<void(StateEvent&)>& f) { stateDispatcher.listen(&MachineBase::stateKey, owner, f); }
-        void onLog  (void* owner, const std::function<void(LogEvent&)>&   f) { logDispatcher.listen(&MachineBase::logKey, owner, f); }
+        void onState(void* owner, const std::function<void(Event::State&)>& f) { stateDispatcher.listen(&MachineBase::stateKey, owner, f); }
+        void onLog  (void* owner, const std::function<void(Event::Log&)>&   f) { logDispatcher.listen(&MachineBase::logKey, owner, f); }
 
         // Adopt an adapter and route its channels into our sub-structs
         void bindAdapter(Adapter* a) {
@@ -248,11 +286,11 @@ export namespace Machine {
             adapter = a;
             if (!adapter) { return; }
 
-            adapter->onConnection([this](ConnectionEvent& e) { info.network.apply(e); });
-            adapter->onTelemetry ([this](TelemetryEvent&  e) { telemetry.apply(e); });
-            adapter->onInfo      ([this](InfoEvent&       e) { info.apply(e); });
-            adapter->onState     ([this](StateEvent&      e) { stateDispatcher.tell(&MachineBase::stateKey, e); });
-            adapter->onLog       ([this](LogEvent&        e) { logDispatcher.tell(&MachineBase::logKey, e); });
+            adapter->onConnection([this](Event::Connection& e) { info.network.apply(e); });
+            adapter->onTelemetry ([this](Event::Telemetry&  e) { telemetry.apply(e); });
+            adapter->onInfo      ([this](Event::Info&       e) { info.apply(e); });
+            adapter->onState     ([this](Event::State&      e) { stateDispatcher.tell(&MachineBase::stateKey, e); });
+            adapter->onLog       ([this](Event::Log&        e) { logDispatcher.tell(&MachineBase::logKey, e); });
         }
 
         // Drop all of an owner's subscriptions, wherever they live

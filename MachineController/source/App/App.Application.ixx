@@ -6,7 +6,6 @@ export module App.Application;
 
 import Rev.Application;
 
-import Machine.Events;
 import Machine.Machines.CarveraAir;
 
 export namespace App {
@@ -26,7 +25,7 @@ export namespace App {
 
             // Diagnostic: log connection transitions.
             machine->info.network.onUpdate(this, [this]() {
-                dbg("[Machine] connection: %s", Machine::connectionStatusName(machine->info.network.status));
+                dbg("[Machine] connection: %s", machine->info.network.statusName());
             });
 
             // Diagnostic: log telemetry as it arrives.

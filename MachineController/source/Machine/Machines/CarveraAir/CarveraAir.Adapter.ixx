@@ -34,10 +34,10 @@ export namespace Machine::Carvera {
 
         // A decoded line (any subset present)
         struct Inbound {
-            bool hasState     = false; Machine::StateEvent     state;
-            bool hasTelemetry = false; Machine::TelemetryEvent telemetry;
-            bool hasInfo      = false; Machine::InfoEvent      info;
-            bool hasLog       = false; Machine::LogEvent       log;
+            bool hasState     = false; Machine::Event::State     state;
+            bool hasTelemetry = false; Machine::Event::Telemetry telemetry;
+            bool hasInfo      = false; Machine::Event::Info      info;
+            bool hasLog       = false; Machine::Event::Log       log;
         };
 
         // Construct/destruct
@@ -51,9 +51,9 @@ export namespace Machine::Carvera {
             client->setHeartbeat("?", 1000);
 
             // Transport callbacks -> emit on our channels
-            client->onConnect   ([this](Rev::Client::ConnectEvent& e)  { emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Connected, e.address }); });
-            client->onDisconnect([this](Rev::Client::DisconnectEvent&) { emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Disconnected, "" }); });
-            client->onError     ([this](Rev::Client::ErrorEvent& e)    { emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Error, e.reason }); });
+            client->onConnect   ([this](Rev::Client::ConnectEvent& e)  { emit(Machine::Event::Connection{ Machine::Event::Connection::Status::Connected, e.address }); });
+            client->onDisconnect([this](Rev::Client::DisconnectEvent&) { emit(Machine::Event::Connection{ Machine::Event::Connection::Status::Disconnected, "" }); });
+            client->onError     ([this](Rev::Client::ErrorEvent& e)    { emit(Machine::Event::Connection{ Machine::Event::Connection::Status::Error, e.reason }); });
             client->onData      ([this](Rev::Client::DataEvent& e)     { ingest(e.data); });
         }
 
@@ -68,14 +68,14 @@ export namespace Machine::Carvera {
 
         void connect() override {
 
-            emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Connecting, host });
+            emit(Machine::Event::Connection{ Machine::Event::Connection::Status::Connecting, host });
             client->connect(host, port);
         }
 
         void disconnect() override { client->disconnect(); }
 
         // Send -- a command emits its own wire form; we just transport it
-        void sendCommand(const Machine::Command& command) override {
+        void sendCommand(const Machine::Command::CommandBase& command) override {
 
             if (!client->isConnected.load()) { return; }
             client->send(command.emit());
@@ -103,7 +103,7 @@ export namespace Machine::Carvera {
             }
 
             // Otherwise: back-talk for the log
-            in.log = Machine::LogEvent{ line };
+            in.log = Machine::Event::Log{ line };
             in.hasLog = true;
             return in;
         }
@@ -117,11 +117,11 @@ export namespace Machine::Carvera {
             if (fields.empty()) { return; }
 
             // Run-state
-            in.state = Machine::StateEvent{ fields.front() };
+            in.state = Machine::Event::State{ fields.front() };
             in.hasState = true;
 
             // Telemetry pieces
-            Machine::TelemetryEvent t;
+            Machine::Event::Telemetry t;
 
             for (size_t i = 1; i < fields.size(); ++i) {
 
@@ -160,7 +160,7 @@ export namespace Machine::Carvera {
         // Bracketed "$#" reply line: "[G54:x,y,z,a,b]", "[TL0:-0.0016]",
         // "[PRB:x,y,z:triggered]". Returns false for bracketed lines we don't map
         // (modal "[G0 ...]", extended WCS "[G59.1:...]") so they fall to the log.
-        bool decodeInfo(const std::string& line, Machine::InfoEvent& out) const {
+        bool decodeInfo(const std::string& line, Machine::Event::Info& out) const {
 
             std::string body = line.substr(1, line.size() - 2);   // strip [ ]
             size_t colon = body.find(':');
@@ -169,7 +169,7 @@ export namespace Machine::Carvera {
             std::string key  = body.substr(0, colon);
             std::string rest = body.substr(colon + 1);
 
-            using F = Machine::InfoEvent::Field;
+            using F = Machine::Event::Info::Field;
 
             if      (key == "G54") { out.field = F::FrameG54; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
             else if (key == "G55") { out.field = F::FrameG55; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
