@@ -19,7 +19,43 @@ const path = require("path");
 
 let channel;        // the dedicated "Clever" Output channel
 let statusItem;     // status-bar indicator of the current project
+let diagnostics;    // clang errors/warnings surfaced in the Problems panel
 let ctx;            // extension context (for workspaceState persistence)
+
+// clang diagnostic line: "<path>:<line>:<col>: error|warning: <message>".
+// The leading drive colon (C:\...) is skipped because it isn't followed by
+// digits, so the non-greedy path stops at the real line:col:.
+const DIAG_RE = /^(.*?):(\d+):(\d+):\s+(error|warning):\s+(.*)$/;
+
+// Parse a finished build's output and republish the Problems panel. clever's
+// #line directives mean clang already reports against the original .ixx paths,
+// so these map straight to the files you edit.
+function updateDiagnostics(text) {
+  if (!diagnostics) return;
+  diagnostics.clear();
+  const byFile = new Map();      // fsPath -> { uri, items, seen }
+  for (const line of text.split(/\r?\n/)) {
+    const m = DIAG_RE.exec(line);
+    if (!m) continue;
+    const [, file, ln, col, sev, msg] = m;
+    let uri;
+    try { uri = vscode.Uri.file(file); } catch (e) { continue; }
+    let bucket = byFile.get(uri.fsPath);
+    if (!bucket) { bucket = { uri, items: [], seen: new Set() }; byFile.set(uri.fsPath, bucket); }
+    const dedupe = ln + ":" + col + ":" + sev + ":" + msg;
+    if (bucket.seen.has(dedupe)) continue;       // clang repeats per including TU
+    bucket.seen.add(dedupe);
+    const pos = new vscode.Position(Math.max(0, +ln - 1), Math.max(0, +col - 1));
+    const range = new vscode.Range(pos, pos.with(undefined, Number.MAX_SAFE_INTEGER));
+    const diag = new vscode.Diagnostic(
+      range, msg,
+      sev === "error" ? vscode.DiagnosticSeverity.Error
+                      : vscode.DiagnosticSeverity.Warning);
+    diag.source = "clever";
+    bucket.items.push(diag);
+  }
+  for (const b of byFile.values()) diagnostics.set(b.uri, b.items);
+}
 
 const PINNED_KEY = "clever.currentManifest";
 
@@ -108,12 +144,15 @@ function runBuild(cwd, manifest, jobs) {
     const ch = getChannel();
     ch.clear();
     ch.show(true); // reveal the channel, but don't steal editor focus
+    if (diagnostics) diagnostics.clear();
     const args = [
       "clever/clever.py", "transpile", manifest, "--no-embed",
       "-j" + (jobs || 8),
     ];
     ch.appendLine("> python " + args.join(" "));
     ch.appendLine("");
+    let buf = "";
+    const feed = (d) => { const s = d.toString(); buf += s; ch.append(s); };
     let proc;
     try {
       proc = cp.spawn("python", args, { cwd });
@@ -121,12 +160,13 @@ function runBuild(cwd, manifest, jobs) {
       ch.appendLine("[clever] failed to launch python: " + e.message);
       return resolve(false);
     }
-    proc.stdout.on("data", (d) => ch.append(d.toString()));
-    proc.stderr.on("data", (d) => ch.append(d.toString()));
+    proc.stdout.on("data", feed);
+    proc.stderr.on("data", feed);
     proc.on("error", (e) => { ch.appendLine("[clever] " + e.message); resolve(false); });
     proc.on("close", (code) => {
       ch.appendLine("");
       ch.appendLine("[clever] exit " + code);
+      updateDiagnostics(buf);  // republish the Problems panel
       resolve(code === 0);
     });
   });
@@ -134,6 +174,9 @@ function runBuild(cwd, manifest, jobs) {
 
 function activate(context) {
   ctx = context;
+
+  diagnostics = vscode.languages.createDiagnosticCollection("clever");
+  context.subscriptions.push(diagnostics);
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusItem.command = "clever.setCurrent";

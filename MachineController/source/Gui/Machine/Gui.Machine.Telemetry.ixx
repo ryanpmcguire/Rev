@@ -201,8 +201,8 @@ export namespace Gui {
             // Subscribe AS `this`, so the destructor can drop these cleanly. Both
             // edges just flag + nudge a refresh; computeChildren reads the machine.
             // (onTelemetry is a no-payload signal: "it changed, go read the cache".)
-            machine.onTelemetry(this, [this]()                   { dirty = true; bump(); });
-            machine.onState    (this, [this](Machine::StateEvent& e) { stateText = e.state; dirty = true; bump(); });
+            machine.telemetry.onUpdate(this, [this]()                   { dirty = true; bump(); });
+            machine.onState           (this, [this](Machine::StateEvent& e) { stateText = e.state; dirty = true; bump(); });
         }
 
         // Destroy

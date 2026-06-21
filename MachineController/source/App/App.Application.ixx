@@ -25,12 +25,12 @@ export namespace App {
             machine = new Machine::CarveraAir();
 
             // Diagnostic: log connection transitions.
-            machine->onConnection(this, [](Machine::ConnectionEvent& e) {
-                dbg("[Machine] %s %s", Machine::connectionStatusName(e.status), e.message.c_str());
+            machine->info.network.onUpdate(this, [this]() {
+                dbg("[Machine] connection: %s", Machine::connectionStatusName(machine->info.network.status));
             });
 
             // Diagnostic: log telemetry as it arrives.
-            machine->onTelemetry(this, [this]() {
+            machine->telemetry.onUpdate(this, [this]() {
                 Machine::MachineBase::Telemetry& t = machine->telemetry;
                 dbg("[Telemetry] spindle pos %.3f,%.3f,%.3f rpm %.0f/%.0f load %.0f%% temp %.1fC | "
                     "tool pos %.3f,%.3f,%.3f feed %.0f/%.0f T%d off %.3f | laser %.0f",

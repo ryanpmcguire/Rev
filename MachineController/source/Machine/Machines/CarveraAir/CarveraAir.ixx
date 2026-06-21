@@ -22,6 +22,10 @@ export namespace Machine {
 
             carveraAdapter = new Carvera::Adapter();
             bindAdapter(carveraAdapter);
+
+            // Known properties the controller never reports over the wire.
+            info.frames.spindleOffset = 29.00f;    // calibration-tool datum below the gauge line
+            info.identity.model       = "Carvera Air";
         }
 
         ~CarveraAir() {
@@ -35,20 +39,15 @@ export namespace Machine {
 
         void unlock()          override { if (adapter) { adapter->sendCommand(Carvera::Unlock{}); } }
         void reset()           override { if (adapter) { adapter->sendCommand(Carvera::Reset{}); } }
+        void home()            override { if (adapter) { adapter->sendCommand(Carvera::Home{}); } }
         void changeTool(int n) override { if (adapter) { adapter->sendCommand(Carvera::ChangeTool{ n }); } }
 
-        // Queries
-        //--------------------------------------------------
-
-        // Fire every query
-        void queryAll() {
-
-            queryVersion();
-            queryStatus();
-            queryOffsets();
-            queryState();
-            querySwitches();
+        void jog(float x, float y, float z, float a, int feed) override {
+            if (adapter) { adapter->sendCommand(Carvera::Jog{ x, y, z, a, feed }); }
         }
+
+        // Queries (queryAll() lives on MachineBase and calls these)
+        //--------------------------------------------------
 
         void queryStatus()     override { if (adapter) { adapter->sendCommand(Carvera::QueryStatus{}); } }
         void queryOffsets()    override { if (adapter) { adapter->sendCommand(Carvera::QueryOffsets{}); } }

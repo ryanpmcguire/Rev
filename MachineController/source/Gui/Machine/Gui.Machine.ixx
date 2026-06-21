@@ -9,7 +9,9 @@ import Rev.Element.Box;
 import Machine.Base;
 import Gui.Machine.Connect;
 import Gui.Machine.Controls;
+import Gui.Machine.Jog;
 import Gui.Machine.Telemetry;
+import Gui.Machine.Info;
 
 export namespace Gui {
 
@@ -24,14 +26,18 @@ export namespace Gui {
     struct MachinePanel : public Box {
 
         static inline Style Panel = {
-            .layout  = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
-            .size    = { .width = 320_px },
-            .padding = { 16_px, 16_px, 16_px, 16_px }
+            .layout   = { Axis::Vertical, Align::Start, Align::Start, Wrap::False },
+            .size     = { .width = 320_px, .height = 100_pct },
+            .padding  = { 16_px, 16_px, 16_px, 16_px },
+            .overflow = Overflow::Hide,        // the column outgrows the window;
+            .scroll   = Scroll::Vertical       // let the operator scroll it
         };
 
         ConnectSection*   connect   = nullptr;
         ControlsSection*  controls  = nullptr;
+        JogSection*       jog       = nullptr;
         TelemetrySection* telemetry = nullptr;
+        InfoSection*      info      = nullptr;
 
         // Create
         //--------------------------------------------------
@@ -40,7 +46,9 @@ export namespace Gui {
 
             connect   = new ConnectSection(this, machine);
             controls  = new ControlsSection(this, machine);
+            jog       = new JogSection(this);   // structure only -- no machine wiring yet
             telemetry = new TelemetrySection(this, machine);
+            info      = new InfoSection(this, machine);
         }
 
         // Destroy

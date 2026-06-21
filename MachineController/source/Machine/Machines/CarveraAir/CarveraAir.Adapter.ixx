@@ -36,6 +36,7 @@ export namespace Machine::Carvera {
         struct Inbound {
             bool hasState     = false; Machine::StateEvent     state;
             bool hasTelemetry = false; Machine::TelemetryEvent telemetry;
+            bool hasInfo      = false; Machine::InfoEvent      info;
             bool hasLog       = false; Machine::LogEvent       log;
         };
 
@@ -95,6 +96,12 @@ export namespace Machine::Carvera {
                 return in;
             }
 
+            // Info reply, e.g. "[G54:..]", "[TL0:..]", "[PRB:..:1]" (from "$#")
+            if (line.front() == '[' && line.back() == ']' && decodeInfo(line, in.info)) {
+                in.hasInfo = true;
+                return in;
+            }
+
             // Otherwise: back-talk for the log
             in.log = Machine::LogEvent{ line };
             in.hasLog = true;
@@ -148,6 +155,41 @@ export namespace Machine::Carvera {
 
             in.telemetry = t;
             in.hasTelemetry = true;
+        }
+
+        // Bracketed "$#" reply line: "[G54:x,y,z,a,b]", "[TL0:-0.0016]",
+        // "[PRB:x,y,z:triggered]". Returns false for bracketed lines we don't map
+        // (modal "[G0 ...]", extended WCS "[G59.1:...]") so they fall to the log.
+        bool decodeInfo(const std::string& line, Machine::InfoEvent& out) const {
+
+            std::string body = line.substr(1, line.size() - 2);   // strip [ ]
+            size_t colon = body.find(':');
+            if (colon == std::string::npos) { return false; }     // e.g. modal "[G0 G54 ...]"
+
+            std::string key  = body.substr(0, colon);
+            std::string rest = body.substr(colon + 1);
+
+            using F = Machine::InfoEvent::Field;
+
+            if      (key == "G54") { out.field = F::FrameG54; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G55") { out.field = F::FrameG55; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G56") { out.field = F::FrameG56; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G57") { out.field = F::FrameG57; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G58") { out.field = F::FrameG58; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G59") { out.field = F::FrameG59; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G28") { out.field = F::FrameG28; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G30") { out.field = F::FrameG30; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "G92") { out.field = F::FrameG92; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
+            else if (key == "TL0") { out.field = F::ToolLengthOffset; out.tlo = toFloat(rest); return true; }
+            else if (key == "PRB") {
+                std::vector<std::string> parts = split(rest, ':');   // "x,y,z" : "flag"
+                fillAxes(parts.empty() ? "" : parts[0], out.x, out.y, out.z, out.a, out.b);
+                out.probeTriggered = parts.size() > 1 && toFloat(parts[1]) != 0.0f;
+                out.field = F::Probe;
+                return true;
+            }
+
+            return false;   // unknown bracketed key (e.g. "G59.1") -> log
         }
 
         // Parse helpers
@@ -231,6 +273,7 @@ export namespace Machine::Carvera {
         void route(const Inbound& in) {
             if (in.hasState)     { emit(in.state); }
             if (in.hasTelemetry) { emit(in.telemetry); }
+            if (in.hasInfo)      { emit(in.info); }
             if (in.hasLog)       { emit(in.log); }
         }
     };

@@ -51,6 +51,9 @@ export namespace Gui {
             Button* toolDown = nullptr;
             Button* toolUp   = nullptr;
 
+        Box*    homeRow  = nullptr;
+            Button* homeButton = nullptr;
+
         Machine::MachineBase& machine;
         int           tool = 0;   // last commanded tool; cycles 1..6
 
@@ -66,9 +69,15 @@ export namespace Gui {
                 toolDown = new Button(toolRow, { .label = "Tool -", .labelStyles = { &ConnectSection::BtnLabel, &ConnectSection::BtnLabelDisabled } }, { &ConnectSection::Btn, &ConnectSection::BtnHover, &ConnectSection::BtnPress, &ConnectSection::BtnDisabled });
                 toolUp   = new Button(toolRow, { .label = "Tool +", .labelStyles = { &ConnectSection::BtnLabel, &ConnectSection::BtnLabelDisabled } }, { &ConnectSection::Btn, &ConnectSection::BtnHover, &ConnectSection::BtnPress, &ConnectSection::BtnDisabled });
 
+            homeRow = new Box(this, { &Row }, "HomeRow");
+                homeButton = new Button(homeRow, { .label = "Home", .labelStyles = { &ConnectSection::BtnLabel, &ConnectSection::BtnLabelDisabled } }, { &ConnectSection::Btn, &ConnectSection::BtnHover, &ConnectSection::BtnPress, &ConnectSection::BtnDisabled });
+
             // Cycle the target tool 1..6 and command the change.
             toolUp->onClick  ([this](Event&) { tool = (tool % 6) + 1;       this->machine.changeTool(tool); });
             toolDown->onClick([this](Event&) { tool = ((tool + 4) % 6) + 1; this->machine.changeTool(tool); });
+
+            // Re-establish the machine's absolute reference from the limit switches.
+            homeButton->onClick([this](Event&) { this->machine.home(); });
         }
 
         // Destroy

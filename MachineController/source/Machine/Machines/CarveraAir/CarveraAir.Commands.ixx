@@ -1,6 +1,7 @@
 module;
 
 #include <string>
+#include <format>
 
 export module Machine.Machines.Carvera.Commands;
 
@@ -24,10 +25,33 @@ export namespace Machine::Carvera {
         std::string emit() const override { return std::string(1, '\x18'); } // ctrl-x soft reset
     };
 
+    struct Home : Command {
+        Home() : Command(Command::Type::Home) {}
+        std::string emit() const override { return "$H\n"; }                 // home all axes
+    };
+
     struct ChangeTool : Command {
         int tool = 0;
         ChangeTool(int tool) : Command(Command::Type::ChangeTool), tool(tool) {}
         std::string emit() const override { return "M6 T" + std::to_string(tool) + "\n"; }
+    };
+
+    // A relative ($J=G91) jog: each non-zero axis moves by its delta at `feed`.
+    // Zero axes are omitted so the planner never reads "go to here" on an axis.
+    struct Jog : Command {
+        float x = 0, y = 0, z = 0, a = 0;
+        int   feed = 1000;
+        Jog(float x, float y, float z, float a, int feed)
+            : Command(Command::Type::Jog), x(x), y(y), z(z), a(a), feed(feed) {}
+        std::string emit() const override {
+            std::string cmd = "$J=G91";
+            if (x != 0.0f) { cmd += std::format(" X{:.3f}", x); }
+            if (y != 0.0f) { cmd += std::format(" Y{:.3f}", y); }
+            if (z != 0.0f) { cmd += std::format(" Z{:.3f}", z); }
+            if (a != 0.0f) { cmd += std::format(" A{:.3f}", a); }
+            cmd += std::format(" F{}\n", feed);
+            return cmd;
+        }
     };
 
     // Queries -- the reply is decoded by the adapter into telemetry / info.

@@ -16,6 +16,8 @@ export namespace Machine {
             // Actions
             Unlock,
             Reset,
+            Home,
+            Jog,
             ChangeTool,
 
             // Queries

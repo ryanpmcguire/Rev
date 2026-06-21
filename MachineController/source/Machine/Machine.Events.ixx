@@ -6,39 +6,67 @@ export module Machine.Events;
 
 export namespace Machine {
 
-    // The machine's outward vocabulary: status + the structs it emits.
-
-    // Connection status
+    // Connection status -- a value carried by Event::Connection and cached on the
+    // network (not itself an event).
     enum class ConnectionStatus {
-
         Disconnected,
         Connecting,
         Connected,
         Error
     };
 
-    // Status -> name
     inline const char* connectionStatusName(ConnectionStatus s) {
-
         switch (s) {
             case ConnectionStatus::Disconnected: return "Disconnected";
             case ConnectionStatus::Connecting:   return "Connecting";
             case ConnectionStatus::Connected:    return "Connected";
             case ConnectionStatus::Error:        return "Error";
         }
-
         return "?";
     }
 
-    // Event payloads
-    //--------------------------------------------------
+    // A no-payload channel ping ("something here changed, go read it"). Drives the
+    // SignalChannel notify channels; carries nothing, so it stands apart from the
+    // events below.
+    struct Signal {};
+}
+
+// The machine's event vocabulary lives in its own namespace: one base (EventBase)
+// subclassed per kind. Reference them by namespace -- Event::Telemetry,
+// Event::Connection, ... (Machine::Event::Telemetry from outside) -- and downcast
+// a stored EventBase* via its `type` to read the payload.
+export namespace Machine::Event {
+
+    struct EventBase {
+
+        enum class Type {
+            Connection,
+            Telemetry,
+            Info,
+            State,
+            Log
+        };
+
+        Type type;
+
+        EventBase(Type type) : type(type) {}
+        virtual ~EventBase() {}
+    };
 
     // Connection came up / changed / failed
-    struct ConnectionEvent { ConnectionStatus status = ConnectionStatus::Disconnected; std::string message; };
+    struct Connection : EventBase {
+
+        ConnectionStatus status = ConnectionStatus::Disconnected;
+        std::string      message;
+
+        Connection() : EventBase(Type::Connection) {}
+        Connection(ConnectionStatus status, std::string message)
+            : EventBase(Type::Connection), status(status), message(std::move(message)) {}
+    };
 
     // A decoded status frame: MPos / WPos (X/Y/Z + rotary A,B) plus feed, spindle,
     // tool, and laser pieces. The machine folds these into its telemetry.
-    struct TelemetryEvent {
+    struct Telemetry : EventBase {
 
         // MPos / WPos
         float mx = 0, my = 0, mz = 0, ma = 0, mb = 0;
@@ -63,14 +91,45 @@ export namespace Machine {
         // Laser (power / override%)
         float laserPower = 0;
         float laserScale = 100;
+
+        Telemetry() : EventBase(Type::Telemetry) {}
+    };
+
+    // One decoded request/response fact (from "$#" etc.). `field` tags which datum
+    // the coordinate / scalar carries; the machine folds it into its Info cache.
+    struct Info : EventBase {
+
+        enum class Field {
+            FrameG54, FrameG55, FrameG56, FrameG57, FrameG58, FrameG59,
+            FrameG28, FrameG30, FrameG92,
+            ToolLengthOffset,
+            Probe
+        };
+
+        Field field = Field::FrameG54;
+
+        float x = 0, y = 0, z = 0, a = 0, b = 0;   // frame / probe coordinates
+        float tlo = 0;                              // ToolLengthOffset
+        bool  probeTriggered = false;               // Probe
+
+        Info() : EventBase(Type::Info) {}
     };
 
     // Coarse run-state ("Idle", "Run", "Alarm", ...)
-    struct StateEvent { std::string state; };
+    struct State : EventBase {
+
+        std::string state;
+
+        State() : EventBase(Type::State) {}
+        State(std::string state) : EventBase(Type::State), state(std::move(state)) {}
+    };
 
     // A raw line of machine back-talk, for the operator log
-    struct LogEvent { std::string line; };
+    struct Log : EventBase {
 
-    // A no-payload edge ("it changed, go look")
-    struct Signal {};
+        std::string line;
+
+        Log() : EventBase(Type::Log) {}
+        Log(std::string line) : EventBase(Type::Log), line(std::move(line)) {}
+    };
 }

@@ -191,8 +191,8 @@ export namespace Gui {
 
             // Reflect connection edges: flip our state and let computeChildren do
             // the rest. We subscribe AS `this`, so ~ConnectSection can unsubscribe.
-            machine.onConnect   (this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
-            machine.onDisconnect(this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
+            machine.info.network.onConnect   (this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
+            machine.info.network.onDisconnect(this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
         }
 
         // Destroy
