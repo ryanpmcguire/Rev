@@ -21,51 +21,44 @@ export namespace Machine::Carvera {
     // into main-thread state.
     struct Adapter : public Machine::Adapter {
 
-        // The transport (composed). Deleted first in the dtor, joining its worker.
+        // Transport (composed; deleted first in dtor, joining its worker)
         Rev::Client* client = nullptr;
 
+        // Target
         std::string host = "192.168.1.104";
         int         port = 2222;
 
+        // Receive buffers
         std::string              rxBuffer;   // raw bytes until a full line arrives
         std::vector<std::string> lines;      // completed lines awaiting processing
 
-        // A decoded line: any subset may be present.
+        // A decoded line (any subset present)
         struct Inbound {
-            bool             hasState = false;     Machine::StateEvent     state;
-            bool             hasTelemetry = false; Machine::TelemetryEvent telemetry;
-            bool             hasLog = false;       Machine::LogEvent       log;
+            bool hasState     = false; Machine::StateEvent     state;
+            bool hasTelemetry = false; Machine::TelemetryEvent telemetry;
+            bool hasLog       = false; Machine::LogEvent       log;
         };
+
+        // Construct/destruct
+        //--------------------------------------------------
 
         Adapter() {
 
             client = new Rev::Client();
 
-            // Keep-alive: poll "?" every second (also drives the status frame).
+            // Keep-alive: poll "?" every second (also drives the status frame)
             client->setHeartbeat("?", 1000);
 
-            client->onConnect([this](Rev::Client::ConnectEvent& e) {
-                emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Connected, e.address });
-            });
-
-            client->onDisconnect([this](Rev::Client::DisconnectEvent&) {
-                emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Disconnected, "" });
-            });
-
-            client->onError([this](Rev::Client::ErrorEvent& e) {
-                emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Error, e.reason });
-            });
-
-            client->onData([this](Rev::Client::DataEvent& e) {
-                ingest(e.data);
-            });
+            // Transport callbacks -> emit on our channels
+            client->onConnect   ([this](Rev::Client::ConnectEvent& e)  { emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Connected, e.address }); });
+            client->onDisconnect([this](Rev::Client::DisconnectEvent&) { emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Disconnected, "" }); });
+            client->onError     ([this](Rev::Client::ErrorEvent& e)    { emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Error, e.reason }); });
+            client->onData      ([this](Rev::Client::DataEvent& e)     { ingest(e.data); });
         }
 
         ~Adapter() {
 
-            // Destroy the transport FIRST: this joins the worker thread, so no
-            // callback can touch rxBuffer/lines (or emit into a half-dead machine)
-            // while the rest of this object is torn down.
+            // Transport first -- joins the worker before our buffers go.
             delete client;
         }
 
@@ -73,16 +66,16 @@ export namespace Machine::Carvera {
         //--------------------------------------------------
 
         void connect() override {
+
             emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Connecting, host });
             client->connect(host, port);
         }
 
-        void disconnect() override {
-            client->disconnect();
-        }
+        void disconnect() override { client->disconnect(); }
 
-        // A command emits its own wire form; we just transport it.
+        // Send -- a command emits its own wire form; we just transport it
         void sendCommand(const Machine::Command& command) override {
+
             if (!client->isConnected.load()) { return; }
             client->send(command.emit());
         }
@@ -95,33 +88,32 @@ export namespace Machine::Carvera {
             Inbound in;
             if (line.empty()) { return in; }
 
-            // Status frame, e.g. "<Idle|MPos:0.000,0.000,0.000,0.000|...>".
+            // Status frame, e.g. "<Idle|MPos:0.000,0.000,0.000,0.000|...>"
             if (line.front() == '<' && line.back() == '>') {
-                dbg("[RawFrame] %s", line.c_str());   // TEMP: measure what the machine actually sends
+                dbg("[RawFrame] %s", line.c_str());   // TEMP: measure what the machine sends
                 decodeStatus(line, in);
                 return in;
             }
 
-            // Otherwise: back-talk for the log.
+            // Otherwise: back-talk for the log
             in.log = Machine::LogEvent{ line };
             in.hasLog = true;
             return in;
         }
 
-        // Decode a status frame, e.g.
-        //   <Idle|MPos:0,0,0,0|WPos:0,0,0,0|FS:0,0|T:0>
-        // Field 0 is the run-state; the rest are "Prefix:payload" pairs. Fill
-        // only what is present; an absent field keeps its default. Unknown
-        // prefixes are ignored.
+        // Status frame: field 0 is the run-state; the rest are "Prefix:payload"
+        // pairs. Fill what is present; unknown prefixes are ignored.
         void decodeStatus(const std::string& frame, Inbound& in) const {
 
-            std::string body = frame.substr(1, frame.size() - 2);   // strip < >
+            std::string body = frame.substr(1, frame.size() - 2);
             std::vector<std::string> fields = split(body, '|');
             if (fields.empty()) { return; }
 
+            // Run-state
             in.state = Machine::StateEvent{ fields.front() };
             in.hasState = true;
 
+            // Telemetry pieces
             Machine::TelemetryEvent t;
 
             for (size_t i = 1; i < fields.size(); ++i) {
@@ -151,21 +143,24 @@ export namespace Machine::Carvera {
                     t.laserPower = nth(n, 3); t.laserScale = nth(n, 4);
                 }
 
-                // Not yet mapped (semantics unconfirmed): W:<v> and C:<...>.
+                // Not yet mapped: W:<v> and C:<...>
             }
 
             in.telemetry = t;
             in.hasTelemetry = true;
         }
 
-        // The i-th comma value of a split list, or 0 if the frame did not carry it.
+        // Parse helpers
+        //--------------------------------------------------
+
+        // i-th comma value, or 0 if absent
         static float nth(const std::vector<std::string>& v, size_t i) {
             return i < v.size() ? toFloat(v[i]) : 0.0f;
         }
 
-        // Fill axes from a comma list, taking only as many as the frame carries.
-        static void fillAxes(const std::string& csv,
-                             float& x, float& y, float& z, float& a, float& b) {
+        // Fill as many axes as the list carries
+        static void fillAxes(const std::string& csv, float& x, float& y, float& z, float& a, float& b) {
+
             std::vector<std::string> n = split(csv, ',');
             if (n.size() > 0) { x = toFloat(n[0]); }
             if (n.size() > 1) { y = toFloat(n[1]); }
@@ -174,10 +169,40 @@ export namespace Machine::Carvera {
             if (n.size() > 4) { b = toFloat(n[4]); }
         }
 
-        // Transport wiring + framing
+        static std::vector<std::string> split(const std::string& s, char sep) {
+
+            std::vector<std::string> out;
+            size_t start = 0;
+
+            while (true) {
+                size_t at = s.find(sep, start);
+                out.push_back(s.substr(start, at - start));
+                if (at == std::string::npos) { break; }
+                start = at + 1;
+            }
+
+            return out;
+        }
+
+        static float toFloat(const std::string& s) {
+
+            float value = 0.0f;
+            size_t i = 0;
+            while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) { ++i; }   // some fields pad with spaces
+
+            std::from_chars(s.data() + i, s.data() + s.size(), value);
+            return value;
+        }
+
+        static std::string trimTrailing(std::string s) {
+            while (!s.empty() && (s.back() == '\r' || s.back() == ' ')) { s.pop_back(); }
+            return s;
+        }
+
+        // Framing
         //--------------------------------------------------
 
-        // Framing only -- carve bytes into whole lines; does not decode.
+        // Carve bytes into whole lines; does not decode
         void ingest(const std::vector<char>& bytes) {
 
             rxBuffer.append(bytes.data(), bytes.size());
@@ -188,11 +213,11 @@ export namespace Machine::Carvera {
                 rxBuffer.erase(0, newline + 1);
             }
 
-            // Drain immediately for now; the main-thread tick should call process().
+            // Drain now; eventually the main-thread tick calls process()
             process();
         }
 
-        // Decode every buffered line and emit the results, then clear the buffer.
+        // Decode every buffered line, emit, then clear
         void process() {
 
             for (const std::string& line : lines) {
@@ -202,36 +227,11 @@ export namespace Machine::Carvera {
             lines.clear();
         }
 
-        // Emit a decoded line's messages on the adapter's channels.
+        // Emit a decoded line's messages on our channels
         void route(const Inbound& in) {
             if (in.hasState)     { emit(in.state); }
             if (in.hasTelemetry) { emit(in.telemetry); }
             if (in.hasLog)       { emit(in.log); }
-        }
-
-        static std::vector<std::string> split(const std::string& s, char sep) {
-            std::vector<std::string> out;
-            size_t start = 0;
-            while (true) {
-                size_t at = s.find(sep, start);
-                out.push_back(s.substr(start, at - start));
-                if (at == std::string::npos) { break; }
-                start = at + 1;
-            }
-            return out;
-        }
-
-        static float toFloat(const std::string& s) {
-            float value = 0.0f;
-            size_t i = 0;
-            while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) { ++i; }   // some fields pad with spaces
-            std::from_chars(s.data() + i, s.data() + s.size(), value);
-            return value;
-        }
-
-        static std::string trimTrailing(std::string s) {
-            while (!s.empty() && (s.back() == '\r' || s.back() == ' ')) { s.pop_back(); }
-            return s;
         }
     };
 }

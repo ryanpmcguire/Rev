@@ -10,11 +10,14 @@ export namespace Machine {
     // form; `type` tags the kind so a stored Command* can be downcast.
     struct Command {
 
+        // Command types (allows for later casting)
         enum class Type {
+
             // Actions
             Unlock,
             Reset,
             ChangeTool,
+
             // Queries
             QueryStatus,
             QueryOffsets,
@@ -25,9 +28,11 @@ export namespace Machine {
 
         Type type;
 
+        // Construct/destruct
         Command(Type type) : type(type) {}
         virtual ~Command() {}
 
+        // Stringify command (derived classes must implement)
         virtual std::string emit() const = 0;
     };
 }

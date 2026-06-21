@@ -10,6 +10,7 @@ import Rev.Core.Dispatcher;
 import Rev.Core.Observable;
 
 import Machine.Events;
+import Machine.Command;
 import Machine.Adapter;
 
 export namespace Machine {
@@ -21,38 +22,39 @@ export namespace Machine {
         // Definitions
         //--------------------------------------------------
 
+        // A coordinate / offset (linear X/Y/Z + rotary A,B)
+        struct Coord { float x = 0, y = 0, z = 0, a = 0, b = 0; };
+
         // The machine's live telemetry, grouped by subsystem.
         struct Telemetry {
 
-            // A position: linear X/Y/Z + rotary A and B.
-            struct Pos { float x = 0, y = 0, z = 0, a = 0, b = 0; };
-
+            // Spindle (MPos + drive)
             struct Spindle {
-                Pos   pos;            // MPos -- the spindle in the machine frame
+
+                Coord pos;
                 float rpm    = 0;
-                float target = 0;     // commanded rpm
-                float scale  = 100;   // override (%)
-                float load   = 0;     // percent
-                float temp   = 0;     // degrees C
+                float target = 0;
+                float scale  = 100;
+                float load   = 0;
+                float temp   = 0;
             };
 
+            // Tool (WPos + feed)
             struct Tool {
-                Pos   pos;            // WPos -- the tool tip in the work frame
-                float speed       = 0;    // current feed (mm/min)
-                float speedTarget = 0;    // feed cap (mm/min)
-                float scale       = 100;  // feed override (%)
-                int   number      = 0;    // loaded tool number (0 = none)
-                float offset      = 0;    // tool-length offset
+
+                Coord pos;
+                float speed       = 0;
+                float speedTarget = 0;
+                float scale       = 100;
+                int   number      = 0;
+                float offset      = 0;
             };
 
-            struct Laser {
-                float power = 0;
-                float scale = 100;    // override (%)
-            };
+            // Laser
+            struct Laser { float power = 0; float scale = 100; };
 
-            struct Probe {
-                float voltage = 0;
-            };
+            // Probe
+            struct Probe { float voltage = 0; };
 
             Spindle spindle;
             Tool    tool;
@@ -67,42 +69,39 @@ export namespace Machine {
         // not modelled here.)
         struct Info {
 
-            // A coordinate / offset: linear X/Y/Z + rotary A and B.
-            struct Coord { float x = 0, y = 0, z = 0, a = 0, b = 0; };
-
-            // Who the machine is (version, model, network name).
+            // Identity (version / model / network name)
             struct Identity {
-                std::string firmware;   // firmware version / build
-                std::string model;      // e.g. "Carvera" / "Carvera Air"
-                std::string name;       // network name (e.g. "CARVERA_01001")
+                std::string firmware;
+                std::string model;
+                std::string name;
             };
 
-            // How we reach it.
+            // Network
             struct Network {
                 std::string ip;
                 std::string mac;
                 int         port = 0;
             };
 
-            // Coordinate systems & stored offsets -- from "$#".
+            // Coordinate systems & stored offsets (from "$#")
             struct Frames {
-                Coord g54, g55, g56, g57, g58, g59;   // work coordinate systems
-                Coord g28, g30;                        // stored (home / park) positions
-                Coord g92;                             // temporary offset
-                float toolLengthOffset = 0;            // [TLO]
+                Coord g54, g55, g56, g57, g58, g59;
+                Coord g28, g30;
+                Coord g92;
+                float toolLengthOffset = 0;
             };
 
-            // Result of the last probe -- from "[PRB:...]".
+            // Last probe (from "[PRB:...]")
             struct Probe {
                 Coord position;
                 bool  triggered = false;
             };
 
-            // One automatic-tool-change slot.
+            // One tool slot
             struct ToolSlot {
                 int   number  = 0;
-                float offset  = 0;       // tool-length offset for this slot
-                bool  present = false;   // a tool occupies this slot
+                float offset  = 0;
+                bool  present = false;
             };
 
             Identity              identity;
@@ -117,20 +116,18 @@ export namespace Machine {
         // Data
         //--------------------------------------------------
 
-        // The link to the physical machine. Null until a concrete machine binds one.
+        // The link to the physical machine (null until a concrete machine binds one)
         Adapter* adapter = nullptr;
 
-        // Latest connection status, for a late subscriber.
+        // Cached state
         Rev::Core::Observable<ConnectionStatus> status;
+        Telemetry                               telemetry;
+        Info                                    info;
 
-        // Latest telemetry readings.
-        Telemetry telemetry;
+        // Channels
+        //--------------------------------------------------
 
-        // Latest requested machine info.
-        Info info;
-
-        // Outward channels: each is a key (the virtual) + its dispatcher.
-        // Consumers attach via on*(); the machine fans out via report().
+        // Keys (dispatcher identity)
         virtual void connectionKey(ConnectionEvent&) {}
         virtual void stateKey     (StateEvent&)      {}
         virtual void logKey       (LogEvent&)        {}
@@ -138,6 +135,7 @@ export namespace Machine {
         virtual void connectKey   (Signal&)          {}
         virtual void disconnectKey(Signal&)          {}
 
+        // Dispatchers
         Rev::Core::Dispatcher<ConnectionEvent> connectionDispatcher;
         Rev::Core::Dispatcher<StateEvent>      stateDispatcher;
         Rev::Core::Dispatcher<LogEvent>        logDispatcher;
@@ -145,16 +143,16 @@ export namespace Machine {
         Rev::Core::Dispatcher<Signal>          connectDispatcher;
         Rev::Core::Dispatcher<Signal>          disconnectDispatcher;
 
-        // Create / Destroy
+        // Construct/destruct
         //--------------------------------------------------
 
         MachineBase() {}
         virtual ~MachineBase() {}
 
-        // Bind / Unbind
+        // Bind / unbind
         //--------------------------------------------------
 
-        // Bind -- adopt an adapter and forward its channels into ours.
+        // Adopt an adapter and forward its channels into ours
         void bindAdapter(Adapter* a) {
 
             adapter = a;
@@ -166,8 +164,9 @@ export namespace Machine {
             adapter->onLog       ([this](LogEvent&        e) { report(e); });
         }
 
-        // Drop all of an owner's subscriptions.
+        // Drop all of an owner's subscriptions
         void unsubscribe(void* owner) {
+
             connectionDispatcher.unsubscribe(owner);
             telemetryDispatcher.unsubscribe(owner);
             stateDispatcher.unsubscribe(owner);
@@ -181,16 +180,14 @@ export namespace Machine {
 
         bool connected() const { return status.value == ConnectionStatus::Connected; }
 
-        // Verbs -- forward through the adapter (a machine with none does nothing).
+        // Verbs
         //--------------------------------------------------
 
-        // Lifecycle -- forwarded to the adapter (not commands).
+        // Lifecycle (forwarded to the adapter)
         virtual void connect()     { if (adapter) { adapter->connect(); } }
         virtual void disconnect()  { if (adapter) { adapter->disconnect(); } }
 
-        // Verb interface -- a concrete machine implements these with its own commands.
-        //
-        // Actions
+        // Actions (a concrete machine implements these with its own commands)
         virtual void unlock()        {}
         virtual void reset()         {}
         virtual void changeTool(int) {}
@@ -207,19 +204,22 @@ export namespace Machine {
 
         // `owner` is the subscriber's `this`, so it can unsubscribe all at once.
         // Signal channels carry no payload -- "it changed, go read the machine".
+
+        // Payload channels
         void onConnection(void* owner, const std::function<void(ConnectionEvent&)>& f) { connectionDispatcher.listen(&MachineBase::connectionKey, owner, f); }
         void onState     (void* owner, const std::function<void(StateEvent&)>&      f) { stateDispatcher.listen(&MachineBase::stateKey, owner, f); }
         void onLog       (void* owner, const std::function<void(LogEvent&)>&        f) { logDispatcher.listen(&MachineBase::logKey, owner, f); }
 
-        // Signal channels (no payload): "<thing> updated -- go check the machine".
+        // Signal channels
         void onTelemetry (void* owner, std::function<void()> f) { telemetryDispatcher.listen (&MachineBase::telemetryKey,  owner, [f = std::move(f)](Signal&) { f(); }); }
         void onConnect   (void* owner, std::function<void()> f) { connectDispatcher.listen   (&MachineBase::connectKey,    owner, [f = std::move(f)](Signal&) { f(); }); }
         void onDisconnect(void* owner, std::function<void()> f) { disconnectDispatcher.listen(&MachineBase::disconnectKey, owner, [f = std::move(f)](Signal&) { f(); }); }
 
-        // Report -- cache, then announce. Fed by the bound adapter.
+        // Report (cache, then announce; fed by the bound adapter)
         //--------------------------------------------------
 
         void report(ConnectionEvent e) {
+
             status = e.status;
             connectionDispatcher.tell(&MachineBase::connectionKey, e);
 
@@ -230,7 +230,10 @@ export namespace Machine {
                 disconnectDispatcher.tell(&MachineBase::disconnectKey, signal);
             }
         }
-        void report(TelemetryEvent e)  {
+
+        void report(TelemetryEvent e) {
+
+            // Spindle (MPos)
             telemetry.spindle.pos    = { e.mx, e.my, e.mz, e.ma, e.mb };
             telemetry.spindle.rpm    = e.spindleRpm;
             telemetry.spindle.target = e.spindleTarget;
@@ -238,6 +241,7 @@ export namespace Machine {
             telemetry.spindle.load   = e.spindleLoad;
             telemetry.spindle.temp   = e.spindleTemp;
 
+            // Tool (WPos)
             telemetry.tool.pos         = { e.wx, e.wy, e.wz, e.wa, e.wb };
             telemetry.tool.speed       = e.feed;
             telemetry.tool.speedTarget = e.feedTarget;
@@ -245,12 +249,14 @@ export namespace Machine {
             telemetry.tool.number      = e.tool;
             telemetry.tool.offset      = e.toolOffset;
 
+            // Laser
             telemetry.laser.power = e.laserPower;
             telemetry.laser.scale = e.laserScale;
 
             Signal s; telemetryDispatcher.tell(&MachineBase::telemetryKey, s);
         }
-        void report(StateEvent e)      { stateDispatcher.tell(&MachineBase::stateKey, e); }
-        void report(LogEvent e)        { logDispatcher.tell(&MachineBase::logKey, e); }
+
+        void report(StateEvent e) { stateDispatcher.tell(&MachineBase::stateKey, e); }
+        void report(LogEvent e)   { logDispatcher.tell(&MachineBase::logKey, e); }
     };
 }

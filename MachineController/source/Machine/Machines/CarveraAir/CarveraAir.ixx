@@ -12,17 +12,20 @@ export namespace Machine {
     // commands it emits.
     struct CarveraAir : public MachineBase {
 
+        // Adapter
         Carvera::Adapter* carveraAdapter = nullptr;
 
-        // Create / Destroy
+        // Construct/destruct
         //--------------------------------------------------
 
         CarveraAir() {
+
             carveraAdapter = new Carvera::Adapter();
             bindAdapter(carveraAdapter);
         }
 
         ~CarveraAir() {
+
             // Adapter first -- joins its worker before the base dispatchers go.
             delete carveraAdapter;
         }
@@ -37,8 +40,9 @@ export namespace Machine {
         // Queries
         //--------------------------------------------------
 
-        // Fire every query.
+        // Fire every query
         void queryAll() {
+
             queryVersion();
             queryStatus();
             queryOffsets();
