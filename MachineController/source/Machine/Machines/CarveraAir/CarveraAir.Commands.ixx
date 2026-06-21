@@ -41,17 +41,25 @@ export namespace Machine::Carvera::Command {
     // A relative ($J=G91) jog: each non-zero axis moves by its delta at `feed`.
     // Zero axes are omitted so the planner never reads "go to here" on an axis.
     struct Jog : Base {
+
         float x = 0, y = 0, z = 0, a = 0;
-        int   feed = 1000;
+        int feed = 1000;
+
         Jog(float x, float y, float z, float a, int feed)
             : Base(Type::Jog), x(x), y(y), z(z), a(a), feed(feed) {}
+
         std::string emit() const override {
+
+            const struct { char axis; float delta; } moves[] = { {'X', x}, {'Y', y}, {'Z', z}, {'A', a} };
+
             std::string cmd = "$J=G91";
-            if (x != 0.0f) { cmd += std::format(" X{:.3f}", x); }
-            if (y != 0.0f) { cmd += std::format(" Y{:.3f}", y); }
-            if (z != 0.0f) { cmd += std::format(" Z{:.3f}", z); }
-            if (a != 0.0f) { cmd += std::format(" A{:.3f}", a); }
+
+            for (const auto& m : moves) {
+                if (m.delta != 0.0f) { cmd += std::format(" {}{:.3f}", m.axis, m.delta); }
+            }
+
             cmd += std::format(" F{}\n", feed);
+            
             return cmd;
         }
     };

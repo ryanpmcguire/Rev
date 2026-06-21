@@ -171,17 +171,29 @@ export namespace Machine::Carvera {
 
             using F = Machine::Event::Info::Field;
 
-            if      (key == "G54") { out.field = F::FrameG54; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G55") { out.field = F::FrameG55; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G56") { out.field = F::FrameG56; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G57") { out.field = F::FrameG57; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G58") { out.field = F::FrameG58; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G59") { out.field = F::FrameG59; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G28") { out.field = F::FrameG28; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G30") { out.field = F::FrameG30; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "G92") { out.field = F::FrameG92; fillAxes(rest, out.x, out.y, out.z, out.a, out.b); return true; }
-            else if (key == "TL0") { out.field = F::ToolLengthOffset; out.tlo = toFloat(rest); return true; }
-            else if (key == "PRB") {
+            // WCS / reference frames all decode identically: a 5-axis coordinate.
+            static const struct { const char* key; F field; } frames[] = {
+                { "G54", F::FrameG54 }, { "G55", F::FrameG55 }, { "G56", F::FrameG56 },
+                { "G57", F::FrameG57 }, { "G58", F::FrameG58 }, { "G59", F::FrameG59 },
+                { "G28", F::FrameG28 }, { "G30", F::FrameG30 }, { "G92", F::FrameG92 },
+            };
+
+            for (const auto& frame : frames) {
+                if (key == frame.key) {
+                    out.field = frame.field;
+                    fillAxes(rest, out.x, out.y, out.z, out.a, out.b);
+                    return true;
+                }
+            }
+
+            // Scalars / structured replies decode on their own.
+            if (key == "TL0") {
+                out.field = F::ToolLengthOffset;
+                out.tlo = toFloat(rest);
+                return true;
+            }
+
+            if (key == "PRB") {
                 std::vector<std::string> parts = split(rest, ':');   // "x,y,z" : "flag"
                 fillAxes(parts.empty() ? "" : parts[0], out.x, out.y, out.z, out.a, out.b);
                 out.probeTriggered = parts.size() > 1 && toFloat(parts[1]) != 0.0f;
@@ -204,6 +216,7 @@ export namespace Machine::Carvera {
         static void fillAxes(const std::string& csv, float& x, float& y, float& z, float& a, float& b) {
 
             std::vector<std::string> n = split(csv, ',');
+
             if (n.size() > 0) { x = toFloat(n[0]); }
             if (n.size() > 1) { y = toFloat(n[1]); }
             if (n.size() > 2) { z = toFloat(n[2]); }
@@ -271,6 +284,7 @@ export namespace Machine::Carvera {
 
         // Emit a decoded line's messages on our channels
         void route(const Inbound& in) {
+            
             if (in.hasState)     { emit(in.state); }
             if (in.hasTelemetry) { emit(in.telemetry); }
             if (in.hasInfo)      { emit(in.info); }
