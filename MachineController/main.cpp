@@ -6,8 +6,8 @@ import Rev.Window;
 import Rev.Core.Resource;
 
 import App.Application;
-import App.Machine;
-import App.Machines.CarveraAir;
+import Machine.Base;
+import Machine.Machines.CarveraAir;
 import Gui;
 
 using namespace Rev;

@@ -1,16 +1,21 @@
 module;
 
-export module App.Machines.CarveraAir;
+export module Machine.Machines.CarveraAir;
 
-import App.Machine;
-import App.Machines.Carvera.Adapter;
+import Machine.Base;
+import Machine.Machines.Carvera.Adapter;
+import Machine.Machines.Carvera.Commands;
 
-export namespace App {
+export namespace Machine {
 
-    // A concrete Machine: owns the Carvera adapter and binds the base Machine to it.
-    struct CarveraAir : public Machine {
+    // A concrete machine: owns the Carvera adapter and creates the Carvera
+    // commands it emits.
+    struct CarveraAir : public MachineBase {
 
         Carvera::Adapter* carveraAdapter = nullptr;
+
+        // Create / Destroy
+        //--------------------------------------------------
 
         CarveraAir() {
             carveraAdapter = new Carvera::Adapter();
@@ -18,9 +23,33 @@ export namespace App {
         }
 
         ~CarveraAir() {
-            // Destroy the adapter (and the transport inside it) before the base
-            // Machine's dispatchers go: the bound adapter feeds those dispatchers.
+            // Adapter first -- joins its worker before the base dispatchers go.
             delete carveraAdapter;
         }
+
+        // Actions
+        //--------------------------------------------------
+
+        void unlock()          override { if (adapter) { adapter->sendCommand(Carvera::Unlock{}); } }
+        void reset()           override { if (adapter) { adapter->sendCommand(Carvera::Reset{}); } }
+        void changeTool(int n) override { if (adapter) { adapter->sendCommand(Carvera::ChangeTool{ n }); } }
+
+        // Queries
+        //--------------------------------------------------
+
+        // Fire every query.
+        void queryAll() {
+            queryVersion();
+            queryStatus();
+            queryOffsets();
+            queryState();
+            querySwitches();
+        }
+
+        void queryStatus()     override { if (adapter) { adapter->sendCommand(Carvera::QueryStatus{}); } }
+        void queryOffsets()    override { if (adapter) { adapter->sendCommand(Carvera::QueryOffsets{}); } }
+        void queryState()      override { if (adapter) { adapter->sendCommand(Carvera::QueryState{}); } }
+        void querySwitches()   override { if (adapter) { adapter->sendCommand(Carvera::QuerySwitches{}); } }
+        void queryVersion()    override { if (adapter) { adapter->sendCommand(Carvera::QueryVersion{}); } }
     };
 }

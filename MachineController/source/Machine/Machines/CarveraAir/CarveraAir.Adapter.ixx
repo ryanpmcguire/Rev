@@ -6,29 +6,22 @@ module;
 
 #include <dbg.hpp>
 
-export module App.Machines.Carvera.Adapter;
+export module Machine.Machines.Carvera.Adapter;
 
 import Rev.Client;
 
-import App.Adapter;
-import App.Events;
-import App.Command;
+import Machine.Adapter;
+import Machine.Events;
+import Machine.Command;
 
-export namespace App::Carvera {
+export namespace Machine::Carvera {
 
     // The Carvera adapter: the only place that knows Carvera's wire dialect.
-    // Transport is composed (a Client), not inherited, so it can be swapped (TCP
-    // today, USB/serial later). Base names are qualified App:: to avoid colliding
-    // with this derived Adapter.
-    //
-    // THREADING (known gap): Client callbacks arrive on a worker thread, so emit()
-    // crosses into main-thread state. The fix is to have the main-thread tick call
-    // process() while the worker only fills `lines`. Not yet done.
-    struct Adapter : public App::Adapter {
+    // TODO(threading): Client callbacks fire on a worker thread; emit() crosses
+    // into main-thread state.
+    struct Adapter : public Machine::Adapter {
 
-        // The transport: composed (never subclassed) and explicitly owned. It is
-        // new'd first and delete'd first, so its worker thread is joined before
-        // the buffers/dispatchers that worker feeds are torn down.
+        // The transport (composed). Deleted first in the dtor, joining its worker.
         Rev::Client* client = nullptr;
 
         std::string host = "192.168.1.104";
@@ -39,30 +32,28 @@ export namespace App::Carvera {
 
         // A decoded line: any subset may be present.
         struct Inbound {
-            bool             hasState = false;     App::StateEvent     state;
-            bool             hasTelemetry = false; App::TelemetryEvent telemetry;
-            bool             hasLog = false;       App::LogEvent       log;
+            bool             hasState = false;     Machine::StateEvent     state;
+            bool             hasTelemetry = false; Machine::TelemetryEvent telemetry;
+            bool             hasLog = false;       Machine::LogEvent       log;
         };
 
         Adapter() {
 
             client = new Rev::Client();
 
-            // Carvera keep-alive: poll the real-time status query "?" every second.
-            // The firmware drops an idle link, and each "?" comes back as a
-            // "<...|MPos:...>" frame that decode() turns into state + telemetry.
+            // Keep-alive: poll "?" every second (also drives the status frame).
             client->setHeartbeat("?", 1000);
 
             client->onConnect([this](Rev::Client::ConnectEvent& e) {
-                emit(App::ConnectionEvent{ App::ConnectionStatus::Connected, e.address });
+                emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Connected, e.address });
             });
 
             client->onDisconnect([this](Rev::Client::DisconnectEvent&) {
-                emit(App::ConnectionEvent{ App::ConnectionStatus::Disconnected, "" });
+                emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Disconnected, "" });
             });
 
             client->onError([this](Rev::Client::ErrorEvent& e) {
-                emit(App::ConnectionEvent{ App::ConnectionStatus::Error, e.reason });
+                emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Error, e.reason });
             });
 
             client->onData([this](Rev::Client::DataEvent& e) {
@@ -82,7 +73,7 @@ export namespace App::Carvera {
         //--------------------------------------------------
 
         void connect() override {
-            emit(App::ConnectionEvent{ App::ConnectionStatus::Connecting, host });
+            emit(Machine::ConnectionEvent{ Machine::ConnectionStatus::Connecting, host });
             client->connect(host, port);
         }
 
@@ -90,29 +81,14 @@ export namespace App::Carvera {
             client->disconnect();
         }
 
-        void sendCommand(const App::Command& command) override {
+        // A command emits its own wire form; we just transport it.
+        void sendCommand(const Machine::Command& command) override {
             if (!client->isConnected.load()) { return; }
-            client->send(encode(command));
+            client->send(command.emit());
         }
 
-        // Translate -- Command -> wire, line -> structs
+        // Decode -- wire line -> structs
         //--------------------------------------------------
-
-        std::string encode(const App::Command& command) const {
-            switch (command.type) {
-                // Actions
-                case App::Command::Type::Unlock:       return "$X\n";
-                case App::Command::Type::Reset:        return std::string(1, '\x18');  // ctrl-x soft reset
-                case App::Command::Type::ChangeTool:   return "M6 T" + std::to_string(command.tool) + "\n";
-                // Queries
-                case App::Command::Type::QueryStatus:  return "?";
-                case App::Command::Type::QueryOffsets: return "$#\n";
-                case App::Command::Type::QueryState:   return "$G\n";
-                case App::Command::Type::QuerySwitches:return "$S\n";
-                case App::Command::Type::QueryVersion: return "version\n";
-            }
-            return "";
-        }
 
         Inbound decode(const std::string& line) const {
 
@@ -127,7 +103,7 @@ export namespace App::Carvera {
             }
 
             // Otherwise: back-talk for the log.
-            in.log = App::LogEvent{ line };
+            in.log = Machine::LogEvent{ line };
             in.hasLog = true;
             return in;
         }
@@ -143,10 +119,10 @@ export namespace App::Carvera {
             std::vector<std::string> fields = split(body, '|');
             if (fields.empty()) { return; }
 
-            in.state = App::StateEvent{ fields.front() };
+            in.state = Machine::StateEvent{ fields.front() };
             in.hasState = true;
 
-            App::TelemetryEvent t;
+            Machine::TelemetryEvent t;
 
             for (size_t i = 1; i < fields.size(); ++i) {
 
@@ -158,22 +134,21 @@ export namespace App::Carvera {
                 std::string val = field.substr(colon + 1);
 
                 std::vector<std::string> n = split(val, ',');
-                auto at = [&](size_t i) { return i < n.size() ? toFloat(n[i]) : 0.0f; };
 
                 if      (key == "MPos") { fillAxes(val, t.mx, t.my, t.mz, t.ma, t.mb); }
                 else if (key == "WPos") { fillAxes(val, t.wx, t.wy, t.wz, t.wa, t.wb); }
                 else if (key == "F") {   // current, cap, override%
-                    t.feed = at(0); t.feedTarget = at(1); t.feedScale = at(2);
+                    t.feed = nth(n, 0); t.feedTarget = nth(n, 1); t.feedScale = nth(n, 2);
                 }
                 else if (key == "S") {   // rpm, target, override%, load%, temp
-                    t.spindleRpm = at(0); t.spindleTarget = at(1); t.spindleScale = at(2);
-                    t.spindleLoad = at(3); t.spindleTemp = at(4);
+                    t.spindleRpm = nth(n, 0); t.spindleTarget = nth(n, 1); t.spindleScale = nth(n, 2);
+                    t.spindleLoad = nth(n, 3); t.spindleTemp = nth(n, 4);
                 }
                 else if (key == "T") {   // number, length offset
-                    t.tool = static_cast<int>(at(0)); t.toolOffset = at(1);
+                    t.tool = static_cast<int>(nth(n, 0)); t.toolOffset = nth(n, 1);
                 }
                 else if (key == "L") {   // ..., power, override%
-                    t.laserPower = at(3); t.laserScale = at(4);
+                    t.laserPower = nth(n, 3); t.laserScale = nth(n, 4);
                 }
 
                 // Not yet mapped (semantics unconfirmed): W:<v> and C:<...>.
@@ -181,6 +156,11 @@ export namespace App::Carvera {
 
             in.telemetry = t;
             in.hasTelemetry = true;
+        }
+
+        // The i-th comma value of a split list, or 0 if the frame did not carry it.
+        static float nth(const std::vector<std::string>& v, size_t i) {
+            return i < v.size() ? toFloat(v[i]) : 0.0f;
         }
 
         // Fill axes from a comma list, taking only as many as the frame carries.

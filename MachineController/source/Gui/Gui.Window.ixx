@@ -6,7 +6,7 @@ export module Gui;
 
 import Rev.Window;
 
-import App.Machine;
+import Machine.Base;
 import Gui.Interface;
 
 export namespace Gui {
@@ -23,7 +23,7 @@ export namespace Gui {
 
         AppWindow(
             std::vector<void*>& group,
-            App::Machine& machine,
+            Machine::MachineBase& machine,
             Rev::Window::Details details = {}
         ) : Rev::Window(group, details) {
 

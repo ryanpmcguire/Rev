@@ -1,32 +1,33 @@
 module;
 
-export module App.Command;
+#include <string>
 
-export namespace App {
+export module Machine.Command;
 
-    // The machine's inward vocabulary: intents the system speaks, lowered to the
-    // wire by an adapter. A command is either an ACTION ("do this") or a QUERY
-    // ("tell us this") -- a query is just a command whose reply the adapter
-    // decodes back into the machine (info / telemetry). Connect/disconnect are
-    // lifecycle, not commands.
+export namespace Machine {
+
+    // An intent sent to a machine. Each concrete command emit()s its own wire
+    // form; `type` tags the kind so a stored Command* can be downcast.
     struct Command {
 
         enum class Type {
-
-            // Actions -- do something.
-            Unlock,         // clear an alarm                 $X
-            Reset,          // soft-reset the controller      ctrl-X
-            ChangeTool,     // automatic tool change          M6 T<tool>
-
-            // Queries -- tell us something (the machine replies on the wire).
-            QueryStatus,    // live status frame              ?
-            QueryOffsets,   // work offsets, TLO, last probe  $#
-            QueryState,     // modal / parser state           $G
-            QuerySwitches,  // switch (peripheral) states     $S
-            QueryVersion    // firmware version               version
+            // Actions
+            Unlock,
+            Reset,
+            ChangeTool,
+            // Queries
+            QueryStatus,
+            QueryOffsets,
+            QueryState,
+            QuerySwitches,
+            QueryVersion
         };
 
-        Type type = Type::QueryStatus;
-        int  tool = 0;     // ChangeTool: target tool number
+        Type type;
+
+        Command(Type type) : type(type) {}
+        virtual ~Command() {}
+
+        virtual std::string emit() const = 0;
     };
 }

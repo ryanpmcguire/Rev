@@ -6,7 +6,7 @@ import Rev.Element;
 import Rev.Appearance;
 import Rev.Element.Box;
 
-import App.Machine;
+import Machine.Base;
 import Gui.Machine.Connect;
 import Gui.Machine.Controls;
 import Gui.Machine.Telemetry;
@@ -36,7 +36,7 @@ export namespace Gui {
         // Create
         //--------------------------------------------------
 
-        MachinePanel(Element* parent, App::Machine& machine) : Box(parent, { &Panel }, "MachinePanel") {
+        MachinePanel(Element* parent, Machine::MachineBase& machine) : Box(parent, { &Panel }, "MachinePanel") {
 
             connect   = new ConnectSection(this, machine);
             controls  = new ControlsSection(this, machine);

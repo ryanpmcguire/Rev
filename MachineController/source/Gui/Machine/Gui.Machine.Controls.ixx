@@ -10,7 +10,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Button;
 
-import App.Machine;
+import Machine.Base;
 import Gui.Machine.Connect;   // reuse its button styles
 
 export namespace Gui {
@@ -51,13 +51,13 @@ export namespace Gui {
             Button* toolDown = nullptr;
             Button* toolUp   = nullptr;
 
-        App::Machine& machine;
+        Machine::MachineBase& machine;
         int           tool = 0;   // last commanded tool; cycles 1..6
 
         // Create
         //--------------------------------------------------
 
-        ControlsSection(Element* parent, App::Machine& machine)
+        ControlsSection(Element* parent, Machine::MachineBase& machine)
             : Box(parent, { &Section }, "ControlsSection"), machine(machine) {
 
             new Text(this, "Controls (test)", { &Heading });

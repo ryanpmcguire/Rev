@@ -2,14 +2,14 @@ module;
 
 #include <functional>
 
-export module App.Adapter;
+export module Machine.Adapter;
 
 import Rev.Core.Dispatcher;
 
-import App.Events;
-import App.Command;
+import Machine.Events;
+import Machine.Command;
 
-export namespace App {
+export namespace Machine {
 
     // Pure translation between the system's vocabulary and one machine's wire
     // dialect. Accepts Commands, emits decoded events; knows no consumer.

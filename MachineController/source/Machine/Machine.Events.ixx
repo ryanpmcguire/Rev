@@ -2,9 +2,9 @@ module;
 
 #include <string>
 
-export module App.Events;
+export module Machine.Events;
 
-export namespace App {
+export namespace Machine {
 
     // The machine's outward vocabulary: status + the structs it emits.
 

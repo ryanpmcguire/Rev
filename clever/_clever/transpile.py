@@ -443,10 +443,21 @@ def _var_spans(masked: str, name_off: int):
     return None
 
 
-def _relocations(tu, rel: str, raw: str, masked: str):
-    """Yield dicts describing each movable namespace/member definition."""
+def _relocations(tu, rel: str, raw: str, masked: str, src_disp: str):
+    """Yield dicts describing each movable namespace/member definition.
+
+    Each relocated definition carries a `#line` directive mapping its body back
+    to the original .ixx, and (see the end of this function) each replacement
+    declaration is padded with newlines to preserve the source's line count.
+    Together these let the debugger bind breakpoints and step directly in the
+    .ixx rather than the generated .cpp/.hpp."""
     main = str(rel)
     out = []
+
+    def _linedir(off: int) -> str:
+        # Leading newline so the directive begins its own line; trailing newline
+        # so the text that follows is reported at the original line of `off`.
+        return f'\n#line {raw.count(chr(10), 0, off) + 1} "{src_disp}"\n'
     for c in tu.cursor.walk_preorder():
         f = c.location.file
         if f is None or str(f) != main:
@@ -478,7 +489,7 @@ def _relocations(tu, rel: str, raw: str, masked: str):
                 continue
             init_start, semi = spans
             declaration = "extern " + raw[decl_start:init_start].rstrip() + ";"
-            definition = raw[decl_start:semi + 1]
+            definition = _linedir(decl_start) + raw[decl_start:semi + 1]
             out.append({"start": decl_start, "end": semi + 1,
                         "declaration": declaration, "definition": definition,
                         "ns": "::".join(ns_chain)})
@@ -526,7 +537,7 @@ def _relocations(tu, rel: str, raw: str, masked: str):
             out.append({
                 "start": decl_start, "end": body_close + 1,
                 "declaration": "",
-                "definition": raw[decl_start:body_close + 1],
+                "definition": _linedir(decl_start) + raw[decl_start:body_close + 1],
                 "ns": "::".join(ns_chain),
             })
             continue
@@ -553,11 +564,12 @@ def _relocations(tu, rel: str, raw: str, masked: str):
         # a nested return type (e.g. `State` == `Animator::State`) resolves in
         # the class scope. Constructors/destructors/conversions have no return
         # type; free functions resolve their return type at namespace scope.
+        bl = _linedir(body_open)  # anchor the body to its original .ixx line
         if ret and cls_chain and c.kind == cx.CursorKind.CXX_METHOD:
-            definition = f"auto {qual}{name_to_params}{sep} -> {ret} {body}"
+            definition = f"auto {qual}{name_to_params}{sep} -> {ret}{bl}{body}"
         else:
             head = (ret + " ") if ret else ""
-            definition = f"{head}{qual}{name_to_params}{sep} {body}"
+            definition = f"{head}{qual}{name_to_params}{sep}{bl}{body}"
 
         out.append({
             "start": decl_start, "end": body_close + 1,
@@ -565,6 +577,15 @@ def _relocations(tu, rel: str, raw: str, masked: str):
             "definition": definition,
             "ns": "::".join(ns_chain),
         })
+
+    # Preserve the .hpp's line count: a declaration that replaces a multi-line
+    # definition is padded with the same number of newlines the original span
+    # had, so the .hpp's single top-of-file `#line 1` stays accurate all the way
+    # down (inline/template bodies kept in the header map to correct .ixx lines).
+    for r in out:
+        pad = raw.count("\n", r["start"], r["end"]) - r["declaration"].count("\n")
+        if pad > 0:
+            r["declaration"] += "\n" * pad
     return out
 
 
@@ -640,7 +661,7 @@ def transpile(rel: str, repo: Path, xpp_root: Path, module_hpp: dict[str, Path],
         for m in _MANAGED_INC_RE.finditer(masked):
             edits.append((m.start(), m.end(), ""))
     # 4) relocate in-class method definitions
-    relocs = _relocations(tu, rel, raw, masked)
+    relocs = _relocations(tu, rel, raw, masked, str(src).replace(chr(92), "/"))
     defs_by_ns: dict[str, list[str]] = {}
     for r in relocs:
         edits.append((r["start"], r["end"], r["declaration"]))

@@ -6,7 +6,7 @@ import Rev.Element;
 import Rev.Appearance;
 import Rev.Element.Box;
 
-import App.Machine;
+import Machine.Base;
 import Gui.Machine;
 
 export namespace Gui {
@@ -25,7 +25,7 @@ export namespace Gui {
         // Create
         //--------------------------------------------------
 
-        Interface(Element* parent, App::Machine& machine) : Box(parent, {}, "Interface") {
+        Interface(Element* parent, Machine::MachineBase& machine) : Box(parent, {}, "Interface") {
 
             this->style->layout = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
             this->style->size = { .width = 100_pct, .height = Grow() };

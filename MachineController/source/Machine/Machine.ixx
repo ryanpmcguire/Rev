@@ -4,27 +4,24 @@ module;
 #include <string>
 #include <vector>
 
-export module App.Machine;
+export module Machine.Base;
 
 import Rev.Core.Dispatcher;
 import Rev.Core.Observable;
 
-import App.Events;
-import App.Command;
-import App.Adapter;
+import Machine.Events;
+import Machine.Adapter;
 
-export namespace App {
+export namespace Machine {
 
-    // A machine: what the system listens to. Owns its dispatchers, binds one
-    // adapter, and re-broadcasts the adapter's channels as its own.
-    struct Machine {
+    // The base machine: owns the dispatchers, binds an adapter, re-broadcasts its
+    // channels. (MachineBase, not Machine, to not clash with the namespace.)
+    struct MachineBase {
 
         // Definitions
         //--------------------------------------------------
 
-        // The machine's own telemetry: its current readings, grouped by subsystem
-        // and held as the single source of truth. report(TelemetryEvent) folds in
-        // decoded pieces; the telemetry channel then announces the change.
+        // The machine's live telemetry, grouped by subsystem.
         struct Telemetry {
 
             // A position: linear X/Y/Z + rotary A and B.
@@ -65,12 +62,9 @@ export namespace App {
             Telemetry() {}
         };
 
-        // The machine's INFO: the slower-changing, request/response facts about
-        // the machine -- identity, network, coordinate offsets, the tool table,
-        // the last probe. Unlike telemetry (streamed via "?"), these are fetched
-        // on demand (version, $#, ...) and cached here as the single source of
-        // truth. (Open-ended queries -- config-get, file listings -- are NOT
-        // modelled here; they are answered ad hoc, not cached as fixed fields.)
+        // The machine's request/response facts -- fetched on demand, cached.
+        // (Open-ended queries like config-get / file lists are answered ad hoc,
+        // not modelled here.)
         struct Info {
 
             // A coordinate / offset: linear X/Y/Z + rotary A and B.
@@ -154,8 +148,8 @@ export namespace App {
         // Create / Destroy
         //--------------------------------------------------
 
-        Machine() {}
-        virtual ~Machine() {}
+        MachineBase() {}
+        virtual ~MachineBase() {}
 
         // Bind / Unbind
         //--------------------------------------------------
@@ -172,8 +166,7 @@ export namespace App {
             adapter->onLog       ([this](LogEvent&        e) { report(e); });
         }
 
-        // Drop every subscription a given owner registered, across all channels.
-        // A subscriber calls this with its own `this` as it is destroyed.
+        // Drop all of an owner's subscriptions.
         void unsubscribe(void* owner) {
             connectionDispatcher.unsubscribe(owner);
             telemetryDispatcher.unsubscribe(owner);
@@ -191,54 +184,50 @@ export namespace App {
         // Verbs -- forward through the adapter (a machine with none does nothing).
         //--------------------------------------------------
 
+        // Lifecycle -- forwarded to the adapter (not commands).
         virtual void connect()     { if (adapter) { adapter->connect(); } }
         virtual void disconnect()  { if (adapter) { adapter->disconnect(); } }
 
+        // Verb interface -- a concrete machine implements these with its own commands.
+        //
         // Actions
-        virtual void unlock()      { if (adapter) { adapter->sendCommand(Command{ Command::Type::Unlock }); } }
-        virtual void reset()       { if (adapter) { adapter->sendCommand(Command{ Command::Type::Reset }); } }
-        virtual void changeTool(int n) { if (adapter) { adapter->sendCommand(Command{ Command::Type::ChangeTool, n }); } }
+        virtual void unlock()        {}
+        virtual void reset()         {}
+        virtual void changeTool(int) {}
 
-        // Queries -- ask the machine to tell us something; the reply lands back
-        // in telemetry / info via the adapter's decode.
-        virtual void queryStatus()   { if (adapter) { adapter->sendCommand(Command{ Command::Type::QueryStatus }); } }
-        virtual void queryOffsets()  { if (adapter) { adapter->sendCommand(Command{ Command::Type::QueryOffsets }); } }
-        virtual void queryState()    { if (adapter) { adapter->sendCommand(Command{ Command::Type::QueryState }); } }
-        virtual void querySwitches() { if (adapter) { adapter->sendCommand(Command{ Command::Type::QuerySwitches }); } }
-        virtual void queryVersion()  { if (adapter) { adapter->sendCommand(Command{ Command::Type::QueryVersion }); } }
+        // Queries
+        virtual void queryStatus()   {}
+        virtual void queryOffsets()  {}
+        virtual void queryState()    {}
+        virtual void querySwitches() {}
+        virtual void queryVersion()  {}
 
         // Subscribe
         //--------------------------------------------------
 
-        // `owner` is the subscriber's `this`, recorded so it can later drop ALL
-        // of its subscriptions in one call (see unsubscribe).
-        //
-        // Payload channels carry data that has no cached home (a log line, a
-        // status message). Signal channels carry NOTHING -- the data already
-        // lives on the machine (status / telemetry), so the channel just says
-        // "it changed, go read it." That keeps one source of truth.
-        void onConnection(void* owner, const std::function<void(ConnectionEvent&)>& f) { connectionDispatcher.listen(&Machine::connectionKey, owner, f); }
-        void onState     (void* owner, const std::function<void(StateEvent&)>&      f) { stateDispatcher.listen(&Machine::stateKey, owner, f); }
-        void onLog       (void* owner, const std::function<void(LogEvent&)>&        f) { logDispatcher.listen(&Machine::logKey, owner, f); }
+        // `owner` is the subscriber's `this`, so it can unsubscribe all at once.
+        // Signal channels carry no payload -- "it changed, go read the machine".
+        void onConnection(void* owner, const std::function<void(ConnectionEvent&)>& f) { connectionDispatcher.listen(&MachineBase::connectionKey, owner, f); }
+        void onState     (void* owner, const std::function<void(StateEvent&)>&      f) { stateDispatcher.listen(&MachineBase::stateKey, owner, f); }
+        void onLog       (void* owner, const std::function<void(LogEvent&)>&        f) { logDispatcher.listen(&MachineBase::logKey, owner, f); }
 
         // Signal channels (no payload): "<thing> updated -- go check the machine".
-        void onTelemetry (void* owner, std::function<void()> f) { telemetryDispatcher.listen (&Machine::telemetryKey,  owner, [f = std::move(f)](Signal&) { f(); }); }
-        void onConnect   (void* owner, std::function<void()> f) { connectDispatcher.listen   (&Machine::connectKey,    owner, [f = std::move(f)](Signal&) { f(); }); }
-        void onDisconnect(void* owner, std::function<void()> f) { disconnectDispatcher.listen(&Machine::disconnectKey, owner, [f = std::move(f)](Signal&) { f(); }); }
+        void onTelemetry (void* owner, std::function<void()> f) { telemetryDispatcher.listen (&MachineBase::telemetryKey,  owner, [f = std::move(f)](Signal&) { f(); }); }
+        void onConnect   (void* owner, std::function<void()> f) { connectDispatcher.listen   (&MachineBase::connectKey,    owner, [f = std::move(f)](Signal&) { f(); }); }
+        void onDisconnect(void* owner, std::function<void()> f) { disconnectDispatcher.listen(&MachineBase::disconnectKey, owner, [f = std::move(f)](Signal&) { f(); }); }
 
-        // Report -- fan-in from the bound adapter: cache what is worth holding,
-        // then announce on the matching channel.
+        // Report -- cache, then announce. Fed by the bound adapter.
         //--------------------------------------------------
 
         void report(ConnectionEvent e) {
             status = e.status;
-            connectionDispatcher.tell(&Machine::connectionKey, e);
+            connectionDispatcher.tell(&MachineBase::connectionKey, e);
 
             Signal signal;
             if (e.status == ConnectionStatus::Connected) {
-                connectDispatcher.tell(&Machine::connectKey, signal);
+                connectDispatcher.tell(&MachineBase::connectKey, signal);
             } else if (e.status == ConnectionStatus::Disconnected || e.status == ConnectionStatus::Error) {
-                disconnectDispatcher.tell(&Machine::disconnectKey, signal);
+                disconnectDispatcher.tell(&MachineBase::disconnectKey, signal);
             }
         }
         void report(TelemetryEvent e)  {
@@ -259,9 +248,9 @@ export namespace App {
             telemetry.laser.power = e.laserPower;
             telemetry.laser.scale = e.laserScale;
 
-            Signal s; telemetryDispatcher.tell(&Machine::telemetryKey, s);
+            Signal s; telemetryDispatcher.tell(&MachineBase::telemetryKey, s);
         }
-        void report(StateEvent e)      { stateDispatcher.tell(&Machine::stateKey, e); }
-        void report(LogEvent e)        { logDispatcher.tell(&Machine::logKey, e); }
+        void report(StateEvent e)      { stateDispatcher.tell(&MachineBase::stateKey, e); }
+        void report(LogEvent e)        { logDispatcher.tell(&MachineBase::logKey, e); }
     };
 }

@@ -6,34 +6,32 @@ export module App.Application;
 
 import Rev.Application;
 
-import App.Events;
-import App.Machines.CarveraAir;
+import Machine.Events;
+import Machine.Machines.CarveraAir;
 
 export namespace App {
 
     // A thin Rev::Application that owns the machine system. For now it is a
-    // CarveraAir concretely; later this becomes a selected/owned Machine.
+    // CarveraAir concretely; later this becomes a selected/owned machine.
     struct Application : public Rev::Application {
 
-        CarveraAir* machine = nullptr;
+        Machine::CarveraAir* machine = nullptr;
 
         // Create
         //--------------------------------------------------
 
         Application() : Rev::Application() {
 
-            machine = new CarveraAir();
+            machine = new Machine::CarveraAir();
 
-            // Diagnostic: trace the machine's connection transitions. (Owner is
-            // us; the subscription dies with the machine we delete in ~Application.)
-            machine->onConnection(this, [](ConnectionEvent& e) {
-                dbg("[Machine] %s %s", connectionStatusName(e.status), e.message.c_str());
+            // Diagnostic: log connection transitions.
+            machine->onConnection(this, [](Machine::ConnectionEvent& e) {
+                dbg("[Machine] %s %s", Machine::connectionStatusName(e.status), e.message.c_str());
             });
 
-            // Diagnostic: trace telemetry as it arrives. The signal carries no
-            // payload -- read the machine's cached telemetry on each tick.
+            // Diagnostic: log telemetry as it arrives.
             machine->onTelemetry(this, [this]() {
-                Machine::Telemetry& t = machine->telemetry;
+                Machine::MachineBase::Telemetry& t = machine->telemetry;
                 dbg("[Telemetry] spindle pos %.3f,%.3f,%.3f rpm %.0f/%.0f load %.0f%% temp %.1fC | "
                     "tool pos %.3f,%.3f,%.3f feed %.0f/%.0f T%d off %.3f | laser %.0f",
                     t.spindle.pos.x, t.spindle.pos.y, t.spindle.pos.z,

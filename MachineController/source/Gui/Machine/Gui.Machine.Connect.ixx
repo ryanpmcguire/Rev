@@ -12,7 +12,7 @@ import Rev.Element.Button;
 
 import Rev.Core.Observable;
 
-import App.Machine;
+import Machine.Base;
 
 export namespace Gui {
 
@@ -157,12 +157,12 @@ export namespace Gui {
         Core::Observer<bool> connectionObserver;
 
         // The machine this section reflects and drives.
-        App::Machine& machine;
+        Machine::MachineBase& machine;
 
         // Create
         //--------------------------------------------------
 
-        ConnectSection(Element* parent, App::Machine& machine)
+        ConnectSection(Element* parent, Machine::MachineBase& machine)
             : Box(parent, { &Section }, "ConnectSection"), machine(machine) {
 
             // Status indicator, machine name, and network address -- all inline.

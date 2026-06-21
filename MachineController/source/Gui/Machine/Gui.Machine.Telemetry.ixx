@@ -9,8 +9,8 @@ import Rev.Appearance;
 import Rev.Element.Box;
 import Rev.Element.Text;
 
-import App.Machine;
-import App.Events;
+import Machine.Base;
+import Machine.Events;
 
 export namespace Gui {
 
@@ -20,10 +20,7 @@ export namespace Gui {
     // Pin Text to the element (there is also a Rev::Primitive::Text in scope).
     using Text = Rev::Element::Text;
 
-    // A labelled value readout: "label value". The value is a real, held element
-    // with a settable content, so wiring it to live data later is field->set(...).
-    // (This is the whole point of being an element, not an anonymous helper: it is
-    // referenceable.)
+    // A labelled value readout; the held value is settable via set().
     struct Field : public Box {
 
         static inline Style Self = {
@@ -55,8 +52,7 @@ export namespace Gui {
         void clear()                       { value->setContent("---"); }
     };
 
-    // A titled group: the title carries a thin 1px underline (bottom border); the
-    // body holds the group's fields inline (horizontal, wrapping if they overflow).
+    // A titled group: a 1px-underlined title over a row of inline fields.
     struct Group : public Box {
 
         static inline Style Self = {
@@ -143,16 +139,14 @@ export namespace Gui {
         // Reflection
         //--------------------------------------------------
 
-        // The machine we reflect, plus change-gates so computeChildren only writes
-        // a field when its value actually moved (no per-frame churn / redraw loop).
-        App::Machine& machine;
+        Machine::MachineBase& machine;
         std::string   stateText;
         bool          dirty = false;   // a telemetry/state edge arrived; reflect next compute
 
         // Create
         //--------------------------------------------------
 
-        TelemetrySection(Element* parent, App::Machine& machine)
+        TelemetrySection(Element* parent, Machine::MachineBase& machine)
             : Box(parent, { &Section }, "TelemetrySection"), machine(machine) {
 
             new Text(this, "Telemetry", { &Heading });
@@ -208,7 +202,7 @@ export namespace Gui {
             // edges just flag + nudge a refresh; computeChildren reads the machine.
             // (onTelemetry is a no-payload signal: "it changed, go read the cache".)
             machine.onTelemetry(this, [this]()                   { dirty = true; bump(); });
-            machine.onState    (this, [this](App::StateEvent& e) { stateText = e.state; dirty = true; bump(); });
+            machine.onState    (this, [this](Machine::StateEvent& e) { stateText = e.state; dirty = true; bump(); });
         }
 
         // Destroy
@@ -234,11 +228,10 @@ export namespace Gui {
             Box::computeChildren(e);
         }
 
-        // Push the machine's cached telemetry + run-state into the fields. Fields
-        // the domain does not model yet (halt, job, laser target) keep their "---".
+        // Push cached telemetry + run-state into the fields.
         void reflect() {
 
-            const auto& t = machine.telemetry;
+            const Machine::MachineBase::Telemetry& t = machine.telemetry;
 
             mposX->set(t.spindle.pos.x); mposY->set(t.spindle.pos.y); mposZ->set(t.spindle.pos.z);
             mposA->set(t.spindle.pos.a); mposB->set(t.spindle.pos.b);
