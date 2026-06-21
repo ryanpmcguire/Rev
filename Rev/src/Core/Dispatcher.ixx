@@ -18,9 +18,17 @@ export namespace Rev::Core {
         static constexpr size_t ListenerKeySize = 32;
         using ListenerKey = std::array<std::byte, ListenerKeySize>;
 
+        // One subscription: the callback plus the address of whoever registered
+        // it (its `this`). The owner is how a subscriber later unsubscribes -- a
+        // single pointer per listener, no extra allocation.
+        struct Listener {
+            void* owner = nullptr;
+            std::function<void(EventType&)> fn;
+        };
+
         struct ListenerGroup {
             ListenerKey key{};
-            std::vector<std::function<void(EventType&)>> listeners;
+            std::vector<Listener> listeners;
         };
 
         std::vector<ListenerGroup> listenerGroups;
@@ -34,8 +42,12 @@ export namespace Rev::Core {
             return key;
         }
 
+        // Listen
+        //--------------------------------------------------
+
         void listen(
             ListenerKey listenerKey,
+            void* owner,
             const std::function<void(EventType&)>& listener
         ) {
 
@@ -48,15 +60,66 @@ export namespace Rev::Core {
             );
 
             if (it != listenerGroups.end()) {
-                it->listeners.push_back(listener);
+                it->listeners.push_back({ owner, listener });
                 return;
             }
 
             ListenerGroup group;
             group.key = listenerKey;
-            group.listeners.push_back(listener);
+            group.listeners.push_back({ owner, listener });
             listenerGroups.push_back(group);
         }
+
+        // Owner-less convenience (a subscription that is never individually removed).
+        void listen(
+            ListenerKey listenerKey,
+            const std::function<void(EventType&)>& listener
+        ) {
+            listen(listenerKey, nullptr, listener);
+        }
+
+        template<typename Owner>
+        void listen(
+            void (Owner::*func)(EventType&),
+            void* owner,
+            const std::function<void(EventType&)>& listener
+        ) {
+            listen(listenerKey(func), owner, listener);
+        }
+
+        template<typename Owner>
+        void listen(
+            void (Owner::*func)(EventType&),
+            const std::function<void(EventType&)>& listener
+        ) {
+            listen(listenerKey(func), nullptr, listener);
+        }
+
+        // Unsubscribe
+        //--------------------------------------------------
+
+        // Remove every listener registered by `owner`, across all keys. A
+        // subscriber calls this with its own `this` as it is destroyed, so the
+        // dispatcher never holds a dangling callback.
+        void unsubscribe(void* owner) {
+
+            if (!owner) { return; }
+
+            for (auto& group : listenerGroups) {
+                auto& listeners = group.listeners;
+                listeners.erase(
+                    std::remove_if(
+                        listeners.begin(),
+                        listeners.end(),
+                        [owner](const Listener& l) { return l.owner == owner; }
+                    ),
+                    listeners.end()
+                );
+            }
+        }
+
+        // Tell
+        //--------------------------------------------------
 
         void tell(ListenerKey tellingKey, EventType& event) {
 
@@ -73,16 +136,8 @@ export namespace Rev::Core {
             }
 
             for (auto& listener : it->listeners) {
-                listener(event);
+                listener.fn(event);
             }
-        }
-
-        template<typename Owner>
-        void listen(
-            void (Owner::*func)(EventType&),
-            const std::function<void(EventType&)>& listener
-        ) {
-            listen(listenerKey(func), listener);
         }
 
         template<typename Owner>

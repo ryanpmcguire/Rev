@@ -10,12 +10,17 @@ export namespace App {
     // A concrete Machine: owns the Carvera adapter and binds the base Machine to it.
     struct CarveraAir : public Machine {
 
-        Carvera::Adapter carveraAdapter;
+        Carvera::Adapter* carveraAdapter = nullptr;
 
         CarveraAir() {
-            bindAdapter(&carveraAdapter);
+            carveraAdapter = new Carvera::Adapter();
+            bindAdapter(carveraAdapter);
         }
 
-        ~CarveraAir() {}
+        ~CarveraAir() {
+            // Destroy the adapter (and the transport inside it) before the base
+            // Machine's dispatchers go: the bound adapter feeds those dispatchers.
+            delete carveraAdapter;
+        }
     };
 }

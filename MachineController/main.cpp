@@ -16,7 +16,7 @@ int main() {
 
     App::Application* application = new App::Application();
 
-    Gui::AppWindow* gui = new Gui::AppWindow(application->windows, application->machine, {
+    Gui::AppWindow* gui = new Gui::AppWindow(application->windows, *application->machine, {
         .name = "MachineController",
         .icon = File("./source/Gui/C3DT.svg"),
         .size = { 1280, 720, .min = { 640, 480 }, .max = { 3840, 2160 } }

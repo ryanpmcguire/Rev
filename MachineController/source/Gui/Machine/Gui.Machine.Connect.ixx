@@ -2,8 +2,6 @@ module;
 
 #include <string>
 
-#include <dbg.hpp>
-
 export module Gui.Machine.Connect;
 
 import Rev.Element;
@@ -15,7 +13,6 @@ import Rev.Element.Button;
 import Rev.Core.Observable;
 
 import App.Machine;
-import App.Events;
 
 export namespace Gui {
 
@@ -189,24 +186,21 @@ export namespace Gui {
             // Drive the machine.
             connectButton->onClick   ([this](Event&) { this->machine.connect();    });
             disconnectButton->onClick([this](Event&) { this->machine.disconnect(); });
-
-            // Proof of life: log the connection status as it changes. (Fires on
-            // the socket worker thread for now -- the console is the safe readout
-            // until the main-thread marshal lands.)
-            machine.onConnection([](App::ConnectionEvent& e) {
-                dbg("[Connect] %s %s", App::connectionStatusName(e.status), e.message.c_str());
-            });
+            unlockButton->onClick    ([this](Event&) { this->machine.unlock();      });
+            resetButton->onClick     ([this](Event&) { this->machine.reset();       });
 
             // Reflect connection edges: flip our state and let computeChildren do
-            // the rest. The status itself is read from the machine in there.
-            machine.onConnect   ([this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
-            machine.onDisconnect([this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
+            // the rest. We subscribe AS `this`, so ~ConnectSection can unsubscribe.
+            machine.onConnect   (this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
+            machine.onDisconnect(this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
         }
 
         // Destroy
         //--------------------------------------------------
 
-        ~ConnectSection() {}
+        // Drop our subscriptions so the machine -- which outlives us -- never fires
+        // a now-dangling callback into a destroyed section.
+        ~ConnectSection() { machine.unsubscribe(this); }
 
         // Reflect
         //--------------------------------------------------

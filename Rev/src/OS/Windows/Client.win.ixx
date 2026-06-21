@@ -5,6 +5,9 @@ module;
 #include <thread>
 #include <functional>
 #include <atomic>
+#include <chrono>
+#include <mutex>
+#include <cstdint>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -14,6 +17,7 @@ module;
 export module Rev.Client;
 
 import Rev.Core.Dispatcher;
+import Rev.Core.Process;
 
 export namespace Rev {
 
@@ -55,6 +59,10 @@ export namespace Rev {
 
         ~Client() {
             dbg("[Client] Shutting down");
+
+            // Stop the self-pump first; the main loop must not tick into a
+            // half-destroyed client. (Same thread as the destructor, so safe.)
+            Core::Process::instance().unschedule(this);
 
             running     = false;
             isConnected = false;
@@ -105,6 +113,16 @@ export namespace Rev {
                 return;
             }
 
+            // A previous worker may have exited on its OWN -- a failed connect, or
+            // a remote close (recvLoop fires disconnect and returns) -- leaving the
+            // thread joinable but unjoined. Assigning a fresh std::thread over a
+            // joinable one calls std::terminate, so join the old worker first. This
+            // is the one invariant the whole lifecycle rests on: worker_ is never
+            // joinable at the moment we assign to it.
+            if (worker_.joinable()) {
+                worker_.join();
+            }
+
             host_ = std::move(host);
             port_ = port;
 
@@ -112,9 +130,47 @@ export namespace Rev {
             isConnected = false;
 
             worker_ = std::thread([this]() { workerMain(); });
+
+            // Drain the worker's queue on the main thread from here on. Scheduling
+            // a Process tick also keeps the main loop awake while connected, so
+            // inbound events reflect promptly without waiting on user input.
+            Core::Process::instance().schedule(this, PumpIntervalMs, [this](uint64_t) { pump(); });
         }
 
         // -- API ---------------------------------------------------------
+
+        // Keep-alive: while connected, the worker sends `message` every
+        // `intervalMs` to stop an idle peer from dropping the link (and, for
+        // status-poll protocols, to drive telemetry). intervalMs == 0 disables it.
+        // Configure BEFORE connect(); the message is read on the worker thread.
+        void setHeartbeat(const std::string& message, int intervalMs) {
+            heartbeatMessage_     = message;
+            heartbeatIntervalMs_  = intervalMs;
+        }
+
+        // Drain queued inbound events and dispatch them on THIS (the caller's)
+        // thread -- which is the main thread, since pump() is driven by Process.
+        // The worker only fills the queue; nothing it produces reaches a listener
+        // until here, so all listeners run single-threaded. Public so a same-
+        // threaded client could also be pumped by hand.
+        void pump() {
+
+            std::vector<Pending> batch;
+            {
+                std::lock_guard<std::mutex> lock(queueMutex_);
+                batch.swap(queue_);
+            }
+
+            for (Pending& p : batch) {
+                switch (p.kind) {
+                    case Pending::Kind::Connecting: { ConnectingEvent e{ p.text };                  connectingDispatcher_.tell(&Client::connectingEvent, e); break; }
+                    case Pending::Kind::Connect:    { ConnectEvent    e{ p.text };                  connectDispatcher_.tell   (&Client::connectEvent,    e); break; }
+                    case Pending::Kind::Disconnect: { DisconnectEvent e{};                          disconnectDispatcher_.tell(&Client::disconnectEvent, e); break; }
+                    case Pending::Kind::Data:       { DataEvent       e; e.data = std::move(p.data); dataDispatcher_.tell      (&Client::dataEvent,       e); break; }
+                    case Pending::Kind::Error:      { ErrorEvent      e{ p.text };                  errorDispatcher_.tell     (&Client::errorEvent,      e); break; }
+                }
+            }
+        }
 
         void send(const std::string& msg) {
             SOCKET s = sock_.load();
@@ -135,6 +191,11 @@ export namespace Rev {
             // Nothing to do if no worker was ever started / we are already down.
             if (!running && !worker_.joinable()) { return; }
 
+            // Were we closing a LIVE link? If running is already false, the worker
+            // exited on its own (remote close / failed connect) and already
+            // announced the disconnect -- we must not announce a second one.
+            const bool wasActive = running;
+
             running     = false;
             isConnected = false;
 
@@ -152,10 +213,17 @@ export namespace Rev {
                 worker_.join();
             }
 
-            // The recv loop exits silently on our own close, so a user-initiated
-            // disconnect would otherwise go unannounced. Fire it here, on the
-            // caller's thread.
-            fireDisconnect();
+            // The recv loop exits silently on OUR own close, so a user-initiated
+            // disconnect of a live link would otherwise go unannounced. Announce it
+            // here (on the caller's thread) -- but only if it was actually live.
+            if (wasActive) {
+                fireDisconnect();
+            }
+
+            // Drain whatever is still queued (incl. the disconnect just enqueued)
+            // on this main thread, then stop the self-pump.
+            pump();
+            Core::Process::instance().unschedule(this);
         }
 
         // -- Internal virtual event slots (Dispatcher keys) --------------
@@ -186,32 +254,44 @@ export namespace Rev {
         std::thread          worker_;
         bool                 wsaStarted_ = false;
 
-        // -- Fire helpers (call from worker thread) ----------------------
+        // -- Heartbeat (set before connect; read on the worker thread) ---
 
-        void fireConnecting(const std::string& address) {
-            ConnectingEvent e{ address };
-            connectingDispatcher_.tell(&Client::connectingEvent, e);
+        std::string          heartbeatMessage_;
+        std::atomic<int>     heartbeatIntervalMs_ { 0 };   // 0 = disabled
+
+        // -- Inbound queue: the marshal across threads -------------------
+        // The worker thread NEVER dispatches; it enqueues decoded events here
+        // under the mutex. The main thread drains them in pump(), so every
+        // listener -- and everything downstream of it -- runs single-threaded.
+
+        struct Pending {
+            enum class Kind { Connecting, Connect, Disconnect, Data, Error };
+            Kind              kind;
+            std::string       text;   // address (connect/connecting) or reason (error)
+            std::vector<char> data;   // payload (data)
+        };
+
+        std::mutex           queueMutex_;
+        std::vector<Pending> queue_;
+
+        static constexpr uint64_t PumpIntervalMs = 16;   // ~60 Hz drain on the main thread
+
+        void enqueue(Pending p) {
+            std::lock_guard<std::mutex> lock(queueMutex_);
+            queue_.push_back(std::move(p));
         }
 
-        void fireConnect(const std::string& address) {
-            ConnectEvent e{ address };
-            connectDispatcher_.tell(&Client::connectEvent, e);
-        }
+        // -- Fire helpers (called from the worker thread): enqueue, never dispatch --
 
-        void fireDisconnect() {
-            DisconnectEvent e{};
-            disconnectDispatcher_.tell(&Client::disconnectEvent, e);
-        }
+        void fireConnecting(const std::string& address) { enqueue({ Pending::Kind::Connecting, address, {} }); }
+        void fireConnect   (const std::string& address) { enqueue({ Pending::Kind::Connect,    address, {} }); }
+        void fireDisconnect()                            { enqueue({ Pending::Kind::Disconnect, {},      {} }); }
+        void fireError     (std::string reason)          { enqueue({ Pending::Kind::Error, std::move(reason), {} }); }
 
         void fireData(const char* buf, int len) {
-            DataEvent e;
-            e.data.assign(buf, buf + len);
-            dataDispatcher_.tell(&Client::dataEvent, e);
-        }
-
-        void fireError(std::string reason) {
-            ErrorEvent e{ std::move(reason) };
-            errorDispatcher_.tell(&Client::errorEvent, e);
+            Pending p{ Pending::Kind::Data, {}, {} };
+            p.data.assign(buf, buf + len);
+            enqueue(std::move(p));
         }
 
         // -- Worker ------------------------------------------------------
@@ -280,6 +360,8 @@ export namespace Rev {
 
         void recvLoop(SOCKET s) {
 
+            auto lastBeat = std::chrono::steady_clock::now();
+
             while (running) {
 
                 fd_set readfds;
@@ -290,6 +372,17 @@ export namespace Rev {
                 int activity = select(0, &readfds, nullptr, nullptr, &tv);
 
                 if (!running) break;
+
+                // Heartbeat: keep the link alive at the configured cadence. The
+                // 100ms select tick is our timer; we send when the interval is up.
+                const int interval = heartbeatIntervalMs_.load();
+                if (interval > 0) {
+                    auto now = std::chrono::steady_clock::now();
+                    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastBeat).count() >= interval) {
+                        send(heartbeatMessage_);
+                        lastBeat = now;
+                    }
+                }
 
                 if (activity < 0) {
                     dbg("[Client] select error (%d)", WSAGetLastError());

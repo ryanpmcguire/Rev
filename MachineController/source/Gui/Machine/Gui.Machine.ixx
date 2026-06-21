@@ -8,6 +8,8 @@ import Rev.Element.Box;
 
 import App.Machine;
 import Gui.Machine.Connect;
+import Gui.Machine.Controls;
+import Gui.Machine.Telemetry;
 
 export namespace Gui {
 
@@ -27,14 +29,18 @@ export namespace Gui {
             .padding = { 16_px, 16_px, 16_px, 16_px }
         };
 
-        ConnectSection* connect = nullptr;
+        ConnectSection*   connect   = nullptr;
+        ControlsSection*  controls  = nullptr;
+        TelemetrySection* telemetry = nullptr;
 
         // Create
         //--------------------------------------------------
 
         MachinePanel(Element* parent, App::Machine& machine) : Box(parent, { &Panel }, "MachinePanel") {
 
-            connect = new ConnectSection(this, machine);
+            connect   = new ConnectSection(this, machine);
+            controls  = new ControlsSection(this, machine);
+            telemetry = new TelemetrySection(this, machine);
         }
 
         // Destroy
