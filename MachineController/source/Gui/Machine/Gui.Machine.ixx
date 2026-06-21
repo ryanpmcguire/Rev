@@ -46,7 +46,7 @@ export namespace Gui {
 
             connect   = new ConnectSection(this, machine);
             controls  = new ControlsSection(this, machine);
-            jog       = new JogSection(this);   // structure only -- no machine wiring yet
+            jog       = new JogSection(this, machine);
             telemetry = new TelemetrySection(this, machine);
             info      = new InfoSection(this, machine);
         }

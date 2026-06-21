@@ -10,6 +10,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Button;
 
+import Machine.Base;
 import Gui.Machine.Connect;   // reuse hover / press / label button styles
 
 export namespace Gui {
@@ -104,12 +105,20 @@ export namespace Gui {
         Box* stepRow = nullptr;
             Button* step01 = nullptr; Button* step1 = nullptr; Button* step10 = nullptr;
 
-        float stepMm = 1.0f;   // selected step (pure GUI state for now)
+        float stepMm = 1.0f;   // selected "step": the jog quantization + speed dial
+
+        Machine::MachineBase& machine;
+
+        // The step dial sets both quantization and feed; Control drops each by an
+        // order of magnitude (finer + slower).
+        float jogQuantum(bool ctrl) const { return ctrl ? stepMm * 0.1f : stepMm; }
+        int   jogSpeed  (bool ctrl) const { return static_cast<int>(stepMm * 600.0f * (ctrl ? 0.1f : 1.0f)); }
 
         // Create
         //--------------------------------------------------
 
-        JogSection(Element* parent) : Box(parent, { &Section }, "JogSection") {
+        JogSection(Element* parent, Machine::MachineBase& machine)
+            : Box(parent, { &Section }, "JogSection"), machine(machine) {
 
             new Text(this, "Jog", { &Heading });
 
@@ -144,8 +153,12 @@ export namespace Gui {
                 step1  = stepKey(stepRow, "1");
                 step10 = stepKey(stepRow, "10");
 
-            // (Jog keys carry no handlers yet -- machine wiring stripped for a
-            //  fresh start. They are structural placeholders.)
+            // Hold a key to jog: press starts a continuous jog along that axis;
+            // release (or dragging off the key) stops it.
+            holdToJog(yPlus,  0, +1,  0,  0);  holdToJog(yMinus, 0, -1,  0,  0);
+            holdToJog(xPlus, +1,  0,  0,  0);  holdToJog(xMinus, -1, 0,  0,  0);
+            holdToJog(zPlus,  0,  0, +1,  0);  holdToJog(zMinus, 0,  0, -1,  0);
+            holdToJog(aPlus,  0,  0,  0, +1);  holdToJog(aMinus, 0,  0,  0, -1);
 
             // Step selection (pure GUI state).
             step01->onClick([this](Event&) { setStep(0.1f, step01); });
@@ -158,7 +171,8 @@ export namespace Gui {
         // Destroy
         //--------------------------------------------------
 
-        ~JogSection() {}
+        // Never leave the machine jogging if the section dies mid-hold.
+        ~JogSection() { machine.pauseJog(); }
 
         // Builders + behaviour
         //--------------------------------------------------
@@ -177,6 +191,83 @@ export namespace Gui {
 
         void spacer(Element* parent) {
             new Box(parent, { &JogSpacer }, "Spacer");
+        }
+
+        // Press-and-hold a key to jog its axis; release / drag-off pauses. (Mouse
+        // jog uses the plain step/speed -- no modifiers.)
+        void holdToJog(Button* key, float dx, float dy, float dz, float da) {
+            key->onMouseDown ([this, dx, dy, dz, da](Event&) { machine.holdJog(dx, dy, dz, da, jogQuantum(false), jogSpeed(false)); });
+            key->onMouseUp   ([this](Event&) { machine.pauseJog(); });
+            key->onMouseLeave([this](Event&) { machine.pauseJog(); });
+        }
+
+        // Keyboard jog
+        //--------------------------------------------------
+        // Arrows jog X/Y. Alt ("alternate") remaps Up/Down -> Z and Left/Right -> A.
+        // Shift makes it a continuous hold (moves while held); without Shift each
+        // press is a single step. Control gives a finer + slower jog. We only act
+        // while focused, so click the jog pad to "arm" the arrows. The Event's
+        // keyboard already tracks every key's held state, so we read it directly --
+        // no parallel bookkeeping.
+
+        // The jog the keyboard is asking for. Comparing successive intents lets us
+        // act only on real transitions -- a press, a release, a direction or mode
+        // change -- and ignore OS auto-repeat, which re-sends the same intent.
+        struct Intent {
+            float dx = 0, dy = 0, dz = 0, da = 0;
+            bool  hold = false;   // Shift -> continuous
+
+            bool moving() const { return dx != 0.0f || dy != 0.0f || dz != 0.0f || da != 0.0f; }
+            bool operator==(const Intent& o) const {
+                return dx == o.dx && dy == o.dy && dz == o.dz && da == o.da && hold == o.hold;
+            }
+        };
+
+        Intent lastIntent;   // the intent we last acted on
+
+        void keyDown(Event& e) override { Box::keyDown(e); applyIntent(e); }
+        void keyUp  (Event& e) override { Box::keyUp(e);   applyIntent(e); }
+
+        // Losing focus mid-hold can't leave the machine moving with no key-up coming.
+        void loseFocus(Event& e) override {
+            Box::loseFocus(e);
+            machine.pauseJog();
+            lastIntent = {};
+        }
+
+        // Act on the keyboard's jog intent, but only when it differs from last time.
+        void applyIntent(Event& e) {
+
+            Intent now = targetFlags.focus ? readIntent(e) : Intent{};   // unfocused -> no jog
+            if (now == lastIntent) { return; }                           // unchanged (e.g. auto-repeat)
+            lastIntent = now;
+
+            if      (!now.moving()) { machine.pauseJog(); }
+            else if (now.hold)      { machine.holdJog(now.dx, now.dy, now.dz, now.da, jogQuantum(e.keyboard.ctrl), jogSpeed(e.keyboard.ctrl)); }
+            else                    { machine.stepJog(now.dx, now.dy, now.dz, now.da, jogQuantum(e.keyboard.ctrl), jogSpeed(e.keyboard.ctrl)); }
+        }
+
+        // Read the current intent from the keyboard. Alt ("alternate") remaps
+        // Up/Down -> Z and Left/Right -> A; opposite keys cancel; Shift = hold.
+        Intent readIntent(Event& e) {
+
+            Event::Keyboard::Arrows& a = e.keyboard.arrows;
+            Intent i;
+            i.hold = e.keyboard.shift;
+
+            if (!e.keyboard.alt) {
+                if (a.left)  { i.dx -= 1.0f; }
+                if (a.right) { i.dx += 1.0f; }
+                if (a.up)    { i.dy += 1.0f; }
+                if (a.down)  { i.dy -= 1.0f; }
+            } else {
+                if (a.up)    { i.dz += 1.0f; }
+                if (a.down)  { i.dz -= 1.0f; }
+                if (a.left)  { i.da -= 1.0f; }
+                if (a.right) { i.da += 1.0f; }
+            }
+
+            return i;
         }
 
         // Select the step and highlight its key.

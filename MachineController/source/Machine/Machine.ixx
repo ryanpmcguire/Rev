@@ -7,9 +7,11 @@ module;
 export module Machine.Base;
 
 import Rev.Core.Dispatcher;
+import Rev.Core.Process;
 
 import Machine.Events;
 import Machine.Command;
+import Machine.Operation;
 import Machine.Adapter;
 
 export namespace Machine {
@@ -247,6 +249,41 @@ export namespace Machine {
             Info() {}
         };
 
+        // Operations -- the machine's work queue. Holds the pending/running
+        // operations (owned) and a pointer to the one currently executing. Three
+        // ways to drive the machine: build an operation and enqueue() it, append()
+        // commands onto the running one, or (for queries / one-offs) send a command
+        // directly past this queue.
+        struct Operations {
+
+            std::vector<Operation::OperationBase*> queue;             // pending + running (owned)
+            Operation::OperationBase*              current = nullptr; // currently executing (points into queue)
+
+            SignalChannel updateChannel;   // queue / current / progress changed
+            void onUpdate(void* owner, std::function<void()> f) { updateChannel.on(owner, std::move(f)); }
+            void unsubscribe(void* owner) { updateChannel.unsubscribe(owner); }
+
+            ~Operations() { for (auto* op : queue) { delete op; } }
+
+            // Queue a new operation; it becomes current if nothing is running yet.
+            void enqueue(Operation::OperationBase* op) {
+                queue.push_back(op);
+                if (!current) { current = op; }
+                updateChannel.notify();
+            }
+
+            // To append a command onto the running operation, reach it directly:
+            //   machine.operations.current->add(command)
+
+            // Drop everything (e.g. on disconnect / abort).
+            void clear() {
+                for (auto* op : queue) { delete op; }
+                queue.clear();
+                current = nullptr;
+                updateChannel.notify();
+            }
+        };
+
         // Data
         //--------------------------------------------------
 
@@ -254,16 +291,22 @@ export namespace Machine {
         Adapter*  adapter = nullptr;
 
         // Cached, self-observable state
-        Telemetry telemetry;
-        Info      info;
+        Telemetry  telemetry;
+        Info       info;
+        Operations operations;
 
         bool connected() const { return info.network.isConnected(); }
 
         // Construct / destruct
         //--------------------------------------------------
 
-        MachineBase() {}
-        virtual ~MachineBase() {}
+        // Telemetry + motion tick, alive only while connected (started/stopped by
+        // the network's own connect channels).
+        MachineBase() {
+            info.network.onConnect   (this, [this]() { startTicking(); });
+            info.network.onDisconnect(this, [this]() { stopTicking(); operations.clear(); });
+        }
+        virtual ~MachineBase() { stopTicking(); }
 
         // ============================================================
         // Adapter & channels
@@ -298,9 +341,34 @@ export namespace Machine {
             telemetry.unsubscribe(owner);
             info.unsubscribe(owner);
             info.network.unsubscribe(owner);
+            operations.unsubscribe(owner);
             stateDispatcher.unsubscribe(owner);
             logDispatcher.unsubscribe(owner);
         }
+
+        // ============================================================
+        // Service ticks (telemetry + motion, separate cadences)
+        // ============================================================
+        // Telemetry polls a few times a second; motion is fed much faster, so only a
+        // small lookahead need ever be queued and a key release stops almost at once.
+        // Process keys a schedule by owner, so the motion tick takes a distinct key.
+
+        static constexpr uint64_t TelemetryTickMs = 50;   // ~20 Hz
+        static constexpr uint64_t MotionTickMs    = 5;    // ~200 Hz
+
+        char motionTickKey = 0;   // distinct scheduler owner for the motion tick
+
+        void startTicking() {
+            Rev::Core::Process::instance().schedule(this,           TelemetryTickMs, [this](uint64_t) { queryStatus(); });
+            Rev::Core::Process::instance().schedule(&motionTickKey, MotionTickMs,    [this](uint64_t) { serviceMotion(); });
+        }
+        void stopTicking() {
+            Rev::Core::Process::instance().unschedule(this);
+            Rev::Core::Process::instance().unschedule(&motionTickKey);
+        }
+
+        // Concrete machines advance their in-progress motion here, every motion tick.
+        virtual void serviceMotion() {}
 
         // ============================================================
         // Commands
@@ -342,5 +410,12 @@ export namespace Machine {
         //--------------------------------------------------
 
         virtual void jog(float /*x*/, float /*y*/, float /*z*/, float /*a*/, int /*feed*/) {}
+
+        // Jog along a direction (per-axis sign) in `quantum`-sized steps at `speed`.
+        // stepJog moves one step; holdJog keeps moving until pauseJog(). The concrete
+        // machine streams absolute goto moves under the hood (see CarveraAir).
+        virtual void stepJog(float /*dx*/, float /*dy*/, float /*dz*/, float /*da*/, float /*quantum*/, int /*speed*/) {}
+        virtual void holdJog(float /*dx*/, float /*dy*/, float /*dz*/, float /*da*/, float /*quantum*/, int /*speed*/) {}
+        virtual void pauseJog() {}
     };
 }

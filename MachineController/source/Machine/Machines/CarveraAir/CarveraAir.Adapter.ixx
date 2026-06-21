@@ -17,8 +17,6 @@ import Machine.Command;
 export namespace Machine::Carvera {
 
     // The Carvera adapter: the only place that knows Carvera's wire dialect.
-    // TODO(threading): Client callbacks fire on a worker thread; emit() crosses
-    // into main-thread state.
     struct Adapter : public Machine::Adapter {
 
         // Transport (composed; deleted first in dtor, joining its worker)
@@ -47,8 +45,8 @@ export namespace Machine::Carvera {
 
             client = new Rev::Client();
 
-            // Keep-alive: poll "?" every second (also drives the status frame)
-            client->setHeartbeat("?", 1000);
+            // Telemetry polling (and thus keep-alive) is driven by the machine's own
+            // service tick now -- the adapter just transports.
 
             // Transport callbacks -> emit on our channels
             client->onConnect   ([this](Rev::Client::ConnectEvent& e)  { emit(Machine::Event::Connection{ Machine::Event::Connection::Status::Connected, e.address }); });
@@ -134,8 +132,8 @@ export namespace Machine::Carvera {
 
                 std::vector<std::string> n = split(val, ',');
 
-                if      (key == "MPos") { fillAxes(val, t.mx, t.my, t.mz, t.ma, t.mb); }
-                else if (key == "WPos") { fillAxes(val, t.wx, t.wy, t.wz, t.wa, t.wb); }
+                if      (key == "MPos") { fillAxes(n, t.mx, t.my, t.mz, t.ma, t.mb); }
+                else if (key == "WPos") { fillAxes(n, t.wx, t.wy, t.wz, t.wa, t.wb); }
                 else if (key == "F") {   // current, cap, override%
                     t.feed = nth(n, 0); t.feedTarget = nth(n, 1); t.feedScale = nth(n, 2);
                 }
@@ -181,7 +179,7 @@ export namespace Machine::Carvera {
             for (const auto& frame : frames) {
                 if (key == frame.key) {
                     out.field = frame.field;
-                    fillAxes(rest, out.x, out.y, out.z, out.a, out.b);
+                    fillAxes(split(rest, ','), out.x, out.y, out.z, out.a, out.b);
                     return true;
                 }
             }
@@ -195,7 +193,7 @@ export namespace Machine::Carvera {
 
             if (key == "PRB") {
                 std::vector<std::string> parts = split(rest, ':');   // "x,y,z" : "flag"
-                fillAxes(parts.empty() ? "" : parts[0], out.x, out.y, out.z, out.a, out.b);
+                fillAxes(split(parts.empty() ? "" : parts[0], ','), out.x, out.y, out.z, out.a, out.b);
                 out.probeTriggered = parts.size() > 1 && toFloat(parts[1]) != 0.0f;
                 out.field = F::Probe;
                 return true;
@@ -213,9 +211,7 @@ export namespace Machine::Carvera {
         }
 
         // Fill as many axes as the list carries
-        static void fillAxes(const std::string& csv, float& x, float& y, float& z, float& a, float& b) {
-
-            std::vector<std::string> n = split(csv, ',');
+        static void fillAxes(const std::vector<std::string>& n, float& x, float& y, float& z, float& a, float& b) {
 
             if (n.size() > 0) { x = toFloat(n[0]); }
             if (n.size() > 1) { y = toFloat(n[1]); }
@@ -268,7 +264,6 @@ export namespace Machine::Carvera {
                 rxBuffer.erase(0, newline + 1);
             }
 
-            // Drain now; eventually the main-thread tick calls process()
             process();
         }
 

@@ -64,6 +64,26 @@ export namespace Machine::Carvera::Command {
         }
     };
 
+    // An absolute move in MACHINE coordinates (G53), used under the hood by the
+    // continuous goto-jog. Only the "active" axes are commanded; the rest hold.
+    struct GoTo : Base {
+        struct Axis { bool active = false; float value = 0.0f; };
+        Axis x, y, z, a;
+        int  feed = 1000;
+
+        GoTo(int feed) : Base(Type::GoTo), feed(feed) {}
+        std::string emit() const override {
+            const struct { char label; const Axis& axis; } axes[] = { {'X', x}, {'Y', y}, {'Z', z}, {'A', a} };
+
+            std::string cmd = "G53 G1";   // feed move, machine coordinates
+            for (const auto& [label, axis] : axes) {
+                if (axis.active) { cmd += std::format(" {}{:.3f}", label, axis.value); }
+            }
+            cmd += std::format(" F{}\n", feed);
+            return cmd;
+        }
+    };
+
     // Queries -- the reply is decoded by the adapter into telemetry / info.
     //--------------------------------------------------
 

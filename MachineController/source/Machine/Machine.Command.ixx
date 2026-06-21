@@ -20,6 +20,7 @@ export namespace Machine::Command {
             Reset,
             Home,
             Jog,
+            GoTo,
             ChangeTool,
 
             // Queries
