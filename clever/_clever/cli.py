@@ -34,6 +34,19 @@ def _load_manifest(args) -> tuple[dict, Path]:
     return manifest, repo
 
 
+def _store_for(args, manifest: dict, repo: Path):
+    """Build the Store, honouring an optional named config: its flag overrides
+    are applied to the manifest and its artifacts isolated under
+    `.clever/<config>` so configs never share objects or caches."""
+    from .store import Store
+    build_dir = args.build_dir
+    cfg = getattr(args, "config", None)
+    if cfg:
+        manifest_mod.apply_config(manifest, cfg)
+        build_dir = str(Path(args.build_dir) / cfg)
+    return Store(repo / build_dir)
+
+
 def cmd_init(args) -> int:
     cmake_build = Path(args.cmake_build).resolve()
     out = _manifest_path(args).resolve()
@@ -113,11 +126,10 @@ def cmd_check(args) -> int:
 
 def cmd_build(args) -> int:
     from . import ladder
-    from .store import Store
     from .builder import Builder
 
     manifest, repo = _load_manifest(args)
-    store = Store(repo / args.build_dir)
+    store = _store_for(args, manifest, repo)
 
     if not args.no_embed:
         _embed_resources(repo, args.verbose)
@@ -184,11 +196,10 @@ def cmd_build(args) -> int:
 
 def cmd_transpile(args) -> int:
     from . import ladder, digest as dg
-    from .store import Store
     from .xbuilder import XBuilder
 
     manifest, repo = _load_manifest(args)
-    store = Store(repo / args.build_dir)
+    store = _store_for(args, manifest, repo)
 
     if not args.no_embed:
         _embed_resources(repo, args.verbose)
@@ -291,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="recompile every translation unit (ignore the baseline)")
     b.add_argument("--run", action="store_true", help="run the executable after a successful build")
     b.add_argument("--target", help="which executable to run (default: first exe)")
+    b.add_argument("--config", help="named build config: artifacts -> .clever/<config>, its overrides applied")
     b.add_argument("--no-embed", action="store_true", help="skip the resource-embed pre-step")
     b.add_argument("-v", "--verbose", action="store_true")
     b.set_defaults(func=cmd_build)
@@ -301,6 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="parallel transpile/compile jobs (default: CPU count)")
     x.add_argument("--run", action="store_true", help="run the executable after a successful build")
     x.add_argument("--target", help="which executable to run (default: first exe)")
+    x.add_argument("--config", help="named build config: artifacts -> .clever/<config>, its overrides applied")
     x.add_argument("--no-embed", action="store_true", help="skip the resource-embed pre-step")
     x.add_argument("-v", "--verbose", action="store_true")
     x.set_defaults(func=cmd_transpile)

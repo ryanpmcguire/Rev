@@ -7,6 +7,7 @@
       "request": "launch",
       "cleverManifest": "auto",
       "cleverJobs": 8,
+      "cleverConfig": "debug",
       "args": [],
       "stopAtEntry": false,
       "console": "internalConsole",

@@ -19,6 +19,11 @@
         "category": "Clever"
       },
       {
+        "command": "clever.changeTarget",
+        "title": "Change Target",
+        "category": "Clever"
+      },
+      {
         "command": "clever.build",
         "title": "Build",
         "category": "Clever"

@@ -6,11 +6,34 @@
     "ranlib": "C:/PROGRA~1/MIB055~1/18/COMMUN~1/VC/Tools/Llvm/x64/bin/llvm-ranlib.exe",
     "std": "c++23"
   },
+
   "comprehend": {
     "extra_args": [
       "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
     ]
   },
+
+  "configs": {
+    "debug": {
+      "defines": ["DEBUG", "_DEBUG"],
+      "compile_flags": [
+        "-O0",
+        "-g",
+        "-Xclang", "-gcodeview",
+        "-Xclang", "--dependent-lib=msvcrtd"
+      ]
+    },
+    "release": {
+      "defines": ["NDEBUG", "_DEBUG"],
+      "compile_flags": [
+        "-O3",
+        "-g",
+        "-Xclang", "-gcodeview",
+        "-Xclang", "--dependent-lib=msvcrtd"
+      ]
+    }
+  },
+
   "targets": [
     {
       "name": "Rev",
@@ -21,23 +44,15 @@
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external"
       ],
       "defines": [
-        "DEBUG",
         "GLEW_STATIC",
         "PLATFORM_OPENGL",
         "PROJECT_ROOT=\"C:/Users/Ryan/Desktop/Ryan/Rev\"",
         "UNICODE",
-        "_DEBUG",
+        "_UNICODE",
         "_DLL",
         "_MT"
       ],
-      "compile_flags": [
-        "-O3",
-        "-g",
-        "-Xclang",
-        "-gcodeview",
-        "-Xclang",
-        "--dependent-lib=msvcrtd"
-      ],
+      "compile_flags": [],
       "sources": [
         { "glob": "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/src/**/*.ixx",
           "exclude": [
@@ -59,22 +74,14 @@
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external"
       ],
       "defines": [
-        "DEBUG",
         "GLEW_STATIC",
         "PLATFORM_OPENGL",
         "UNICODE",
-        "_DEBUG",
+        "_UNICODE",
         "_DLL",
         "_MT"
       ],
-      "compile_flags": [
-        "-O0",
-        "-g",
-        "-Xclang",
-        "-gcodeview",
-        "-Xclang",
-        "--dependent-lib=msvcrtd"
-      ],
+      "compile_flags": [],
       "sources": [
         "C:/Users/Ryan/Desktop/Ryan/Rev/Rev/external/glm/detail/glm.cpp",
         { "glob": "source/**/*.ixx" },

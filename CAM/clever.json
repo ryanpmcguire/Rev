@@ -11,6 +11,16 @@
       "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
     ]
   },
+  "configs": {
+    "debug": {
+      "defines": ["DEBUG", "_DEBUG"],
+      "compile_flags": ["-O0", "-g", "-gcodeview"]
+    },
+    "release": {
+      "defines": ["NDEBUG"],
+      "compile_flags": ["-O2"]
+    }
+  },
   "targets": [
     {
       "name": "Rev",

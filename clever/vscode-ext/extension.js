@@ -19,8 +19,12 @@ const path = require("path");
 
 let channel;        // the dedicated "Clever" Output channel
 let statusItem;     // status-bar indicator of the current project
+let targetItem;     // status-bar indicator of the current build target/config
 let diagnostics;    // clang errors/warnings surfaced in the Problems panel
 let ctx;            // extension context (for workspaceState persistence)
+
+const PINNED_KEY = "clever.currentManifest";
+const CONFIG_KEY = "clever.currentConfig";   // selected build config (or "" = base)
 
 // clang diagnostic line: "<path>:<line>:<col>: error|warning: <message>".
 // The leading drive colon (C:\...) is skipped because it isn't followed by
@@ -56,8 +60,6 @@ function updateDiagnostics(text) {
   }
   for (const b of byFile.values()) diagnostics.set(b.uri, b.items);
 }
-
-const PINNED_KEY = "clever.currentManifest";
 
 function getChannel() {
   if (!channel) channel = vscode.window.createOutputChannel("Clever");
@@ -101,13 +103,14 @@ function getActiveManifest() {
 }
 
 // Read a manifest and locate its executable target -> {program, cwd}.
-// exe lives at <manifestDir>/.clever/out/<target.output>.
-function deriveExe(manifest) {
+// exe lives at <manifestDir>/.clever[/<config>]/out/<target.output>.
+function deriveExe(manifest, config) {
   try {
     const m = JSON.parse(fs.readFileSync(manifest, "utf8"));
     const exe = (m.targets || []).find((t) => t.kind === "exe");
     if (!exe || !exe.output) return undefined;
-    const program = path.join(path.dirname(manifest), ".clever", "out", exe.output);
+    const sub = config ? path.join(".clever", config) : ".clever";
+    const program = path.join(path.dirname(manifest), sub, "out", exe.output);
     return { program, cwd: path.dirname(program) };
   } catch (e) {
     return undefined;
@@ -116,6 +119,23 @@ function deriveExe(manifest) {
 
 function projectName(manifest) {
   return manifest ? path.basename(path.dirname(manifest)) : undefined;
+}
+
+// Names of the configs a manifest declares (the build "targets" you pick from).
+function manifestConfigs(manifest) {
+  try {
+    return Object.keys(JSON.parse(fs.readFileSync(manifest, "utf8")).configs || {});
+  } catch (e) {
+    return [];
+  }
+}
+
+// The selected config, but only if the current project actually declares it
+// (so a config picked for one project doesn't break F5 in another). "" = base.
+function activeConfig(manifest) {
+  const sel = ctx.workspaceState.get(CONFIG_KEY) || "";
+  if (sel && manifest && !manifestConfigs(manifest).includes(sel)) return "";
+  return sel;
 }
 
 function updateStatus() {
@@ -135,11 +155,18 @@ function updateStatus() {
       "\nClick to pin a project";
   }
   statusItem.show();
+
+  if (targetItem) {
+    const cfg = activeConfig(active);
+    targetItem.text = "$(layers) " + (cfg || "base");
+    targetItem.tooltip = "Clever build target for F5 (click to change)";
+    if (name) targetItem.show(); else targetItem.hide();
+  }
 }
 
 // Run `clever transpile <manifest>` from the workspace root, streaming all
 // output into the Clever channel. Resolves true on exit code 0.
-function runBuild(cwd, manifest, jobs) {
+function runBuild(cwd, manifest, jobs, config) {
   return new Promise((resolve) => {
     const ch = getChannel();
     ch.clear();
@@ -149,6 +176,7 @@ function runBuild(cwd, manifest, jobs) {
       "clever/clever.py", "transpile", manifest, "--no-embed",
       "-j" + (jobs || 8),
     ];
+    if (config) args.push("--config", config);
     ch.appendLine("> python " + args.join(" "));
     ch.appendLine("");
     let buf = "";
@@ -181,6 +209,10 @@ function activate(context) {
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusItem.command = "clever.setCurrent";
   context.subscriptions.push(statusItem);
+
+  targetItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
+  targetItem.command = "clever.changeTarget";
+  context.subscriptions.push(targetItem);
   updateStatus();
   // Keep the (auto) indicator fresh as the user moves between files.
   context.subscriptions.push(
@@ -208,6 +240,30 @@ function activate(context) {
     })
   );
 
+  // "Clever: Change Target" — pick which build config (debug/release/apple/…)
+  // F5 builds and debugs. Choices come from the current manifest's `configs`.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("clever.changeTarget", async () => {
+      const manifest = getActiveManifest();
+      if (!manifest) {
+        vscode.window.showErrorMessage(
+          "Clever: no current project — open a file in one or run 'Clever: Set Current'.");
+        return;
+      }
+      const items = [{ label: "base", description: "no config — .clever/", val: "" }];
+      for (const n of manifestConfigs(manifest)) {
+        items.push({ label: n, description: ".clever/" + n, val: n });
+      }
+      const pick = await vscode.window.showQuickPick(items, {
+        placeHolder: "Clever build target for F5 (" + projectName(manifest) + ")",
+      });
+      if (!pick) return;
+      await ctx.workspaceState.update(CONFIG_KEY, pick.val);
+      updateStatus();
+      vscode.window.showInformationMessage("Clever target: " + (pick.val || "base"));
+    })
+  );
+
   // "Clever: Build" — build the current project (no prompt when one is active).
   context.subscriptions.push(
     vscode.commands.registerCommand("clever.build", async () => {
@@ -217,7 +273,7 @@ function activate(context) {
           "Clever: no current project — open a file in one or run 'Clever: Set Current'.");
         return;
       }
-      await runBuild(workspaceRoot(), manifest);
+      await runBuild(workspaceRoot(), manifest, undefined, activeConfig(manifest) || undefined);
     })
   );
 
@@ -235,7 +291,17 @@ function activate(context) {
           "Clever: no current project to debug — run 'Clever: Set Current'.");
         return undefined;
       }
-      const ok = await runBuild(workspaceRoot(folder), manifest, config.cleverJobs);
+      // Target precedence: the command-selected config (workspaceState) wins;
+      // on first use it's seeded from the launch config's cleverConfig default.
+      let cfg = ctx.workspaceState.get(CONFIG_KEY);
+      if (cfg === undefined) {
+        cfg = config.cleverConfig || "";
+        await ctx.workspaceState.update(CONFIG_KEY, cfg);
+        updateStatus();
+      }
+      if (cfg && !manifestConfigs(manifest).includes(cfg)) cfg = "";  // not in this project
+      const ok = await runBuild(workspaceRoot(folder), manifest, config.cleverJobs,
+                                cfg || undefined);
       if (!ok) {
         vscode.window.showErrorMessage(
           "Clever build failed — see the Clever output channel.");
@@ -243,7 +309,7 @@ function activate(context) {
       }
       // Fill in program/cwd from the manifest when the config didn't pin them.
       if (!config.program) {
-        const exe = deriveExe(manifest);
+        const exe = deriveExe(manifest, cfg || undefined);
         if (!exe) {
           vscode.window.showErrorMessage(
             "Clever: no exe target found in " + manifest);

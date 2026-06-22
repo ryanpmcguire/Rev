@@ -208,3 +208,35 @@ def load(path: Path) -> dict:
         if "sources" in t:
             t["sources"] = _expand_sources(t["sources"], t.get("exclude", []), root)
     return manifest
+
+
+def apply_config(manifest: dict, name: str) -> None:
+    """Apply a named build configuration in place. A config lives under the
+    manifest's top-level `configs` map and may carry `defines` / `compile_flags`
+    (appended to every target), `link_flags` (appended to exe targets), and a
+    `compiler` object (merged over the global one, e.g. a cross-compiler for an
+    'apple' config). Artifacts are isolated per config by the caller, which
+    points the build dir at `.clever/<name>` -- so each config keeps its own
+    objects and cache and never disturbs another.
+
+    With no `configs` map, the name selects only the output folder (no flag
+    changes). With a `configs` map, an unknown name is an error (typo guard)."""
+    configs = manifest.get("configs", {})
+    if not configs:
+        return
+    cfg = configs.get(name)
+    if cfg is None:
+        raise RuntimeError(
+            f"config '{name}' not found; available: {', '.join(sorted(configs)) or '(none)'}")
+    if cfg.get("compiler"):
+        manifest.setdefault("compiler", {}).update(cfg["compiler"])
+    add_def = cfg.get("defines", [])
+    add_cf = cfg.get("compile_flags", [])
+    add_lf = cfg.get("link_flags", [])
+    for t in manifest.get("targets", []):
+        if add_def:
+            t["defines"] = list(t.get("defines", [])) + list(add_def)
+        if add_cf:
+            t["compile_flags"] = list(t.get("compile_flags", [])) + list(add_cf)
+        if add_lf and t.get("kind") == "exe":
+            t["link_flags"] = list(t.get("link_flags", [])) + list(add_lf)
