@@ -5,6 +5,7 @@ module;
 
 export module Machine.Machines.Carvera.Commands;
 
+import Machine.Base;
 import Machine.Command;
 
 // The Carvera command vocabulary: one struct per command, each emit()s its wire
@@ -12,6 +13,7 @@ import Machine.Command;
 // Machine::Command::CommandBase. Reference them as Carvera::Command::Unlock, ...
 export namespace Machine::Carvera::Command {
 
+    using namespace Machine::Command;
     using Base = Machine::Command::CommandBase;
 
     // Actions
@@ -38,24 +40,26 @@ export namespace Machine::Carvera::Command {
         std::string emit() const override { return "M6 T" + std::to_string(tool) + "\n"; }
     };
 
-    // An absolute move in MACHINE coordinates (G53), streamed under the hood by the
-    // jog. Only the "active" axes are commanded; the rest hold.
+    // Set the modal feedrate (mm/min). Persists on the machine for the moves that
+    // follow, so motion commands stay purely geometric.
+    struct Feed : Base {
+        int rate = 1000;
+        Feed(int rate) : Base(Command::Type::Feed), rate(rate) {}
+        std::string emit() const override { return std::format("F{}\n", rate); }
+        void applyImplied(Implied& imp) const override { imp.feed = rate; }
+    };
+
+    // An absolute move to a target in MACHINE coordinates (G53). Every axis is
+    // commanded; an axis already at its target simply doesn't move. Feed is modal
+    // (see Feed), not carried here.
     struct GoTo : Base {
-        struct Axis { bool active = false; float value = 0.0f; };
-        Axis x, y, z, a;
-        int  feed = 1000;
-
-        GoTo(int feed) : Base(Type::GoTo), feed(feed) {}
+        Coord target;
+        GoTo(Coord target) : Base(Command::Type::GoTo), target(target) {}
         std::string emit() const override {
-            const struct { char label; const Axis& axis; } axes[] = { {'X', x}, {'Y', y}, {'Z', z}, {'A', a} };
-
-            std::string cmd = "G53 G1";   // feed move, machine coordinates
-            for (const auto& [label, axis] : axes) {
-                if (axis.active) { cmd += std::format(" {}{:.3f}", label, axis.value); }
-            }
-            cmd += std::format(" F{}\n", feed);
-            return cmd;
+            return std::format("G53 G1 X{:.3f} Y{:.3f} Z{:.3f} A{:.3f}\n",
+                               target.x, target.y, target.z, target.a);
         }
+        void applyImplied(Implied& imp) const override { imp.pos = target; }
     };
 
     // Queries -- the reply is decoded by the adapter into telemetry / info.

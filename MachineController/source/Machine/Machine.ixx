@@ -9,6 +9,8 @@ export module Machine.Base;
 import Rev.Core.Dispatcher;
 import Rev.Core.Process;
 
+export import Machine.Types;   // Coord / Implied (re-exported for our consumers)
+
 import Machine.Events;
 import Machine.Command;
 import Machine.Operation;
@@ -19,9 +21,6 @@ export namespace Machine {
     // A no-payload channel ping ("something here changed, go read it"). Carries
     // nothing; it is the payload type of the SignalChannel notify channels below.
     struct Signal {};
-
-    // A coordinate / offset (linear X/Y/Z + rotary A,B)
-    struct Coord { float x = 0, y = 0, z = 0, a = 0, b = 0; };
 
     // A no-payload notification channel: "something here changed, go read it".
     // Subscribers attach AS an owner so they can drop their subscription on death.
@@ -249,56 +248,67 @@ export namespace Machine {
         // The machine's work queue (FIFO; front runs). Owns the adapter and its tick.
         struct Operations {
 
-            std::vector<Operation::OperationBase*> queue;   // pending + running (owned, FIFO)
-
             Adapter* adapter = nullptr;
-            static constexpr uint64_t TickMs = 5;   // ~200 Hz
+            static constexpr uint64_t tickMs = 5;   // ~200 Hz
+
+            // Operation queue + current pointer
+            std::vector<Operation::OperationBase*> queue;
+            Operation::OperationBase* current = nullptr;
+
+            // Implied telemetry threaded across operations: mirrors the running op as
+            // it executes, and seeds each newly queued op with a starting point.
+            Implied implied;
 
             SignalChannel updateChannel;   // queue / current / progress changed
+
+            Operations() {}
+            ~Operations() { stop(); for (auto* op : queue) { delete op; } }
+
             void onUpdate(void* owner, std::function<void()> f) { updateChannel.on(owner, std::move(f)); }
             void unsubscribe(void* owner) { updateChannel.unsubscribe(owner); }
 
-            ~Operations() { stop(); for (auto* op : queue) { delete op; } }
+            // Run the queue on our own tick.
+            void start() { Rev::Core::Process::instance().schedule(this, tickMs, [this](uint64_t now) { tick(now); }); }
+            void stop()  { Rev::Core::Process::instance().unschedule(this); }
 
-            // The running operation (front of the queue), or null.
-            Operation::OperationBase* current() const { return queue.empty() ? nullptr : queue.front(); }
-
-            // Queue a new operation; it runs once it reaches the front.
+            // Queue a new operation; it runs once it reaches the front. Seed it with
+            // our implied telemetry so it starts inferring from where we left off.
             void enqueue(Operation::OperationBase* op) {
+                op->implied = implied;
                 queue.push_back(op);
+                if (!current) { current = op; }   // nothing was running -- it runs now
                 updateChannel.notify();
             }
 
-            // Run the queue on our own tick.
-            void start() { Rev::Core::Process::instance().schedule(this, TickMs, [this](uint64_t now) { tick(now); }); }
-            void stop()  { Rev::Core::Process::instance().unschedule(this); }
-
-            // Tick the current operation, then retire it once finished.
-            void tick(uint64_t now) {
-
-                if (!adapter) { return; }
-
-                Operation::OperationBase* op = current();
-                if (!op) { return; }
-
-                op->tick(*adapter, now);
-
-                if (op->finished()) { advance(); }
-            }
-
-            // Retire the finished front; the next operation becomes current.
             void advance() {
+
                 if (queue.empty()) { return; }
                 delete queue.front();
+
                 queue.erase(queue.begin());
+                current = queue.empty() ? nullptr : queue.front();
                 updateChannel.notify();
             }
 
             // Drop everything (e.g. on disconnect / abort).
             void clear() {
+
                 for (auto* op : queue) { delete op; }
                 queue.clear();
+
+                current = nullptr;
                 updateChannel.notify();
+            }
+
+            // Tick the current operation, then retire it once finished.
+            void tick(uint64_t now) {
+
+                if (!adapter || !current) { return; }
+
+                current->tick(*adapter, now);
+                implied = current->implied;   // track the running op's implied state
+
+                if (current->finished()) { advance(); }
             }
         };
 
@@ -315,13 +325,19 @@ export namespace Machine {
 
         bool connected() const { return info.network.isConnected(); }
 
+        // Resync the operations' implied telemetry to the real machine on the next
+        // status frame. Raised when the position reference is (re-)established --
+        // connect / unlock / reset -- and consumed in the telemetry route below.
+        bool impliedResyncPending = false;
+        void requestImpliedResync() { impliedResyncPending = true; }
+
         // Construct / destruct
         //--------------------------------------------------
 
         // Telemetry + motion tick, alive only while connected (started/stopped by
         // the network's own connect channels).
         MachineBase() {
-            info.network.onConnect   (this, [this]() { startTicking(); });
+            info.network.onConnect   (this, [this]() { requestImpliedResync(); startTicking(); });
             info.network.onDisconnect(this, [this]() { stopTicking(); operations.clear(); });
         }
         virtual ~MachineBase() { stopTicking(); }
@@ -350,7 +366,13 @@ export namespace Machine {
             operations.adapter = a;   // the queue pumps through this link
 
             adapter->onConnection([this](Event::Connection& e) { info.network.apply(e); });
-            adapter->onTelemetry ([this](Event::Telemetry&  e) { telemetry.apply(e); });
+            adapter->onTelemetry ([this](Event::Telemetry&  e) {
+                telemetry.apply(e);
+                if (impliedResyncPending) {   // first real position since a (re-)established reference
+                    operations.implied.pos = telemetry.spindle.pos;
+                    impliedResyncPending = false;
+                }
+            });
             adapter->onInfo      ([this](Event::Info&       e) { info.apply(e); });
             adapter->onState     ([this](Event::State&      e) { stateDispatcher.tell(&MachineBase::stateKey, e); });
             adapter->onLog       ([this](Event::Log&        e) { logDispatcher.tell(&MachineBase::logKey, e); });
@@ -420,9 +442,10 @@ export namespace Machine {
         // Motion commands
         //--------------------------------------------------
 
-        // Influence the current jog: go in direction (per-axis sign) at `speed`,
-        // auto-cancelling after `autoCancelMm` if not renewed. Driven repeatedly by
+        // Submit a jog: `direction` carries per-axis signs (-1 / 0 / +1), with the
+        // step magnitudes in `stepMm` / `stepDeg` and `continuous` selecting a
+        // keep-moving-while-held jog over a single stepwise move. Driven repeatedly by
         // the GUI; the machine never continues a jog on its own.
-        virtual void jog(float /*dx*/, float /*dy*/, float /*dz*/, float /*da*/, float /*autoCancelMm*/, int /*speed*/) {}
+        virtual void jog(Coord /*direction*/, float /*stepMm*/, float /*stepDeg*/, bool /*continuous*/) {}
     };
 }

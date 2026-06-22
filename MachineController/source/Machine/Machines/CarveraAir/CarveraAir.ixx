@@ -41,22 +41,6 @@ export namespace Machine {
             delete carveraAdapter;
         }
 
-        // Actions
-        //--------------------------------------------------
-
-        void unlock()          override { if (adapter) { adapter->sendCommand(Carvera::Command::Unlock{}); } }
-        void reset()           override { if (adapter) { adapter->sendCommand(Carvera::Command::Reset{}); } }
-        void home()            override { if (adapter) { adapter->sendCommand(Carvera::Command::Home{}); } }
-        void changeTool(int n) override { if (adapter) { adapter->sendCommand(Carvera::Command::ChangeTool{ n }); } }
-
-        // Jog -- thin: influence the running jog, or open one if nothing is running
-        //--------------------------------------------------
-
-        void jog(float dx, float dy, float dz, float da, float autoCancelMm, int speed) override {
-
-            
-        }
-
         // Queries (queryAll() lives on MachineBase and calls these)
         //--------------------------------------------------
 
@@ -65,5 +49,33 @@ export namespace Machine {
         void queryState()      override { if (adapter) { adapter->sendCommand(Carvera::Command::QueryState{}); } }
         void querySwitches()   override { if (adapter) { adapter->sendCommand(Carvera::Command::QuerySwitches{}); } }
         void queryVersion()    override { if (adapter) { adapter->sendCommand(Carvera::Command::QueryVersion{}); } }
+
+        // Actions
+        //--------------------------------------------------
+
+        void unlock()          override { if (adapter) { adapter->sendCommand(Carvera::Command::Unlock{}); } requestImpliedResync(); }
+        void reset()           override { if (adapter) { adapter->sendCommand(Carvera::Command::Reset{}); }  requestImpliedResync(); }
+        void home()            override { if (adapter) { adapter->sendCommand(Carvera::Command::Home{}); } }
+        void changeTool(int n) override { if (adapter) { adapter->sendCommand(Carvera::Command::ChangeTool{ n }); } }
+
+        // Jog -- thin: influence the running jog, or open one if nothing is running
+        //--------------------------------------------------
+
+        void jog(Coord direction, float stepMm, float stepDeg, bool hold) override {
+
+            // A non-jog operation owns the machine -- don't interrupt it.
+            Operation::OperationBase* op = operations.current;
+            if (op && op->type != Operation::Type::Jog) { return; }
+
+            // No jog running -- open one (enqueue seeds its implied from the manager's,
+            // which is resync'd to the machine on connect / unlock / reset).
+            if (!op) {
+                op = new Carvera::Operation::Jog();
+                operations.enqueue(op);
+            }
+
+            // Feed the live jog its new direction / step / hold.
+            static_cast<Carvera::Operation::Jog*>(op)->setDir(direction, stepMm, stepDeg, hold);
+        }
     };
 }

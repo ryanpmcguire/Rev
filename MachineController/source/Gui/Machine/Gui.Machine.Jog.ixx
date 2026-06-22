@@ -5,6 +5,8 @@ module;
 #include <vector>
 #include <array>
 
+#include <dbg.hpp>
+
 export module Gui.Machine.Jog;
 
 import Rev.Element;
@@ -13,7 +15,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Button;
 
-import Rev.Core.Process;
+import Rev.Core.Animator;
 
 import Machine.Base;
 import Gui.Machine.Connect;   // reuse hover / press / label button styles
@@ -133,10 +135,9 @@ export namespace Gui {
             { 0.01f, 0.1f }, { 0.1f, 0.5f }, { 0.5f, 1.0f }, { 1.0f, 5.0f }, { 5.0f, 15.0f }, { 10.0f, 30.0f }
         };
 
-        float stepMm  = 1.0f;            // the selected step: jog quantization + speed dial
-        float stepDeg = 5.0f;
-
-        // Track jog intent: the intended directions plus the step magnitude of the move.
+        // Track jog intent: the intended directions plus the step magnitude of the
+        // move. The selected step (jog quantization + speed dial) lives here too, in
+        // intent.stepMm / intent.stepDeg -- there is no separate copy on the element.
         struct Intent {
 
             // Bool map (seems stupid but is necessary)
@@ -145,17 +146,33 @@ export namespace Gui {
             bool  zPos = false, zNeg = false;
             bool  aPos = false, aNeg = false;
 
-            float stepMm = 0.0f, stepDeg = 0.0f;
+            float stepMm = 1.0f, stepDeg = 5.0f;
+
+            // Hold the jog: repeat it while the input is held (Shift). When false the
+            // jog is a single one-shot move -- sent once, not animated.
+            bool hold = false;
 
             bool rotary() const { return aPos || aNeg; }
+            bool moving() const { return xPos || xNeg || yPos || yNeg || zPos || zNeg || aPos || aNeg; }
 
-            // Create actual motion vector from bool map
-            Machine::Coord getMotion() const {
+            // A direction held now that was not held in `prev` -- i.e. a new keypress.
+            // Drives the immediate (unheld) dispatch so pressing a key while another
+            // is held still sends the new combined intent.
+            bool newPress(const Intent& prev) const {
+                return (xPos && !prev.xPos) || (xNeg && !prev.xNeg)
+                    || (yPos && !prev.yPos) || (yNeg && !prev.yNeg)
+                    || (zPos && !prev.zPos) || (zNeg && !prev.zNeg)
+                    || (aPos && !prev.aPos) || (aNeg && !prev.aNeg);
+            }
+
+            // The intended direction as per-axis signs (-1 / 0 / +1); the step
+            // magnitudes travel alongside in stepMm / stepDeg.
+            Machine::Coord direction() const {
                 return {
-                    .x = (xPos - xNeg) * stepMm,
-                    .y = (yPos - yNeg) * stepMm,
-                    .z = (zPos - zNeg) * stepMm,
-                    .a = (aPos - aNeg) * stepDeg,
+                    .x = float(xPos - xNeg),
+                    .y = float(yPos - yNeg),
+                    .z = float(zPos - zNeg),
+                    .a = float(aPos - aNeg),
                 };
             }
         };
@@ -163,6 +180,12 @@ export namespace Gui {
         Intent intent;   // the unified intent currently reflected onto the keys
 
         std::string stepText;   // the step readout currently shown (so it only re-sets on change)
+
+        // The jog is pushed to the machine on this cadence, but only while there is
+        // motion to drive: the animator plays on the leading edge of intent and stops
+        // when it clears, so nothing ticks at rest.
+        static constexpr uint64_t JogIntervalMs = 100;
+        Rev::Core::Animator jogAnimator{ JogIntervalMs };
 
         // The direction each jog key drives. update() (reads press flags) and
         // reflect() (highlights) both walk this, so the mapping lives in one place.
@@ -202,8 +225,6 @@ export namespace Gui {
                 { aPlus, &Intent::aPos }, { aMinus, &Intent::aNeg },
             }};
 
-            intent.stepMm = stepMm;  intent.stepDeg = stepDeg;
-
             stepRow = new Box(this, { &StepRow }, "StepRow");
                 new Text(stepRow, "step", { &StepLabel });
                 stepText  = formatStep(intent);
@@ -221,14 +242,15 @@ export namespace Gui {
             stepDown->onClick([this](Event& e) { adjustStep(-1); update(e); });
             stepUp  ->onClick([this](Event& e) { adjustStep(+1); update(e); });
 
-            // Reserved for driving the machine from the intent.
-            Rev::Core::Process::instance().schedule(this, 16, [this](uint64_t) { animate(); });
+            // While playing, the animator re-sends the held jog each frame; update()
+            // plays / stops it as the intent gains / loses motion.
+            jogAnimator.onFrame([this](Rev::Core::AnimationEvent&) { sendJog(intent); });
         }
 
         // Destroy
         //--------------------------------------------------
 
-        ~JogSection() { Rev::Core::Process::instance().unschedule(this); }
+        ~JogSection() { jogAnimator.stop(); }
 
         // Builders
         //--------------------------------------------------
@@ -249,12 +271,12 @@ export namespace Gui {
 
             const StepPreset* best = nullptr;
             for (const StepPreset& p : StepPresets) {
-                if (delta > 0 && p.mm > stepMm && (!best || p.mm < best->mm)) { best = &p; }
-                if (delta < 0 && p.mm < stepMm && (!best || p.mm > best->mm)) { best = &p; }
+                if (delta > 0 && p.mm > intent.stepMm && (!best || p.mm < best->mm)) { best = &p; }
+                if (delta < 0 && p.mm < intent.stepMm && (!best || p.mm > best->mm)) { best = &p; }
             }
 
-            if (best) { stepMm = best->mm; stepDeg = best->deg; }
-            // The readout follows from the intent; animate() picks up the new step.
+            if (best) { intent.stepMm = best->mm; intent.stepDeg = best->deg; }
+            // The readout follows from the intent; the next sendJog() uses the new step.
         }
 
         // The step readout: the linear step always, plus the rotary step when a
@@ -307,14 +329,31 @@ export namespace Gui {
             Intent next;
             for (const Bind& b : binds) { next.*(b.dir) = b.btn->targetFlags.press; }
             addKeyboard(next, e);
-            next.stepMm = stepMm;  next.stepDeg = stepDeg;
+            next.stepMm = intent.stepMm;  next.stepDeg = intent.stepDeg;
+            next.hold = e.keyboard.shift;   // Shift == hold (repeat) the jog
 
             reflect(next);
+
+            // 1. Only a held jog runs the animator; otherwise it never ticks.
+            if (next.hold && next.moving()) { jogAnimator.play(); }
+            else { jogAnimator.stop(); }
+
+            // 2. Unheld: each new keypress immediately dispatches a one-shot jog built
+            //    from the new intent (a synthetic Coord). Releases don't dispatch.
+            if (!next.hold && next.newPress(intent)) { sendJog(next); }
+
+            // Commit the new intent -- the animator reads it while a hold is playing.
             intent = next;
         }
 
-        // Per-frame hook, reserved for driving the machine from the intent.
-        void animate() {}
+        // One jog submission for the given intent: the held jog the animator pumps
+        // each frame, or a synthetic one-shot for an immediate (unheld) keypress.
+        void sendJog(const Intent& it) {
+
+            dbg("sending jog");
+
+            machine.jog(it.direction(), it.stepMm, it.stepDeg, it.hold);
+        }
 
         // Reflect the intent: highlight each key whose direction just turned on,
         // un-highlight each that turned off. Diffed against the current intent so
