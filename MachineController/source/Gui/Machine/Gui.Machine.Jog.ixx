@@ -2,6 +2,8 @@ module;
 
 #include <string>
 #include <format>
+#include <vector>
+#include <array>
 
 export module Gui.Machine.Jog;
 
@@ -84,6 +86,13 @@ export namespace Gui {
 
         static inline Style ZHalfGap = { .size = { .height = 4_px } };
 
+        // Highlight applied to a key while its direction is part of the current
+        // jog intent. Added last so it wins over the base / hover / press fills.
+        static inline Style JogActive = {
+            .background = { .color = rgba(128, 206, 230, 0.28), .transition = 120_ms },
+            .border     = { .color = rgba(128, 206, 230, 0.90), .width = 1_px, .transition = 120_ms }
+        };
+
         static inline Style StepRow = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False, CrossAlign::True },
             .size   = { .width = 100_pct },
@@ -117,22 +126,48 @@ export namespace Gui {
 
         Machine::MachineBase& machine;
 
-        static constexpr float StepPresets[] = { 0.01f, 0.1f, 0.5f, 1.0f, 5.0f, 10.0f };
-        static constexpr int   StepCount     = 6;
+        // Step presets, paired so the linear (mm) and rotary (deg) steps move
+        // together. Kept sorted by mm -- adjustStep walks to the neighbouring entry.
+        struct StepPreset { float mm, deg; };
+        static inline const std::vector<StepPreset> StepPresets = {
+            { 0.01f, 0.1f }, { 0.1f, 0.5f }, { 0.5f, 1.0f }, { 1.0f, 5.0f }, { 5.0f, 15.0f }, { 10.0f, 30.0f }
+        };
 
-        int   stepIndex = 3;             // -> 1.0 mm
-        float stepMm    = 1.0f;          // the selected step: jog quantization + speed dial
+        float stepMm  = 1.0f;            // the selected step: jog quantization + speed dial
+        float stepDeg = 5.0f;
 
-        // The step sets the feed; Ctrl drops it an order of magnitude (finer + slower).
-        int jogSpeed(bool ctrl) const { return static_cast<int>(stepMm * 600.0f * (ctrl ? 0.1f : 1.0f)); }
+        // Track jog intent: the intended directions plus the step magnitude of the move.
+        struct Intent {
 
-        // Auto-cancel distance: ~this much motion time, scaled to the feed.
-        static constexpr float AutoCancelMs = 150.0f;
-        float autoCancel(int speed) const { return speed / 60.0f * (AutoCancelMs / 1000.0f); }
+            // Bool map (seems stupid but is necessary)
+            bool  xPos = false, xNeg = false;
+            bool  yPos = false, yNeg = false;
+            bool  zPos = false, zNeg = false;
+            bool  aPos = false, aNeg = false;
 
-        // Held inputs. Mouse holds one key's direction; the keyboard tracks the arrows.
-        float mDirX = 0, mDirY = 0, mDirZ = 0, mDirA = 0;
-        bool  kLeft = false, kRight = false, kUp = false, kDown = false, kAlt = false, kCtrl = false;
+            float stepMm = 0.0f, stepDeg = 0.0f;
+
+            bool rotary() const { return aPos || aNeg; }
+
+            // Create actual motion vector from bool map
+            Machine::Coord getMotion() const {
+                return {
+                    .x = (xPos - xNeg) * stepMm,
+                    .y = (yPos - yNeg) * stepMm,
+                    .z = (zPos - zNeg) * stepMm,
+                    .a = (aPos - aNeg) * stepDeg,
+                };
+            }
+        };
+
+        Intent intent;   // the unified intent currently reflected onto the keys
+
+        std::string stepText;   // the step readout currently shown (so it only re-sets on change)
+
+        // The direction each jog key drives. update() (reads press flags) and
+        // reflect() (highlights) both walk this, so the mapping lives in one place.
+        struct Bind { Button* btn; bool Intent::* dir; };
+        std::array<Bind, 8> binds{};
 
         // Create
         //--------------------------------------------------
@@ -145,36 +180,48 @@ export namespace Gui {
             grid = new Box(this, { &Grid }, "JogGrid");
 
                 Box* row0 = new Box(grid, { &GridRow }, "Row0");
-                    aMinus = key(row0, "A-");  yPlus = key(row0, "+Y");  aPlus = key(row0, "A+");
+                    aMinus = JogButton(row0, "A-");  yPlus = JogButton(row0, "+Y");  aPlus = JogButton(row0, "A+");
 
                 Box* row1 = new Box(grid, { &GridRow }, "Row1");
-                    xMinus = key(row1, "-X");
+                    xMinus = JogButton(row1, "-X");
 
                     zCell = new Box(row1, { &ZCell }, "ZCell");
-                        zPlus = zKey(zCell, "+Z");
+                        zPlus = JogButton(zCell, "+Z", &ZHalfBtn);
                         new Box(zCell, { &ZHalfGap }, "ZGap");
-                        zMinus = zKey(zCell, "-Z");
+                        zMinus = JogButton(zCell, "-Z", &ZHalfBtn);
 
-                    xPlus = key(row1, "+X");
+                    xPlus = JogButton(row1, "+X");
 
                 Box* row2 = new Box(grid, { &GridRow }, "Row2");
-                    stepDown = key(row2, "-");  yMinus = key(row2, "-Y");  stepUp = key(row2, "+");
+                    stepDown = key(row2, "-");  yMinus = JogButton(row2, "-Y");  stepUp = key(row2, "+");
+
+            binds = {{
+                { xPlus, &Intent::xPos }, { xMinus, &Intent::xNeg },
+                { yPlus, &Intent::yPos }, { yMinus, &Intent::yNeg },
+                { zPlus, &Intent::zPos }, { zMinus, &Intent::zNeg },
+                { aPlus, &Intent::aPos }, { aMinus, &Intent::aNeg },
+            }};
+
+            intent.stepMm = stepMm;  intent.stepDeg = stepDeg;
 
             stepRow = new Box(this, { &StepRow }, "StepRow");
                 new Text(stepRow, "step", { &StepLabel });
-                stepValue = new Text(stepRow, formatStep(), { &StepValue });
+                stepText  = formatStep(intent);
+                stepValue = new Text(stepRow, stepText, { &StepValue });
 
-            // Press-and-hold a key to set the mouse jog direction.
-            mouseHold(xPlus, +1,  0,  0,  0);  mouseHold(xMinus, -1,  0,  0,  0);
-            mouseHold(yPlus,  0, +1,  0,  0);  mouseHold(yMinus,  0, -1,  0,  0);
-            mouseHold(zPlus,  0,  0, +1,  0);  mouseHold(zMinus,  0,  0, -1,  0);
-            mouseHold(aPlus,  0,  0,  0, +1);  mouseHold(aMinus,  0,  0,  0, -1);
+            // Arrows jog while the section is focused.
+            tabStop = true;
 
-            // Step corners cycle the preset.
-            stepDown->onClick([this](Event&) { adjustStep(-1); });
-            stepUp  ->onClick([this](Event&) { adjustStep(+1); });
+            // Re-derive the intent whenever the held inputs could have changed.
+            onKeyDown  ([this](Event& e) { update(e); });
+            onKeyUp    ([this](Event& e) { update(e); });
+            onLoseFocus([this](Event& e) { update(e); });
 
-            // Drive the machine from the live input state every frame.
+            // Step corners cycle the preset, then refresh the readout.
+            stepDown->onClick([this](Event& e) { adjustStep(-1); update(e); });
+            stepUp  ->onClick([this](Event& e) { adjustStep(+1); update(e); });
+
+            // Reserved for driving the machine from the intent.
             Rev::Core::Process::instance().schedule(this, 16, [this](uint64_t) { animate(); });
         }
 
@@ -193,64 +240,98 @@ export namespace Gui {
                 { &JogBtn, &ConnectSection::BtnHover, &ConnectSection::BtnPress });
         }
 
-        // A half-height key for the stacked Z cell.
-        Button* zKey(Element* parent, const std::string& label) {
-            return new Button(parent,
-                { .label = label, .labelStyles = { &ConnectSection::BtnLabel } },
-                { &ZHalfBtn, &ConnectSection::BtnHover, &ConnectSection::BtnPress });
-        }
-
         // Step
         //--------------------------------------------------
 
+        // Step to the neighbouring preset by mm: up -> the next greater entry,
+        // down -> the previous lesser. A rare action, so a linear scan is fine.
         void adjustStep(int delta) {
-            stepIndex += delta;
-            if (stepIndex < 0)          { stepIndex = 0; }
-            if (stepIndex >= StepCount) { stepIndex = StepCount - 1; }
-            stepMm = StepPresets[stepIndex];
-            stepValue->setContent(formatStep());
+
+            const StepPreset* best = nullptr;
+            for (const StepPreset& p : StepPresets) {
+                if (delta > 0 && p.mm > stepMm && (!best || p.mm < best->mm)) { best = &p; }
+                if (delta < 0 && p.mm < stepMm && (!best || p.mm > best->mm)) { best = &p; }
+            }
+
+            if (best) { stepMm = best->mm; stepDeg = best->deg; }
+            // The readout follows from the intent; animate() picks up the new step.
         }
 
-        std::string formatStep() const { return std::format("{:g} mm", stepMm); }
+        // The step readout: the linear step always, plus the rotary step when a
+        // rotary axis is part of the intended move.
+        std::string formatStep(const Intent& it) const {
+            std::string s = std::format("{:g} mm", it.stepMm);
+            if (it.rotary()) { s += std::format("  {:g} deg", it.stepDeg); }
+            return s;
+        }
 
         // Input
         //--------------------------------------------------
 
-        // Mouse: hold a key to drive that direction; release / leave clears it.
-        void mouseHold(Button* key, float dx, float dy, float dz, float da) {
-            key->onMouseDown ([this, dx, dy, dz, da](Event&) { mDirX = dx; mDirY = dy; mDirZ = dz; mDirA = da; });
-            key->onMouseUp   ([this](Event&) { mDirX = mDirY = mDirZ = mDirA = 0; });
-            key->onMouseLeave([this](Event&) { mDirX = mDirY = mDirZ = mDirA = 0; });
+        // A jog key: builds the button (square by default, or a half-height Z key).
+        // Press/release just re-derive the intent -- the held state is read back off
+        // the button's captured `press` flag, so a release off the key still clears.
+        Button* JogButton(Element* parent, const std::string& label, Style* box = &JogBtn) {
+
+            Button* b = new Button(parent,
+                { .label = label, .labelStyles = { &ConnectSection::BtnLabel } },
+                { box, &ConnectSection::BtnHover, &ConnectSection::BtnPress });
+
+            b->onMouseDown([this](Event& e) { update(e); });
+            b->onMouseUp  ([this](Event& e) { update(e); });
+
+            return b;
         }
 
-        // Keyboard (while focused): arrows, Alt remaps to Z/A, Ctrl is fine + slow.
-        void keyDown(Event& e) override { Box::keyDown(e); readKeys(e); }
-        void keyUp  (Event& e) override { Box::keyUp(e);   readKeys(e); }
-        void loseFocus(Event& e) override { Box::loseFocus(e); kLeft = kRight = kUp = kDown = false; }
+        // Keyboard: arrows jog X/Y; Alt remaps them to Z (up/down) and A (left/right),
+        // matching the grid. Folded into the intent only while the section holds focus.
+        void addKeyboard(Intent& it, Event& e) const {
 
-        void readKeys(Event& e) {
-            kLeft = e.keyboard.arrows.left; kRight = e.keyboard.arrows.right;
-            kUp   = e.keyboard.arrows.up;   kDown  = e.keyboard.arrows.down;
-            kAlt  = e.keyboard.alt;         kCtrl  = e.keyboard.ctrl;
+            if (!targetFlags.focus) { return; }
+
+            auto& a = e.keyboard.arrows;
+
+            if (e.keyboard.alt) {
+                it.zPos |= a.up;   it.zNeg |= a.down;
+                it.aNeg |= a.left; it.aPos |= a.right;
+            } else {
+                it.yPos |= a.up;   it.yNeg |= a.down;
+                it.xNeg |= a.left; it.xPos |= a.right;
+            }
         }
 
-        // Per-frame: sum the held inputs and influence the jog.
-        void animate() {
+        // Recompute the unified intent from the live held inputs -- each key's
+        // captured `press` flag plus the keyboard -- and reflect it onto the keys.
+        void update(Event& e) {
 
-            if (!machine.connected()) { return; }
+            Intent next;
+            for (const Bind& b : binds) { next.*(b.dir) = b.btn->targetFlags.press; }
+            addKeyboard(next, e);
+            next.stepMm = stepMm;  next.stepDeg = stepDeg;
 
-            float dx = mDirX, dy = mDirY, dz = mDirZ, da = mDirA;
-            if (!kAlt) { dx += axis(kRight, kLeft); dy += axis(kUp, kDown); }
-            else       { dz += axis(kUp, kDown);    da += axis(kRight, kLeft); }
-
-            dx = clamp(dx); dy = clamp(dy); dz = clamp(dz); da = clamp(da);
-            if (dx == 0 && dy == 0 && dz == 0 && da == 0) { return; }
-
-            const int speed = jogSpeed(kCtrl);
-            machine.jog(dx, dy, dz, da, autoCancel(speed), speed);
+            reflect(next);
+            intent = next;
         }
 
-        static float axis(bool pos, bool neg) { return (pos ? 1.0f : 0.0f) - (neg ? 1.0f : 0.0f); }
-        static float clamp(float v) { return v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v); }
+        // Per-frame hook, reserved for driving the machine from the intent.
+        void animate() {}
+
+        // Reflect the intent: highlight each key whose direction just turned on,
+        // un-highlight each that turned off. Diffed against the current intent so
+        // only real edges touch the style list.
+        void reflect(const Intent& next) {
+
+            for (const Bind& b : binds) { toggle(b.btn, next.*(b.dir), intent.*(b.dir)); }
+
+            // Step readout follows the intent (gains the rotary step while jogging A).
+            std::string s = formatStep(next);
+            if (s != stepText) { stepValue->setContent(s); stepText = s; }
+        }
+
+        void toggle(Button* key, bool on, bool was) {
+            if (on == was) { return; }
+            if (on) { key->styles.add(&JogActive); }
+            else    { key->styles.remove(&JogActive); }
+        }
     };
 }

@@ -32,7 +32,7 @@ export namespace Gui {
             a = new Field(body, "A"); b = new Field(body, "B");
         }
 
-        void set(const Machine::MachineBase::Coord& c) {
+        void set(const Machine::Coord& c) {
             x->set(c.x); y->set(c.y); z->set(c.z); a->set(c.a); b->set(c.b);
         }
     };

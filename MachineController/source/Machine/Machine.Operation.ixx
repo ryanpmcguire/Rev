@@ -28,12 +28,12 @@ export namespace Machine::Operation {
 
         // Metadata
         std::string name;                    // human label
-        float       progress        = 0.0f;  // 0..1, best-effort
-        float       expectedSeconds = 0.0f;  // best-effort estimate
+        float progress        = 0.0f;  // 0..1, best-effort
+        float expectedSeconds = 0.0f;  // best-effort estimate
 
         // The work: owned commands and a cursor into them (next to send).
         std::vector<Command::CommandBase*> commands;
-        size_t                             cursor = 0;
+        size_t cursor = 0;
 
         // Running schedule clock: the time the next unsent command should execute.
         uint64_t clock = 0;
@@ -45,7 +45,7 @@ export namespace Machine::Operation {
         OperationBase& add(Command::CommandBase* command) { commands.push_back(command); return *this; }
 
         // Send the pending commands. Streaming operations override.
-        virtual void tick(Adapter& adapter, uint64_t /*now*/) {
+        virtual void tick(Adapter& adapter, uint64_t now) {
             while (Command::CommandBase* command = peek()) {
                 adapter.sendCommand(*command);
                 advance();

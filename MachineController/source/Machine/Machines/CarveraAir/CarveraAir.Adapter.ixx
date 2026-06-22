@@ -89,7 +89,6 @@ export namespace Machine::Carvera {
 
             // Status frame, e.g. "<Idle|MPos:0.000,0.000,0.000,0.000|...>"
             if (line.front() == '<' && line.back() == '>') {
-                dbg("[RawFrame] %s", line.c_str());   // TEMP: measure what the machine sends
                 decodeStatus(line, in);
                 return in;
             }

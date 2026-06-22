@@ -31,7 +31,7 @@
         "_MT"
       ],
       "compile_flags": [
-        "-O0",
+        "-O3",
         "-g",
         "-Xclang",
         "-gcodeview",

@@ -20,6 +20,9 @@ export namespace Machine {
     // nothing; it is the payload type of the SignalChannel notify channels below.
     struct Signal {};
 
+    // A coordinate / offset (linear X/Y/Z + rotary A,B)
+    struct Coord { float x = 0, y = 0, z = 0, a = 0, b = 0; };
+
     // A no-payload notification channel: "something here changed, go read it".
     // Subscribers attach AS an owner so they can drop their subscription on death.
     // (One dispatcher per channel, so a single fixed key groups all its listeners.)
@@ -40,12 +43,6 @@ export namespace Machine {
     // and owns the channels announcing its changes. (MachineBase, not Machine, to
     // not clash with the namespace.)
     struct MachineBase {
-
-        // Definitions
-        //--------------------------------------------------
-
-        // A coordinate / offset (linear X/Y/Z + rotary A,B)
-        struct Coord { float x = 0, y = 0, z = 0, a = 0, b = 0; };
 
         // Live telemetry, grouped by subsystem. Folds a status frame in via
         // apply(), then announces on its own channels.
