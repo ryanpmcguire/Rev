@@ -13,6 +13,7 @@ import Rev.Element.Button;
 import Rev.Core.Observable;
 
 import Machine.Base;
+import Machine.Events;   // Event::State (run-state token)
 
 export namespace Gui {
 
@@ -46,10 +47,12 @@ export namespace Gui {
             .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 6_px, .width = 1_px }
         };
 
-        // Connected -- a green ring overlaid on the panel.
-        static inline Style SectionConnected = {
-            .border = { .color = rgba(64, 200, 120, 0.85), .radius = 6_px, .width = 1_px }
-        };
+        // Status ring overlaid on the panel -- its colour tracks the run-state.
+        static inline Style RingNominal = { .border = { .color = rgba( 64, 200, 120, 0.85), .radius = 6_px, .width = 1_px } };  // idle / nominal
+        static inline Style RingHoming  = { .border = { .color = rgba(238, 222, 130, 0.85), .radius = 6_px, .width = 1_px } };  // homing
+        static inline Style RingTool    = { .border = { .color = rgba(244, 184, 120, 0.85), .radius = 6_px, .width = 1_px } };  // tool change
+        static inline Style RingRun     = { .border = { .color = rgba(128, 206, 230, 0.85), .radius = 6_px, .width = 1_px } };  // executing
+        static inline Style RingAlarm   = { .border = { .color = rgba(236, 128, 128, 0.85), .radius = 6_px, .width = 1_px } };  // alarm
 
             // Full-width horizontal strip, vertically centred, gap below. Height
             // comes from its tallest child, not a fixed value.
@@ -71,10 +74,12 @@ export namespace Gui {
                     .background = { .color = rgba(96, 102, 112, 1.0) }
                 };
 
-                // Connected -- bright green.
-                static inline Style DotConnected = {
-                    .background = { .color = rgba(64, 200, 120, 1.0) }
-                };
+                // Connected -- colour tracks the run-state (matches the ring).
+                static inline Style DotNominal = { .background = { .color = rgba( 64, 200, 120, 1.0) } };  // idle / nominal
+                static inline Style DotHoming  = { .background = { .color = rgba(238, 222, 130, 1.0) } };  // homing
+                static inline Style DotTool    = { .background = { .color = rgba(244, 184, 120, 1.0) } };  // tool change
+                static inline Style DotRun     = { .background = { .color = rgba(128, 206, 230, 1.0) } };  // executing
+                static inline Style DotAlarm   = { .background = { .color = rgba(236, 128, 128, 1.0) } };  // alarm
 
                 // Machine name -- bright, slightly larger.
                 static inline Style Title = {
@@ -162,6 +167,12 @@ export namespace Gui {
         // The machine this section reflects and drives.
         Machine::MachineBase& machine;
 
+        // Latest run-state token, plus the status styles currently applied -- so the
+        // dot/ring only re-style on a real change.
+        std::string stateText;
+        Style*      appliedDot  = &DotDisconnected;
+        Style*      appliedRing = nullptr;
+
         // Create
         //--------------------------------------------------
 
@@ -195,7 +206,15 @@ export namespace Gui {
             // Reflect connection edges: flip our state and let computeChildren do
             // the rest. We subscribe AS `this`, so ~ConnectSection can unsubscribe.
             machine.info.network.onConnect   (this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
-            machine.info.network.onDisconnect(this, [this]() { if (shared && shared->event) { this->refresh(*shared->event); } });
+            machine.info.network.onDisconnect(this, [this]() { stateText.clear(); if (shared && shared->event) { this->refresh(*shared->event); } });
+
+            // Reflect the run-state: re-render only when the token actually changes
+            // (it arrives on every status frame, ~20x/s, mostly unchanged).
+            machine.onState(this, [this](Machine::Event::State& e) {
+                if (e.state == stateText) { return; }
+                stateText = e.state;
+                if (shared && shared->event) { this->refresh(*shared->event); }
+            });
         }
 
         // Destroy
@@ -208,34 +227,48 @@ export namespace Gui {
         // Reflect
         //--------------------------------------------------
 
-        // Reflect the machine's live connection state onto the declared
-        // structure -- but only when it actually changes (see connectionObserver).
+        // The dot + ring styles for a given connection / run-state.
+        struct Look { Style* dot; Style* ring; };   // ring is null when there is none
+
+        Look lookFor(bool connected, const std::string& state) const {
+            if (!connected)         { return { &DotDisconnected, nullptr }; }
+            if (state == "Alarm")   { return { &DotAlarm,  &RingAlarm  }; }
+            if (state == "Home")    { return { &DotHoming, &RingHoming }; }
+            if (state == "Tool")    { return { &DotTool,   &RingTool   }; }
+            if (state == "Run" ||
+                state == "Jog")     { return { &DotRun,    &RingRun    }; }
+            return { &DotNominal, &RingNominal };   // Idle / Hold / Sleep / not yet reported
+        }
+
+        // Reflect the machine's live state onto the declared structure. Button
+        // enablement follows the connection (rare); the dot + ring follow the
+        // run-state colour. Each swaps only on a real change.
         void computeChildren(Event& e) override {
 
             const bool connected = machine.connected();
 
             if (connectionObserver.changed(connected)) {
-
-                // Status dot: green when connected, dim grey otherwise.
-                statusDot->styles.remove(&DotDisconnected);
-                statusDot->styles.remove(&DotConnected);
-                statusDot->styles.add(connected ? &DotConnected : &DotDisconnected);
-
-                // Panel border: green ring while connected.
-                if (connected) { this->styles.add(&SectionConnected); }
-                else           { this->styles.remove(&SectionConnected); }
-
                 connectButton->setDisabled(connected);
                 disconnectButton->setDisabled(!connected);
                 unlockButton->setDisabled(!connected);
                 resetButton->setDisabled(!connected);
             }
 
-            Box::computeChildren(e);
-        }
+            const Look look = lookFor(connected, stateText);
 
-        void computeStyle(Event& e) override {
-            Box::computeStyle(e);
+            if (look.dot != appliedDot) {
+                statusDot->styles.remove(appliedDot);
+                statusDot->styles.add(look.dot);
+                appliedDot = look.dot;
+            }
+
+            if (look.ring != appliedRing) {
+                if (appliedRing) { this->styles.remove(appliedRing); }
+                if (look.ring)   { this->styles.add(look.ring); }
+                appliedRing = look.ring;
+            }
+
+            Box::computeChildren(e);
         }
     };
 }

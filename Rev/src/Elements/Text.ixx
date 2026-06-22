@@ -540,6 +540,11 @@ export namespace Rev::Element {
             text->fontSize     = fontSize;
             text->content = strContent;
 
+            // Content-driven minima live outside resolved.style, so a text edit
+            // slips past the style-diff gate; raise the flag when they move.
+            float prevMinContentWidth = resolved.minContentWidth;
+            float prevMinContentHeight = resolved.minContentHeight;
+
             this->measureText();
 
             float minPaddingWidth = resolved.getMinPadding(Axis::Horizontal, Dist::Type::Abs);
@@ -547,6 +552,13 @@ export namespace Rev::Element {
 
             resolved.minContentWidth = minWidth + minPaddingWidth;
             resolved.minContentHeight = minHeight + minPaddingHeight;
+
+            if (shared && (
+                resolved.minContentWidth != prevMinContentWidth ||
+                resolved.minContentHeight != prevMinContentHeight
+            )) {
+                shared->layoutDirty = true;
+            }
             
             // If we can edit or select, use text cursor
             if (editable || selectable) {

@@ -1045,6 +1045,58 @@ export namespace Rev::Appearance {
             return this->dirty;
         }
 
+        // True if any geometry-affecting field differs from `old`. Pure-paint
+        // fields (background, border, shadow, cursor, overflow) are ignored so
+        // they don't trigger a relayout; errs toward reporting a difference.
+        bool layoutDiffers(Style& old) {
+
+            auto d = [](Dist& a, Dist& b) { return !(a == b); };
+
+            auto lrtb = [&](LrtbStyle& a, LrtbStyle& b) {
+                return
+                    d(a.left, b.left) || d(a.right, b.right) ||
+                    d(a.top, b.top) || d(a.bottom, b.bottom) ||
+                    d(a.min.left, b.min.left) || d(a.min.right, b.min.right) ||
+                    d(a.min.top, b.min.top) || d(a.min.bottom, b.min.bottom) ||
+                    d(a.max.left, b.max.left) || d(a.max.right, b.max.right) ||
+                    d(a.max.top, b.max.top) || d(a.max.bottom, b.max.bottom);
+            };
+
+            // Size (nominal + min/max on both axes)
+            if (d(size.width, old.size.width) || d(size.height, old.size.height)) { return true; }
+            if (d(size.min.width, old.size.min.width) || d(size.min.height, old.size.min.height)) { return true; }
+            if (d(size.max.width, old.size.max.width) || d(size.max.height, old.size.max.height)) { return true; }
+
+            // Spacing and explicit positioning
+            if (lrtb(margin, old.margin)) { return true; }
+            if (lrtb(padding, old.padding)) { return true; }
+            if (lrtb(position, old.position)) { return true; }
+
+            // Flow / arrangement
+            if (layout.direction != old.layout.direction) { return true; }
+            if (layout.horizontal != old.layout.horizontal) { return true; }
+            if (layout.vertical != old.layout.vertical) { return true; }
+            if (layout.wrap != old.layout.wrap) { return true; }
+            if (layout.crossAlign != old.layout.crossAlign) { return true; }
+            if (layout.position != old.layout.position) { return true; }
+
+            // Visibility removes a box from layout entirely; scroll shifts the
+            // child origin (rects); zIndex changes depth and so draw order.
+            if (!(visibility == old.visibility)) { return true; }
+            if (scroll != old.scroll) { return true; }
+            if (zIndex != old.zIndex) { return true; }
+
+            // Text metrics that change measured glyph extents
+            if (d(text.size, old.text.size)) { return true; }
+            if (d(text.lineHeight, old.text.lineHeight)) { return true; }
+            if (d(text.spacing, old.text.spacing)) { return true; }
+            if (text.weight != old.text.weight) { return true; }
+            if (text.wrap != old.text.wrap) { return true; }
+            if (text.font.data != old.text.font.data) { return true; }
+
+            return false;
+        }
+
         void linkDirtyFlag(Core::DirtyFlag* dirty) {
 
             visibility.linkDirtyFlag(dirty);

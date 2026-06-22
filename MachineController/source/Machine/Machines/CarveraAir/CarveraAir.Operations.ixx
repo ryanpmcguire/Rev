@@ -9,78 +9,89 @@ import Machine.Operation;
 import Machine.Adapter;
 import Machine.Machines.Carvera.Commands;
 
-// Carvera's concrete operations. They produce Carvera commands, so they live in
-// the Carvera layer; the machine drains them through the generic OperationBase.
+// Carvera's concrete operations: they produce Carvera commands.
 export namespace Machine::Carvera::Operation {
 
     using Base = Machine::Operation::OperationBase;
 
-    // A continuous jog: streams short absolute machine-frame moves, pacing itself so
-    // only a small lookahead is ever queued -- a key release then coasts just that
-    // far, not a whole buffer. The frontier is the last queued target, anchored at
-    // the live machine position when the jog opens.
+    // The last absolute position commanded; anchors a new jog in place of telemetry.
+    struct JogAnchor {
+        float x = 0, y = 0, z = 0, a = 0;
+        bool  valid = false;
+    };
+
+    // A jog. influence() sets the direction and tops the buffer up to the auto-cancel
+    // distance; tick() sends what is buffered. It generates nothing on its own -- once
+    // the buffered motion elapses without a fresh influence, it is finished.
     struct Jog : Base {
 
-        // Directive
-        float dirX = 0, dirY = 0, dirZ = 0, dirA = 0;   // per-axis sign
-        int   speed     = 0;                            // mm/min
-        float segmentMm = 1.0f;                         // travel quantum
+        JogAnchor* anchor = nullptr;   // machine's anchor (not owned)
 
-        // Runtime
+        float dirX = 0, dirY = 0, dirZ = 0, dirA = 0;   // direction vector (per-axis sign)
+        int   speed = 0;                                // mm/min
         float frontierX = 0, frontierY = 0, frontierZ = 0, frontierA = 0;
-        float queuedMs = 0.0f;   // motion time queued ahead of expected progress
-        bool  holding  = false;  // keep refilling while held
+        bool  spent = false;
 
-        static constexpr float TargetMs    = 250.0f;   // keep ~this much motion time queued (smoothness)
-        static constexpr float MaxQueuedMm = 10.0f;    // ...but never more than this distance, any speed
+        static constexpr float StreamSegmentMs = 20.0f;   // motion time per generated move
 
         Jog() : Base(Type::Jog, "Jog") {}
 
-        // Consume the time elapsed this tick, then (while held) refill the buffer up
-        // to the time target -- but never past the distance cap (10 mm expressed as
-        // time at this feed), so a key release coasts at most that far.
-        void tick(Machine::Adapter& adapter, float dtMs) override {
+        // Set the direction and fill the buffer so it leads `now` by autoCancelMm.
+        void influence(float dx, float dy, float dz, float da, float autoCancelMm, int spd, uint64_t now) {
 
-            queuedMs -= dtMs;
-            if (queuedMs < 0.0f) { queuedMs = 0.0f; }
+            dirX = dx; dirY = dy; dirZ = dz; dirA = da; speed = spd;
 
             const bool moving = dirX != 0.0f || dirY != 0.0f || dirZ != 0.0f || dirA != 0.0f;
-            if (!holding || speed <= 0 || !moving) { return; }
+            if (!moving || speed <= 0) { return; }
 
-            float target = TargetMs;
-            const float capMs = MaxQueuedMm / speed * 60000.0f;
-            if (capMs < target) { target = capMs; }
+            if (clock < now) { clock = now; }
 
-            while (queuedMs < target) { emitSegment(adapter); }
+            const float    seg  = speed / 60.0f * (StreamSegmentMs / 1000.0f);
+            const uint64_t span = static_cast<uint64_t>(autoCancelMm / speed * 60000.0f);
+
+            while (clock - now < span) { addStep(seg); }
         }
 
-        // Finished once released; the small lookahead already queued coasts out.
-        bool finished() const override { return !holding; }
+        bool finished() const override { return spent; }
 
-        // Advance the frontier one segment and send the absolute move for it, pacing
-        // off the move's own advertised duration.
-        void emitSegment(Machine::Adapter& adapter) {
+        // Generate one absolute move continuing the direction vector.
+        void addStep(float seg) {
 
-            frontierX += dirX * segmentMm;
-            frontierY += dirY * segmentMm;
-            frontierZ += dirZ * segmentMm;
-            frontierA += dirA * segmentMm;
+            frontierX += dirX * seg; frontierY += dirY * seg;
+            frontierZ += dirZ * seg; frontierA += dirA * seg;
 
-            Command::GoTo move(speed);
-            if (dirX != 0.0f) { move.x = { true, frontierX }; }
-            if (dirY != 0.0f) { move.y = { true, frontierY }; }
-            if (dirZ != 0.0f) { move.z = { true, frontierZ }; }
-            if (dirA != 0.0f) { move.a = { true, frontierA }; }
+            Command::GoTo* move = new Command::GoTo(speed);
+            move->x = { dirX != 0.0f, frontierX };
+            move->y = { dirY != 0.0f, frontierY };
+            move->z = { dirZ != 0.0f, frontierZ };
+            move->a = { dirA != 0.0f, frontierA };
 
-            // How long this move should take: path length over feed.
-            const float linear = std::sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ) * segmentMm;
-            const float travel = linear > 0.0f ? linear : std::abs(dirA) * segmentMm;
-            const float ms     = speed > 0 ? travel / speed * 60000.0f : 0.0f;
-            move.dt = static_cast<uint64_t>(ms);
+            const float linear = std::sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ) * seg;
+            const float travel = linear > 0.0f ? linear : std::abs(dirA) * seg;
+            const uint64_t ms  = speed > 0 ? static_cast<uint64_t>(travel / speed * 60000.0f) : 0;
 
-            adapter.sendCommand(move);
+            move->dt = ms;
+            move->t  = clock;
+            add(move);
 
-            queuedMs += ms;
+            clock += ms;
+        }
+
+        // Send buffered moves; record each as the anchor. Spent once they have elapsed.
+        void tick(Machine::Adapter& adapter, uint64_t now) override {
+
+            while (Machine::Command::CommandBase* cmd = peek()) {
+                Command::GoTo* g = static_cast<Command::GoTo*>(cmd);
+                if (anchor) {
+                    anchor->x = g->x.value; anchor->y = g->y.value;
+                    anchor->z = g->z.value; anchor->a = g->a.value;
+                    anchor->valid = true;
+                }
+                adapter.sendCommand(*cmd);
+                advance();
+            }
+
+            spent = now >= clock;
         }
     };
 }

@@ -46,7 +46,12 @@ export namespace Rev::Element {
             };
 
             DirtyElements dirty;
-            
+
+            // Gate for the whole-tree flex pass: raised by anything that may
+            // change geometry, consumed and cleared by Window::draw. While false,
+            // the flex pipeline is skipped and last frame's geometry is reused.
+            bool layoutDirty = true;
+
             Graphics::Canvas* canvas = nullptr;
             std::vector<Element*> stencilStack;
 
@@ -187,12 +192,15 @@ export namespace Rev::Element {
 
             children.push_back(child);
 
+            if (shared) { shared->layoutDirty = true; }
+
             child->refresh(*shared->event);
         }
 
         void removeChild(Element* child) {
             auto it = std::find(children.begin(), children.end(), child);
             if (it != children.end()) { children.erase(it); }
+            if (shared) { shared->layoutDirty = true; }
         }
 
         void moveChild(
@@ -240,6 +248,8 @@ export namespace Rev::Element {
                 children.insert(targetIt + 1, child);
             }
 
+            if (shared) { shared->layoutDirty = true; }
+
             if (shared && shared->event) {
                 child->refresh(*shared->event);
             }
@@ -280,6 +290,10 @@ export namespace Rev::Element {
 
         std::vector<Transition> transitions;
 
+        // Set while live transitions animate a geometry value (not pure paint),
+        // so the animation pass knows to keep the layout dirty. Cleared on drain.
+        bool animatesLayout = false;
+
         void transition(float* val, float newVal, int ms) {
 
             if (*val == newVal) { return; }
@@ -294,6 +308,9 @@ export namespace Rev::Element {
             if (!hadTransitions && !transitions.empty()) {
                 shared->dirty.animate.push_back(this);
             }
+
+            // Subject is an unclassifiable float; assume it may move geometry.
+            if (!transitions.empty()) { animatesLayout = true; }
         }
 
         virtual void animate(Event& e) {
@@ -308,6 +325,9 @@ export namespace Rev::Element {
                 }),
                 transitions.end()
             );
+
+            // Once nothing is animating, this element no longer forces relayout.
+            if (transitions.empty()) { animatesLayout = false; }
 
             // Do transitions
             for (Transition& transition : transitions) {
@@ -372,9 +392,15 @@ export namespace Rev::Element {
 
             this->dirty.style = false;
 
+            // Suspicion gate: only a style change that actually touches geometry
+            // dirties the layout. A pure-paint restyle (e.g. a hover background)
+            // re-resolves the style but skips the whole flex pass this frame.
+            bool layoutChanged = resolved.style.layoutDiffers(old);
+            if (shared && layoutChanged) { shared->layoutDirty = true; }
+
             // Create transitions if needed
             //--------------------------------------------------
-            
+
             // If this is our first draw, we do not animate
             if (draws == 0) { return; }
 
@@ -384,6 +410,12 @@ export namespace Rev::Element {
             // Add to "please animate" list if we now have transitions
             if (!hadTransitions && !transitions.empty()) {
                 shared->dirty.animate.push_back(this);
+            }
+
+            // Sticky until the transitions drain, so a geometry transition keeps
+            // relayouting even if a later pure-paint restyle intervenes.
+            if (!transitions.empty() && layoutChanged) {
+                animatesLayout = true;
             }
         }
 
@@ -1851,6 +1883,9 @@ export namespace Rev::Element {
             // a smaller offset.
             if (canX) { resolved.scroll.x -= e.mouse.wheel.x * scrollSpeed; }
             if (canY) { resolved.scroll.y -= e.mouse.wheel.y * scrollSpeed; }
+
+            // Scrolling shifts the child origin, so rects must be re-resolved.
+            if (shared) { shared->layoutDirty = true; }
 
             refresh(e);
             e.propagate = false;

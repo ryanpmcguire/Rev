@@ -11,6 +11,8 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Element.Button;
 
+import Rev.Core.Process;
+
 import Machine.Base;
 import Gui.Machine.Connect;   // reuse hover / press / label button styles
 
@@ -44,7 +46,7 @@ export namespace Gui {
             .margin     = { .top = 12_px },
             .padding    = { 14_px, 14_px, 14_px, 14_px },
             .background = { .color = rgba(255, 255, 255, 0.03) },
-            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 6_px, .width = 1_px }
+            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
         };
 
         static inline Style Heading = {
@@ -121,10 +123,16 @@ export namespace Gui {
         int   stepIndex = 3;             // -> 1.0 mm
         float stepMm    = 1.0f;          // the selected step: jog quantization + speed dial
 
-        // The step sets both quantization and feed; Control drops each by an order
-        // of magnitude (finer + slower).
-        float jogQuantum(bool ctrl) const { return ctrl ? stepMm * 0.1f : stepMm; }
-        int   jogSpeed  (bool ctrl) const { return static_cast<int>(stepMm * 600.0f * (ctrl ? 0.1f : 1.0f)); }
+        // The step sets the feed; Ctrl drops it an order of magnitude (finer + slower).
+        int jogSpeed(bool ctrl) const { return static_cast<int>(stepMm * 600.0f * (ctrl ? 0.1f : 1.0f)); }
+
+        // Auto-cancel distance: ~this much motion time, scaled to the feed.
+        static constexpr float AutoCancelMs = 150.0f;
+        float autoCancel(int speed) const { return speed / 60.0f * (AutoCancelMs / 1000.0f); }
+
+        // Held inputs. Mouse holds one key's direction; the keyboard tracks the arrows.
+        float mDirX = 0, mDirY = 0, mDirZ = 0, mDirA = 0;
+        bool  kLeft = false, kRight = false, kUp = false, kDown = false, kAlt = false, kCtrl = false;
 
         // Create
         //--------------------------------------------------
@@ -156,22 +164,24 @@ export namespace Gui {
                 new Text(stepRow, "step", { &StepLabel });
                 stepValue = new Text(stepRow, formatStep(), { &StepValue });
 
-            // Axis keys jog on press-and-hold.
-            holdToJog(xPlus, +1,  0,  0,  0);  holdToJog(xMinus, -1,  0,  0,  0);
-            holdToJog(yPlus,  0, +1,  0,  0);  holdToJog(yMinus,  0, -1,  0,  0);
-            holdToJog(zPlus,  0,  0, +1,  0);  holdToJog(zMinus,  0,  0, -1,  0);
-            holdToJog(aPlus,  0,  0,  0, +1);  holdToJog(aMinus,  0,  0,  0, -1);
+            // Press-and-hold a key to set the mouse jog direction.
+            mouseHold(xPlus, +1,  0,  0,  0);  mouseHold(xMinus, -1,  0,  0,  0);
+            mouseHold(yPlus,  0, +1,  0,  0);  mouseHold(yMinus,  0, -1,  0,  0);
+            mouseHold(zPlus,  0,  0, +1,  0);  mouseHold(zMinus,  0,  0, -1,  0);
+            mouseHold(aPlus,  0,  0,  0, +1);  mouseHold(aMinus,  0,  0,  0, -1);
 
             // Step corners cycle the preset.
             stepDown->onClick([this](Event&) { adjustStep(-1); });
             stepUp  ->onClick([this](Event&) { adjustStep(+1); });
+
+            // Drive the machine from the live input state every frame.
+            Rev::Core::Process::instance().schedule(this, 16, [this](uint64_t) { animate(); });
         }
 
         // Destroy
         //--------------------------------------------------
 
-        // Never leave the machine jogging if the section dies mid-hold.
-        ~JogSection() { machine.pauseJog(); }
+        ~JogSection() { Rev::Core::Process::instance().unschedule(this); }
 
         // Builders
         //--------------------------------------------------
@@ -190,14 +200,6 @@ export namespace Gui {
                 { &ZHalfBtn, &ConnectSection::BtnHover, &ConnectSection::BtnPress });
         }
 
-        // Wire a key to press-and-hold jogging of one axis (release / drag-off
-        // pauses). Mouse jog uses the plain step/speed -- no modifiers.
-        void holdToJog(Button* key, float dx, float dy, float dz, float da) {
-            key->onMouseDown ([this, dx, dy, dz, da](Event&) { machine.holdJog(dx, dy, dz, da, jogQuantum(false), jogSpeed(false)); });
-            key->onMouseUp   ([this](Event&) { machine.pauseJog(); });
-            key->onMouseLeave([this](Event&) { machine.pauseJog(); });
-        }
-
         // Step
         //--------------------------------------------------
 
@@ -211,71 +213,44 @@ export namespace Gui {
 
         std::string formatStep() const { return std::format("{:g} mm", stepMm); }
 
-        // Keyboard jog
+        // Input
         //--------------------------------------------------
-        // Arrows jog X/Y. Alt ("alternate") remaps Up/Down -> Z and Left/Right -> A.
-        // Shift makes it a continuous hold; without Shift each press is a single
-        // step. Control gives a finer + slower jog. We act only while focused, so
-        // click the jog pad to "arm" the arrows.
 
-        // The jog the keyboard is asking for. Comparing successive intents lets us
-        // act only on real transitions -- a press, a release, a direction or mode
-        // change -- and ignore OS auto-repeat, which re-sends the same intent.
-        struct Intent {
-            float dx = 0, dy = 0, dz = 0, da = 0;
-            bool  hold = false;   // Shift -> continuous
-
-            bool moving() const { return dx != 0.0f || dy != 0.0f || dz != 0.0f || da != 0.0f; }
-            bool operator==(const Intent& o) const {
-                return dx == o.dx && dy == o.dy && dz == o.dz && da == o.da && hold == o.hold;
-            }
-        };
-
-        Intent lastIntent;   // the intent we last acted on
-
-        void keyDown(Event& e) override { Box::keyDown(e); applyIntent(e); }
-        void keyUp  (Event& e) override { Box::keyUp(e);   applyIntent(e); }
-
-        // Losing focus mid-hold can't leave the machine moving with no key-up coming.
-        void loseFocus(Event& e) override {
-            Box::loseFocus(e);
-            machine.pauseJog();
-            lastIntent = {};
+        // Mouse: hold a key to drive that direction; release / leave clears it.
+        void mouseHold(Button* key, float dx, float dy, float dz, float da) {
+            key->onMouseDown ([this, dx, dy, dz, da](Event&) { mDirX = dx; mDirY = dy; mDirZ = dz; mDirA = da; });
+            key->onMouseUp   ([this](Event&) { mDirX = mDirY = mDirZ = mDirA = 0; });
+            key->onMouseLeave([this](Event&) { mDirX = mDirY = mDirZ = mDirA = 0; });
         }
 
-        // Act on the keyboard's jog intent, but only when it differs from last time.
-        void applyIntent(Event& e) {
+        // Keyboard (while focused): arrows, Alt remaps to Z/A, Ctrl is fine + slow.
+        void keyDown(Event& e) override { Box::keyDown(e); readKeys(e); }
+        void keyUp  (Event& e) override { Box::keyUp(e);   readKeys(e); }
+        void loseFocus(Event& e) override { Box::loseFocus(e); kLeft = kRight = kUp = kDown = false; }
 
-            Intent now = targetFlags.focus ? readIntent(e) : Intent{};   // unfocused -> no jog
-            if (now == lastIntent) { return; }                           // unchanged (e.g. auto-repeat)
-            lastIntent = now;
-
-            if      (!now.moving()) { machine.pauseJog(); }
-            else if (now.hold)      { machine.holdJog(now.dx, now.dy, now.dz, now.da, jogQuantum(e.keyboard.ctrl), jogSpeed(e.keyboard.ctrl)); }
-            else                    { machine.stepJog(now.dx, now.dy, now.dz, now.da, jogQuantum(e.keyboard.ctrl), jogSpeed(e.keyboard.ctrl)); }
+        void readKeys(Event& e) {
+            kLeft = e.keyboard.arrows.left; kRight = e.keyboard.arrows.right;
+            kUp   = e.keyboard.arrows.up;   kDown  = e.keyboard.arrows.down;
+            kAlt  = e.keyboard.alt;         kCtrl  = e.keyboard.ctrl;
         }
 
-        // Read the current intent from the keyboard. Alt ("alternate") remaps
-        // Up/Down -> Z and Left/Right -> A; opposite keys cancel; Shift = hold.
-        Intent readIntent(Event& e) {
+        // Per-frame: sum the held inputs and influence the jog.
+        void animate() {
 
-            Event::Keyboard::Arrows& a = e.keyboard.arrows;
-            Intent i;
-            i.hold = e.keyboard.shift;
+            if (!machine.connected()) { return; }
 
-            if (!e.keyboard.alt) {
-                if (a.left)  { i.dx -= 1.0f; }
-                if (a.right) { i.dx += 1.0f; }
-                if (a.up)    { i.dy += 1.0f; }
-                if (a.down)  { i.dy -= 1.0f; }
-            } else {
-                if (a.up)    { i.dz += 1.0f; }
-                if (a.down)  { i.dz -= 1.0f; }
-                if (a.left)  { i.da -= 1.0f; }
-                if (a.right) { i.da += 1.0f; }
-            }
+            float dx = mDirX, dy = mDirY, dz = mDirZ, da = mDirA;
+            if (!kAlt) { dx += axis(kRight, kLeft); dy += axis(kUp, kDown); }
+            else       { dz += axis(kUp, kDown);    da += axis(kRight, kLeft); }
 
-            return i;
+            dx = clamp(dx); dy = clamp(dy); dz = clamp(dz); da = clamp(da);
+            if (dx == 0 && dy == 0 && dz == 0 && da == 0) { return; }
+
+            const int speed = jogSpeed(kCtrl);
+            machine.jog(dx, dy, dz, da, autoCancel(speed), speed);
         }
+
+        static float axis(bool pos, bool neg) { return (pos ? 1.0f : 0.0f) - (neg ? 1.0f : 0.0f); }
+        static float clamp(float v) { return v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v); }
     };
 }

@@ -2,6 +2,8 @@ module;
 
 export module Machine.Machines.CarveraAir;
 
+import Rev.GlobalTime;
+
 import Machine.Base;
 import Machine.Operation;
 import Machine.Machines.Carvera.Adapter;
@@ -16,6 +18,9 @@ export namespace Machine {
 
         // Adapter
         Carvera::Adapter* carveraAdapter = nullptr;
+
+        // Last commanded position; anchors a new jog in place of telemetry.
+        Carvera::Operation::JogAnchor jogAnchor;
 
         // Construct/destruct
         //--------------------------------------------------
@@ -43,56 +48,43 @@ export namespace Machine {
         //--------------------------------------------------
 
         void unlock()          override { if (adapter) { adapter->sendCommand(Carvera::Command::Unlock{}); } }
-        void reset()           override { if (adapter) { adapter->sendCommand(Carvera::Command::Reset{}); } }
-        void home()            override { if (adapter) { adapter->sendCommand(Carvera::Command::Home{}); } }
-        void changeTool(int n) override { if (adapter) { adapter->sendCommand(Carvera::Command::ChangeTool{ n }); } }
+        void reset()           override { jogAnchor.valid = false; if (adapter) { adapter->sendCommand(Carvera::Command::Reset{}); } }
+        void home()            override { jogAnchor.valid = false; if (adapter) { adapter->sendCommand(Carvera::Command::Home{}); } }
+        void changeTool(int n) override { jogAnchor.valid = false; if (adapter) { adapter->sendCommand(Carvera::Command::ChangeTool{ n }); } }
 
-        // Jog -- build/update a streaming jog operation; the queue does the rest
+        // Jog -- thin: influence the running jog, or open one if nothing is running
         //--------------------------------------------------
 
-        // One step now: a non-held jog emits a single segment, then finishes.
-        void stepJog(float dx, float dy, float dz, float da, float quantum, int speed) override {
-            Carvera::Operation::Jog& jog = jogDirective(dx, dy, dz, da, quantum, speed);
-            jog.holding = false;
-            if (adapter) { jog.emitSegment(*adapter); }
-        }
+        void jog(float dx, float dy, float dz, float da, float autoCancelMm, int speed) override {
 
-        // Keep moving until pauseJog().
-        void holdJog(float dx, float dy, float dz, float da, float quantum, int speed) override {
-            jogDirective(dx, dy, dz, da, quantum, speed).holding = true;
-        }
+            Carvera::Operation::Jog* jog = currentJog();
 
-        // Release: the operation stops refilling and finishes once it has drained.
-        void pauseJog() override {
-            if (Carvera::Operation::Jog* jog = currentJog()) { jog->holding = false; }
+            if (!jog) {
+                if (operations.current()) { return; }   // another op is running; don't interrupt
+                ensureAnchor();
+                jog = new Carvera::Operation::Jog();
+                jog->anchor    = &jogAnchor;
+                jog->frontierX = jogAnchor.x; jog->frontierY = jogAnchor.y;
+                jog->frontierZ = jogAnchor.z; jog->frontierA = jogAnchor.a;
+                operations.enqueue(jog);
+            }
+
+            jog->influence(dx, dy, dz, da, autoCancelMm, speed, Rev::GlobalTime::now);
         }
 
         // The running operation, if it is a jog.
         Carvera::Operation::Jog* currentJog() {
             Operation::OperationBase* op = operations.current();
-            if (op && op->type == Operation::OperationBase::Type::Jog) {
-                return static_cast<Carvera::Operation::Jog*>(op);
-            }
-            return nullptr;
+            return (op && op->type == Operation::OperationBase::Type::Jog)
+                ? static_cast<Carvera::Operation::Jog*>(op) : nullptr;
         }
 
-        // Reuse the running jog (or open one anchored at the live position), and set
-        // its directive.
-        Carvera::Operation::Jog& jogDirective(float dx, float dy, float dz, float da, float quantum, int speed) {
-
-            Carvera::Operation::Jog* jog = currentJog();
-
-            if (!jog) {
-                jog = new Carvera::Operation::Jog();
-                const Coord& p = telemetry.spindle.pos;   // anchor at the known machine position
-                jog->frontierX = p.x; jog->frontierY = p.y; jog->frontierZ = p.z; jog->frontierA = p.a;
-                operations.enqueue(jog);
-            }
-
-            jog->dirX = dx; jog->dirY = dy; jog->dirZ = dz; jog->dirA = da;
-            jog->segmentMm = quantum;
-            jog->speed     = speed;
-            return *jog;
+        // Seed the anchor from telemetry if not yet valid.
+        void ensureAnchor() {
+            if (jogAnchor.valid) { return; }
+            const Coord& p = telemetry.spindle.pos;
+            jogAnchor.x = p.x; jogAnchor.y = p.y; jogAnchor.z = p.z; jogAnchor.a = p.a;
+            jogAnchor.valid = true;
         }
 
         // Queries (queryAll() lives on MachineBase and calls these)

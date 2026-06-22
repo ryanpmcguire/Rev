@@ -546,12 +546,25 @@ export namespace Rev {
 
             if (!animate.empty()) {
                 requestNextFrame();
+
+                // Relayout only while a layout-affecting transition is live.
+                for (Element* element : animate) {
+                    if (element->animatesLayout) {
+                        shared->layoutDirty = true;
+                        break;
+                    }
+                }
             }
 
             // Visibility and layout
             //--------------------------------------------------
+            // Skip the entire flex pipeline when nothing this frame could have
+            // changed geometry; last frame's resolved rects/sizes are reused.
 
-            this->calcFlexLayouts();
+            if (shared->layoutDirty) {
+                this->calcFlexLayouts();
+                shared->layoutDirty = false;
+            }
 
             for (Element* element : topDown) { element->computePrimitives(e); }
 
@@ -844,6 +857,9 @@ export namespace Rev {
             if (!shared->canvas) { return; }
 
             shared->canvas->flags.resize = true;
+
+            // The root box just changed size; the whole tree must re-resolve.
+            shared->layoutDirty = true;
 
             this->refresh(event);
         }

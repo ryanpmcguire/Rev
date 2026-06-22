@@ -38,8 +38,8 @@ export namespace Machine::Carvera::Command {
         std::string emit() const override { return "M6 T" + std::to_string(tool) + "\n"; }
     };
 
-    // An absolute move in MACHINE coordinates (G53), used under the hood by the
-    // continuous goto-jog. Only the "active" axes are commanded; the rest hold.
+    // An absolute move in MACHINE coordinates (G53), streamed under the hood by the
+    // jog. Only the "active" axes are commanded; the rest hold.
     struct GoTo : Base {
         struct Axis { bool active = false; float value = 0.0f; };
         Axis x, y, z, a;

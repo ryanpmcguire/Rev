@@ -37,6 +37,10 @@ export namespace Machine::Command {
         // move (feed + delta) so readers can pace / schedule.
         uint64_t dt = 0;
 
+        // Absolute time, ms, at which this command should execute (0 = unscheduled).
+        // Auto-filled when the queue first reaches the command.
+        uint64_t t = 0;
+
         // Construct/destruct
         CommandBase(Type type) : type(type) {}
         virtual ~CommandBase() {}
