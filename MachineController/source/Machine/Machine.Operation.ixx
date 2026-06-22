@@ -6,17 +6,18 @@ module;
 export module Machine.Operation;
 
 import Machine.Command;
+import Machine.Adapter;
 
 // An operation lives in its own namespace: one base (OperationBase) carrying a
-// Type tag, metadata, and an ordered list of commands. Like commands and events,
-// the Type lets a stored OperationBase* be downcast. Richer operations subclass it
-// to add their own fields. Reference as Operation::OperationBase (and, later,
-// Operation::Probe / Operation::Program / ...).
+// Type tag, metadata, and the commands it hands the machine. Like commands and
+// events, the Type lets a stored OperationBase* be downcast. Finite operations
+// fill their command list up front; streaming ones replenish it in service().
 export namespace Machine::Operation {
 
-    // A typed, ordered batch of commands with progress metadata. Owns its commands
-    // (deletes them). The cursor marks the next command to send; advance() consumes
-    // one and recomputes progress.
+    // A typed unit of work: an owned FIFO of commands the machine drains in order.
+    // The machine peek()s the next command, sends it, then advance()s -- it never
+    // needs to know what the operation is. A streaming operation overrides service()
+    // to top its commands up over time and finished() to say when it is spent.
     struct OperationBase {
 
         enum class Type {
@@ -31,13 +32,12 @@ export namespace Machine::Operation {
         Type type;
 
         // Metadata
-        std::string name;                       // human label
-        float       progress        = 0.0f;     // 0..1, advanced as commands complete
-        float       expectedSeconds = 0.0f;     // best-effort estimate
+        std::string name;                    // human label
+        float       progress        = 0.0f;  // 0..1, best-effort
+        float       expectedSeconds = 0.0f;  // best-effort estimate
 
-        // The work: an ordered, owned list of commands + a cursor into it.
+        // The work: owned commands, drained from the front.
         std::vector<Command::CommandBase*> commands;
-        size_t                             cursor = 0;
 
         OperationBase(Type type, std::string name) : type(type), name(std::move(name)) {}
         virtual ~OperationBase() { for (auto* command : commands) { delete command; } }
@@ -45,36 +45,27 @@ export namespace Machine::Operation {
         // Build -- append a command (ownership transfers to the operation).
         OperationBase& add(Command::CommandBase* command) { commands.push_back(command); return *this; }
 
-        // Query
-        bool   complete()  const { return cursor >= commands.size(); }
-        size_t remaining() const { return commands.size() - cursor; }
-
-        // The next command to send (null when complete).
-        Command::CommandBase* peek() const { return cursor < commands.size() ? commands[cursor] : nullptr; }
-
-        // Consume the next command and recompute progress.
-        void advance() {
-            if (cursor < commands.size()) { ++cursor; }
-            progress = commands.empty() ? 1.0f : static_cast<float>(cursor) / static_cast<float>(commands.size());
+        // Pump this operation through the adapter for one machine tick (`dtMs` since
+        // the last). The default sends every queued command; a streaming operation
+        // overrides this to generate and send on the fly.
+        virtual void tick(Adapter& adapter, float /*dtMs*/) {
+            while (Command::CommandBase* command = peek()) {
+                adapter.sendCommand(*command);
+                advance();
+            }
         }
-    };
 
-    // A continuous-jog directive: "keep moving along this direction at this speed".
-    // Unlike a finite operation it holds no fixed command list -- the machine reads
-    // the metadata and streams short absolute moves on the fly (see CarveraAir),
-    // pacing itself so the open-loop frontier stays in step with the real motion.
-    struct Jog : OperationBase {
+        // The next command to send, or null when none is pending right now.
+        Command::CommandBase* peek() const { return commands.empty() ? nullptr : commands.front(); }
 
-        // Directive
-        float dirX = 0, dirY = 0, dirZ = 0, dirA = 0;   // unit direction (per-axis sign)
-        int   speed     = 0;                            // mm/min
-        float segmentMm = 1.0f;                         // quantization: travel is emitted in these steps
+        // Consume the command peek() returned.
+        void advance() {
+            if (commands.empty()) { return; }
+            delete commands.front();
+            commands.erase(commands.begin());
+        }
 
-        // Runtime
-        float frontierX = 0, frontierY = 0, frontierZ = 0, frontierA = 0;   // last queued target (segment grid from start)
-        float queuedMm = 0.0f;                          // emitted distance still ahead of expected progress
-        bool  holding  = false;                         // true => keep refilling (continuous); false => one-shot / draining
-
-        Jog() : OperationBase(Type::Jog, "Jog") {}
+        // True once this operation will never produce another command.
+        virtual bool finished() const { return commands.empty(); }
     };
 }

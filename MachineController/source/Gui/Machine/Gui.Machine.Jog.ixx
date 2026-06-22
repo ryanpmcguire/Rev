@@ -1,6 +1,7 @@
 module;
 
 #include <string>
+#include <format>
 
 export module Gui.Machine.Jog;
 
@@ -21,9 +22,17 @@ export namespace Gui {
     // Pin Text to the element (there is also a Rev::Primitive::Text in scope).
     using Text = Rev::Element::Text;
 
-    // The Jog section: a directional pad + step selector. Structure only for now
-    // -- no machine wiring (the jog keys carry no handlers yet); the step selector
-    // is pure GUI state. A clean, click-per-step take on the CAM jog grid.
+    // The Jog section: a 3x3 directional grid laid out like the original Carvera
+    // control window --
+    //
+    //     A-   +Y   A+
+    //     -X  +Z/-Z  +X
+    //     -    -Y    +
+    //
+    // -- with the Z axis stacked in the centre and the step -/+ in the bottom
+    // corners, over a "step" readout. Mouse: press-and-hold a key to jog that axis.
+    // Keyboard (while focused): arrows jog X/Y, Alt remaps to Z/A, Shift holds,
+    // Ctrl is fine+slow.
     struct JogSection : public Box {
 
         // Styles
@@ -35,7 +44,7 @@ export namespace Gui {
             .margin     = { .top = 12_px },
             .padding    = { 14_px, 14_px, 14_px, 14_px },
             .background = { .color = rgba(255, 255, 255, 0.03) },
-            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
+            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 6_px, .width = 1_px }
         };
 
         static inline Style Heading = {
@@ -43,10 +52,8 @@ export namespace Gui {
             .text   = { .color = rgba(236, 238, 242, 1.0), .size = 15_px }
         };
 
-        static inline Style Body    = { .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False } };
-        static inline Style Col     = { .layout = { Axis::Vertical,   Align::Start, Align::Start, Wrap::False } };
-        static inline Style PadRow  = { .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False } };
-        static inline Style ColGap  = { .layout = { Axis::Vertical,   Align::Start, Align::Start, Wrap::False }, .margin = { .left = 10_px } };
+        static inline Style Grid    = { .layout = { Axis::Vertical,   Align::Start, Align::Start, Wrap::False } };
+        static inline Style GridRow = { .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False } };
 
         // A square jog key.
         static inline Style JogBtn = {
@@ -54,15 +61,26 @@ export namespace Gui {
             .size       = { .width = 46_px, .height = 34_px },
             .margin     = { 3_px, 3_px, 3_px, 3_px },
             .background = { .color = rgba(255, 255, 255, 0.06), .transition = 120_ms },
-            .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 6_px, .width = 1_px, .transition = 120_ms },
+            .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 4_px, .width = 1_px, .transition = 120_ms },
             .cursor     = Cursor::Hand
         };
 
-        // An empty cell that holds the pad's cross shape.
-        static inline Style JogSpacer = {
+        // The centre cell, holding +Z over -Z as two half-height keys.
+        static inline Style ZCell = {
+            .layout = { Axis::Vertical, Align::Center, Align::Center, Wrap::False },
             .size   = { .width = 46_px, .height = 34_px },
             .margin = { 3_px, 3_px, 3_px, 3_px }
         };
+
+        static inline Style ZHalfBtn = {
+            .layout     = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
+            .size       = { .width = 46_px, .height = 15_px },
+            .background = { .color = rgba(255, 255, 255, 0.06), .transition = 120_ms },
+            .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 3_px, .width = 1_px, .transition = 120_ms },
+            .cursor     = Cursor::Hand
+        };
+
+        static inline Style ZHalfGap = { .size = { .height = 4_px } };
 
         static inline Style StepRow = {
             .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False, CrossAlign::True },
@@ -75,42 +93,36 @@ export namespace Gui {
             .text   = { .color = rgba(120, 126, 136, 1.0), .size = 12_px }
         };
 
-        static inline Style StepBtn = {
-            .layout     = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-            .size       = { .width = 44_px, .height = 28_px },
-            .margin     = { 3_px, 3_px, 3_px, 3_px },
-            .background = { .color = rgba(255, 255, 255, 0.06), .transition = 120_ms },
-            .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 5_px, .width = 1_px, .transition = 120_ms },
-            .cursor     = Cursor::Hand
+        static inline Style StepValue = {
+            .text = { .color = rgba(214, 218, 224, 1.0), .size = 13_px }
         };
 
-        // The selected step's highlight.
-        static inline Style StepActive = {
-            .background = { .color = rgba(79, 99, 255, 0.45) },
-            .border     = { .color = rgba(79, 99, 255, 1.0), .radius = 5_px, .width = 1_px }
-        };
-
-        // Elements + state
+        // Elements
         //--------------------------------------------------
 
-        Box* body  = nullptr;
-            Box* xyPad = nullptr;
-                Button* yPlus  = nullptr; Button* yMinus = nullptr;
-                Button* xPlus  = nullptr; Button* xMinus = nullptr;
-            Box* zCol  = nullptr;
-                Button* zPlus  = nullptr; Button* zMinus = nullptr;
-            Box* aCol  = nullptr;
-                Button* aPlus  = nullptr; Button* aMinus = nullptr;
+        Box* grid = nullptr;
+            Button* aMinus = nullptr;  Button* yPlus  = nullptr;  Button* aPlus = nullptr;
+            Button* xMinus = nullptr;                             Button* xPlus = nullptr;
+                Box*    zCell = nullptr;
+                    Button* zPlus = nullptr;  Button* zMinus = nullptr;
+            Button* stepDown = nullptr; Button* yMinus = nullptr; Button* stepUp = nullptr;
 
-        Box* stepRow = nullptr;
-            Button* step01 = nullptr; Button* step1 = nullptr; Button* step10 = nullptr;
+        Box*  stepRow   = nullptr;
+            Text* stepValue = nullptr;
 
-        float stepMm = 1.0f;   // selected "step": the jog quantization + speed dial
+        // State
+        //--------------------------------------------------
 
         Machine::MachineBase& machine;
 
-        // The step dial sets both quantization and feed; Control drops each by an
-        // order of magnitude (finer + slower).
+        static constexpr float StepPresets[] = { 0.01f, 0.1f, 0.5f, 1.0f, 5.0f, 10.0f };
+        static constexpr int   StepCount     = 6;
+
+        int   stepIndex = 3;             // -> 1.0 mm
+        float stepMm    = 1.0f;          // the selected step: jog quantization + speed dial
+
+        // The step sets both quantization and feed; Control drops each by an order
+        // of magnitude (finer + slower).
         float jogQuantum(bool ctrl) const { return ctrl ? stepMm * 0.1f : stepMm; }
         int   jogSpeed  (bool ctrl) const { return static_cast<int>(stepMm * 600.0f * (ctrl ? 0.1f : 1.0f)); }
 
@@ -122,50 +134,37 @@ export namespace Gui {
 
             new Text(this, "Jog", { &Heading });
 
-            body = new Box(this, { &Body }, "JogBody");
+            grid = new Box(this, { &Grid }, "JogGrid");
 
-                // XY pad: +Y top, -X / +X middle, -Y bottom (cross shape).
-                xyPad = new Box(body, { &Col }, "XYPad");
+                Box* row0 = new Box(grid, { &GridRow }, "Row0");
+                    aMinus = key(row0, "A-");  yPlus = key(row0, "+Y");  aPlus = key(row0, "A+");
 
-                    Box* row0 = new Box(xyPad, { &PadRow }, "Row0");
-                        spacer(row0);  yPlus  = key(row0, "+Y");  spacer(row0);
+                Box* row1 = new Box(grid, { &GridRow }, "Row1");
+                    xMinus = key(row1, "-X");
 
-                    Box* row1 = new Box(xyPad, { &PadRow }, "Row1");
-                        xMinus = key(row1, "-X");  spacer(row1);  xPlus = key(row1, "+X");
+                    zCell = new Box(row1, { &ZCell }, "ZCell");
+                        zPlus = zKey(zCell, "+Z");
+                        new Box(zCell, { &ZHalfGap }, "ZGap");
+                        zMinus = zKey(zCell, "-Z");
 
-                    Box* row2 = new Box(xyPad, { &PadRow }, "Row2");
-                        spacer(row2);  yMinus = key(row2, "-Y");  spacer(row2);
+                    xPlus = key(row1, "+X");
 
-                // Z column.
-                zCol = new Box(body, { &ColGap }, "ZCol");
-                    zPlus  = key(zCol, "+Z");
-                    zMinus = key(zCol, "-Z");
+                Box* row2 = new Box(grid, { &GridRow }, "Row2");
+                    stepDown = key(row2, "-");  yMinus = key(row2, "-Y");  stepUp = key(row2, "+");
 
-                // A (rotary) column.
-                aCol = new Box(body, { &ColGap }, "ACol");
-                    aPlus  = key(aCol, "A+");
-                    aMinus = key(aCol, "A-");
-
-            // Step size.
             stepRow = new Box(this, { &StepRow }, "StepRow");
                 new Text(stepRow, "step", { &StepLabel });
-                step01 = stepKey(stepRow, "0.1");
-                step1  = stepKey(stepRow, "1");
-                step10 = stepKey(stepRow, "10");
+                stepValue = new Text(stepRow, formatStep(), { &StepValue });
 
-            // Hold a key to jog: press starts a continuous jog along that axis;
-            // release (or dragging off the key) stops it.
-            holdToJog(yPlus,  0, +1,  0,  0);  holdToJog(yMinus, 0, -1,  0,  0);
-            holdToJog(xPlus, +1,  0,  0,  0);  holdToJog(xMinus, -1, 0,  0,  0);
-            holdToJog(zPlus,  0,  0, +1,  0);  holdToJog(zMinus, 0,  0, -1,  0);
-            holdToJog(aPlus,  0,  0,  0, +1);  holdToJog(aMinus, 0,  0,  0, -1);
+            // Axis keys jog on press-and-hold.
+            holdToJog(xPlus, +1,  0,  0,  0);  holdToJog(xMinus, -1,  0,  0,  0);
+            holdToJog(yPlus,  0, +1,  0,  0);  holdToJog(yMinus,  0, -1,  0,  0);
+            holdToJog(zPlus,  0,  0, +1,  0);  holdToJog(zMinus,  0,  0, -1,  0);
+            holdToJog(aPlus,  0,  0,  0, +1);  holdToJog(aMinus,  0,  0,  0, -1);
 
-            // Step selection (pure GUI state).
-            step01->onClick([this](Event&) { setStep(0.1f, step01); });
-            step1->onClick ([this](Event&) { setStep(1.0f, step1);  });
-            step10->onClick([this](Event&) { setStep(10.0f, step10); });
-
-            setStep(1.0f, step1);   // default
+            // Step corners cycle the preset.
+            stepDown->onClick([this](Event&) { adjustStep(-1); });
+            stepUp  ->onClick([this](Event&) { adjustStep(+1); });
         }
 
         // Destroy
@@ -174,41 +173,50 @@ export namespace Gui {
         // Never leave the machine jogging if the section dies mid-hold.
         ~JogSection() { machine.pauseJog(); }
 
-        // Builders + behaviour
+        // Builders
         //--------------------------------------------------
 
+        // A standard square jog key (reused eight times -- worth the builder).
         Button* key(Element* parent, const std::string& label) {
             return new Button(parent,
                 { .label = label, .labelStyles = { &ConnectSection::BtnLabel } },
                 { &JogBtn, &ConnectSection::BtnHover, &ConnectSection::BtnPress });
         }
 
-        Button* stepKey(Element* parent, const std::string& label) {
+        // A half-height key for the stacked Z cell.
+        Button* zKey(Element* parent, const std::string& label) {
             return new Button(parent,
                 { .label = label, .labelStyles = { &ConnectSection::BtnLabel } },
-                { &StepBtn, &ConnectSection::BtnHover, &ConnectSection::BtnPress });
+                { &ZHalfBtn, &ConnectSection::BtnHover, &ConnectSection::BtnPress });
         }
 
-        void spacer(Element* parent) {
-            new Box(parent, { &JogSpacer }, "Spacer");
-        }
-
-        // Press-and-hold a key to jog its axis; release / drag-off pauses. (Mouse
-        // jog uses the plain step/speed -- no modifiers.)
+        // Wire a key to press-and-hold jogging of one axis (release / drag-off
+        // pauses). Mouse jog uses the plain step/speed -- no modifiers.
         void holdToJog(Button* key, float dx, float dy, float dz, float da) {
             key->onMouseDown ([this, dx, dy, dz, da](Event&) { machine.holdJog(dx, dy, dz, da, jogQuantum(false), jogSpeed(false)); });
             key->onMouseUp   ([this](Event&) { machine.pauseJog(); });
             key->onMouseLeave([this](Event&) { machine.pauseJog(); });
         }
 
+        // Step
+        //--------------------------------------------------
+
+        void adjustStep(int delta) {
+            stepIndex += delta;
+            if (stepIndex < 0)          { stepIndex = 0; }
+            if (stepIndex >= StepCount) { stepIndex = StepCount - 1; }
+            stepMm = StepPresets[stepIndex];
+            stepValue->setContent(formatStep());
+        }
+
+        std::string formatStep() const { return std::format("{:g} mm", stepMm); }
+
         // Keyboard jog
         //--------------------------------------------------
         // Arrows jog X/Y. Alt ("alternate") remaps Up/Down -> Z and Left/Right -> A.
-        // Shift makes it a continuous hold (moves while held); without Shift each
-        // press is a single step. Control gives a finer + slower jog. We only act
-        // while focused, so click the jog pad to "arm" the arrows. The Event's
-        // keyboard already tracks every key's held state, so we read it directly --
-        // no parallel bookkeeping.
+        // Shift makes it a continuous hold; without Shift each press is a single
+        // step. Control gives a finer + slower jog. We act only while focused, so
+        // click the jog pad to "arm" the arrows.
 
         // The jog the keyboard is asking for. Comparing successive intents lets us
         // act only on real transitions -- a press, a release, a direction or mode
@@ -268,15 +276,6 @@ export namespace Gui {
             }
 
             return i;
-        }
-
-        // Select the step and highlight its key.
-        void setStep(float mm, Button* active) {
-            stepMm = mm;
-            step01->styles.remove(&StepActive);
-            step1->styles.remove(&StepActive);
-            step10->styles.remove(&StepActive);
-            active->styles.add(&StepActive);
         }
     };
 }

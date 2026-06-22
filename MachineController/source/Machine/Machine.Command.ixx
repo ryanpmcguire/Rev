@@ -1,6 +1,7 @@
 module;
 
 #include <string>
+#include <cstdint>
 
 export module Machine.Command;
 
@@ -19,7 +20,6 @@ export namespace Machine::Command {
             Unlock,
             Reset,
             Home,
-            Jog,
             GoTo,
             ChangeTool,
 
@@ -32,6 +32,10 @@ export namespace Machine::Command {
         };
 
         Type type;
+
+        // Estimated execution time, ms (0 = unknown). Set by producers that know the
+        // move (feed + delta) so readers can pace / schedule.
+        uint64_t dt = 0;
 
         // Construct/destruct
         CommandBase(Type type) : type(type) {}

@@ -249,37 +249,66 @@ export namespace Machine {
             Info() {}
         };
 
-        // Operations -- the machine's work queue. Holds the pending/running
-        // operations (owned) and a pointer to the one currently executing. Three
-        // ways to drive the machine: build an operation and enqueue() it, append()
-        // commands onto the running one, or (for queries / one-offs) send a command
-        // directly past this queue.
+        // Operations -- the machine's work queue (FIFO; the front operation is the
+        // one running). Owns the adapter the operations pump through and its own
+        // service tick: each tick it ticks the current operation, then retires it
+        // once finished. Queries and one-off controls send straight to the adapter,
+        // past this queue.
         struct Operations {
 
-            std::vector<Operation::OperationBase*> queue;             // pending + running (owned)
-            Operation::OperationBase*              current = nullptr; // currently executing (points into queue)
+            std::vector<Operation::OperationBase*> queue;   // pending + running (owned, FIFO)
+
+            // The link operations pump through, and our own tick (fast, so only a
+            // small motion lookahead need ever be queued).
+            Adapter* adapter = nullptr;
+            static constexpr uint64_t TickMs = 5;   // ~200 Hz
 
             SignalChannel updateChannel;   // queue / current / progress changed
             void onUpdate(void* owner, std::function<void()> f) { updateChannel.on(owner, std::move(f)); }
             void unsubscribe(void* owner) { updateChannel.unsubscribe(owner); }
 
-            ~Operations() { for (auto* op : queue) { delete op; } }
+            ~Operations() { stop(); for (auto* op : queue) { delete op; } }
 
-            // Queue a new operation; it becomes current if nothing is running yet.
+            // The running operation (front of the queue), or null.
+            Operation::OperationBase* current() const { return queue.empty() ? nullptr : queue.front(); }
+
+            // Queue a new operation; it runs once it reaches the front.
             void enqueue(Operation::OperationBase* op) {
                 queue.push_back(op);
-                if (!current) { current = op; }
                 updateChannel.notify();
             }
 
-            // To append a command onto the running operation, reach it directly:
-            //   machine.operations.current->add(command)
+            // Run the queue on our own tick.
+            void start() { Rev::Core::Process::instance().schedule(this, TickMs, [this](uint64_t) { tick(); }); }
+            void stop()  { Rev::Core::Process::instance().unschedule(this); }
+
+            // Tick the current operation (it pumps its own commands through the
+            // adapter), then retire it once finished.
+            void tick() {
+
+                if (!adapter) { return; }
+
+                Operation::OperationBase* op = current();
+                if (!op) { return; }
+
+                op->tick(*adapter, TickMs);
+
+                if (op->finished()) { advance(); }
+            }
+
+            // Retire the finished front; the next operation becomes current. (A 'done'
+            // history vector could be kept here instead of deleting.)
+            void advance() {
+                if (queue.empty()) { return; }
+                delete queue.front();
+                queue.erase(queue.begin());
+                updateChannel.notify();
+            }
 
             // Drop everything (e.g. on disconnect / abort).
             void clear() {
                 for (auto* op : queue) { delete op; }
                 queue.clear();
-                current = nullptr;
                 updateChannel.notify();
             }
         };
@@ -329,6 +358,8 @@ export namespace Machine {
             adapter = a;
             if (!adapter) { return; }
 
+            operations.adapter = a;   // the queue pumps through this link
+
             adapter->onConnection([this](Event::Connection& e) { info.network.apply(e); });
             adapter->onTelemetry ([this](Event::Telemetry&  e) { telemetry.apply(e); });
             adapter->onInfo      ([this](Event::Info&       e) { info.apply(e); });
@@ -347,28 +378,21 @@ export namespace Machine {
         }
 
         // ============================================================
-        // Service ticks (telemetry + motion, separate cadences)
+        // Service tick (telemetry)
         // ============================================================
-        // Telemetry polls a few times a second; motion is fed much faster, so only a
-        // small lookahead need ever be queued and a key release stops almost at once.
-        // Process keys a schedule by owner, so the motion tick takes a distinct key.
+        // The machine polls telemetry a few times a second; the operations manager
+        // runs its own (faster) tick to pump motion. Both live only while connected.
 
         static constexpr uint64_t TelemetryTickMs = 50;   // ~20 Hz
-        static constexpr uint64_t MotionTickMs    = 5;    // ~200 Hz
-
-        char motionTickKey = 0;   // distinct scheduler owner for the motion tick
 
         void startTicking() {
-            Rev::Core::Process::instance().schedule(this,           TelemetryTickMs, [this](uint64_t) { queryStatus(); });
-            Rev::Core::Process::instance().schedule(&motionTickKey, MotionTickMs,    [this](uint64_t) { serviceMotion(); });
+            Rev::Core::Process::instance().schedule(this, TelemetryTickMs, [this](uint64_t) { queryStatus(); });
+            operations.start();
         }
         void stopTicking() {
             Rev::Core::Process::instance().unschedule(this);
-            Rev::Core::Process::instance().unschedule(&motionTickKey);
+            operations.stop();
         }
-
-        // Concrete machines advance their in-progress motion here, every motion tick.
-        virtual void serviceMotion() {}
 
         // ============================================================
         // Commands
@@ -409,11 +433,9 @@ export namespace Machine {
         // Motion commands
         //--------------------------------------------------
 
-        virtual void jog(float /*x*/, float /*y*/, float /*z*/, float /*a*/, int /*feed*/) {}
-
         // Jog along a direction (per-axis sign) in `quantum`-sized steps at `speed`.
         // stepJog moves one step; holdJog keeps moving until pauseJog(). The concrete
-        // machine streams absolute goto moves under the hood (see CarveraAir).
+        // machine builds a streaming jog operation the queue drains (see CarveraAir).
         virtual void stepJog(float /*dx*/, float /*dy*/, float /*dz*/, float /*da*/, float /*quantum*/, int /*speed*/) {}
         virtual void holdJog(float /*dx*/, float /*dy*/, float /*dz*/, float /*da*/, float /*quantum*/, int /*speed*/) {}
         virtual void pauseJog() {}

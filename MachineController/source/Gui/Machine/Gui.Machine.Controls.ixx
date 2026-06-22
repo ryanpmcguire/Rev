@@ -31,7 +31,7 @@ export namespace Gui {
             .margin     = { .top = 12_px },
             .padding    = { 14_px, 14_px, 14_px, 14_px },
             .background = { .color = rgba(255, 255, 255, 0.03) },
-            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
+            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 6_px, .width = 1_px }
         };
 
         static inline Style Heading = {

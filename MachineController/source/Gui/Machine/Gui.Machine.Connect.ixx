@@ -20,6 +20,9 @@ export namespace Gui {
     using namespace Rev::Element;
     using namespace Rev::Appearance;
 
+    // Pin Text to the element (there is also a Rev::Primitive::Text in scope).
+    using Text = Rev::Element::Text;
+
     // The Connect section: the machine's connection controls -- a thin
     // reflection of the machine's connection state. It DECLARES its structure
     // (status, address, the four IO controls) once, in the constructor; it never
@@ -40,12 +43,12 @@ export namespace Gui {
             .size       = { .width = 100_pct },
             .padding    = { 14_px, 14_px, 14_px, 14_px },
             .background = { .color = rgba(255, 255, 255, 0.03) },
-            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 8_px, .width = 1_px }
+            .border     = { .color = rgba(255, 255, 255, 0.08), .radius = 6_px, .width = 1_px }
         };
 
         // Connected -- a green ring overlaid on the panel.
         static inline Style SectionConnected = {
-            .border = { .color = rgba(64, 200, 120, 0.85), .radius = 8_px, .width = 1_px }
+            .border = { .color = rgba(64, 200, 120, 0.85), .radius = 6_px, .width = 1_px }
         };
 
             // Full-width horizontal strip, vertically centred, gap below. Height
@@ -60,7 +63,7 @@ export namespace Gui {
                 static inline Style Dot = {
                     .size   = { .width = 12_px, .height = 12_px },
                     .margin = { .right = 8_px },
-                    .border = { .radius = 6_px }
+                    .border = { .radius = 4_px }
                 };
 
                 // Disconnected default -- a dim, inert indicator.
@@ -93,7 +96,7 @@ export namespace Gui {
                     .margin     = { .left = 4_px, .right = 4_px },
                     .padding    = { .top = 8_px, .bottom = 8_px },
                     .background = { .color = rgba(255, 255, 255, 0.06), .transition = 120_ms },
-                    .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 6_px, .width = 1_px, .transition = 120_ms },
+                    .border     = { .color = rgba(255, 255, 255, 0.10), .radius = 4_px, .width = 1_px, .transition = 120_ms },
                     .cursor     = Cursor::Hand
                 };
 
@@ -120,7 +123,7 @@ export namespace Gui {
                 static inline Style BtnDisabled = {
                     .applies    = { .disabled = true },
                     .background = { .color = rgba(255, 255, 255, 0.02) },
-                    .border     = { .color = rgba(255, 255, 255, 0.05), .radius = 6_px, .width = 1_px },
+                    .border     = { .color = rgba(255, 255, 255, 0.05), .radius = 4_px, .width = 1_px },
                     .cursor     = Cursor::NotAllowed
                 };
 
