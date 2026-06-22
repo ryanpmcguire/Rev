@@ -8,6 +8,15 @@
 #include <setupapi.h>
 #pragma comment(lib, "setupapi.lib")
 
+// Windows Media Foundation for webcam capture
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+#pragma comment(lib, "mf.lib")
+#pragma comment(lib, "mfreadwrite.lib")
+#pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mfuuid.lib")
+
 #include <string>
 #include <vector>
 #include <deque>
@@ -395,6 +404,19 @@ export namespace LithoControl {
             if (info) info->style->visibility = Visibility::Visible;
         }
 
+        // Live camera feed: upload without resetting zoom/pan (auto-fit on first frame only).
+        void stagePixelsLive(const std::vector<uint8_t>& px, int w, int h) {
+            pendingPixels = px;
+            pendingW = w; pendingH = h;
+            needsBake = true;
+            if (srcW <= 0) {
+                zoom = 0.0f;  // first frame: auto-fit
+                offsetX = offsetY = 0.0f;
+            }
+            if (hint) hint->style->visibility = Visibility::Hidden;
+            if (info) info->style->visibility = Visibility::Visible;
+        }
+
         // Load a single image file into the preview (clears any frame cycling state).
         void loadFile(const std::string& path) {
             std::vector<uint8_t> px; int w = 0, h = 0;
@@ -709,6 +731,20 @@ export namespace LithoControl {
         std::atomic<uint32_t> hdmiSolidColor { 0 };  // 0=off; else fill HDMI with this BGRA
         std::thread       hdmiColorTestThread;
 
+        // Camera preview
+        struct CameraDevice { std::string name; };
+        std::vector<CameraDevice>    cameraDevices;
+        Dropdown*                    cameraDrop      = nullptr;
+        Text*                        cameraBtnTxt    = nullptr;
+        std::atomic<bool>            cameraRunning   { false };
+        std::thread                  cameraThread;
+        std::mutex                   cameraFrameMtx;
+        std::vector<uint8_t>         cameraFrameRGBA;
+        int                          cameraFrameW    = 0;
+        int                          cameraFrameH    = 0;
+        std::atomic<bool>            cameraFrameReady { false };
+        std::atomic<IMFSourceReader*> cameraReader   { nullptr };
+
         bool hdmiPassthrough() const {
             return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
                 && hdmiHwnd != nullptr;
@@ -806,6 +842,9 @@ export namespace LithoControl {
 
         ~Interface() {
             abortFlag = true;
+            cameraRunning = false;
+            { auto* r = cameraReader.load(); if (r) r->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM); }
+            if (cameraThread.joinable()) cameraThread.join();
             if (jobThread.joinable()) jobThread.join();
             if (hdmiWinThread.joinable())      hdmiWinThread.detach();
             if (hdmiColorTestThread.joinable()) hdmiColorTestThread.detach();
@@ -860,6 +899,10 @@ export namespace LithoControl {
             Box* jogBody = nullptr;
             makeSection(sidebarContent, "JOG", jogBody);
             buildJogPanel(jogBody);
+
+            Box* cameraBody = nullptr;
+            makeSection(sidebarContent, "CAMERA", cameraBody);
+            buildCameraPanel(cameraBody);
 
             // Scrollbar track: thin strip on the right edge of the sidebar.
             // Absolutely positioned so it stays fixed while content scrolls.
@@ -1295,6 +1338,225 @@ export namespace LithoControl {
                 logQ.push("[DISP] Color test done");
             });
             hdmiColorTestThread.detach();
+        }
+
+        // -- Camera panel ------------------------------------------------------
+
+        void buildCameraPanel(Box* body) {
+            Text* devLbl = new Text(body, "DEVICE");
+            devLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+            devLbl->style->text.size     = 9_px;
+            devLbl->style->margin.bottom = 4_px;
+
+            cameraDrop = new Dropdown(body, {
+                .options = {}, .placeholder = "Scan for cameras...", .value = ""
+            });
+            cameraDrop->label->style->visibility = Visibility::Hidden;
+
+            Box* btnRow = new Box(body, { &Theme::RowH });
+            btnRow->style->margin.top = 4_px;
+            makeBtn(btnRow, "SCAN", [this]() { scanCameras(); });
+
+            Box* startBtn = makeBtn(btnRow, "START", nullptr, true);
+            cameraBtnTxt = (Text*)startBtn->children[0];
+            startBtn->onMouseDown([this](Rev::Element::Event&) { toggleCamera(); });
+        }
+
+        void scanCameras() {
+            HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            bool uninitCom = (hr == S_OK);
+            MFStartup(MF_VERSION);
+
+            cameraDevices.clear();
+            IMFAttributes* pAttr = nullptr;
+            MFCreateAttributes(&pAttr, 1);
+            pAttr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                           MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+
+            IMFActivate** ppDevices = nullptr;
+            UINT32 count = 0;
+            MFEnumDeviceSources(pAttr, &ppDevices, &count);
+            pAttr->Release();
+
+            std::vector<Dropdown::Option> opts;
+            for (UINT32 i = 0; i < count; i++) {
+                WCHAR* name = nullptr; UINT32 nameLen = 0;
+                ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+                                                  &name, &nameLen);
+                std::string nameStr;
+                if (name) {
+                    int n = WideCharToMultiByte(CP_UTF8, 0, name, -1, nullptr, 0, nullptr, nullptr);
+                    nameStr.resize((size_t)n - 1);
+                    WideCharToMultiByte(CP_UTF8, 0, name, -1, nameStr.data(), n, nullptr, nullptr);
+                    CoTaskMemFree(name);
+                }
+                if (nameStr.empty()) nameStr = "Camera " + std::to_string(i);
+                cameraDevices.push_back({ nameStr });
+                opts.push_back({ nameStr, std::to_string(i) });
+                ppDevices[i]->Release();
+            }
+            CoTaskMemFree(ppDevices);
+            MFShutdown();
+            if (uninitCom) CoUninitialize();
+
+            if (cameraDrop) cameraDrop->params.options = opts;
+            logQ.push("[CAM] Found " + std::to_string(count) + " camera(s)");
+        }
+
+        void toggleCamera() {
+            if (cameraRunning) {
+                stopCamera();
+            } else {
+                startCamera();
+            }
+        }
+
+        void startCamera() {
+            if (!cameraDrop || cameraDrop->params.value.empty()) {
+                logQ.push("[CAM] Select a camera first"); return;
+            }
+            int idx = 0;
+            try { idx = std::stoi(cameraDrop->params.value); }
+            catch (...) { logQ.push("[CAM] Invalid device"); return; }
+
+            if (cameraBtnTxt) cameraBtnTxt->content = "STOP";
+            cameraRunning = true;
+            if (cameraThread.joinable()) cameraThread.detach();
+            cameraThread = std::thread([this, idx]() { runCameraCapture(idx); });
+        }
+
+        void stopCamera() {
+            cameraRunning = false;
+            auto* r = cameraReader.load();
+            if (r) r->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
+            if (cameraThread.joinable()) cameraThread.join();
+            if (cameraBtnTxt) cameraBtnTxt->content = "START";
+        }
+
+        void runCameraCapture(int deviceIdx) {
+            HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            bool uninitCom = (hr == S_OK);
+            MFStartup(MF_VERSION);
+
+            IMFAttributes* pAttr = nullptr;
+            MFCreateAttributes(&pAttr, 1);
+            pAttr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                           MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+            IMFActivate** ppDevices = nullptr;
+            UINT32 count = 0;
+            MFEnumDeviceSources(pAttr, &ppDevices, &count);
+            pAttr->Release();
+
+            if (deviceIdx < 0 || deviceIdx >= (int)count) {
+                for (UINT32 i = 0; i < count; i++) ppDevices[i]->Release();
+                CoTaskMemFree(ppDevices);
+                logQ.push("[CAM] Device index out of range");
+                cameraRunning = false;
+                MFShutdown(); if (uninitCom) CoUninitialize(); return;
+            }
+
+            IMFMediaSource* pSource = nullptr;
+            hr = ppDevices[deviceIdx]->ActivateObject(IID_PPV_ARGS(&pSource));
+            for (UINT32 i = 0; i < count; i++) ppDevices[i]->Release();
+            CoTaskMemFree(ppDevices);
+
+            if (FAILED(hr)) {
+                logQ.push("[CAM] Failed to activate device");
+                cameraRunning = false;
+                MFShutdown(); if (uninitCom) CoUninitialize(); return;
+            }
+
+            // Enable the MF video processor so we can request RGB32 output
+            // regardless of the camera's native format (NV12, YUY2, etc.)
+            IMFAttributes* pReaderAttr = nullptr;
+            MFCreateAttributes(&pReaderAttr, 1);
+            pReaderAttr->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+
+            IMFSourceReader* pReader = nullptr;
+            hr = MFCreateSourceReaderFromMediaSource(pSource, pReaderAttr, &pReader);
+            pReaderAttr->Release();
+            pSource->Release();
+
+            if (FAILED(hr)) {
+                logQ.push("[CAM] Failed to create source reader");
+                cameraRunning = false;
+                MFShutdown(); if (uninitCom) CoUninitialize(); return;
+            }
+
+            // Request RGB32 (BGRA, bottom-up) output so no YUV conversion needed
+            IMFMediaType* pType = nullptr;
+            MFCreateMediaType(&pType);
+            pType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+            pType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+            hr = pReader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                                              nullptr, pType);
+            pType->Release();
+
+            if (FAILED(hr)) {
+                logQ.push("[CAM] RGB32 not supported by this camera");
+                pReader->Release();
+                cameraRunning = false;
+                MFShutdown(); if (uninitCom) CoUninitialize(); return;
+            }
+
+            IMFMediaType* pActual = nullptr;
+            pReader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &pActual);
+            UINT32 fw = 0, fh = 0;
+            MFGetAttributeSize(pActual, MF_MT_FRAME_SIZE, &fw, &fh);
+            pActual->Release();
+
+            logQ.push("[CAM] Live: " + std::to_string(fw) + "x" + std::to_string(fh));
+            cameraReader.store(pReader);
+
+            while (cameraRunning) {
+                DWORD streamIndex = 0, flags = 0;
+                LONGLONG timestamp = 0;
+                IMFSample* pSample = nullptr;
+                hr = pReader->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                                         0, &streamIndex, &flags, &timestamp, &pSample);
+                if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) break;
+                if (!pSample) continue;
+
+                IMFMediaBuffer* pBuffer = nullptr;
+                pSample->ConvertToContiguousBuffer(&pBuffer);
+                BYTE* pData = nullptr; DWORD maxLen = 0, curLen = 0;
+                pBuffer->Lock(&pData, &maxLen, &curLen);
+
+                // RGB32 = BGR0 packed, bottom-up -> flip Y and swap B/R for RGBA
+                int w = (int)fw, h = (int)fh;
+                std::vector<uint8_t> rgba((size_t)w * h * 4);
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        int si = ((h - 1 - y) * w + x) * 4;
+                        int di = (y * w + x) * 4;
+                        rgba[di+0] = pData[si+2];
+                        rgba[di+1] = pData[si+1];
+                        rgba[di+2] = pData[si+0];
+                        rgba[di+3] = 255;
+                    }
+                }
+
+                pBuffer->Unlock();
+                pBuffer->Release();
+                pSample->Release();
+
+                {
+                    std::lock_guard<std::mutex> lk(cameraFrameMtx);
+                    cameraFrameRGBA = std::move(rgba);
+                    cameraFrameW = w; cameraFrameH = h;
+                }
+                cameraFrameReady = true;
+
+                HWND hw = GetForegroundWindow();
+                if (hw) InvalidateRect(hw, nullptr, FALSE);
+            }
+
+            cameraReader.store(nullptr);
+            pReader->Release();
+            cameraRunning = false;
+            MFShutdown();
+            if (uninitCom) CoUninitialize();
+            logQ.push("[CAM] Stopped");
         }
 
         // -- Slicer panel ------------------------------------------------------
@@ -1825,6 +2087,13 @@ export namespace LithoControl {
                 float maxS  = (std::max)(0.0f, textH - boxH);
                 gcodeLogScrollY = maxS;
                 gcodeLogTxt->style->position.top = Px(-gcodeLogScrollY);
+            }
+
+            // Drain live camera frame into preview
+            if (cameraFrameReady.exchange(false) && previewImg) {
+                std::lock_guard<std::mutex> lk(cameraFrameMtx);
+                if (cameraFrameW > 0)
+                    previewImg->stagePixelsLive(cameraFrameRGBA, cameraFrameW, cameraFrameH);
             }
 
             // Progress bar
