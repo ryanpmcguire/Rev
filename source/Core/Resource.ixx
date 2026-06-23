@@ -6,6 +6,7 @@ module;
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
+#include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -30,6 +31,23 @@ export namespace Rev::Core {
         static Resource FromString(const char* data, size_t size)
         {
             return Resource{ reinterpret_cast<const unsigned char*>(data), size };
+        }
+
+        // Emit a diagnostic line via Win32 (NOT <iostream>/stdio, to keep this
+        // file's minimal-UCRT link contract -- see the read path below). Goes to
+        // stderr and the debugger's Output window so a missing resource is loud.
+        static void reportError(const std::string& msg)
+        {
+#ifdef _WIN32
+            const std::string line = msg + "\n";
+            HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
+            if (err && err != INVALID_HANDLE_VALUE)
+            {
+                DWORD written = 0;
+                WriteFile(err, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
+            }
+            OutputDebugStringA(line.c_str());
+#endif
         }
 
         // Read a resource straight from disk at runtime.
@@ -71,6 +89,24 @@ export namespace Rev::Core {
             auto it = cache.find(key);
             const bool missing = (it == cache.end());
             const bool changed  = (!ec && !missing && stamps[key] != mtime);
+
+            // First time we're asked for this path and it isn't on disk: fail
+            // loudly with the resolved path instead of silently returning an
+            // empty Resource (which only blows up opaquely much later, when some
+            // consumer tries to parse zero bytes of font/SVG/etc).
+            if (missing && !fs::exists(resolved, ec))
+            {
+                const std::string msg =
+                    "Rev::Core::Resource: file not found: \"" + key + "\""
+                    " (requested \"" + relativePath + "\", "
+                    + (clean.starts_with("./")
+                          ? "relative to source \"" + anchor + "\""
+                          : std::string("relative to PROJECT_ROOT \"") + PROJECT_ROOT + "\"")
+                    + ")";
+                reportError(msg);
+                throw std::runtime_error(msg);
+            }
+
             if (missing || changed)
             {
                 std::vector<unsigned char> bytes;
