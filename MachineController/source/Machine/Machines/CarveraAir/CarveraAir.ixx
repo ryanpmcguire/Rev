@@ -61,21 +61,20 @@ export namespace Machine {
         // Jog -- thin: influence the running jog, or open one if nothing is running
         //--------------------------------------------------
 
-        void jog(Coord direction, float stepMm, float stepDeg, bool hold) override {
+        void jog(Coord direction, float stepMm, float stepDeg, int feed, bool hold) override {
 
             // A non-jog operation owns the machine -- don't interrupt it.
             Operation::OperationBase* op = operations.current;
             if (op && op->type != Operation::Type::Jog) { return; }
 
-            // No jog running -- open one (enqueue seeds its implied from the manager's,
-            // which is resync'd to the machine on connect / unlock / reset).
+            // No jog running -- open one (skip a zero-motion command, nothing to stop).
             if (!op) {
+                if (!direction.x && !direction.y && !direction.z && !direction.a) { return; }
                 op = new Carvera::Operation::Jog();
                 operations.enqueue(op);
             }
 
-            // Feed the live jog its new direction / step / hold.
-            static_cast<Carvera::Operation::Jog*>(op)->setDir(direction, stepMm, stepDeg, hold);
+            static_cast<Carvera::Operation::Jog*>(op)->setDir(direction, stepMm, stepDeg, feed, hold);
         }
     };
 }

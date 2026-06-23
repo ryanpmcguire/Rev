@@ -40,8 +40,7 @@ export namespace Machine::Carvera::Command {
         std::string emit() const override { return "M6 T" + std::to_string(tool) + "\n"; }
     };
 
-    // Set the modal feedrate (mm/min). Persists on the machine for the moves that
-    // follow, so motion commands stay purely geometric.
+    // Set the modal feedrate (mm/min).
     struct Feed : Base {
         int rate = 1000;
         Feed(int rate) : Base(Command::Type::Feed), rate(rate) {}
@@ -49,9 +48,7 @@ export namespace Machine::Carvera::Command {
         void applyImplied(Implied& imp) const override { imp.feed = rate; }
     };
 
-    // An absolute move to a target in MACHINE coordinates (G53). Every axis is
-    // commanded; an axis already at its target simply doesn't move. Feed is modal
-    // (see Feed), not carried here.
+    // An absolute move to a target in MACHINE coordinates (G53). Feed is modal (see Feed).
     struct GoTo : Base {
         Coord target;
         GoTo(Coord target) : Base(Command::Type::GoTo), target(target) {}

@@ -39,9 +39,7 @@ export namespace Machine::Operation {
         std::vector<Command::CommandBase*> queue;
         Command::CommandBase* current = nullptr;
 
-        // Telemetry implied by the commands sent so far. Seeded by the manager on
-        // enqueue, then advanced by tick as each command goes out.
-        Implied implied;
+        Implied implied;   // advanced by tick as each command goes out
 
         OperationBase(Type type, std::string name) : type(type), name(std::move(name)) {}
         virtual ~OperationBase() { for (auto* command : queue) { delete command; } }
@@ -71,7 +69,6 @@ export namespace Machine::Operation {
         }
 
         // Send the pending commands. Streaming operations override to pace them.
-        // Each sent command folds its effect into our implied telemetry.
         virtual void tick(Adapter& adapter, uint64_t now) {
             while (current) {
                 adapter.sendCommand(*current);

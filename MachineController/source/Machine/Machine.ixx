@@ -255,9 +255,7 @@ export namespace Machine {
             std::vector<Operation::OperationBase*> queue;
             Operation::OperationBase* current = nullptr;
 
-            // Implied telemetry threaded across operations: mirrors the running op as
-            // it executes, and seeds each newly queued op with a starting point.
-            Implied implied;
+            Implied implied;   // threaded across ops: mirrors the running op, seeds the next
 
             SignalChannel updateChannel;   // queue / current / progress changed
 
@@ -271,10 +269,9 @@ export namespace Machine {
             void start() { Rev::Core::Process::instance().schedule(this, tickMs, [this](uint64_t now) { tick(now); }); }
             void stop()  { Rev::Core::Process::instance().unschedule(this); }
 
-            // Queue a new operation; it runs once it reaches the front. Seed it with
-            // our implied telemetry so it starts inferring from where we left off.
+            // Queue a new operation; it runs once it reaches the front.
             void enqueue(Operation::OperationBase* op) {
-                op->implied = implied;
+                op->implied = implied;   // seed from where we left off
                 queue.push_back(op);
                 if (!current) { current = op; }   // nothing was running -- it runs now
                 updateChannel.notify();
@@ -325,9 +322,8 @@ export namespace Machine {
 
         bool connected() const { return info.network.isConnected(); }
 
-        // Resync the operations' implied telemetry to the real machine on the next
-        // status frame. Raised when the position reference is (re-)established --
-        // connect / unlock / reset -- and consumed in the telemetry route below.
+        // Resync implied telemetry to real position on the next status frame; raised on
+        // connect / unlock / reset.
         bool impliedResyncPending = false;
         void requestImpliedResync() { impliedResyncPending = true; }
 
@@ -368,7 +364,7 @@ export namespace Machine {
             adapter->onConnection([this](Event::Connection& e) { info.network.apply(e); });
             adapter->onTelemetry ([this](Event::Telemetry&  e) {
                 telemetry.apply(e);
-                if (impliedResyncPending) {   // first real position since a (re-)established reference
+                if (impliedResyncPending) {   // consume a pending resync
                     operations.implied.pos = telemetry.spindle.pos;
                     impliedResyncPending = false;
                 }
@@ -442,10 +438,10 @@ export namespace Machine {
         // Motion commands
         //--------------------------------------------------
 
-        // Submit a jog: `direction` carries per-axis signs (-1 / 0 / +1), with the
-        // step magnitudes in `stepMm` / `stepDeg` and `continuous` selecting a
-        // keep-moving-while-held jog over a single stepwise move. Driven repeatedly by
-        // the GUI; the machine never continues a jog on its own.
-        virtual void jog(Coord /*direction*/, float /*stepMm*/, float /*stepDeg*/, bool /*continuous*/) {}
+        // Submit a jog: `direction` carries per-axis signs (-1 / 0 / +1), `stepMm` /
+        // `stepDeg` the single-step magnitudes, `feed` the speed (set by the GUI), and
+        // `hold` selects a keep-moving-while-held jog over a single stepwise move.
+        // Driven repeatedly by the GUI; the machine never continues a jog on its own.
+        virtual void jog(Coord /*direction*/, float /*stepMm*/, float /*stepDeg*/, int /*feed*/, bool /*hold*/) {}
     };
 }

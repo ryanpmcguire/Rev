@@ -7,8 +7,7 @@ export module Machine.Command;
 
 import Machine.Types;
 
-// Implied telemetry lives here (its apply() asks a command for its own effect, so it
-// needs CommandBase); forward declared so CommandBase can name it.
+// Forward declared so CommandBase::applyImplied can name it; defined below.
 export namespace Machine { struct Implied; }
 
 // Commands live in their own namespace: one base (CommandBase) subclassed per
@@ -55,19 +54,15 @@ export namespace Machine::Command {
         // Stringify command (derived classes must implement)
         virtual std::string emit() const = 0;
 
-        // Fold this command's effect into implied telemetry: once it is sent, the
-        // machine will reach this state. Commands with no implied effect (queries,
-        // unlock, ...) leave it untouched. Reached via Implied::apply.
+        // Fold this command's effect into implied telemetry (no-op by default).
         virtual void applyImplied(Implied&) const {}
     };
 }
 
 export namespace Machine {
 
-    // Telemetry implied by the commands sent so far: once a command goes out, the
-    // machine *will* reach this state. apply() folds a command in by asking it for its
-    // own effect, so command knowledge stays in the commands. The Operations manager
-    // threads this from one operation to the next so a fresh op starts from a guess.
+    // Telemetry implied by the commands sent so far. apply() defers to the command's
+    // own effect, keeping wire knowledge in the commands.
     struct Implied {
         Coord pos;        // last commanded position (machine coords)
         int   feed = 0;   // last commanded feedrate (mm/min)
