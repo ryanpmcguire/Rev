@@ -105,7 +105,7 @@ export namespace Rev::Element {
 
             arrow = new Svg(
                 header,
-                File("Rev/src/Elements/Controls/Dropdown/chevron-right.svg"),
+                File("Rev/source/Elements/Controls/Dropdown/chevron-right.svg"),
                 { &CollapsibleStyle::Arrow },
                 "CollapsibleArrow"
             );

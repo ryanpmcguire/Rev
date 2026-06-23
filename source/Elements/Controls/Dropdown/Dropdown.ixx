@@ -88,7 +88,7 @@ export namespace Rev::Element {
                     dropdownText = new Text(fieldRow, "", { &FieldText });
                     dropdownArrow = new Svg(
                         fieldRow,
-                        File("Rev/src/Elements/Controls/Dropdown/chevron-right.svg"),
+                        File("Rev/source/Elements/Controls/Dropdown/chevron-right.svg"),
                         { &DropdownArrow }
                     );
 
