@@ -275,6 +275,16 @@ export namespace LithoControl {
         int  pendingW = 0, pendingH = 0;
         bool needsBake = false;
 
+        // Artwork overlay -- composited on top of the camera feed.
+        // stagePixels() dual-writes here; stagePixelsLive() (camera) leaves it alone.
+        Rev::Primitives::Image*    overlayPrimitive = nullptr;
+        Rev::Graphics::Texture*    overlayTexture   = nullptr;
+        std::vector<uint8_t>       overlayPending;
+        int  overlayPendingW = 0, overlayPendingH = 0;
+        bool overlayNeedsBake = false;
+        float overlayOpacity  = 0.0f;   // 0=hidden; set by transparency slider
+        bool  overlayActive   = false;  // true while camera is live
+
         // Frame cycling / merge state for previewing a sliced job
         std::vector<std::string>          framePaths;
         std::vector<std::pair<int,int>>   frameCells;   // (col, row) per frame
@@ -296,7 +306,8 @@ export namespace LithoControl {
         ImagePreview(Element* parent, StyleList styles = {})
             : Box(parent, styles)
         {
-            imgPrimitive = new Rev::Primitives::Image(shared->canvas);
+            imgPrimitive     = new Rev::Primitives::Image(shared->canvas);
+            overlayPrimitive = new Rev::Primitives::Image(shared->canvas);
 
             // Clip zoomed/panned image to the preview bounds
             this->style->overflow = Overflow::Hide;
@@ -352,6 +363,8 @@ export namespace LithoControl {
         ~ImagePreview() override {
             delete imgPrimitive;
             delete imgTexture;
+            delete overlayPrimitive;
+            delete overlayTexture;
         }
 
         // Decode a PNG/BMP/JPEG via GDI+ into a tightly-packed RGBA buffer.
@@ -394,6 +407,20 @@ export namespace LithoControl {
 
         // Queue a decoded buffer for upload on the next render pass.
         void stagePixels(std::vector<uint8_t>&& px, int w, int h) {
+            // Dual-write: overlay copy has black keyed out (alpha = pixel brightness)
+            // so unexposed areas are transparent over the camera feed.
+            overlayPending.resize(px.size());
+            for (size_t i = 0; i + 3 < px.size(); i += 4) {
+                overlayPending[i+0] = px[i+0];
+                overlayPending[i+1] = px[i+1];
+                overlayPending[i+2] = px[i+2];
+                uint8_t luma = px[i+0] > px[i+1] ? px[i+0] : px[i+1];
+                if (px[i+2] > luma) luma = px[i+2];
+                overlayPending[i+3] = luma;
+            }
+            overlayPendingW = w; overlayPendingH = h;
+            overlayNeedsBake = true;
+
             pendingPixels = std::move(px);
             pendingW = w; pendingH = h;
             needsBake = true;
@@ -499,7 +526,7 @@ export namespace LithoControl {
 
         void computePrimitives(Event& e) override {
 
-            // Bake: upload any staged pixels now that the GL context is current.
+            // Bake main texture (camera feed, or artwork when no camera)
             if (needsBake) {
                 delete imgTexture;
                 imgTexture = new Rev::Graphics::Texture(shared->canvas->context, {
@@ -514,6 +541,22 @@ export namespace LithoControl {
                 needsBake = false;
                 pendingPixels.clear();
                 pendingPixels.shrink_to_fit();
+            }
+
+            // Bake overlay texture (artwork, kept separate from camera feed)
+            if (overlayNeedsBake && !overlayPending.empty()) {
+                delete overlayTexture;
+                overlayTexture = new Rev::Graphics::Texture(shared->canvas->context, {
+                    .data     = overlayPending.data(),
+                    .width    = (size_t)overlayPendingW,
+                    .height   = (size_t)overlayPendingH,
+                    .channels = 4,
+                    .filter   = Rev::Graphics::Texture::Filter::Bilinear
+                });
+                overlayPrimitive->texture = overlayTexture;
+                overlayNeedsBake = false;
+                overlayPending.clear();
+                overlayPending.shrink_to_fit();
             }
 
             if (imgPrimitive && imgTexture && srcW > 0 && srcH > 0) {
@@ -537,6 +580,16 @@ export namespace LithoControl {
                 d.tileCountX = (float)tileX;
                 d.tileCountY = (float)tileY;
 
+                // Position overlay co-registered with the main image (same screen rect)
+                // so artwork and camera feed stay locked together during zoom/pan.
+                if (overlayPrimitive && overlayTexture) {
+                    auto& od      = *overlayPrimitive->data;
+                    od.x          = dx; od.y = dy; od.w = dw; od.h = dh;
+                    od.opacity    = overlayOpacity;
+                    od.tileCountX = 0.0f;
+                    od.tileCountY = 0.0f;
+                }
+
                 // Update the info overlay text and pin it near the bottom-left.
                 if (info) {
                     char buf[64];
@@ -556,9 +609,12 @@ export namespace LithoControl {
             // image on top -- otherwise the opaque PreviewArea background paints over it.
             Box::draw(e);
 
-            if (imgPrimitive && imgTexture) {
+            if (imgPrimitive && imgTexture)
                 imgPrimitive->draw();
-            }
+
+            // Draw artwork overlay on top of camera feed
+            if (overlayActive && overlayPrimitive && overlayTexture && overlayOpacity > 0.0f)
+                overlayPrimitive->draw();
         }
     };
 
@@ -711,6 +767,18 @@ export namespace LithoControl {
         ImagePreview* previewImg   = nullptr;
         Text*         previewLabel = nullptr;
 
+        // Overlay opacity slider
+        Box*  overlaySliderTrack    = nullptr;
+        Box*  overlaySliderFill     = nullptr;
+        Text* overlayPctLabel       = nullptr;
+        bool  overlaySliderDragging = false;
+
+        // Zoom slider
+        Box*  zoomSliderTrack    = nullptr;
+        Box*  zoomSliderFill     = nullptr;
+        Text* zoomLabel          = nullptr;
+        bool  zoomSliderDragging = false;
+
         // Job list scroll
         float jobListScrollY    = 0.0f;
         Box*  jobListContent    = nullptr;
@@ -808,6 +876,19 @@ export namespace LithoControl {
                         statusPanelBox->style->size.height = Px(statusPanelH);
                 }
                 if (sbThumbDragging && !e.mouse.lb) sbThumbDragging = false;
+                if (overlaySliderDragging && previewImg && overlaySliderTrack) {
+                    float t = overlaySliderTrack->rect.x;
+                    float w = overlaySliderTrack->rect.w;
+                    if (w > 0.0f)
+                        previewImg->overlayOpacity = std::clamp((e.mouse.pos.x - t) / w, 0.0f, 1.0f);
+                }
+                if (zoomSliderDragging && previewImg && zoomSliderTrack) {
+                    float w = zoomSliderTrack->rect.w;
+                    if (w > 0.0f) {
+                        float t = std::clamp((e.mouse.pos.x - zoomSliderTrack->rect.x) / w, 0.0f, 1.0f);
+                        previewImg->zoom = 0.1f * std::pow(200.0f, t);
+                    }
+                }
                 if (sbThumbDragging && sidebarBox && sidebarContent) {
                     // Map thumb travel (track minus thumb) to content scroll range.
                     float trackH   = sidebarBox->rect.h;
@@ -821,8 +902,47 @@ export namespace LithoControl {
                 }
             });
 
+            // Keyboard shortcuts for the viewport (only fire when no text input consumed them)
+            this->onKeyDown([this](Rev::Element::Event& e) {
+                if (!previewImg) return;
+                float step = e.keyboard.shift ? 80.0f : 20.0f;
+                bool moved = false;
+                if (e.keyboard.arrows.left)  { previewImg->offsetX -= step; moved = true; }
+                if (e.keyboard.arrows.right) { previewImg->offsetX += step; moved = true; }
+                if (e.keyboard.arrows.up)    { previewImg->offsetY -= step; moved = true; }
+                if (e.keyboard.arrows.down)  { previewImg->offsetY += step; moved = true; }
+                if (moved) {
+                    e.propagate = false;
+                    HWND hw = GetForegroundWindow();
+                    if (hw) InvalidateRect(hw, nullptr, FALSE);
+                }
+            });
+
+            this->onTextInput([this](Rev::Element::Event& e) {
+                if (!previewImg || e.keyboard.input.empty()) return;
+                const char c = e.keyboard.input[0];
+                if (c == '+' || c == '=') {
+                    previewImg->zoom = std::clamp(previewImg->zoom * 1.15f, 0.1f, 20.0f);
+                } else if (c == '-') {
+                    previewImg->zoom = std::clamp(previewImg->zoom / 1.15f, 0.1f, 20.0f);
+                } else if (c == 'r' || c == 'R' || c == 'f' || c == 'F') {
+                    previewImg->zoom    = 0.0f;   // auto-fit sentinel
+                    previewImg->offsetX = previewImg->offsetY = 0.0f;
+                } else if (c == '1') {
+                    previewImg->zoom    = 1.0f;
+                    previewImg->offsetX = previewImg->offsetY = 0.0f;
+                } else {
+                    return;
+                }
+                e.propagate = false;
+                HWND hw = GetForegroundWindow();
+                if (hw) InvalidateRect(hw, nullptr, FALSE);
+            });
+
             this->onMouseUp([this](Rev::Element::Event&) {
                 sbThumbDragging = false;
+                overlaySliderDragging = false;
+                zoomSliderDragging    = false;
                 if (sidebarDragging && !sidebarDragMoved) {
                     // Click (no drag) -- toggle collapse
                     sidebarCollapsed = !sidebarCollapsed;
@@ -1815,10 +1935,110 @@ export namespace LithoControl {
                 if (previewImg) { previewImg->mergeFrames(); updatePreviewLabel(); }
             });
 
+            // Viewport controls
+            makeSmallBtn(prevBar, "FIT", [this]() {
+                if (!previewImg) return;
+                previewImg->zoom = 0.0f;
+                previewImg->offsetX = previewImg->offsetY = 0.0f;
+            });
+            makeSmallBtn(prevBar, "1:1", [this]() {
+                if (!previewImg) return;
+                previewImg->zoom = 1.0f;
+                previewImg->offsetX = previewImg->offsetY = 0.0f;
+            });
+
+            // Zoom drag slider
+            Text* zoomLbl = new Text(prevBar, "ZOOM");
+            zoomLbl->style->text.color   = rgba(232, 232, 232, 0.4f);
+            zoomLbl->style->text.size    = 9_px;
+            zoomLbl->style->margin.left  = 6_px;
+            zoomLbl->style->margin.right = 4_px;
+
+            zoomSliderTrack = new Box(prevBar);
+            zoomSliderTrack->style->size             = { 90_px, 10_px };
+            zoomSliderTrack->style->size.max.width   = 90_px;
+            zoomSliderTrack->style->background.color = rgba(28, 28, 28, 1);
+            zoomSliderTrack->style->border.color     = rgba(60, 60, 60, 1);
+            zoomSliderTrack->style->border.radius    = 5_px;
+            zoomSliderTrack->style->border.width     = 1_px;
+            zoomSliderTrack->style->overflow         = Overflow::Hide;
+            zoomSliderTrack->style->cursor           = Cursor::ArrowsHorizontal;
+
+            zoomSliderFill = new Box(zoomSliderTrack);
+            zoomSliderFill->style->layout.position  = Position::Absolute;
+            zoomSliderFill->style->position.left    = Px(0);
+            zoomSliderFill->style->position.top     = Px(0);
+            zoomSliderFill->style->size.height      = 100_pct;
+            zoomSliderFill->style->size.width       = Pct(0);
+            zoomSliderFill->style->background.color = rgba(0, 160, 120, 1);
+            zoomSliderFill->style->border.radius    = 5_px;
+
+            zoomSliderTrack->onMouseDown([this](Rev::Element::Event& e) {
+                zoomSliderDragging = true;
+                if (previewImg && zoomSliderTrack->rect.w > 0.0f) {
+                    float t = std::clamp((e.mouse.pos.x - zoomSliderTrack->rect.x)
+                                         / zoomSliderTrack->rect.w, 0.0f, 1.0f);
+                    previewImg->zoom = 0.1f * std::pow(200.0f, t);
+                }
+                e.propagate = false;
+            });
+
+            zoomLabel = new Text(prevBar, "1.0x");
+            zoomLabel->style->text.color    = rgba(232, 232, 232, 0.6f);
+            zoomLabel->style->text.size     = 9_px;
+            zoomLabel->style->margin.left   = 5_px;
+            zoomLabel->style->size.min.width = 34_px;
+
+            // Spacer between viewport controls and frame label
+            Box* prevBarSpacer = new Box(prevBar);
+            prevBarSpacer->style->size.width = Grow();
+
             previewLabel = new Text(prevBar, "");
-            previewLabel->style->text.color = rgba(232, 232, 232, 0.6f);
-            previewLabel->style->text.size  = 10_px;
-            previewLabel->style->margin.left = 10_px;
+            previewLabel->style->text.color  = rgba(232, 232, 232, 0.6f);
+            previewLabel->style->text.size   = 10_px;
+            previewLabel->style->margin.right = 10_px;
+
+            // Overlay opacity slider (right side of bar)
+            Text* ovlLbl = new Text(prevBar, "OVL");
+            ovlLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+            ovlLbl->style->text.size     = 9_px;
+            ovlLbl->style->margin.left   = 8_px;
+            ovlLbl->style->margin.right  = 4_px;
+
+            overlaySliderTrack = new Box(prevBar);
+            overlaySliderTrack->style->size             = { 100_px, 10_px };
+            overlaySliderTrack->style->size.max.width   = 100_px;
+            overlaySliderTrack->style->background.color = rgba(28, 28, 28, 1);
+            overlaySliderTrack->style->border.color     = rgba(60, 60, 60, 1);
+            overlaySliderTrack->style->border.radius    = 5_px;
+            overlaySliderTrack->style->border.width     = 1_px;
+            overlaySliderTrack->style->overflow         = Overflow::Hide;
+            overlaySliderTrack->style->cursor           = Cursor::ArrowsHorizontal;
+
+            overlaySliderFill = new Box(overlaySliderTrack);
+            overlaySliderFill->style->layout.position   = Position::Absolute;
+            overlaySliderFill->style->position.left     = Px(0);
+            overlaySliderFill->style->position.top      = Px(0);
+            overlaySliderFill->style->size.height       = 100_pct;
+            overlaySliderFill->style->size.width        = Pct(0);
+            overlaySliderFill->style->background.color  = rgba(0, 87, 255, 1);
+            overlaySliderFill->style->border.radius     = 5_px;
+
+            overlaySliderTrack->onMouseDown([this](Rev::Element::Event& e) {
+                overlaySliderDragging = true;
+                float t = overlaySliderTrack->rect.x;
+                float w = overlaySliderTrack->rect.w;
+                if (w > 0.0f && previewImg)
+                    previewImg->overlayOpacity = std::clamp((e.mouse.pos.x - t) / w, 0.0f, 1.0f);
+                e.propagate = false;
+            });
+
+            overlayPctLabel = new Text(prevBar, "0%");
+            overlayPctLabel->style->text.color   = rgba(232, 232, 232, 0.6f);
+            overlayPctLabel->style->text.size    = 9_px;
+            overlayPctLabel->style->margin.left  = 5_px;
+            overlayPctLabel->style->margin.right = 4_px;
+            overlayPctLabel->style->size.min.width = 28_px;
 
             // Preview area -- ImagePreview fills remaining height above the status panel
             previewImg = new ImagePreview(rp, { &Theme::PreviewArea });
@@ -2087,6 +2307,28 @@ export namespace LithoControl {
                 float maxS  = (std::max)(0.0f, textH - boxH);
                 gcodeLogScrollY = maxS;
                 gcodeLogTxt->style->position.top = Px(-gcodeLogScrollY);
+            }
+
+            // Keep overlay active flag and slider UI in sync
+            if (previewImg) {
+                previewImg->overlayActive = cameraRunning.load();
+
+                // Sync zoom slider fill and label from current zoom level
+                if (zoomSliderFill && zoomLabel && previewImg->zoom > 0.0f) {
+                    float t = std::log(previewImg->zoom / 0.1f) / std::log(200.0f);
+                    t = std::clamp(t, 0.0f, 1.0f);
+                    zoomSliderFill->style->size.width = Pct(t * 100.0f);
+                    char buf[12];
+                    std::snprintf(buf, sizeof(buf), "%.2gx", (double)previewImg->zoom);
+                    zoomLabel->content = buf;
+                }
+                if (overlaySliderFill)
+                    overlaySliderFill->style->size.width = Pct(previewImg->overlayOpacity * 100.0f);
+                if (overlayPctLabel) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "%d%%", (int)(previewImg->overlayOpacity * 100.0f + 0.5f));
+                    overlayPctLabel->content = buf;
+                }
             }
 
             // Drain live camera frame into preview
