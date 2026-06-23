@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python clever/clever.py transpile *)",
-      "Bash(findstr *)",
-      "Bash(tasklist*)"
-    ]
-  }
-}
