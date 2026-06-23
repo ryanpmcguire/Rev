@@ -7,9 +7,7 @@ module;
 #include <filesystem>
 #include <unordered_map>
 #include <stdexcept>
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include <fstream>
 
 export module Rev.Core.Resource;
 
@@ -31,23 +29,6 @@ export namespace Rev::Core {
         static Resource FromString(const char* data, size_t size)
         {
             return Resource{ reinterpret_cast<const unsigned char*>(data), size };
-        }
-
-        // Emit a diagnostic line via Win32 (NOT <iostream>/stdio, to keep this
-        // file's minimal-UCRT link contract -- see the read path below). Goes to
-        // stderr and the debugger's Output window so a missing resource is loud.
-        static void reportError(const std::string& msg)
-        {
-#ifdef _WIN32
-            const std::string line = msg + "\n";
-            HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
-            if (err && err != INVALID_HANDLE_VALUE)
-            {
-                DWORD written = 0;
-                WriteFile(err, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
-            }
-            OutputDebugStringA(line.c_str());
-#endif
         }
 
         // Read a resource straight from disk at runtime.
@@ -103,42 +84,24 @@ export namespace Rev::Core {
                           ? "relative to source \"" + anchor + "\""
                           : std::string("relative to PROJECT_ROOT \"") + PROJECT_ROOT + "\"")
                     + ")";
-                reportError(msg);
+                // Surfaces via the runtime's terminate handler (what()) if
+                // uncaught -- a clear message, no OS/stdio dependency.
                 throw std::runtime_error(msg);
             }
 
             if (missing || changed)
             {
+                // Read with the standard library only -- no OS-specific headers
+                // in this core module (the OS layer, e.g. Rev::OS::File, owns
+                // platform code). Binary mode; the bytes are cached for the
+                // program's lifetime.
                 std::vector<unsigned char> bytes;
-                // Read via the OS API (kernel32), NOT <fstream> -- <fstream>
-                // drags in the C stdio + locale/numeric facets (fopen, nan,
-                // isalnum, ...), pulling a whole UCRT surface the rest of this
-                // build never references. Reading through Win32 keeps the link
-                // exactly as it was before resources moved to disk.
-#ifdef _WIN32
-                HANDLE h = CreateFileW(resolved.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                                       nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-                if (h != INVALID_HANDLE_VALUE)
+                std::ifstream f(resolved, std::ios::binary);
+                if (f)
                 {
-                    LARGE_INTEGER sz{};
-                    if (GetFileSizeEx(h, &sz) && sz.QuadPart > 0)
-                    {
-                        bytes.resize(static_cast<size_t>(sz.QuadPart));
-                        size_t off = 0;
-                        while (off < bytes.size())
-                        {
-                            DWORD chunk = static_cast<DWORD>(
-                                std::min<size_t>(bytes.size() - off, 0x10000000));
-                            DWORD got = 0;
-                            if (!ReadFile(h, bytes.data() + off, chunk, &got, nullptr) || got == 0)
-                                break;
-                            off += got;
-                        }
-                        bytes.resize(off);
-                    }
-                    CloseHandle(h);
+                    bytes.assign(std::istreambuf_iterator<char>(f),
+                                 std::istreambuf_iterator<char>());
                 }
-#endif
                 cache[key] = std::move(bytes);
                 if (!ec) stamps[key] = mtime;
                 it = cache.find(key);
