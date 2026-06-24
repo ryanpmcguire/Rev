@@ -279,6 +279,10 @@ export namespace Rev::Element {
             // Set depth
             resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;            
 
+            if (resolved.hidden) {
+                return;
+            }
+
             // Continue
             for (Element* child : children) {
                 child->cascadeStyle();

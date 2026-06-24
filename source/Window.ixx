@@ -372,6 +372,10 @@ export namespace Rev {
         void calcTopDownQueue(Element* element) {
 
             topDown.push_back(element);
+
+            if (element != this && element->resolved.hidden) {
+                return;
+            }
         
             for (Element* child : element->children) {
                 calcTopDownQueue(child);
@@ -381,8 +385,11 @@ export namespace Rev {
         // Calculate bottom-up call order
         void calcBottomUpQueue(Element* element) {
 
-            for (Element* child : element->children) {
-                calcBottomUpQueue(child);
+            if (element == this || !element->resolved.hidden) {
+
+                for (Element* child : element->children) {
+                    calcBottomUpQueue(child);
+                }
             }
 
             bottomUp.push_back(element);
@@ -402,6 +409,7 @@ export namespace Rev {
             for (Element* element : topDown) { element->resetResolved(); }
 
             this->cascadeStyle();
+            this->calculateQueues();
 
             // Resolve minima, then maxima, then layout
             for (Element* element : bottomUp) { element->resolveMinima(); }
@@ -423,6 +431,10 @@ export namespace Rev {
 
             for (Element* elem : current->children) {
 
+                if (elem->resolved.hidden) {
+                    continue;
+                }
+
                 if (elem->resolved.depth > current->resolved.depth) {
                     drawList.push_back(elem);
                     recurseDrawList(elem);
@@ -435,6 +447,11 @@ export namespace Rev {
             while (!deferred.empty()) {
 
                 Element* elem = deferred.front();
+
+                if (elem->resolved.hidden) {
+                    deferred.pop();
+                    continue;
+                }
 
                 if (elem->resolved.depth > current->resolved.depth) {
                     deferred.pop();
@@ -465,6 +482,11 @@ export namespace Rev {
             while (!deferred.empty()) {
                 Element* elem = deferred.front();
                 deferred.pop();
+
+                if (elem->resolved.hidden) {
+                    continue;
+                }
+
                 drawList.push_back(elem);
                 recurseDrawList(elem);
             }
@@ -490,9 +512,26 @@ export namespace Rev {
             if (window) { window->requestFrame(); }
         }
 
+        void computeStyleTopDown(Event& e, Element* element) {
+
+            element->computeStyle(e);
+
+            if (element != this && element->resolved.hidden) {
+                return;
+            }
+
+            for (Element* child : element->children) {
+                this->computeStyleTopDown(e, child);
+            }
+        }
+
         void computeChildrenTopDown(Event& e, Element* parent) {
 
             for (Element* child : parent->children) {
+
+                if (child->resolved.hidden) {
+                    continue;
+                }
                 
                 child->computeChildren(e);
 
@@ -519,9 +558,7 @@ export namespace Rev {
             // Compute styles before resolving
             //--------------------------------------------------
 
-            for (Element* element : topDown) {
-                element->computeStyle(e);
-            }
+            this->computeStyleTopDown(e, this);
 
             this->dirty.draw = false;
 
@@ -567,7 +604,12 @@ export namespace Rev {
                 shared->layoutDirty = false;
             }
 
-            for (Element* element : topDown) { element->computePrimitives(e); }
+            for (Element* element : topDown) {
+
+                if (element->resolved.hidden) { continue; }
+
+                element->computePrimitives(e);
+            }
 
             //raphics::Canvas& canvas = *shared->canvas;
             std::vector<Element*>& stencilStack = shared->stencilStack;
