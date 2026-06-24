@@ -133,6 +133,7 @@ export namespace Rev {
         struct Size { int w, h, minW, minH, maxW, maxH; };
 
         struct Details {
+            std::string name = "Hello World";
             Size size = { 640, 480, 0, 0, 1000, 1000 };
             bool decorated = true;
             bool resizable = true;
@@ -260,7 +261,7 @@ export namespace Rev {
             if (!xWindow) throw std::runtime_error("[NativeWindow] XCreateWindow failed");
 
             windows[xWindow] = this;
-            XStoreName(xDisplay, xWindow, "Rev");
+            setTitle(details.name);
             createSyncCounter();
             Atom protocols[] = { wmDeleteWindow };
             XSetWMProtocols(xDisplay, xWindow, protocols, 1);

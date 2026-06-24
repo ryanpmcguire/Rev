@@ -687,6 +687,11 @@ export namespace Rev {
                 throw std::runtime_error("[NativeWindow] Failed to create window");
             }
 
+            // Some style paths finish non-client initialization after
+            // CreateWindowExW returns; make the requested caption explicit once
+            // the HWND is fully available.
+            setTitle(details.name);
+
             // Frameless: force a non-client recalc so WM_NCCALCSIZE collapses the
             // title bar/frame right away (otherwise it can flash on first paint).
             if (nativeFrameless) {
