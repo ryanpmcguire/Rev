@@ -30,6 +30,17 @@ file (`.claude/rules/`).
 @../source/Element/About/Rev.Element.HowTo.md
 @../source/Graphics/About/Graphics.Primitives.md
 
+## Essence — what Rev really is, and how to really use it
+
+The disposition behind the model: read these to understand *why* Rev is shaped the way it
+is and how to work with the grain (most Rev mistakes are disposition mistakes, not API
+mistakes). Start with the README.
+
+@Essence/What-Rev-Really-Is.md
+@Essence/How-To-Really-Use-Rev.md
+@Essence/The-Escape-Staircase.md
+@Essence/Dos-And-Donts.md
+
 ## Core — geometry
 
 @../source/Core/Geometry/Pos.ixx

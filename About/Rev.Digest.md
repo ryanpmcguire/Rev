@@ -28,6 +28,17 @@ it as known, current truth. Paths are relative to this file (`.claude/rules/`).
 @../../Rev/src/Element/About/Rev.Element.HowTo.md
 @../../Rev/src/Graphics/About/Graphics.Primitives.md
 
+## Essence — what Rev really is, and how to really use it
+
+The disposition behind the model: read these to understand *why* Rev is shaped the way it
+is and how to work with the grain (most Rev mistakes are disposition mistakes, not API
+mistakes). Start with the README.
+
+@../../Rev/About/Essence/What-Rev-Really-Is.md
+@../../Rev/About/Essence/How-To-Really-Use-Rev.md
+@../../Rev/About/Essence/The-Escape-Staircase.md
+@../../Rev/About/Essence/Dos-And-Donts.md
+
 ## Core — geometry, color, reactivity, time
 
 @../../Rev/src/Core/Geometry/Pos.ixx
