@@ -28,6 +28,7 @@ int main() {
         (void)iface;
 
         application->run();
+        ExitProcess(0);   // force exit: detached threads (HDMI window) keep the process alive otherwise
     } catch (const std::exception& ex) {
         MessageBoxA(nullptr, ex.what(), "LithoControl – Unhandled Exception", MB_OK | MB_ICONERROR);
         return 1;

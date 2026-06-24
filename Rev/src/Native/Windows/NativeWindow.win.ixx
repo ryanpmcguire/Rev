@@ -469,11 +469,16 @@ export namespace Rev {
 
                 // When the window is destroyed
                 case (WM_DESTROY): {
-                    
+
                     self->notifyEvent({
                         WinEvent::Type::Destroy
                     });
-                    
+
+                    // Post WM_QUIT so GetMessage returns 0 and the Application run()
+                    // loop exits. Without this, the loop blocks indefinitely on
+                    // GetMessage after the window is destroyed.
+                    PostQuitMessage(0);
+
                     return 0;
                 }
 

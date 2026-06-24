@@ -303,6 +303,10 @@ export namespace LithoControl {
         Text* hint = nullptr;
         Text* info = nullptr;
 
+        // Called with raw RGBA pixels whenever artwork (not camera) is staged.
+        // Interface uses this to mirror the artwork to the HDMI projector.
+        std::function<void(const std::vector<uint8_t>&, int, int)> onArtworkBaked;
+
         ImagePreview(Element* parent, StyleList styles = {})
             : Box(parent, styles)
         {
@@ -421,6 +425,7 @@ export namespace LithoControl {
             overlayPendingW = w; overlayPendingH = h;
             overlayNeedsBake = true;
 
+            if (onArtworkBaked) onArtworkBaked(px, w, h);  // fire before move
             pendingPixels = std::move(px);
             pendingW = w; pendingH = h;
             needsBake = true;
@@ -780,13 +785,28 @@ export namespace LithoControl {
         bool  zoomSliderDragging = false;
 
         // Job list scroll
-        float jobListScrollY    = 0.0f;
-        Box*  jobListContent    = nullptr;
+        float jobListScrollY         = 0.0f;
+        Box*  jobListContent         = nullptr;
+        Box*  jobListScrollTrack     = nullptr;
+        Box*  jobListScrollThumb     = nullptr;
+        bool  jobListThumbDragging   = false;
+        float jobListThumbDragStartY = 0.0f;
+        float jobListThumbDragStartScroll = 0.0f;
 
         // HDMI Passthrough
         struct HdmiDisplay { std::string devName; std::string label; RECT rect; };
         std::vector<HdmiDisplay> hdmiDisplays;
         Checkbox*   hdmiPassthroughChk = nullptr;
+        Checkbox*   hdmiRedChk        = nullptr;
+        Checkbox*   hdmiGreenChk      = nullptr;
+        Checkbox*   hdmiBlueChk       = nullptr;
+        Checkbox*   hdmiEvmCorrectChk = nullptr;
+        // BGRA on-pixel color for the HDMI projector window (channels checkboxes).
+        // Default 0xFF000000 = no channels enabled (black). Updated in computeStyle.
+        std::atomic<uint32_t> hdmiChannelMask { 0xFF000000u };
+        // Last decoded artwork pixels, cached so channel toggles repush without re-decode.
+        std::vector<uint8_t> hdmiArtworkRGBA;
+        int hdmiArtworkW = 0, hdmiArtworkH = 0;
         Box*        hdmiDisplaySlot    = nullptr;
         Box*        hdmiDisplayRow     = nullptr;
         Dropdown*   hdmiDisplayDrop    = nullptr;
@@ -847,11 +867,33 @@ export namespace LithoControl {
 
             loadSettings();
             dlpRoot = settings.dlpRoot;   // restore so ./jobs resolves without a browse
+            // Bootstrap dlpRoot from the jobs dir when it wasn't persisted separately.
+            // e.g. if jobsDir = "C:\...\DLP-photolithography\jobs" -> dlpRoot = parent.
+            if (dlpRoot.empty() && !settings.jobsDir.empty()) {
+                namespace fs = std::filesystem;
+                fs::path jd(settings.jobsDir);
+                if (jd.is_absolute()) {
+                    // Walk up from jobsDir looking for pc/slicer.py
+                    fs::path candidate = jd;
+                    while (true) {
+                        if (fs::exists(candidate / "pc" / "slicer.py")) {
+                            dlpRoot = candidate.string();
+                            settings.dlpRoot = dlpRoot;
+                            break;
+                        }
+                        auto parent = candidate.parent_path();
+                        if (parent == candidate) break;
+                        candidate = parent;
+                    }
+                }
+            }
             buildSidebar();
             buildCollapseHandle();
             buildRightPanel();
             refreshJobList();
-            scanPorts(false);   // populate the COM list at startup; don't select/connect
+            scanPorts(false);    // populate the COM list at startup; don't select/connect
+            scanCameras();       // auto-populate camera dropdown
+            scanDisplays();      // auto-populate display dropdown
 
             // Global drag handlers -- fire on any mouse move/up over the Interface,
             // so drags stay active even when the cursor leaves the originating handle.
@@ -900,6 +942,16 @@ export namespace LithoControl {
                     sidebarScrollY = std::clamp(sbThumbDragStartScroll + dy * (maxScroll / travel), 0.0f, maxScroll);
                     sidebarContent->style->position.top = Px(-sidebarScrollY);
                 }
+                if (jobListThumbDragging && jobListBox && jobListInner && jobListScrollThumb) {
+                    float trackH    = jobListBox->rect.h;
+                    float contentH  = measureSpread(jobListInner);
+                    float maxScroll = (std::max)(0.0f, contentH - trackH);
+                    float thumbH    = (contentH > trackH) ? (std::max)(16.0f, (trackH / contentH) * trackH) : trackH;
+                    float travel    = (std::max)(1.0f, trackH - thumbH);
+                    float dy        = e.mouse.pos.y - jobListThumbDragStartY;
+                    jobListScrollY  = std::clamp(jobListThumbDragStartScroll + dy * (maxScroll / travel), 0.0f, maxScroll);
+                    jobListInner->style->position.top = Px(-jobListScrollY);
+                }
             });
 
             // Keyboard shortcuts for the viewport (only fire when no text input consumed them)
@@ -940,9 +992,10 @@ export namespace LithoControl {
             });
 
             this->onMouseUp([this](Rev::Element::Event&) {
-                sbThumbDragging = false;
+                sbThumbDragging       = false;
                 overlaySliderDragging = false;
                 zoomSliderDragging    = false;
+                jobListThumbDragging  = false;
                 if (sidebarDragging && !sidebarDragMoved) {
                     // Click (no drag) -- toggle collapse
                     sidebarCollapsed = !sidebarCollapsed;
@@ -1055,9 +1108,18 @@ export namespace LithoControl {
                 e.propagate = false;
             });
 
-            // Wheel handler: update scroll and immediately dirty sidebarContent
-            // so the frame repaints without waiting for a hover event.
+            // Wheel handler: route to job list when cursor is over it, otherwise scroll sidebar.
             sb->onMouseWheel([this](Rev::Element::Event& e) {
+                if (jobListBox && jobListInner && jobListBox->rect.contains(e.mouse.pos)) {
+                    jobListScrollY -= (e.mouse.wheel.y / 120.0f) * 30.0f;
+                    if (jobListScrollY < 0.0f) jobListScrollY = 0.0f;
+                    float maxScroll = measureSpread(jobListInner) - jobListBox->rect.h;
+                    if (maxScroll < 0.0f) maxScroll = 0.0f;
+                    if (jobListScrollY > maxScroll) jobListScrollY = maxScroll;
+                    jobListInner->style->position.top = Px(-jobListScrollY);
+                    e.propagate = false;
+                    return;
+                }
                 sidebarScrollY -= (e.mouse.wheel.y / 120.0f) * 40.0f;
                 if (sidebarScrollY < 0.0f) sidebarScrollY = 0.0f;
                 sidebarContent->style->position.top = Px(-sidebarScrollY);
@@ -1226,6 +1288,41 @@ export namespace LithoControl {
             hdmiPassthroughChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
             hdmiPassthroughChk->label->style->text.size  = 11_px;
 
+            // Channel selector: choose which colour channels reach the projector.
+            // BGRA byte order: R=0x000000FF, G=0x0000FF00, B=0x00FF0000.
+            {
+                Text* chanHdr = new Text(body, "OUTPUT CHANNELS");
+                chanHdr->style->text.color    = rgba(232, 232, 232, 0.4f);
+                chanHdr->style->text.size     = 9_px;
+                chanHdr->style->margin.top    = 8_px;
+                chanHdr->style->margin.bottom = 4_px;
+
+                Box* chanRow = new Box(body, { &Theme::RowH });
+                chanRow->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+
+                hdmiRedChk = new Checkbox(chanRow, { .label = "RED", .def = false });
+                hdmiRedChk->label->style->text.color = rgba(255, 80, 80, 1);
+                hdmiRedChk->label->style->text.size  = 10_px;
+                hdmiRedChk->style->margin.right      = 8_px;
+
+                hdmiGreenChk = new Checkbox(chanRow, { .label = "GREEN", .def = false });
+                hdmiGreenChk->label->style->text.color = rgba(80, 220, 80, 1);
+                hdmiGreenChk->label->style->text.size  = 10_px;
+                hdmiGreenChk->style->margin.right      = 8_px;
+
+                hdmiBlueChk = new Checkbox(chanRow, { .label = "BLUE", .def = false });
+                hdmiBlueChk->label->style->text.color = rgba(80, 140, 255, 1);
+                hdmiBlueChk->label->style->text.size  = 10_px;
+                hdmiBlueChk->style->margin.right      = 8_px;
+
+                // EVM CORRECT: swaps R↔B in the output pixel so the channel labels
+                // match what the EVM physically outputs (its R and B data lines are
+                // wired in reverse — empirically verified via color-cycle test).
+                hdmiEvmCorrectChk = new Checkbox(chanRow, { .label = "EVM", .def = false });
+                hdmiEvmCorrectChk->label->style->text.color = rgba(232, 232, 232, 0.6f);
+                hdmiEvmCorrectChk->label->style->text.size  = 10_px;
+            }
+
             // Slot: display selector row is added/removed here so it takes no layout space
             // when hidden. Using addChild/removeChild (not Visibility::Hidden) avoids the
             // hit-area offset that occurs when a zero-height hidden element stays in the
@@ -1331,9 +1428,10 @@ export namespace LithoControl {
                         std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
                         if (!self->hdmiCurrentFrame.empty()) {
                             const auto& bmp = self->hdmiCurrentFrame;
+                            uint32_t onColor = self->hdmiChannelMask.load();
                             for (int i = 0; i < 640 * 360; i++) {
                                 uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
-                                px[i] = bit ? 0xFFFFFFFFu : 0xFF000000u;
+                                px[i] = bit ? onColor : 0xFF000000u;
                             }
                         }
                     }
@@ -1350,6 +1448,10 @@ export namespace LithoControl {
                 if (msg == WM_PAINT) EndPaint(hwnd, &ps);
                 else ReleaseDC(hwnd, hdc);
                 return 0;
+            }
+            if (msg == WM_SETCURSOR) {
+                SetCursor(NULL);
+                return TRUE;
             }
             if (msg == WM_KEYDOWN && wp == VK_ESCAPE) {
                 DestroyWindow(hwnd);
@@ -1435,21 +1537,58 @@ export namespace LithoControl {
             if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
         }
 
+        // Scale the cached artwork RGBA to 640×360, threshold to 1bpp, and push to
+        // the HDMI projector. Called when artwork changes or channel mask changes.
+        // Does nothing if no channels are enabled or no artwork is loaded.
+        void pushArtworkToHdmi() {
+            constexpr int DW = 640, DH = 360;
+            if (hdmiArtworkRGBA.empty() || hdmiArtworkW <= 0 || hdmiArtworkH <= 0
+                || (hdmiChannelMask.load() & 0x00FFFFFFu) == 0) {
+                blankHdmi();
+                return;
+            }
+            std::vector<uint8_t> bitmap((DW * DH + 7) / 8, 0);
+            int sw = hdmiArtworkW, sh = hdmiArtworkH;
+            for (int dy = 0; dy < DH; dy++) {
+                for (int dx = 0; dx < DW; dx++) {
+                    int sx = dx * sw / DW;
+                    int sy = dy * sh / DH;
+                    int si = (sy * sw + sx) * 4;
+                    uint8_t r = hdmiArtworkRGBA[si+0];
+                    uint8_t g = hdmiArtworkRGBA[si+1];
+                    uint8_t b = hdmiArtworkRGBA[si+2];
+                    uint8_t luma = (r > g ? r : g);
+                    if (b > luma) luma = b;
+                    if (luma > 127) {
+                        int idx = dy * DW + dx;
+                        bitmap[idx >> 3] |= (uint8_t)(1u << (7 - (idx & 7)));
+                    }
+                }
+            }
+            renderBitmapToHdmi(bitmap);
+        }
+
         void colorTest() {
             if (!hdmiPassthrough()) { logQ.push("[DISP] Open projector window first"); return; }
             if (hdmiColorTestThread.joinable()) hdmiColorTestThread.detach();
-            hdmiColorTestThread = std::thread([this]() {
-                // BI_RGB 32bpp DWORD layout: byte[0]=B, byte[1]=G, byte[2]=R
-                const struct { uint32_t bgra; const char* name; } steps[] = {
-                    { 0x000000FFu, "RED"   },
-                    { 0x0000FF00u, "GREEN" },
-                    { 0x00FF0000u, "BLUE"  },
-                    { 0x00FFFFFFu, "WHITE" },
+            // Capture the EVM correction state at the moment the test starts.
+            bool evm = hdmiEvmCorrectChk && hdmiEvmCorrectChk->value.get();
+            hdmiColorTestThread = std::thread([this, evm]() {
+                // BI_RGB 32bpp DWORD layout: byte[0]=Blue, byte[1]=Green, byte[2]=Red.
+                // With EVM CORRECT on, R↔B are swapped so the label matches the EVM LED.
+                //   Normal : RED=0x00FF0000, BLUE=0x000000FF
+                //   EVM    : RED=0x000000FF, BLUE=0x00FF0000  (physical wiring swap)
+                struct Step { uint32_t normal; uint32_t evm; const char* name; };
+                const Step steps[] = {
+                    { 0x00FF0000u, 0x000000FFu, "RED"   },
+                    { 0x0000FF00u, 0x0000FF00u, "GREEN" },
+                    { 0x000000FFu, 0x00FF0000u, "BLUE"  },
+                    { 0x00FFFFFFu, 0x00FFFFFFu, "WHITE" },
                 };
                 for (auto& s : steps) {
                     if (abortFlag) break;
                     logQ.push(std::string("[DISP] ") + s.name);
-                    showSolid(s.bgra);
+                    showSolid(evm ? s.evm : s.normal);
                     for (int i = 0; i < 200 && !abortFlag; i++)
                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
@@ -1802,13 +1941,13 @@ export namespace LithoControl {
             jobSearchInput->label->style->text.size  = 9_px;
             tightenInput(jobSearchInput);
 
-            // Job list container: fixed max-height (5 items) + clip, with an inner
+            // Job list container: fixed height + clip, with an inner
             // absolute-positioned content box that shifts for scroll.
             jobListBox = new Box(body);
             jobListBox->style->layout         = { Axis::Vertical, Align::Start, Align::Start };
             jobListBox->style->size.width      = 100_pct;
-            jobListBox->style->size.height     = Px(120);
-            jobListBox->style->size.min.height = Px(120);
+            jobListBox->style->size.height     = Px(160);
+            jobListBox->style->size.min.height = Px(160);
             jobListBox->style->overflow        = Overflow::Hide;
             jobListBox->style->background.color = rgba(28, 28, 28, 1);
             jobListBox->style->border.color     = rgba(42, 42, 42, 1);
@@ -1817,22 +1956,40 @@ export namespace LithoControl {
             jobListBox->style->margin.bottom    = 6_px;
             jobListBox->style->padding          = { 2_px, 2_px, 2_px, 2_px };
 
-            // Absolute-positioned inner column that scrolls vertically
+            // Absolute-positioned inner column that scrolls vertically.
             jobListInner = new Box(jobListBox);
-            jobListInner->style->layout        = { Axis::Vertical, Align::Start, Align::Start };
+            jobListInner->style->layout          = { Axis::Vertical, Align::Start, Align::Start };
             jobListInner->style->layout.position = Position::Absolute;
-            jobListInner->style->size.width    = 100_pct;
+            jobListInner->style->layout.wrap     = Wrap::False;
+            jobListInner->style->size.width      = 100_pct;
 
             jobListContent = jobListInner;
 
-            jobListBox->onMouseWheel([this](Rev::Element::Event& e) {
-                if (!jobListBox->rect.contains(e.mouse.pos)) return;
-                jobListScrollY -= (e.mouse.wheel.y / 120.0f) * 40.0f;
-                if (jobListScrollY < 0.0f) jobListScrollY = 0.0f;
-                float maxScroll = measureSpread(jobListInner) - jobListBox->rect.h;
-                if (maxScroll < 0.0f) maxScroll = 0.0f;
-                if (jobListScrollY > maxScroll) jobListScrollY = maxScroll;
-                jobListInner->style->position.top = Px(-jobListScrollY);
+            // Scrollbar track pinned to the right edge of the job list box.
+            // Position is updated each frame in computeStyle as the box width may change.
+            jobListScrollTrack = new Box(jobListBox);
+            jobListScrollTrack->style->layout.position = Position::Absolute;
+            jobListScrollTrack->style->position.top    = Px(2);
+            jobListScrollTrack->style->position.left   = Px(0); // updated in computeStyle
+            jobListScrollTrack->style->size.width      = 4_px;
+            jobListScrollTrack->style->size.height     = Px(156);
+            jobListScrollTrack->style->background.color = rgba(40, 40, 40, 1);
+            jobListScrollTrack->style->border.radius   = 2_px;
+
+            jobListScrollThumb = new Box(jobListScrollTrack);
+            jobListScrollThumb->style->layout.position  = Position::Absolute;
+            jobListScrollThumb->style->position.left    = Px(0);
+            jobListScrollThumb->style->position.top     = Px(0);
+            jobListScrollThumb->style->size.width       = 4_px;
+            jobListScrollThumb->style->size.height      = Px(20);
+            jobListScrollThumb->style->background.color = rgba(90, 90, 90, 1);
+            jobListScrollThumb->style->border.radius    = 2_px;
+            jobListScrollThumb->style->cursor           = Cursor::Hand;
+
+            jobListScrollThumb->onMouseDown([this](Rev::Element::Event& e) {
+                jobListThumbDragging       = true;
+                jobListThumbDragStartY     = e.mouse.pos.y;
+                jobListThumbDragStartScroll = jobListScrollY;
                 e.propagate = false;
             });
 
@@ -2042,6 +2199,15 @@ export namespace LithoControl {
 
             // Preview area -- ImagePreview fills remaining height above the status panel
             previewImg = new ImagePreview(rp, { &Theme::PreviewArea });
+
+            // Mirror artwork to the HDMI projector whenever a new frame is staged.
+            // Camera frames go through stagePixelsLive() and do NOT trigger this.
+            previewImg->onArtworkBaked = [this](const std::vector<uint8_t>& px, int w, int h) {
+                hdmiArtworkRGBA = px;
+                hdmiArtworkW    = w;
+                hdmiArtworkH    = h;
+                pushArtworkToHdmi();
+            };
 
             // Drag handle between preview and status panel
             Box* statusDragHandle = new Box(rp);
@@ -2368,8 +2534,34 @@ export namespace LithoControl {
                 sidebarScrollThumb->style->position.top = Px(thumbTop);
             }
 
-            // (Job list now flows in the sidebar and scrolls with it -- no separate
-            //  inner scroll handling needed.)
+            // Job list scrollbar: size and position thumb, pin track to right edge.
+            if (jobListBox && jobListInner && jobListScrollTrack && jobListScrollThumb) {
+                float trackH   = jobListBox->rect.h;
+                float contentH = measureSpread(jobListInner);
+                if (contentH <= 0.0f) contentH = trackH;
+                // Clamp scroll after window resize
+                float maxScroll = (std::max)(0.0f, contentH - trackH);
+                if (jobListScrollY > maxScroll) {
+                    jobListScrollY = maxScroll;
+                    jobListInner->style->position.top = Px(-jobListScrollY);
+                }
+                // Pin track to right edge of the list box
+                float trackX = jobListBox->rect.w - 5.0f;
+                if (trackX < 0.0f) trackX = 0.0f;
+                jobListScrollTrack->style->position.left = Px(trackX);
+                // Show/hide thumb based on whether content overflows
+                bool scrollable = contentH > trackH + 1.0f;
+                jobListScrollTrack->style->visibility = scrollable ? Visibility::Visible : Visibility::Hidden;
+                if (scrollable) {
+                    float ratio    = trackH / contentH;
+                    float thumbH   = (std::max)(16.0f, ratio * (trackH - 4.0f));
+                    float thumbTop = (maxScroll > 0.0f)
+                        ? (jobListScrollY / maxScroll) * (trackH - 4.0f - thumbH)
+                        : 0.0f;
+                    jobListScrollThumb->style->size.height  = Px(thumbH);
+                    jobListScrollThumb->style->position.top = Px(thumbTop);
+                }
+            }
 
             // Sync platform dropdown -> mark for row swap. Do NOT mutate the tree here;
             // structural changes during the computeStyle pass corrupt the in-progress
@@ -2407,6 +2599,27 @@ export namespace LithoControl {
                 jobListScrollY = 0.0f;
                 if (jobListInner) jobListInner->style->position.top = Px(0);
                 jobListDirty = false;
+            }
+
+            // Recompute HDMI channel mask from R/G/B checkboxes.
+            // When EVM CORRECT is on, R↔B are swapped to match the EVM's physical
+            // wiring (BI_RGB byte[0] drives the Blue data lines → Red LED on the EVM;
+            // BI_RGB byte[2] drives the Red data lines → Blue LED on the EVM).
+            //   Normal  : R=0x00FF0000, G=0x0000FF00, B=0x000000FF  (standard display)
+            //   EVM corr: R=0x000000FF, G=0x0000FF00, B=0x00FF0000  (labels match EVM LEDs)
+            {
+                bool evm = hdmiEvmCorrectChk && hdmiEvmCorrectChk->value.get();
+                uint32_t mask = 0xFF000000u;
+                if (hdmiRedChk   && hdmiRedChk->value.get())
+                    mask |= evm ? 0x000000FFu : 0x00FF0000u;
+                if (hdmiGreenChk && hdmiGreenChk->value.get())
+                    mask |= 0x0000FF00u;
+                if (hdmiBlueChk  && hdmiBlueChk->value.get())
+                    mask |= evm ? 0x00FF0000u : 0x000000FFu;
+                if (mask != hdmiChannelMask.load()) {
+                    hdmiChannelMask.store(mask);
+                    pushArtworkToHdmi();
+                }
             }
 
             // Show/hide the display selector row based on the passthrough checkbox.
@@ -3232,10 +3445,16 @@ export namespace LithoControl {
             ofn.lpstrFile   = path;
             ofn.nMaxFile    = MAX_PATH;
             ofn.lpstrFilter = "Images\0*.png;*.jpg;*.jpeg;*.bmp;*.svg\0All Files\0*.*\0";
-            ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+            ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
             if (GetOpenFileNameA(&ofn)) {
                 inputFilePath = path;
-                dlpRoot = findDLPRoot(path);
+                // Only update dlpRoot if the new file is inside the repo.
+                // If the user browses an image from an arbitrary folder, keep the
+                // previously-persisted repo root so slicer.py stays findable.
+                {
+                    std::string found = findDLPRoot(path);
+                    if (!found.empty()) dlpRoot = found;
+                }
 
                 std::string fname = std::filesystem::path(path).filename().string();
                 if (fileLabel) {
@@ -3338,8 +3557,11 @@ export namespace LithoControl {
         {
             namespace fs = std::filesystem;
 
-            // Find the DLP-photolithography repo root by walking up from the input file.
+            // Find the DLP-photolithography repo root by walking up from the input file;
+            // fall back to the persisted dlpRoot so files browsed outside the repo still
+            // resolve slicer.py correctly.
             std::string repoRoot = findDLPRoot(inFile);
+            if (repoRoot.empty()) repoRoot = dlpRoot;
 
             // Build absolute path to slicer.py
             std::string slicerScript = repoRoot.empty()
