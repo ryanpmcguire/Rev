@@ -4,18 +4,32 @@ module;
 #include <cmath>
 #include <vector>
 #include <limits>
+#include <string>
 
 export module Rev.Element.View3d.Actor3d;
 
 import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
+import Rev.Appearance;
+import Rev.Element;
+
 import Rev.Primitive.Mesh3d;
 import Rev.Primitive.Lines3d;
+import Rev.Graphics.Canvas;
 
 export namespace Rev::Element::View3d {
 
+    using namespace Rev::Appearance;
+
     struct Actor;
+
+    namespace Styles {
+
+        Style Actor3d = {
+            .layout = { .position = Position::Absolute }
+        };
+    };
 
     enum class HitKind {
         None,
@@ -47,7 +61,7 @@ export namespace Rev::Element::View3d {
         float t = 0.0f;
     };
 
-    struct Actor {
+    struct Actor : public Rev::Element::Element {
 
         Primitives::Mesh3d* mesh = nullptr;
         Primitives::Lines3d* lines = nullptr;
@@ -88,6 +102,14 @@ export namespace Rev::Element::View3d {
             1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
         };
 
+        Actor(
+            Rev::Element::Element* parent = nullptr,
+            std::string name = "Actor3d"
+        ) : Rev::Element::Element(parent, {}, name) {
+
+            this->styles.prepend(&Styles::Actor3d);
+        }
+
         void setWorldTransform(const float* m16) {
             for (int i = 0; i < 16; i++) { worldTransform[i] = m16[i]; }
         }
@@ -100,13 +122,37 @@ export namespace Rev::Element::View3d {
             for (int i = 0; i < 16; i++) { modelTransform[i] = I[i]; }
         }
 
-        ~Actor() {
+        virtual ~Actor() {
 
             if (ownsMesh) { delete mesh; }
             if (ownsLines) { delete lines; }
 
             mesh = nullptr;
             lines = nullptr;
+        }
+
+        // Initializers
+        //--------------------------------------------------
+
+        static Actor* Cube(
+            Rev::Element::Element* parent,
+            float size = 2.0f,
+            Core::Color color = { 0.72f, 0.76f, 0.80f, 1.0f }
+        ) {
+
+            Actor* actor = new Actor(parent);
+
+            actor->ownsMesh = true;
+
+            if (actor->shared && actor->shared->canvas) {
+                actor->mesh = Primitives::Mesh3d::Cube(
+                    actor->shared->canvas,
+                    size,
+                    color
+                );
+            }
+
+            return actor;
         }
 
         static Core::Pos3 vertexPos(const Core::Vertex3& v) {
@@ -343,6 +389,13 @@ export namespace Rev::Element::View3d {
         ) {
             outHit = Hit();
             if (!selectable) { return false; }
+            return intersects(ray, outHit);
+        }
+
+        virtual bool intersects(
+            const Ray& ray,
+            Hit& outHit
+        ) {
             return hitTestMesh(ray, outHit);
         }
 
@@ -390,7 +443,7 @@ export namespace Rev::Element::View3d {
             return valid;
         }
 
-        void compute() {
+        void computePrimitives(Event& e) override {
             if (mesh) { mesh->compute(); }
             if (lines) { lines->compute(); }
         }

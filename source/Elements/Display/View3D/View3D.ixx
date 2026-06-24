@@ -54,9 +54,6 @@ export namespace Rev::Element::View3d {
             glm::vec4 lightDir2;
         };
 
-        // View3d does NOT own these actors.
-        std::vector<Actor*> actors;
-
         Camera camera;
 
         Graphics::UniformBuffer* cameraBuff = nullptr;
@@ -94,7 +91,7 @@ export namespace Rev::Element::View3d {
             std::string name = "View3d"
         ) : Box(parent, styles, name) {
 
-            this->styles = { &Styles::View3d };
+            this->styles.prepend(&Styles::View3d);
 
             cameraBuff = new Graphics::UniformBuffer(
                 shared->canvas->context,
@@ -108,8 +105,6 @@ export namespace Rev::Element::View3d {
         ~View() {
 
             zoomAnimator.stop();
-
-            actors.clear();
 
             delete cameraBuff;
             cameraBuff = nullptr;
@@ -145,7 +140,7 @@ export namespace Rev::Element::View3d {
 
             if (!actor) { return; }
 
-            actors.push_back(actor);
+            addChild(actor);
 
             if (shared && shared->event) {
                 refresh(*shared->event);
@@ -154,14 +149,7 @@ export namespace Rev::Element::View3d {
 
         void removeActor(Actor* actor) {
 
-            actors.erase(
-                std::remove(
-                    actors.begin(),
-                    actors.end(),
-                    actor
-                ),
-                actors.end()
-            );
+            removeChild(actor);
 
             if (shared && shared->event) {
                 refresh(*shared->event); 
@@ -172,24 +160,9 @@ export namespace Rev::Element::View3d {
 
             if (!actor || !before) { return; }
 
-            actors.erase(
-                std::remove(
-                    actors.begin(),
-                    actors.end(),
-                    actor
-                ),
-                actors.end()
-            );
+            if (actor->parent != this) { addChild(actor); }
 
-            auto it = std::find(actors.begin(), actors.end(), before);
-
-            if (it == actors.end()) {
-                actors.push_back(actor);
-            }
-
-            else {
-                actors.insert(it, actor);
-            }
+            moveChild(actor, before, true);
 
             if (shared && shared->event) {
                 refresh(*shared->event);
@@ -198,7 +171,13 @@ export namespace Rev::Element::View3d {
 
         void clearActors() {
 
-            actors.clear();
+            std::vector<Element*> childrenCopy = children;
+
+            for (Element* child : childrenCopy) {
+                if (Actor* actor = dynamic_cast<Actor*>(child)) {
+                    delete actor;
+                }
+            }
 
             if (shared && shared->event) {
                 refresh(*shared->event);
@@ -212,7 +191,9 @@ export namespace Rev::Element::View3d {
 
             bool valid = false;
 
-            for (Actor* actor : actors) {
+            for (Element* child : children) {
+
+                Actor* actor = dynamic_cast<Actor*>(child);
 
                 if (!actor) { continue; }
 
@@ -282,7 +263,9 @@ export namespace Rev::Element::View3d {
 
             outHit = Hit();
 
-            for (Actor* actor : actors) {
+            for (Element* child : children) {
+
+                Actor* actor = dynamic_cast<Actor*>(child);
 
                 if (!actor) { continue; }
 
@@ -327,7 +310,9 @@ export namespace Rev::Element::View3d {
 
             outHit = Hit();
 
-            for (Actor* actor : actors) {
+            for (Element* child : children) {
+
+                Actor* actor = dynamic_cast<Actor*>(child);
 
                 if (!actor) { continue; }
 
@@ -422,11 +407,32 @@ export namespace Rev::Element::View3d {
 
         void mouseWheel(Event& e) override {
 
+            Hit hit;
+            Pos3 anchorPoint;
+            bool hasAnchorPoint = false;
+
+            if (hitTestVisible(e.mouse.pos, hit)) {
+                anchorPoint = hit.point;
+                hasAnchorPoint = true;
+            }
+
+            else {
+                anchorPoint = camera.worldOnTargetPlane(
+                    e.mouse.pos,
+                    canvasWidth(),
+                    canvasHeight()
+                );
+
+                hasAnchorPoint = true;
+            }
+
             camera.applyWheelZoom(
                 e,
                 canvasWidth(),
                 canvasHeight(),
-                sceneAverageDimension()
+                sceneAverageDimension(),
+                anchorPoint,
+                hasAnchorPoint
             );
 
             if (!e.keyboard.alt && std::abs(e.mouse.wheel.y) > 1e-6f) {
@@ -438,18 +444,6 @@ export namespace Rev::Element::View3d {
             refresh(e);
 
             Box::mouseWheel(e);
-        }
-
-        // Computing
-        //--------------------------------------------------
-
-        void computePrimitives(Event& e) override {
-
-            for (Actor* actor : actors) {
-                if (actor) { actor->compute(); }
-            }
-
-            Box::computePrimitives(e);
         }
 
         // Draw
@@ -469,8 +463,13 @@ export namespace Rev::Element::View3d {
 
         void drawActors() {
 
-            for (Actor* actor : actors) {
-                if (actor) { actor->draw(); }
+            for (Element* child : children) {
+
+                Actor* actor = dynamic_cast<Actor*>(child);
+
+                if (!actor) { continue; }
+
+                actor->draw();
             }
         }
 

@@ -15,6 +15,7 @@ import Rev.Primitive;
 import Rev.Core.Resource;
 import Rev.Core.Shared;
 import Rev.Core.Color;
+import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
 import Rev.Graphics.Canvas;
@@ -134,6 +135,99 @@ export namespace Rev::Primitives {
         void setTransforms(const float* world16, const float* model16) {
             std::memcpy(xform,      world16, sizeof(float) * 16);
             std::memcpy(xform + 16, model16, sizeof(float) * 16);
+        }
+
+        // Geometry
+        //--------------------------------------------------
+
+        static void AddCube(
+            std::vector<Vertex3>& triangles,
+            float size = 2.0f,
+            Color color = { 0.72f, 0.76f, 0.80f, 1.0f }
+        ) {
+
+            auto addFace = [&triangles, color](
+                Pos3 a,
+                Pos3 b,
+                Pos3 c,
+                Pos3 d,
+                Pos3 normal
+            ) {
+
+                triangles.push_back(Vertex3(a, color, normal));
+                triangles.push_back(Vertex3(b, color, normal));
+                triangles.push_back(Vertex3(c, color, normal));
+
+                triangles.push_back(Vertex3(a, color, normal));
+                triangles.push_back(Vertex3(c, color, normal));
+                triangles.push_back(Vertex3(d, color, normal));
+            };
+
+            float s = size * 0.5f;
+
+            addFace(
+                { -s, -s,  s },
+                {  s, -s,  s },
+                {  s,  s,  s },
+                { -s,  s,  s },
+                {  0.0f,  0.0f,  1.0f }
+            );
+
+            addFace(
+                {  s, -s, -s },
+                { -s, -s, -s },
+                { -s,  s, -s },
+                {  s,  s, -s },
+                {  0.0f,  0.0f, -1.0f }
+            );
+
+            addFace(
+                { -s, -s, -s },
+                { -s, -s,  s },
+                { -s,  s,  s },
+                { -s,  s, -s },
+                { -1.0f,  0.0f,  0.0f }
+            );
+
+            addFace(
+                {  s, -s,  s },
+                {  s, -s, -s },
+                {  s,  s, -s },
+                {  s,  s,  s },
+                {  1.0f,  0.0f,  0.0f }
+            );
+
+            addFace(
+                { -s,  s,  s },
+                {  s,  s,  s },
+                {  s,  s, -s },
+                { -s,  s, -s },
+                {  0.0f,  1.0f,  0.0f }
+            );
+
+            addFace(
+                { -s, -s, -s },
+                {  s, -s, -s },
+                {  s, -s,  s },
+                { -s, -s,  s },
+                {  0.0f, -1.0f,  0.0f }
+            );
+        }
+
+        static Mesh3d* Cube(
+            Canvas* canvas,
+            float size = 2.0f,
+            Color color = { 0.72f, 0.76f, 0.80f, 1.0f }
+        ) {
+
+            Mesh3d* mesh = new Mesh3d(canvas, {});
+
+            AddCube(mesh->triangles, size, color);
+
+            mesh->color = color;
+            mesh->dirty = true;
+
+            return mesh;
         }
 
         std::vector<Vertex3>* getTriangles() {

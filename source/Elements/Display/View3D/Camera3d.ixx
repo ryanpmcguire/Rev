@@ -654,14 +654,29 @@ export namespace Rev::Element::View3d {
             Event& e,
             float width,
             float height,
-            float sceneAverageDimension
+            float sceneAverageDimension,
+            Core::Pos3 anchorPoint,
+            bool hasAnchorPoint
         ) {
             if (e.keyboard.alt) {
+
+                if (!hasAnchorPoint) {
+                    anchorPoint = worldOnTargetPlane(e.mouse.pos, width, height);
+                }
 
                 float direction = (e.mouse.wheel.y > 0.0f ? 1.0f : -1.0f);
 
                 perspectiveBlend += direction * kPerspectiveBlendStep;
                 perspectiveBlend = std::clamp(perspectiveBlend, 0.0f, 1.0f);
+
+                target = targetForScreenPoint(
+                    anchorPoint,
+                    e.mouse.pos,
+                    width,
+                    height
+                );
+
+                syncZoomGoalsFromCurrent();
 
                 return;
             }
@@ -860,6 +875,7 @@ export namespace Rev::Element::View3d {
             else {
 
                 orbitEyeOffset = fromGlm(delta * toGlm(orbitEyeOffset));
+                orientation = glm::normalize(delta * orientation);
 
                 const float radius = orbitEyeOffset.pythag();
 
@@ -868,11 +884,15 @@ export namespace Rev::Element::View3d {
                     return;
                 }
 
-                const Core::Pos3 lookForward = (-1.0f *orbitEyeOffset).normalized();
+                Core::Pos3 nextRight;
+                Core::Pos3 nextUp;
+                Core::Pos3 nextForward;
 
-                orientation = orientationFromForwardUp(lookForward, up);
-                target = orbitPivot;
                 distance = radius;
+                basis(nextRight, nextUp, nextForward);
+
+                Core::Pos3 nextEye = orbitPivot + orbitEyeOffset;
+                target = nextEye + nextForward * distance;
 
                 syncZoomGoalsFromCurrent();
             }
@@ -895,9 +915,18 @@ export namespace Rev::Element::View3d {
             Event& e,
             float width,
             float height,
-            float sceneAverageDimension
+            float sceneAverageDimension,
+            Core::Pos3 anchorPoint,
+            bool hasAnchorPoint
         ) {
-            applyWheelZoom(e, width, height, sceneAverageDimension);
+            applyWheelZoom(
+                e,
+                width,
+                height,
+                sceneAverageDimension,
+                anchorPoint,
+                hasAnchorPoint
+            );
         }
     };
 }
