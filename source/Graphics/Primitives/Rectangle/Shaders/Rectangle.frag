@@ -62,7 +62,7 @@ void main() {
     //--------------------------------------------------
 
     vec4 mCorner = softMax(cornerMask, 1.0f);
-    vec4 mSide   = softMax(sideMask, 4.0f);
+    vec4 mSide   = softMax(sideMask, 1024.0f);
 
     // Choose corner radius, border width, and color
     float cornerRadius = mCorner.x * tl + mCorner.y * tr + mCorner.z * bl + mCorner.w * br;

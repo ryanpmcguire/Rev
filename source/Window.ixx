@@ -84,6 +84,7 @@ export namespace Rev {
 
             NativeWindow::Details nativeDetails() const {
                 return {
+                    .name = name,
                     .size = nativeSize(),
                     .decorated = decorated,
                     .resizable = resizable,

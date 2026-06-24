@@ -441,6 +441,7 @@ export namespace Rev {
         };
 
         struct Details {
+            std::string name = "Hello World";
             Size size = { 640, 480, 0, 0, 1000, 1000 };
 
             bool decorated = true;
@@ -673,7 +674,7 @@ export namespace Rev {
             } creatingScope(this);
 
             handle = CreateWindowExW(
-                exStyle, kClassName, L"Room360 UI",
+                exStyle, kClassName, widen(details.name).c_str(),
                 style,
                 CW_USEDEFAULT, CW_USEDEFAULT,
                 rect.right - rect.left,
