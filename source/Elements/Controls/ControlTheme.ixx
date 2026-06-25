@@ -195,7 +195,7 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonPrimary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { .left = 14_px, .right = 14_px, .top = 7_px, .bottom = 9_px },
+        .padding = { .left = 12_px, .right = 12_px, .top = 6_px, .bottom = 6_px },
         .background = { .color = rgba(79, 99, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(79, 99, 255, 1.0),
