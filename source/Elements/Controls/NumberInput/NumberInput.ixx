@@ -38,6 +38,7 @@ export namespace Rev::Element {
             std::vector<double> forbiddenValues;
 
             std::string unitSuffix;
+            std::string disabledPlaceholder;
 
             static Params Default() {
                 Params p;
@@ -98,6 +99,21 @@ export namespace Rev::Element {
             if (suffixText) {
                 suffixText->setDisabled(d);
             }
+            syncPlaceholderText();
+        }
+
+        void syncPlaceholderText() {
+            if (!placeholderText) { return; }
+
+            bool showDisabledPlaceholder =
+                disabled &&
+                !numberParams.disabledPlaceholder.empty() &&
+                !committedValue &&
+                text->content.get().empty();
+
+            placeholderText->content = showDisabledPlaceholder
+                ? numberParams.disabledPlaceholder
+                : numberParams.placeholder;
         }
 
         static bool isCompleteNumber(const std::string& text) {
@@ -287,6 +303,7 @@ export namespace Rev::Element {
             text->content = display;
             lastCommittedText = display;
             committedValue = value;
+            syncPlaceholderText();
             refresh(e);
         }
 
@@ -443,6 +460,8 @@ export namespace Rev::Element {
         }
 
         void computeStyle(Event& e) override {
+            syncPlaceholderText();
+
             if (suffixText) {
                 suffixText->setDisabled(disabled);
             }
@@ -492,10 +511,35 @@ export namespace Rev::Element {
             text->content = display;
             lastCommittedText = display;
             committedValue = interpreted;
+            syncPlaceholderText();
 
             if (changed && onValueChange && event) {
                 onValueChange(*event, interpreted);
             }
+        }
+
+        void clearValue(Event* event = nullptr) {
+
+            bool changed = committedValue.has_value() || !text->content.get().empty();
+
+            text->content = "";
+            lastCommittedText = "";
+            committedValue = std::nullopt;
+            syncPlaceholderText();
+
+            if (changed && onValueChange && event) {
+                onValueChange(*event, std::nullopt);
+            }
+        }
+
+        void setValue(std::optional<double> value, Event* event = nullptr) {
+
+            if (value) {
+                setValue(*value, event);
+                return;
+            }
+
+            clearValue(event);
         }
 
         std::optional<double> value() const {
