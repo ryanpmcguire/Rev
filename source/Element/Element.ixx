@@ -799,16 +799,25 @@ export namespace Rev::Element {
             // Promote growable dims
             //--------------------------------------------------
 
+            bool promoteHorizontal = resolved.style.size.width.type != Dist::Type::Shrink;
+            bool promoteVertical = resolved.style.size.height.type != Dist::Type::Shrink;
+
             for (Row& row : layout.rows) {
 
                 for (Element* member : row.members) {
 
                     Element& elem = *member;
                     Size& size = elem.resolved.style.size;
+                    LrtbStyle& margin = elem.resolved.style.margin;
 
                     // Set dimensions as growable if style size is of type grow
                     if (size.width.type == Dist::Type::Grow) { elem.resolved.size.w.growable = true; }
                     if (size.height.type == Dist::Type::Grow) { elem.resolved.size.h.growable = true; }
+
+                    if (margin.left.type == Dist::Type::Grow) { elem.resolved.mar.l.growable = true; }
+                    if (margin.right.type == Dist::Type::Grow) { elem.resolved.mar.r.growable = true; }
+                    if (margin.top.type == Dist::Type::Grow) { elem.resolved.mar.t.growable = true; }
+                    if (margin.bottom.type == Dist::Type::Grow) { elem.resolved.mar.b.growable = true; }
 
                     if (!elem.resolved.affectsParentSize) {
                         continue;
@@ -816,11 +825,11 @@ export namespace Rev::Element {
 
                     if (resolved.style.layout.direction == Axis::Vertical) {
                     
-                        if (elem.resolved.canGrow(Axis::Vertical)) {
+                        if (promoteVertical && elem.resolved.canGrow(Axis::Vertical)) {
                             resolved.size.h.growable = true;
                         }
     
-                        if (elem.resolved.canGrow(Axis::Horizontal)) {
+                        if (promoteHorizontal && elem.resolved.canGrow(Axis::Horizontal)) {
                             resolved.size.w.growable = true;
                             row.size.w.growable = true;
                             layout.size.w.growable = true;
@@ -828,11 +837,11 @@ export namespace Rev::Element {
                     }
 
                     else {
-                        if (elem.resolved.canGrow(Axis::Horizontal)) {
+                        if (promoteHorizontal && elem.resolved.canGrow(Axis::Horizontal)) {
                             resolved.size.w.growable = true;
                         }
     
-                        if (elem.resolved.canGrow(Axis::Vertical)) {
+                        if (promoteVertical && elem.resolved.canGrow(Axis::Vertical)) {
                             resolved.size.h.growable = true;
                             row.size.h.growable = true;
                             layout.size.h.growable = true;
@@ -913,10 +922,25 @@ export namespace Rev::Element {
                 if (cSize.height.type == Dist::Type::Grow && !set(child.resolved.size.h.max)) { child.resolved.size.h.max = 9999999.0f; }
 
                 // Resolve child margin
-                child.resolved.mar.l.val = child.resolved.mar.l.min = child.resolved.mar.l.max = cMargin.left.val;
-                child.resolved.mar.r.val = child.resolved.mar.r.min = child.resolved.mar.r.max = cMargin.right.val;
-                child.resolved.mar.t.val = child.resolved.mar.t.min = child.resolved.mar.t.max = cMargin.top.val;
-                child.resolved.mar.b.val = child.resolved.mar.b.min = child.resolved.mar.b.max = cMargin.bottom.val;
+                if (cMargin.left) { child.resolved.mar.l.val = child.resolved.mar.l.min = child.resolved.mar.l.max = cMargin.left.resolve(compareValW); }
+                if (cMargin.right) { child.resolved.mar.r.val = child.resolved.mar.r.min = child.resolved.mar.r.max = cMargin.right.resolve(compareValW); }
+                if (cMargin.top) { child.resolved.mar.t.val = child.resolved.mar.t.min = child.resolved.mar.t.max = cMargin.top.resolve(compareValH); }
+                if (cMargin.bottom) { child.resolved.mar.b.val = child.resolved.mar.b.min = child.resolved.mar.b.max = cMargin.bottom.resolve(compareValH); }
+
+                if (cMargin.min.left) { child.resolved.mar.l.min = cMargin.min.left.resolve(compareValW); }
+                if (cMargin.min.right) { child.resolved.mar.r.min = cMargin.min.right.resolve(compareValW); }
+                if (cMargin.min.top) { child.resolved.mar.t.min = cMargin.min.top.resolve(compareValH); }
+                if (cMargin.min.bottom) { child.resolved.mar.b.min = cMargin.min.bottom.resolve(compareValH); }
+
+                if (cMargin.max.left) { child.resolved.mar.l.max = cMargin.max.left.resolve(compareValW); }
+                if (cMargin.max.right) { child.resolved.mar.r.max = cMargin.max.right.resolve(compareValW); }
+                if (cMargin.max.top) { child.resolved.mar.t.max = cMargin.max.top.resolve(compareValH); }
+                if (cMargin.max.bottom) { child.resolved.mar.b.max = cMargin.max.bottom.resolve(compareValH); }
+
+                if (cMargin.left.type == Dist::Type::Grow && !set(child.resolved.mar.l.max)) { child.resolved.mar.l.max = 9999999.0f; }
+                if (cMargin.right.type == Dist::Type::Grow && !set(child.resolved.mar.r.max)) { child.resolved.mar.r.max = 9999999.0f; }
+                if (cMargin.top.type == Dist::Type::Grow && !set(child.resolved.mar.t.max)) { child.resolved.mar.t.max = 9999999.0f; }
+                if (cMargin.bottom.type == Dist::Type::Grow && !set(child.resolved.mar.b.max)) { child.resolved.mar.b.max = 9999999.0f; }
 
                 // Resolve child padding
                 child.resolved.pad.l.val = child.resolved.pad.l.min = child.resolved.pad.l.max = cPadding.left.val;

@@ -152,7 +152,7 @@ export namespace Rev::Appearance {
     constexpr Dist operator"" _px(unsigned long long value) { return { Dist::Type::Abs, static_cast<float>(value) }; }
     constexpr Dist operator"" _pct(unsigned long long value) { return { Dist::Type::Rel, static_cast<float>(value) / 100.0f }; }
     constexpr Dist operator"" _grow(unsigned long long value) { return { Dist::Type::Grow, static_cast<float>(value) / 100.0f }; }
-    constexpr Dist operator"" _shrink(unsigned long long value) { return { Dist::Type::Grow, static_cast<float>(value) / 100.0f }; }
+    constexpr Dist operator"" _shrink(unsigned long long value) { return { Dist::Type::Shrink, static_cast<float>(value) / 100.0f }; }
 
     // Color
     //--------------------------------------------------

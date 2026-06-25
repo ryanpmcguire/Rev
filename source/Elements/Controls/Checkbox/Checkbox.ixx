@@ -59,7 +59,7 @@ export namespace Rev::Element {
 
             label = new Text(this, params.label, { &Label });
 
-            checkbox = new Box(this, { &CheckboxBox, &CheckboxFocus });
+            checkbox = new Box(this, { &CheckboxBox, &CheckboxDisabled, &CheckboxFocus });
                 check = new Svg(checkbox, File("./check.svg"), { &CheckboxMark });
 
             checkbox->onClick([this](Event& e) {

@@ -238,7 +238,13 @@ export namespace Rev::Element::ControlTheme {
             .radius = 6_px,
             .width = 1_px
         },
-        .shadow = subtleShadow
+        .shadow = subtleShadow,
+        .cursor = Cursor::Hand
+    };
+
+    Style CheckboxDisabled = {
+        .applies = { .disabled = true },
+        .cursor = Cursor::Default
     };
 
     Style CheckboxFocus = {
@@ -422,6 +428,7 @@ export namespace Rev::Element::ControlTheme {
         markDirty(ButtonPrimaryHover);
         markDirty(ButtonPrimaryLabel);
         markDirty(CheckboxBox);
+        markDirty(CheckboxDisabled);
         markDirty(CheckboxFocus);
         markDirty(CheckboxChecked);
         markDirty(CheckboxPress);
