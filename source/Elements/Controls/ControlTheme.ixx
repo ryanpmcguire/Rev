@@ -30,11 +30,11 @@ export namespace Rev::Element::ControlTheme {
     };
 
     Style Field = {
+        .overflow = Overflow::Show,
         .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
         .size = { Grow() },
         .margin = { .top = 1_px, .bottom = 1_px },
         .padding = { .left = 9_px, .right = 9_px, .top = 6_px, .bottom = 5_px },
-        .overflow = Overflow::Show,
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
@@ -106,12 +106,12 @@ export namespace Rev::Element::ControlTheme {
         .position = { .top = 100_pct },
         .size = { .min = { .width = 100_pct } },
         //.margin = { .top = 6_px },
-        .padding = { 4_px, 4_px, 4_px, 4_px },
+        .padding = { .left = 4_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .width = 1_px,
-            .radius = 8_px
+            .radius = 8_px,
+            .width = 1_px
         },
         .shadow = subtleShadow,
         .zIndex = +10
@@ -132,12 +132,12 @@ export namespace Rev::Element::ControlTheme {
         },
         .position = { .bottom = 100_pct },
         .size = { .min = { .width = 100_pct } },
-        .padding = { 4_px, 4_px, 4_px, 4_px },
+        .padding = { .left = 4_px, .right = 4_px, .top = 4_px, .bottom = 4_px },
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
-            .width = 1_px,
-            .radius = 8_px
+            .radius = 8_px,
+            .width = 1_px
         },
         .shadow = subtleShadow,
         .zIndex = +5
@@ -172,7 +172,7 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonSecondary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 14_px, 14_px, 7_px, 9_px },
+        .padding = { .left = 12_px, .right = 12_px, .top = 6_px, .bottom = 6_px },
         .background = { .color = rgba(255, 255, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(203, 213, 225, 1.0),
@@ -195,12 +195,12 @@ export namespace Rev::Element::ControlTheme {
 
     Style ButtonPrimary = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center, Wrap::False },
-        .padding = { 14_px, 14_px, 7_px, 9_px },
+        .padding = { .left = 14_px, .right = 14_px, .top = 7_px, .bottom = 9_px },
         .background = { .color = rgba(79, 99, 255, 1.0), .transition = 120_ms },
         .border = {
             .color = rgba(79, 99, 255, 1.0),
-            .width = 1_px,
-            .radius = 3_px
+            .radius = 3_px,
+            .width = 1_px
         },
         .cursor = Cursor::Hand
     };
@@ -217,7 +217,7 @@ export namespace Rev::Element::ControlTheme {
     Style CheckboxBox = {
         .layout = { Axis::Horizontal, Align::Center, Align::Center },
         .size = { 20_px, 20_px },
-        .padding = { 2_px, 2_px, 2_px, 2_px },
+        .padding = { .left = 2_px, .right = 2_px, .top = 2_px, .bottom = 2_px },
         .background = { .color = rgba(255, 255, 255, 1.0) },
         .border = {
             .color = rgba(226, 232, 240, 1.0),
