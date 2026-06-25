@@ -15,6 +15,7 @@ import Rev.Element;
 import Rev.Element.Event;
 import Rev.Appearance;
 
+import Rev.Element.ControlTheme;
 import Rev.Element.TextInput;
 import Rev.Element.Text;
 
@@ -36,6 +37,8 @@ export namespace Rev::Element {
             std::optional<double> max;
             std::vector<double> forbiddenValues;
 
+            std::string unitSuffix;
+
             static Params Default() {
                 Params p;
                 p.label = "Number";
@@ -55,6 +58,8 @@ export namespace Rev::Element {
         std::string lastCommittedText;
         std::optional<double> committedValue;
 
+        Text* suffixText = nullptr;
+
         std::function<void(Event&, std::optional<double>)> onValueChange;
 
         NumberInput(
@@ -65,6 +70,15 @@ export namespace Rev::Element {
 
             name = "NumberInput";
             numberParams = p;
+
+            if (!numberParams.unitSuffix.empty()) {
+                suffixText = new Text(
+                    field,
+                    numberParams.unitSuffix,
+                    { &ControlTheme::FieldSuffix, &ControlTheme::FieldSuffixDisabled }
+                );
+                suffixText->setDisabled(disabled);
+            }
 
             lastCommittedText = text->content.get();
 
@@ -77,6 +91,13 @@ export namespace Rev::Element {
             text->onLoseFocus([this](Event& e) {
                 commitOnLoseFocus(e);
             });
+        }
+
+        void setDisabled(bool d) {
+            TextInput::setDisabled(d);
+            if (suffixText) {
+                suffixText->setDisabled(d);
+            }
         }
 
         static bool isCompleteNumber(const std::string& text) {
@@ -393,6 +414,40 @@ export namespace Rev::Element {
 
         void commit(Event& e) {
             commitOnLoseFocus(e);
+        }
+
+        void setUnitSuffix(const std::string& suffix) {
+
+            numberParams.unitSuffix = suffix;
+
+            if (suffix.empty()) {
+                if (suffixText) {
+                    suffixText->style->visibility = Visibility::Hidden;
+                    suffixText->content = "";
+                    suffixText->dirty.style = true;
+                }
+                return;
+            }
+
+            if (!suffixText) {
+                suffixText = new Text(
+                    field,
+                    suffix,
+                    { &ControlTheme::FieldSuffix, &ControlTheme::FieldSuffixDisabled }
+                );
+            }
+
+            suffixText->content = suffix;
+            suffixText->style->visibility = Visibility::Visible;
+            suffixText->setDisabled(disabled);
+        }
+
+        void computeStyle(Event& e) override {
+            if (suffixText) {
+                suffixText->setDisabled(disabled);
+            }
+
+            TextInput::computeStyle(e);
         }
 
         bool tryGetValue(double& out) const {

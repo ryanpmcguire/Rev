@@ -82,6 +82,20 @@ export namespace Rev::Element::ControlTheme {
         .text = { .color = rgba(148, 163, 184, 1.0) }   // slate-400
     };
 
+    Style FieldSuffix = {
+        .margin = { .left = 6_px },
+        .text = {
+            .color = rgba(100, 116, 139, 0.72),
+            .size = 12_px,
+            .wrap = Wrap::False
+        }
+    };
+
+    Style FieldSuffixDisabled = {
+        .applies = { .disabled = true },
+        .text = { .color = rgba(148, 163, 184, 0.82) }
+    };
+
     Style Placeholder = {
         .layout = { .position = Position::Absolute },
         .position = { .left = 0_px, .top = 0_px },
@@ -333,6 +347,10 @@ export namespace Rev::Element::ControlTheme {
         FieldDisabled.background.color = colors.fieldDisabledSurface;
         FieldDisabled.border.color = colors.fieldBorder;
         FieldTextDisabled.text.color = colors.optionDisabledText;
+        FieldSuffix.text.color = colors.labelText;
+        FieldSuffix.text.color.a = 0.72f;
+        FieldSuffixDisabled.text.color = colors.optionDisabledText;
+        FieldSuffixDisabled.text.color.a = 0.82f;
         Placeholder.text.color = colors.placeholderText;
         DropdownArrow.text.color = colors.dropdownArrow;
 
@@ -386,6 +404,8 @@ export namespace Rev::Element::ControlTheme {
         markDirty(FieldDisabled);
         markDirty(FieldText);
         markDirty(FieldTextDisabled);
+        markDirty(FieldSuffix);
+        markDirty(FieldSuffixDisabled);
         markDirty(Placeholder);
         markDirty(DropdownArrow);
         markDirty(OptionsContainer);

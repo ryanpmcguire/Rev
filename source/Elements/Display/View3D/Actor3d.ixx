@@ -8,11 +8,13 @@ module;
 
 export module Rev.Element.View3d.Actor3d;
 
+import Rev.Core.Color;
 import Rev.Core.Pos3;
 import Rev.Core.Vertex3;
 
 import Rev.Appearance;
 import Rev.Element;
+import Rev.Element.Event;
 
 import Rev.Primitive.Mesh3d;
 import Rev.Primitive.Lines3d;

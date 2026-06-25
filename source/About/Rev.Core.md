@@ -28,9 +28,13 @@ tree and are reused throughout the stack (and by application code).
   for that key. Subscribers may attach with an owner pointer so they can `unsubscribe`
   all of their callbacks at once (used widely so a destroyed subscriber never gets a
   dangling call). This is what backs `Element`'s `on*` handlers.
-- **`Rev.Core.DirtyFlag`** — a flag that can `subscribe` to other flags and run an
+- **`Rev.Core.DirtyFlag`** — a boolean flag that can `subscribe` to other flags and run an
   `onDirty` callback when set, so marking one thing dirty can ripple to dependents. The
   element style system is built on these.
+- **`Rev.Core.RevisionFlag`** — a monotonic `uint64_t` revision counter for retained
+  reflection. Marking it dirty increments its revision and propagates to subscribers.
+  Use `RevisionObserver` when a consumer needs to ask "has this changed since I last
+  looked?" without clearing shared state.
 - **`Rev.Core.Observable`** — a value that announces changes to observers; useful for
   "store the truth in one place, let views reflect it."
 
