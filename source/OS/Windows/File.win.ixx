@@ -16,6 +16,7 @@ module;
 #include <shlobj.h>
 #include <knownfolders.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 #include <objbase.h>
 
 export module Rev.OS.File;
@@ -528,6 +529,64 @@ export namespace Rev::OS {
             refresh();
 
             return true;
+        }
+
+        bool reveal() const {
+
+            if (!valid || path.empty()) {
+                return false;
+            }
+
+            return revealPath(path);
+        }
+
+        static bool Reveal(const std::string& pathname) {
+            return revealPath(std::filesystem::path(pathname));
+        }
+
+        static bool revealPath(const std::filesystem::path& target) {
+
+            if (target.empty()) {
+                return false;
+            }
+
+            std::error_code error;
+
+            if (std::filesystem::is_regular_file(target, error)) {
+                std::wstring argument = L"/select,\"" + target.wstring() + L"\"";
+
+                HINSTANCE result = ShellExecuteW(
+                    nullptr,
+                    L"open",
+                    L"explorer.exe",
+                    argument.c_str(),
+                    nullptr,
+                    SW_SHOWNORMAL
+                );
+
+                return reinterpret_cast<intptr_t>(result) > 32;
+            }
+
+            std::filesystem::path folder = target;
+
+            if (!std::filesystem::is_directory(folder, error)) {
+                folder = target.parent_path();
+            }
+
+            if (folder.empty() || !std::filesystem::is_directory(folder, error)) {
+                return false;
+            }
+
+            HINSTANCE result = ShellExecuteW(
+                nullptr,
+                L"open",
+                folder.wstring().c_str(),
+                nullptr,
+                nullptr,
+                SW_SHOWNORMAL
+            );
+
+            return reinterpret_cast<intptr_t>(result) > 32;
         }
 
         // Refresh / ingest

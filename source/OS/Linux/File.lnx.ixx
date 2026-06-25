@@ -270,6 +270,34 @@ export namespace Rev::OS {
             return true;
         }
 
+        bool reveal() const {
+            if (!valid || path.empty()) return false;
+            return revealPath(path);
+        }
+
+        static bool Reveal(const std::string& pathname) {
+            return revealPath(std::filesystem::path(pathname));
+        }
+
+        static bool revealPath(const std::filesystem::path& target) {
+            if (target.empty()) return false;
+            if (!commandExists("xdg-open")) return false;
+
+            std::error_code ec;
+            std::filesystem::path folder = target;
+
+            if (!std::filesystem::is_directory(folder, ec)) {
+                folder = target.parent_path();
+            }
+
+            if (folder.empty() || !std::filesystem::is_directory(folder, ec)) {
+                return false;
+            }
+
+            std::string command = "xdg-open " + shellQuote(folder.string()) + " >/dev/null 2>&1 &";
+            return std::system(command.c_str()) == 0;
+        }
+
         void refresh() {
             resetInfo();
             if (!valid) return;
