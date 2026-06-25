@@ -339,6 +339,48 @@ export namespace Rev::OS {
             return "";
         }
 
+        static std::string compactFolderPath(
+            const std::filesystem::path& folder
+        ) {
+            std::vector<std::string> parts;
+
+            for (const std::filesystem::path& part : folder.relative_path()) {
+                std::string text = part.string();
+
+                if (!text.empty() && text != ".") {
+                    parts.push_back(text);
+                }
+            }
+
+            std::string root = folder.root_name().string();
+
+            if (parts.size() <= 2) {
+                return folder.generic_string();
+            }
+
+            std::string display;
+
+            if (!root.empty()) {
+                display = root + "/...";
+            }
+            else {
+                display = "...";
+            }
+
+            display += "/";
+            display += parts[parts.size() - 2];
+            display += "/";
+            display += parts[parts.size() - 1];
+
+            return display;
+        }
+
+        static std::string compactFolderPath(
+            const std::string& folder
+        ) {
+            return compactFolderPath(std::filesystem::path(folder));
+        }
+
         static File FromPath(
             std::initializer_list<PathComponent> pathComponents
         ) {
