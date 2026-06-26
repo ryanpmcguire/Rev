@@ -184,6 +184,43 @@ export namespace Rev::Element::View3d {
             }
         }
 
+        // Actors in the subtree
+        //--------------------------------------------------
+
+        // Every Actor in the view's subtree (depth-first), not just direct children.
+        // Drawing is handled per-element by the window's draw list, but fit and
+        // hit-testing are View-owned, so they must walk the whole subtree to see
+        // actors nested under grouping elements (e.g. a Stage owning Model actors).
+        //
+        // Walked on demand rather than kept as a flattened cache, deliberately: the
+        // callers (hit-test on click/scroll, fit) are cold paths over a handful of
+        // actors, so there is no per-frame cost to amortise — and a cache would be a
+        // second source of truth needing invalidation on subtree mutations the View
+        // doesn't own. Read the tree directly. (If hit-testing ever goes per-frame
+        // over many actors, switch to actors self-registering with the View on
+        // attach/detach — not a tree-walking cache.)
+        void collectActors(Element* element, std::vector<Actor*>& out) const {
+
+            if (Actor* actor = dynamic_cast<Actor*>(element)) {
+                out.push_back(actor);
+            }
+
+            for (Element* child : element->children) {
+                collectActors(child, out);
+            }
+        }
+
+        std::vector<Actor*> sceneActors() const {
+
+            std::vector<Actor*> actors;
+
+            for (Element* child : children) {
+                collectActors(child, actors);
+            }
+
+            return actors;
+        }
+
         // Fit
         //--------------------------------------------------
 
@@ -191,11 +228,7 @@ export namespace Rev::Element::View3d {
 
             bool valid = false;
 
-            for (Element* child : children) {
-
-                Actor* actor = dynamic_cast<Actor*>(child);
-
-                if (!actor) { continue; }
+            for (Actor* actor : sceneActors()) {
 
                 Pos3 actorMin;
                 Pos3 actorMax;
@@ -263,11 +296,7 @@ export namespace Rev::Element::View3d {
 
             outHit = Hit();
 
-            for (Element* child : children) {
-
-                Actor* actor = dynamic_cast<Actor*>(child);
-
-                if (!actor) { continue; }
+            for (Actor* actor : sceneActors()) {
 
                 Hit hit;
 
@@ -310,11 +339,7 @@ export namespace Rev::Element::View3d {
 
             outHit = Hit();
 
-            for (Element* child : children) {
-
-                Actor* actor = dynamic_cast<Actor*>(child);
-
-                if (!actor) { continue; }
+            for (Actor* actor : sceneActors()) {
 
                 Hit hit;
 
