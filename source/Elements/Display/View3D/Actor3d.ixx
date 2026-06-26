@@ -463,5 +463,24 @@ export namespace Rev::Element::View3d {
                 lines->draw();
             }
         }
+
+        // Drawn by the window's normal draw pass — so an actor anywhere in the
+        // view's subtree draws itself, no View3d-managed list required. View3d
+        // binds the camera and clears depth once before the actors run; each actor
+        // turns depth testing on around its own geometry and off again (via the
+        // canvas verbs), leaving the surrounding 2D pass's state untouched.
+        void draw(Event& e) override {
+
+            Element::draw(e);
+
+            if (!visible) { return; }
+
+            shared->canvas->depthTest(true);
+            shared->canvas->depthWrite(true);
+
+            draw();
+
+            shared->canvas->depthTest(false);
+        }
     };
 }

@@ -449,45 +449,17 @@ export namespace Rev::Element::View3d {
         // Draw
         //--------------------------------------------------
 
-        void begin3dDraw() {
-
-            cameraBuff->bind(2);
-
-            glEnable(GL_DEPTH_TEST);
-            glDepthFunc(GL_LEQUAL);
-            glDepthMask(GL_TRUE);
-
-            glClearDepth(1.0);
-            glClear(GL_DEPTH_BUFFER_BIT);
-        }
-
-        void drawActors() {
-
-            for (Element* child : children) {
-
-                Actor* actor = dynamic_cast<Actor*>(child);
-
-                if (!actor) { continue; }
-
-                actor->draw();
-            }
-        }
-
-        void end3dDraw() {
-
-            glDisable(GL_DEPTH_TEST);
-            glDepthMask(GL_TRUE);
-        }
-
         void draw(Event& e) override {
 
             Box::draw(e);
 
             updateCamera();
 
-            begin3dDraw();
-            drawActors();
-            end3dDraw();
+            // Establish the shared 3D context the actors rely on. The actors
+            // themselves are drawn by the window's normal pass (they're elements in
+            // the draw list); each one toggles depth testing around its own draw.
+            cameraBuff->bind(2);
+            shared->canvas->clearDepth();
         }
     };
 };

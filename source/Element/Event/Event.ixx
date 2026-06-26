@@ -108,6 +108,34 @@ export namespace Rev::Element {
 
             std::string key;
             std::string input;
+
+            // A canonical "ctrl+shift+s"-style string for the current chord, built
+            // once by the window (buildCombo) when it sets the keyboard state. Just
+            // compare it directly:  if (e.keyboard.combo == "ctrl+s") { ... }
+            // No per-call parsing, and no key-name casing to worry about.
+            std::string combo;
+
+            // Modifiers in a fixed order (ctrl, shift, alt), then the key, all
+            // lower-case and joined with '+'. The key is omitted when it *is* a
+            // modifier (already represented). e.g. Ctrl+Shift+S -> "ctrl+shift+s".
+            // The match is exact, so combo == "ctrl+s" is false while Shift is held.
+            void buildCombo() {
+
+                combo = "";
+
+                auto add = [this](const std::string& part) {
+                    if (!combo.empty()) { combo += "+"; }
+                    combo += part;
+                };
+
+                if (ctrl)  { add("ctrl"); }
+                if (shift) { add("shift"); }
+                if (alt)   { add("alt"); }
+
+                if (!key.empty() && key != "ctrl" && key != "shift" && key != "alt") {
+                    add(key);
+                }
+            }
         };
 
         Mouse mouse;

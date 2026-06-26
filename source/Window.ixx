@@ -1100,6 +1100,10 @@ export namespace Rev {
                 default: { break; }
             }
 
+            // Build the canonical chord string once, now that modifiers + key are
+            // set, so handlers can match it with  event.keyboard.combo == "ctrl+s".
+            event.keyboard.buildCombo();
+
             event.resetBeforeDispatch();
             this->setTargets(event);
 

@@ -257,6 +257,32 @@ export namespace Rev::Graphics {
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         }
 
+        // 3D render state
+        //--------------------------------------------------
+        //
+        // Depth testing is off during the 2D pass (see beginFrame); a 3D pass turns
+        // it on, then off again. Exposed as canvas verbs so the layers above never
+        // touch raw GL state.
+
+        void depthTest(bool enable) {
+            if (enable) {
+                glEnable(GL_DEPTH_TEST);
+                glDepthFunc(GL_LEQUAL);
+            }
+            else {
+                glDisable(GL_DEPTH_TEST);
+            }
+        }
+
+        void depthWrite(bool enable) {
+            glDepthMask(enable ? GL_TRUE : GL_FALSE);
+        }
+
+        void clearDepth() {
+            glClearDepth(1.0);
+            glClear(GL_DEPTH_BUFFER_BIT);
+        }
+
         // Drawing functions
         //--------------------------------------------------
 
