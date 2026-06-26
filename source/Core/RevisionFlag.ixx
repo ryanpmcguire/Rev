@@ -10,44 +10,89 @@ export module Rev.Core.RevisionFlag;
 
 export namespace Rev::Core {
 
+    // A monotonic logical clock -- the real dirty flag.
+    // See ReadMe/Rev.Core.RevisionFlag.md for the model and rationale.
+    // INVARIANT: the count only ever moves up; setCount is the sole guard.
     struct RevisionFlag {
 
-        using Revision = uint64_t;
+        using Count = uint64_t;
 
-        Revision revision = 0;
+        // A callback plus its owner (the registrant's `this`), so a subscriber
+        // can remove its callback via unsubscribe(owner) before it dies.
+        struct Callback {
+            void* owner = nullptr;
+            std::function<void()> fn;
+        };
+
+        Count count = 0;
         std::vector<RevisionFlag*> targets;
-        std::vector<std::function<void()>> callbacks;
+        std::vector<Callback> callbacks;
 
-        [[nodiscard]] Revision get() const noexcept {
-            return revision;
+        [[nodiscard]] Count get() const noexcept {
+            return count;
         }
 
-        void setRevision(Revision value) {
-            if (value == revision) { return; }
+        // The single mutation path and the monotonic guard: a value takes effect
+        // only if strictly greater. Also guards propagation to subscribers.
+        void setCount(Count value) {
 
-            revision = value;
+            if (value <= count) { return; }
+
+            count = value;
             callListeners();
 
             for (RevisionFlag* flag : targets) {
-                if (flag) { flag->setRevision(revision); }
+                if (flag) { flag->setCount(count); }
             }
         }
 
-        void markDirty() {
-            setRevision(revision + 1);
+        // Increment helpers -- all funnel through setCount.
+        void inc() { setCount(count + 1); }
+        void markDirty() { inc(); }                 // legacy alias
+        void set(Count value) { setCount(value); }
+
+        // Post-increment returns by reference on purpose: copying the flag would
+        // duplicate its connection graph and callbacks, which is never intended.
+        RevisionFlag& operator++() { inc(); return *this; }
+        RevisionFlag& operator++(int) { inc(); return *this; }
+        RevisionFlag& operator+=(Count n) { setCount(count + n); return *this; }
+        RevisionFlag& operator=(Count value) { setCount(value); return *this; }
+
+        // Register a callback; pass `this` as owner to allow later removal.
+        // The owner-less overload is for callbacks that outlive nothing.
+        template <typename Func>
+        void onUpdate(void* owner, Func&& func) {
+            callbacks.push_back({ owner, std::forward<Func>(func) });
         }
 
         template <typename Func>
-        void onDirty(Func&& func) {
-            callbacks.emplace_back(std::forward<Func>(func));
+        void onUpdate(Func&& func) {
+            callbacks.push_back({ nullptr, std::forward<Func>(func) });
+        }
+
+        // Remove every callback registered by `owner` (call from its destructor).
+        void unsubscribe(void* owner) {
+
+            if (!owner) { return; }
+
+            callbacks.erase(
+                std::remove_if(
+                    callbacks.begin(),
+                    callbacks.end(),
+                    [owner](const Callback& cb) { return cb.owner == owner; }
+                ),
+                callbacks.end()
+            );
         }
 
         void callListeners() {
             for (auto& cb : callbacks) {
-                if (cb) { cb(); }
+                if (cb.fn) { cb.fn(); }
             }
         }
 
+        // Connection management. On connection the target tries to catch up to
+        // the source's current count (guarded, so it only moves up).
         void subscribe(RevisionFlag* source) noexcept {
             if (source && source != this) { source->sendsTo(this); }
         }
@@ -59,7 +104,7 @@ export namespace Rev::Core {
 
             if (it == targets.end()) {
                 targets.push_back(target);
-                target->setRevision(revision);
+                target->setCount(count);   // immediately try to catch up
             }
         }
 
@@ -68,21 +113,26 @@ export namespace Rev::Core {
             if (it != targets.end()) { targets.erase(it, targets.end()); }
         }
 
-        operator Revision() const noexcept {
-            return revision;
+        operator Count() const noexcept {
+            return count;
         }
     };
 
+    // A per-consumer read cursor against a RevisionFlag: advancing it is how a
+    // reader acknowledges work without touching the shared source.
     struct RevisionObserver {
 
-        RevisionFlag::Revision revision = 0;
+        RevisionFlag::Count count = 0;
         bool initialized = false;
 
+        // "Am I behind the source?" -- an ordered (<) test, not inequality, so a
+        // cursor ahead of the source does nothing and is never dragged backward.
         bool changed(const RevisionFlag& flag) {
-            RevisionFlag::Revision current = flag.get();
 
-            if (!initialized || current != revision) {
-                revision = current;
+            RevisionFlag::Count current = flag.get();
+
+            if (!initialized || count < current) {
+                count = current;
                 initialized = true;
                 return true;
             }
@@ -91,7 +141,7 @@ export namespace Rev::Core {
         }
 
         void reset() {
-            revision = 0;
+            count = 0;
             initialized = false;
         }
     };
