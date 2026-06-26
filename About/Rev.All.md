@@ -21,6 +21,7 @@ file (`.claude/rules/`).
 
 @../source/About/Rev.About.md
 @../source/About/Rev.Core.md
+@../source/Core/ReadMe/Rev.Core.RevisionFlag.md
 @../source/About/Rev.Style.md
 @../source/About/Rev.Graphics.md
 @../source/Element/About/Element.About.md
@@ -58,6 +59,7 @@ mistakes). Start with the README.
 @../source/Core/Vertex3.ixx
 @../source/Core/Dispatcher.ixx
 @../source/Core/DirtyFlag.ixx
+@../source/Core/RevisionFlag.ixx
 @../source/Core/Observable.ixx
 @../source/Core/Process.ixx
 @../source/Core/Animator.ixx
