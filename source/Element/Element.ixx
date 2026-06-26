@@ -17,6 +17,7 @@ import Rev.Graphics.Canvas;
 import Rev.Core.Pos;
 import Rev.Core.Rect;
 import Rev.Core.DirtyFlag;
+import Rev.Core.RevisionFlag;
 import Rev.Core.Dispatcher;
 
 import Rev.Appearance;
@@ -97,6 +98,12 @@ export namespace Rev::Element {
 
         Dirty dirty;
 
+        // Monotonic revision of this element's style inputs. Bridged off the
+        // existing dirty.style signal (see ctor) so consumers can gate work with
+        // a RevisionObserver instead of consuming a shared dirty flag. This is
+        // the incremental on-ramp from DirtyFlag to RevisionFlag.
+        Core::RevisionFlag styleRev;
+
         Core::Dispatcher<Event>* dispatcher = nullptr;
 
         // Create
@@ -110,6 +117,10 @@ export namespace Rev::Element {
             dirty.style.subscribe(&(this->style.dirty));
 
             dirty.style.onDirty([this]() {
+
+                // Bridge: every time style inputs go dirty, advance the revision
+                // so observers (e.g. Box::computePrimitives) see "style changed".
+                this->styleRev.inc();
 
                 if (!this->shared) { return; }
                 //if (this->parent == this) { return; }

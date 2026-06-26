@@ -110,6 +110,15 @@ export namespace Rev::Core {
         Pos relToAbs(Pos& pos) { return { x + pos.x * w,  y + pos.y * h }; }
         Vertex relToAbs(Vertex& vert) { return { float(x + vert.x * w), float(y + vert.y * h) }; }
 
+        // Return whether this rect equals another (all four fields match)
+        bool compare(Rect& other) {
+            return x == other.x && y == other.y && w == other.w && h == other.h;
+        }
+
+        bool operator==(const Rect& other) const {
+            return x == other.x && y == other.y && w == other.w && h == other.h;
+        }
+
         inline operator bool() const {
             return !(x || y || w || h);
         }
