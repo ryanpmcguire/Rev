@@ -802,6 +802,9 @@ export namespace Rev::Element {
                 resolved.style.text.color.b, resolved.style.text.color.a
             };
 
+            // Cascaded opacity
+            text->data->opacity = resolved.opacity;
+
             text->xPos = rect.x + resolved.pad.l.val;
             text->yPos = rect.y + resolved.pad.t.val;
 
@@ -893,6 +896,7 @@ export namespace Rev::Element {
                 }
             }
 
+            line->data->opacity = resolved.opacity;
             line->compute();
 
             Box::computePrimitives(e);

@@ -23,7 +23,7 @@ layout(std140, binding = 1) uniform Data {
     float uStrokeWidth;
     float uSmoothing;
     float uPointCount;
-    float uPad;
+    float uOpacity;
 };
 
 layout(binding = 0) uniform samplerBuffer uPoints;

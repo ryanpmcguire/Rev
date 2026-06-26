@@ -47,6 +47,10 @@ export namespace Rev::Element {
 
         void computePrimitives(Event& e) override {
 
+            // Opacity is cascaded (not part of resolved.style), so reflect it every
+            // pass rather than behind the style/rect gate below.
+            rectangle->data->opacity = resolved.opacity;
+
             // Position and style are independent inputs, so they gate independently.
             // styleObs tracks resolved.style via styleRev; the rect compare catches
             // layout-driven moves that carry no style change.

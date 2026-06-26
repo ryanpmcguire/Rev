@@ -65,7 +65,7 @@ export namespace Rev::Primitives {
             float strokeWidth;     // 16
             float smoothing;       // 20
             float pointCount;      // 24
-            float pad;             // 28
+            float opacity = 1.0f;  // 28
         };
 
         // A world -> pixel transform applied to every point *before* the geometry
@@ -83,6 +83,7 @@ export namespace Rev::Primitives {
         Color color;
         float strokeWidth = 1.0f;
         float smoothing = 1.0f;
+        float opacity = 1.0f;
 
         struct Line {
 
@@ -173,7 +174,7 @@ export namespace Rev::Primitives {
                 block.strokeWidth = set(lines[i].strokeWidth) ? lines[i].strokeWidth : strokeWidth;
                 block.smoothing = set(lines[i].smoothing) ? lines[i].smoothing : smoothing;
                 block.pointCount = static_cast<float>(pts.size());
-                block.pad = 0.0f;
+                block.opacity = opacity;
 
                 dataBuffers[i]->set(&block);
 

@@ -73,6 +73,8 @@ export namespace Rev::Primitives {
 
             Color color;
             Pos pos;
+            float depth = 0.0f;
+            float opacity = 1.0f;
         };
 
         UniformBuffer* databuff = nullptr;

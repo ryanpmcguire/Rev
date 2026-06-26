@@ -10,7 +10,7 @@ layout(binding = 0) uniform sampler2D tex;
 layout(std140, binding = 1) uniform Data {
     vec4 color;
     vec2 pos;
-    float depth, pad1;
+    float depth, opacity;
 };
 
 void main() {
@@ -27,4 +27,6 @@ void main() {
     //FragColor = vec4(color.rgb, punchy * color.a);
     FragColor = vec4(color.rgb, color.a * a);
     gl_FragDepth = depth;
+
+    FragColor.a *= opacity; // Opacity
 }

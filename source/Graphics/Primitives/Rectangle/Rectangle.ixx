@@ -84,6 +84,8 @@ export namespace Rev::Primitives {
             BorderColor borderColor;
 
             Shadow shadow;
+
+            float opacity = 1.0f;
         };
 
         UniformBuffer* databuff = nullptr;

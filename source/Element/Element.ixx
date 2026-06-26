@@ -288,7 +288,11 @@ export namespace Rev::Element {
             if (resolved.disabled != wasDisabled) { styles.dirty = true; }
 
             // Set depth
-            resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;            
+            resolved.depth = parent->resolved.depth + 1 - resolved.style.zIndex;
+
+            // Accumulate opacity: own opacity scaled by the parent's effective
+            // opacity, so it compounds down the tree just like depth.
+            resolved.opacity = parent->resolved.opacity * resolved.style.opacity.val;
 
             if (resolved.hidden) {
                 return;

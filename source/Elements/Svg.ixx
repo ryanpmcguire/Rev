@@ -54,7 +54,7 @@ export namespace Rev::Element {
             data.rect = bounds;
             data.color = resolved.style.text.color;
             data.rotation = rotation;
-            data.opacity = opacity;
+            data.opacity = opacity * resolved.opacity;
 
             svg->resource = resource;
             svg->compute();

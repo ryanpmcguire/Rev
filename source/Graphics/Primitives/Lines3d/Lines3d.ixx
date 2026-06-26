@@ -52,7 +52,7 @@ export namespace Rev::Primitives {
         struct Data {
             Color color = { 1, 1, 1, 1 };
             float depth = 0.5f;
-            float pad1 = 0.0f;
+            float opacity = 1.0f;
             float pad2 = 0.0f;
             float pad3 = 0.0f;
         };

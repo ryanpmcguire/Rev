@@ -243,7 +243,69 @@ export namespace Rev::Appearance {
         color.type = sColor::Type::Tint;
         return color;
     }
-    
+
+    // Opacity
+    //--------------------------------------------------
+
+    // A 0..1 multiplier on how opaque an element (and its subtree) draws.
+    // Like the other paint concepts it is transitionable; like Dist/sColor it
+    // carries a "set" flag so an unset opacity does not override one a lower
+    // style already applied (and so cascadeStyle can default it to fully opaque).
+    struct Opacity {
+
+        float val = 1.0f;
+        bool set = false;
+
+        int transition = -1;
+        Core::DirtyFlag* dirty = nullptr;
+
+        static inline Opacity Null() {
+            return { 1.0f, false, -1, nullptr };
+        }
+
+        inline void linkDirtyFlag(Core::DirtyFlag* dirty) {
+            this->dirty = dirty;
+        }
+
+        // Opacity is "true" (overrides) only when a style explicitly set it
+        explicit operator bool() const {
+            return set;
+        }
+
+        bool operator==(const Opacity& other) const {
+            return set == other.set && val == other.val;
+        }
+
+        inline void apply(Opacity& other) {
+            if (other) { *this = other; }
+        }
+
+        inline void animate(Opacity& old, std::vector<Transition>& transitions, uint64_t& time, int& ms) {
+
+            int transitionLength = transition > 0 ? transition : ms;
+            if (transitionLength < 1) { return; }
+
+            if (val != old.val) { Transition::createNew(val, old.val, transitions, time, transitionLength); }
+        }
+
+        // Custom assignment operator
+        // Copy everything except the "dirty" flag pointer
+        Opacity& operator=(const Opacity& other) {
+
+            if (this == &other) { return *this; }
+            if (*this == other) { return *this; }
+            if (dirty) { *dirty = true; }
+
+            val = other.val;
+            set = other.set;
+            transition = other.transition;
+
+            return *this;
+        }
+    };
+
+    Opacity Fade(float value) { return { value, true }; }
+
     // Size
     //--------------------------------------------------
 
@@ -934,8 +996,9 @@ export namespace Rev::Appearance {
         Cursor cursor;
 
         int zIndex = 0;
+        Opacity opacity;
 
-        int transition = -1; // Transition 
+        int transition = -1; // Transition
         Core::DirtyFlag dirty;
 
         static inline Style* CreateNull() {
@@ -964,6 +1027,7 @@ export namespace Rev::Appearance {
                 .text = TextStyle::Null(),
                 .cursor = Cursor::Unset,
                 .zIndex = 0,
+                .opacity = Opacity::Null(),
                 .transition = -1,
                 .dirty = { true }
             };
@@ -1012,6 +1076,7 @@ export namespace Rev::Appearance {
 
             // Apply transition, overflow, cursor
             if (style.zIndex != 0) { zIndex = style.zIndex; }
+            opacity.apply(style.opacity);
             if (style.transition) { transition = style.transition; }
             if (style.overflow != Overflow::Unset) { overflow = style.overflow; }
             if (style.scroll != Scroll::Unset) { scroll = style.scroll; }
@@ -1039,6 +1104,8 @@ export namespace Rev::Appearance {
             shadow.animate(old.shadow, transitions, time, transition);
 
             text.animate(old.text, transitions, time, transition);
+
+            opacity.animate(old.opacity, transitions, time, transition);
         }
 
         inline bool isDirty() {
@@ -1112,6 +1179,8 @@ export namespace Rev::Appearance {
             shadow.linkDirtyFlag(dirty);
 
             text.linkDirtyFlag(dirty);
+
+            opacity.linkDirtyFlag(dirty);
         }
 
         // Custom assignment operator
@@ -1136,6 +1205,7 @@ export namespace Rev::Appearance {
             cursor = other.cursor;
 
             zIndex = other.zIndex;
+            opacity = other.opacity;
 
             this->linkDirtyFlag(&dirty);
 

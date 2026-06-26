@@ -54,6 +54,10 @@ export namespace Rev::Primitives {
         // Instance-specific data
         struct Data {
             Color color = { 1, 1, 1, 1 };
+            float depth = 0.0f;
+            float opacity = 1.0f;
+            float pad2 = 0.0f;
+            float pad3 = 0.0f;
         };
 
         inline static Shared shared;

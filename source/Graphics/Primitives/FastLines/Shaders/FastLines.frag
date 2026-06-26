@@ -12,7 +12,7 @@ layout(std140, binding = 1) uniform Data {
     float uStrokeWidth;
     float uSmoothing;
     float uPointCount;
-    float uPad;
+    float uOpacity;
 };
 
 in vec2 v_pos;
@@ -47,4 +47,6 @@ void main() {
     if (alpha <= 0.0) { discard; }
 
     FragColor = vec4(uColor.rgb, uColor.a * alpha);
+
+    FragColor.a *= uOpacity; // Opacity
 }

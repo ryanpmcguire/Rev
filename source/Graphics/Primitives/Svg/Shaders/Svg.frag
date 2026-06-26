@@ -20,5 +20,5 @@ void main() {
         outColor = vec4(color.rgb, outColor.a * color.a);
     }
 
-    outColor.a *= opacity;
+    outColor.a *= opacity; // Opacity
 }

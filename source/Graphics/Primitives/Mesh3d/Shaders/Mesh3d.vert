@@ -8,7 +8,7 @@ layout(location = 4) in float b;
 
 layout(std140, binding = 1) uniform Data {
     vec4 uColor;
-    float depth, pad1, pad2, pad3;
+    float depth, opacity, pad2, pad3;
 };
 
 layout(std140, binding = 2) uniform Camera {

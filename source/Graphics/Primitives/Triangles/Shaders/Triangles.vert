@@ -9,7 +9,7 @@ layout(std140, binding = 0) uniform Transform {
 
 layout(std140, binding = 1) uniform Data {
     vec4 uColor;
-    float depth, pad1, pad2, pad3;
+    float depth, opacity, pad2, pad3;
 };
 
 out vec4 vColor;

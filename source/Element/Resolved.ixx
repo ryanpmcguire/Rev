@@ -185,6 +185,11 @@ export namespace Rev::Element {
 
         int depth = 0;
 
+        // Effective opacity, accumulated multiplicatively from ancestors (own
+        // opacity * parent's effective opacity) in cascadeStyle -- parallel to
+        // `depth`. A child can never be more opaque than its parent.
+        float opacity = 1.0f;
+
         bool hidden = false;
 
         // Effective disabled state, cascaded from ancestors (own intent OR a

@@ -16,6 +16,7 @@ layout(std140, binding = 1) uniform Data {
     vec4 l_color, r_color, t_color, b_color;            // Border colors
     float shadowX, shadowY, shadowSize, shadowBlur;
     vec4 shadowColor;
+    float opacity;
 };
 
 vec4 softMax(vec4 v, float sharpness) {
@@ -165,6 +166,8 @@ void main() {
 
     // Convert premultiplied → straight alpha for output
     FragColor = vec4(finalRGB / max(finalAlpha, 1e-5), finalAlpha);
+
+    FragColor.a *= opacity; // Opacity
 
     #endif
 }
