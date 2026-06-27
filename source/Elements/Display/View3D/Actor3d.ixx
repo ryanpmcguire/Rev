@@ -17,7 +17,7 @@ import Rev.Element;
 import Rev.Element.Event;
 
 import Rev.Primitive.Mesh3d;
-import Rev.Primitive.Lines3d;
+import Rev.Primitive.FastLines3d;
 import Rev.Graphics.Canvas;
 
 export namespace Rev::Element::View3d {
@@ -66,7 +66,7 @@ export namespace Rev::Element::View3d {
     struct Actor : public Rev::Element::Element {
 
         Primitives::Mesh3d* mesh = nullptr;
-        Primitives::Lines3d* lines = nullptr;
+        Primitives::FastLines3d* lines = nullptr;
 
         // Drawing and picking are intentionally separate.
         //
@@ -455,14 +455,28 @@ export namespace Rev::Element::View3d {
 
             if (lines) {
 
-                std::vector<Core::Vertex3>* pLines = lines->getLines();
-
-                if (pLines) {
-                    for (Core::Vertex3& v : *pLines) { include(v); }
+                for (Primitives::FastLines3d::Line& ln : lines->lines) {
+                    for (Core::Vertex3& v : ln.getPoints()) { include(v); }
                 }
             }
 
             return valid;
+        }
+
+        // The logical (DPI-corrected) canvas size, fed to FastLines3d so its
+        // stroke width is in logical pixels and its joins have the right aspect.
+        // The 3D camera projects across the full canvas, so this matches.
+        void updateLinesViewport() {
+
+            if (!lines || !shared || !shared->canvas) { return; }
+
+            float scale = shared->canvas->details.scale;
+            float w = float(shared->canvas->details.width);
+            float h = float(shared->canvas->details.height);
+
+            if (scale > 0.0f) { w /= scale; h /= scale; }
+
+            lines->setViewport(w, h);
         }
 
         void computePrimitives(Event& e) override {
@@ -475,6 +489,7 @@ export namespace Rev::Element::View3d {
             }
             if (lines) {
                 if (lines->opacity != resolved.opacity) { lines->opacity = resolved.opacity; lines->dirty = true; }
+                updateLinesViewport();
                 lines->compute();
             }
         }
