@@ -149,10 +149,12 @@ export namespace Rev::Element::View3d {
 
         void removeActor(Actor* actor) {
 
+            if (hoveredActor == actor) { hoveredActor = nullptr; }
+
             removeChild(actor);
 
             if (shared && shared->event) {
-                refresh(*shared->event); 
+                refresh(*shared->event);
             }
         }
 
@@ -170,6 +172,8 @@ export namespace Rev::Element::View3d {
         }
 
         void clearActors() {
+
+            hoveredActor = nullptr;
 
             std::vector<Element*> childrenCopy = children;
 
@@ -375,48 +379,112 @@ export namespace Rev::Element::View3d {
         // Events
         //--------------------------------------------------
 
-        void mouseDown(Event& e) override {
+        // The actor the cursor is over, so we can tell it when the cursor leaves.
+        Actor* hoveredActor = nullptr;
+
+        // Was the gesture's press the left button alone? (left = select; right/middle
+        // = camera.)
+        bool pressLeft = false;
+
+        // Ray-cast the cursor and deliver hover to the actor under it.
+        void mouseMove(Event& e) override {
 
             Hit hit;
-            Pos3 pivot;
+            Actor* nowHovered = hitTestVisible(e.mouse.pos, hit) ? hit.actor : nullptr;
 
-            if (hitTestVisible(e.mouse.pos, hit)) {
-                pivot = hit.point;
+            if (hoveredActor && hoveredActor != nowHovered) { hoveredActor->onUnhover(); }
+            if (nowHovered) { nowHovered->onHover(hit); }
+            hoveredActor = nowHovered;
+
+            Box::mouseMove(e);
+        }
+
+        void mouseLeave(Event& e) override {
+            if (hoveredActor) { hoveredActor->onUnhover(); hoveredActor = nullptr; }
+            Box::mouseLeave(e);
+        }
+
+        // Left click selects: plain click replaces the selection (clearing every actor
+        // first), ctrl+click adds; a click on empty space clears. A drag isn't a click.
+        void click(Event& e) override {
+
+            if (pressLeft) {
+
+                auto d = e.mouse.up - e.mouse.down;
+
+                if (d.x * d.x + d.y * d.y <= 25.0f) {
+
+                    bool additive = static_cast<bool>(e.keyboard.ctrl);
+
+                    Hit hit;
+                    bool got = hitTestVisible(e.mouse.pos, hit) && hit.actor;
+
+                    if (!additive) { for (Actor* a : sceneActors()) { a->onDeselect(); } }
+                    if (got) { hit.actor->onPick(hit, additive); }
+                }
             }
 
-            else {
-                pivot = camera.worldOnTargetPlane(
-                    e.mouse.pos,
+            Box::click(e);
+        }
+
+        // Escape clears the selection across the scene.
+        void keyDown(Event& e) override {
+            if (e.keyboard.escape) { for (Actor* a : sceneActors()) { a->onDeselect(); } }
+            Box::keyDown(e);
+        }
+
+        void mouseDown(Event& e) override {
+
+            pressLeft = e.mouse.lb && !e.mouse.rb && !e.mouse.mb;
+
+            // Camera control is right/middle only — set up the orbit pivot for those.
+            if (e.mouse.rb || e.mouse.mb) {
+
+                Hit hit;
+                Pos3 pivot;
+
+                if (hitTestVisible(e.mouse.pos, hit)) {
+                    pivot = hit.point;
+                }
+
+                else {
+                    pivot = camera.worldOnTargetPlane(
+                        e.mouse.pos,
+                        canvasWidth(),
+                        canvasHeight()
+                    );
+                }
+
+                stopZoomAnimation();
+
+                camera.mouseDown(
+                    e,
+                    pivot,
                     canvasWidth(),
                     canvasHeight()
                 );
+
+                refresh(e);
             }
-
-            stopZoomAnimation();
-
-            camera.mouseDown(
-                e,
-                pivot,
-                canvasWidth(),
-                canvasHeight()
-            );
-
-            refresh(e);
 
             Box::mouseDown(e);
         }
 
         void mouseDrag(Event& e) override {
 
-            stopZoomAnimation();
+            // Orbit / pan only while a right or middle button is held.
+            if (e.mouse.rb || e.mouse.mb) {
 
-            camera.mouseDrag(
-                e,
-                canvasWidth(),
-                canvasHeight()
-            );
+                stopZoomAnimation();
 
-            refresh(e);
+                camera.mouseDrag(
+                    e,
+                    canvasWidth(),
+                    canvasHeight()
+                );
+
+                refresh(e);
+            }
 
             Box::mouseDrag(e);
         }

@@ -699,7 +699,15 @@ export namespace Rev::Element {
                     // Get minimum abs/rel sizes
                     //--------------------------------------------------
 
-                    float& maxAbsInnerSize = horizontal ? resolved.max.innerWidth : resolved.max.innerHeight;
+                    // Wrap against the container's ACTUAL inner size, not its max. The
+                    // max is anchored to the window's max-resize size and never subtracts
+                    // fixed siblings, so wrapping against it under-counts and never fires.
+                    // innerWidth/Height survive reset(), so last frame's true size is here;
+                    // fall back to max on the very first frame (before any dims pass).
+                    float maxAbsInnerSize = horizontal ? resolved.max.innerWidth : resolved.max.innerHeight;
+                    float actualInnerSize = horizontal ? resolved.innerWidth : resolved.innerHeight;
+                    if (actualInnerSize > 0.0f) { maxAbsInnerSize = actualInnerSize; }
+
                     float& minAbsLayoutSize = horizontal ? elem.layout.size.w.min : elem.layout.size.h.min;
 
                     // These absolute minima were already calculated before

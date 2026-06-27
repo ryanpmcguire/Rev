@@ -290,6 +290,17 @@ export namespace Rev::Element::View3d {
             return t > eps;
         }
 
+        // The vertex attribute `a` carries a per-triangle pick group (the brep face id);
+        // 0 ⇒ ungrouped. A face keeps one id across its vertices, so the first suffices.
+        size_t faceIdOfTriangle(size_t triId) const {
+            if (!mesh) { return 0; }
+            std::vector<Core::Vertex3>* tris = mesh->getTriangles();
+            if (!tris) { return 0; }
+            size_t base = triId * 3;
+            if (base >= tris->size()) { return 0; }
+            return static_cast<size_t>((*tris)[base].a);
+        }
+
         bool hitTestMesh(
             const Ray& ray,
             Hit& outHit
@@ -338,6 +349,7 @@ export namespace Rev::Element::View3d {
                     outHit.kind     = HitKind::Face;
                     outHit.actor    = this;
                     outHit.triangleId = triId;
+                    outHit.faceId   = faceIdOfTriangle(triId);
                     outHit.point    = localRay.origin + localRay.direction * t;
                     outHit.t        = t;
                     mapHitBackToWorld();
@@ -364,6 +376,7 @@ export namespace Rev::Element::View3d {
                     outHit.kind = HitKind::Face;
                     outHit.actor = this;
                     outHit.triangleId = i / 3;
+                    outHit.faceId = faceIdOfTriangle(i / 3);
                     outHit.point = localRay.origin + localRay.direction * t;
                     outHit.t = t;
                 }
@@ -400,6 +413,13 @@ export namespace Rev::Element::View3d {
         ) {
             return hitTestMesh(ray, outHit);
         }
+
+        // The View ray-casts the cursor and delivers these to the actor under it. The
+        // base does nothing; an actor overrides to react. `additive` ⇒ ctrl-click.
+        virtual void onHover(const Hit& hit) {}
+        virtual void onUnhover() {}
+        virtual void onPick(const Hit& hit, bool additive) {}
+        virtual void onDeselect() {}
 
         bool bounds(
             Core::Pos3& min,
@@ -446,8 +466,17 @@ export namespace Rev::Element::View3d {
         }
 
         void computePrimitives(Event& e) override {
-            if (mesh) { mesh->compute(); }
-            if (lines) { lines->compute(); }
+
+            // Reflect the cascaded opacity into the primitives (parallel to Box).
+            // Mark dirty on change so the new value is actually re-uploaded.
+            if (mesh) {
+                if (mesh->opacity != resolved.opacity) { mesh->opacity = resolved.opacity; mesh->dirty = true; }
+                mesh->compute();
+            }
+            if (lines) {
+                if (lines->opacity != resolved.opacity) { lines->opacity = resolved.opacity; lines->dirty = true; }
+                lines->compute();
+            }
         }
 
         void draw() {

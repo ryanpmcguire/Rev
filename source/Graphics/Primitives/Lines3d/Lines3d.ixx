@@ -78,6 +78,7 @@ export namespace Rev::Primitives {
         bool dirty = true;
 
         Color color = { 1, 1, 1, 1 };
+        float opacity = 1.0f;
 
         // Every pair of vertices is one line segment.
         std::vector<Vertex3> lines;
@@ -149,6 +150,7 @@ export namespace Rev::Primitives {
 
             data->color = color;
             data->depth = 0.5f;
+            data->opacity = opacity;
 
             std::vector<Vertex3>* pSource = getLines();
 

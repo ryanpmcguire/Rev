@@ -82,6 +82,7 @@ export namespace Rev::Primitives {
         bool dirty = true;
 
         Color color = { 1, 1, 1, 1 };
+        float opacity = 1.0f;
 
         // We may own our triangles, or we may be given a pointer
         // to some other triangle vertex list.
@@ -468,6 +469,7 @@ export namespace Rev::Primitives {
 
             data->color = color;
             data->depth = 0.5f;
+            data->opacity = opacity;
 
             std::vector<Vertex3>* pSource = getTriangles();
 

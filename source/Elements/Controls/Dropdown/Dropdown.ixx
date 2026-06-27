@@ -82,7 +82,7 @@ export namespace Rev::Element {
 
             label = new Text(this, p.label, { &Label });
 
-            dropdown = new Box(this, { &Field, &FieldFocus });
+            dropdown = new Box(this, { &Field, &DropdownSurface, &FieldFocus });
 
                 fieldRow = new Box(dropdown, { &FieldInner });
                     dropdownText = new Text(fieldRow, "", { &FieldText });

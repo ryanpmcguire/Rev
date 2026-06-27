@@ -52,6 +52,13 @@ export namespace Rev::Element::ControlTheme {
         }
     };
 
+    // Background-only override layered after `Field` on a Dropdown's closed box, so
+    // a dropdown can read differently (e.g. slightly lighter) than a text field even
+    // though both share `Field` for layout/border.
+    Style DropdownSurface = {
+        .background = { .color = rgba(255, 255, 255, 0.05) }
+    };
+
     Style FieldInner = {
         .layout = { Axis::Horizontal, Align::Start, Align::Start, Wrap::False },
         .size = { Grow() }
@@ -297,6 +304,8 @@ export namespace Rev::Element::ControlTheme {
 
         sColor fieldSurface;
         sColor fieldDisabledSurface;   // recessed surface for a locked/disabled field
+        sColor dropdownSurface;        // closed dropdown box (overrides fieldSurface)
+        sColor optionsSurface;         // opaque dropdown popup surface
         sColor fieldBorder;
         sColor fieldText;
         sColor labelText;
@@ -348,6 +357,7 @@ export namespace Rev::Element::ControlTheme {
         Field.background.color = colors.fieldSurface;
         Field.border.color = colors.fieldBorder;
         FieldFocus.border.color = colors.focusBorder;
+        DropdownSurface.background.color = colors.dropdownSurface;
 
         FieldText.text.color = colors.fieldText;
         FieldDisabled.background.color = colors.fieldDisabledSurface;
@@ -360,13 +370,13 @@ export namespace Rev::Element::ControlTheme {
         Placeholder.text.color = colors.placeholderText;
         DropdownArrow.text.color = colors.dropdownArrow;
 
-        OptionsContainer.background.color = colors.fieldSurface;
+        OptionsContainer.background.color = colors.optionsSurface;
         OptionsContainer.border.color = colors.fieldBorder;
 
-        OptionsContainerUpward.background.color = colors.fieldSurface;
+        OptionsContainerUpward.background.color = colors.optionsSurface;
         OptionsContainerUpward.border.color = colors.fieldBorder;
 
-        Option.background.color = colors.fieldSurface;
+        Option.background.color = colors.optionsSurface;
         Option.background.color.a = 0.0f;
         Option.text.color = colors.fieldText;
         OptionHover.background.color = colors.optionHover;
@@ -407,6 +417,7 @@ export namespace Rev::Element::ControlTheme {
         markDirty(Label);
         markDirty(Field);
         markDirty(FieldFocus);
+        markDirty(DropdownSurface);
         markDirty(FieldDisabled);
         markDirty(FieldText);
         markDirty(FieldTextDisabled);
