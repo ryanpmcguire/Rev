@@ -31,12 +31,17 @@ export namespace Rev::Element {
 
         Text* labelText = nullptr;
 
+        // The current visual variant; can be switched at runtime via setVariant.
+        Variant variant = Variant::Secondary;
+
         // A disabled button renders its *Disabled styles (applies.disabled) and
         // ignores clicks/keys. Display-only, like a locked TextInput.
         bool disabled = false;
 
         Button(Element* parent, Params params, StyleList styles = {}) : Box(parent, styles) {
             name = "Button";
+
+            variant = params.variant;
 
             // The control's own theme styles are the DEFAULT: they must sit
             // ahead of the caller-supplied styles so anything passed in the
@@ -57,6 +62,34 @@ export namespace Rev::Element {
             for (Style* style : params.labelStyles.styles) { labelText->styles.add(style); }
 
             onKeyDown([this](Event& e) { click(e); e.propagate = false; });
+        }
+
+        // Switch the visual variant at runtime (swaps the theme box + label styles).
+        // Idempotent, so it is safe to call every frame.
+        void setVariant(Variant v) {
+
+            if (variant == v) { return; }
+            variant = v;
+
+            styles.remove(&ControlTheme::ButtonPrimary);
+            styles.remove(&ControlTheme::ButtonPrimaryHover);
+            styles.remove(&ControlTheme::ButtonSecondary);
+            styles.remove(&ControlTheme::ButtonSecondaryHover);
+
+            if (v == Variant::Primary) {
+                styles.prepend(&ControlTheme::ButtonPrimaryHover);
+                styles.prepend(&ControlTheme::ButtonPrimary);
+            }
+            else {
+                styles.prepend(&ControlTheme::ButtonSecondaryHover);
+                styles.prepend(&ControlTheme::ButtonSecondary);
+            }
+
+            if (labelText) {
+                labelText->styles.remove(&ControlTheme::ButtonPrimaryLabel);
+                labelText->styles.remove(&ControlTheme::ButtonSecondaryLabel);
+                labelText->styles.add(v == Variant::Primary ? &ControlTheme::ButtonPrimaryLabel : &ControlTheme::ButtonSecondaryLabel);
+            }
         }
 
         // Enable / disable the button. The disabled state cascades to the label

@@ -886,7 +886,7 @@ export namespace Rev::Appearance {
             if (mode == newMode) { return *this; }
 
             mode = newMode;
-            *dirty = true;
+            if (dirty) { *dirty = true; }   // a per-element override's dirty may be null
 
             return *this;
         }

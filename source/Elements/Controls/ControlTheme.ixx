@@ -79,7 +79,11 @@ export namespace Rev::Element::ControlTheme {
         .text = {
             .color = rgba(30, 41, 59, 1.0),
             .size = 13_px,
-            .wrap = Wrap::BreakWord
+            // Single-line field: never word-wrap. BreakWord would treat a space
+            // as a wrap point AND collapse the field's min-content width to the
+            // widest word (see Text::measureText / layoutText), so any value with
+            // a space would wrap to a second line and throw off caret/selection.
+            .wrap = Wrap::False
         }
     };
 

@@ -118,6 +118,8 @@ export namespace Rev::Primitives {
 
         // Draw color
         void draw() override {
+
+            if (!svg->texture) { return; }
          
             pipeline->bind();
             vertices->bind();
