@@ -196,6 +196,11 @@ export namespace Rev::Element::View3d {
         // cold paths over few actors) rather than cached.
         void collectActors(Element* element, std::vector<Actor*>& out) const {
 
+            // A hidden subtree (Visibility::Hidden on the element or any ancestor) is out of
+            // the scene entirely: the draw pass already skips it, and now so do fit, hit
+            // testing, and hover. This lets a whole group of actors toggle with one style.
+            if (element->resolved.hidden) { return; }
+
             if (Actor* actor = dynamic_cast<Actor*>(element)) {
                 out.push_back(actor);
             }

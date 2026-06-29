@@ -33,6 +33,13 @@ export namespace Rev::Core {
 
         std::vector<ListenerGroup> listenerGroups;
 
+        // Deferred unsubscription. tell() iterates a group's listener vector by reference,
+        // so a listener that unsubscribes mid-dispatch (a common, legitimate thing — e.g. a
+        // one-shot subscriber that fires then detaches) would invalidate that iteration. So
+        // unsubscribe() never removes inline — it only queues here, and tell() drains the
+        // queue before it walks. The vector is therefore never mutated under a dispatch.
+        std::vector<void*> pendingUnsubscribe;
+
         template<typename Owner>
         static ListenerKey listenerKey(void (Owner::*func)(EventType&)) {
             static_assert(sizeof(func) <= ListenerKeySize, "Member function pointer is larger than Dispatcher::ListenerKey");
@@ -98,13 +105,16 @@ export namespace Rev::Core {
         // Unsubscribe
         //--------------------------------------------------
 
-        // Remove every listener registered by `owner`, across all keys. A
-        // subscriber calls this with its own `this` as it is destroyed, so the
-        // dispatcher never holds a dangling callback.
+        // Queue removal of every listener registered by `owner`. A subscriber calls this
+        // with its own `this` as it is destroyed; a listener may even call it from inside
+        // its own callback. Removal is always deferred (drained at the next tell(), before
+        // it walks), so it never disturbs a dispatch in flight or holds a dangling callback.
         void unsubscribe(void* owner) {
-
             if (!owner) { return; }
+            pendingUnsubscribe.push_back(owner);
+        }
 
+        void removeOwner(void* owner) {
             for (auto& group : listenerGroups) {
                 auto& listeners = group.listeners;
                 listeners.erase(
@@ -122,6 +132,13 @@ export namespace Rev::Core {
         //--------------------------------------------------
 
         void tell(ListenerKey tellingKey, EventType& event) {
+
+            // Drain queued unsubscribes before walking, so the listener vector is stable for
+            // the duration of this dispatch.
+            if (!pendingUnsubscribe.empty()) {
+                for (void* owner : pendingUnsubscribe) { removeOwner(owner); }
+                pendingUnsubscribe.clear();
+            }
 
             auto it = std::find_if(
                 listenerGroups.begin(),
