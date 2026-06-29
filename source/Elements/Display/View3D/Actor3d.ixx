@@ -80,6 +80,12 @@ export namespace Rev::Element::View3d {
 
         bool includeInFit = true;
 
+        // A transparent "ghost" actor must NOT write depth — otherwise its own faces occlude
+        // each other inconsistently per view angle, and it hides geometry meant to read as
+        // inside it (a toolpath, the tool). Draw ghosts AFTER the opaque actors so they blend
+        // over them. Depth TEST stays on either way.
+        bool writesDepth = true;
+
         bool ownsMesh = false;
         bool ownsLines = false;
         bool ownsTriangles = false;
@@ -520,11 +526,12 @@ export namespace Rev::Element::View3d {
             if (!visible) { return; }
 
             shared->canvas->depthTest(true);
-            shared->canvas->depthWrite(true);
+            shared->canvas->depthWrite(writesDepth);
 
             draw();
 
             shared->canvas->depthTest(false);
+            shared->canvas->depthWrite(true);   // restore for the next actor / the 2D pass
         }
     };
 }
