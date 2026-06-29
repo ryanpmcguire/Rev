@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(RevDemo)
+project(LithoRev)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPERIMENTAL_CXX_MODULE_CMAKE_API 1)
@@ -29,11 +29,14 @@ file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
     ${RCS_DIR}/.modules/*.ixx
 )
 
+# Windows resource files (icon, version info)
+file(GLOB RC_SOURCES CONFIGURE_DEPENDS ${RCS_DIR}/*.rc)
+
 # Add executable
-add_executable(HelloWorld)
+add_executable(LithoRev)
 
 # Set target properties
-set_target_properties(HelloWorld PROPERTIES
+set_target_properties(LithoRev PROPERTIES
   CXX_STANDARD 23
   CXX_STANDARD_REQUIRED ON
   CXX_EXTENSIONS OFF
@@ -42,29 +45,34 @@ set_target_properties(HelloWorld PROPERTIES
 )
 
 # Add implementation sources
-target_sources(HelloWorld
+target_sources(LithoRev
     PUBLIC ${CPP_SOURCES} ${OBJCPP_SOURCES}
 )
 
 # Add module interface sources
-target_sources(HelloWorld
+target_sources(LithoRev
     PUBLIC
     FILE_SET cxx_modules TYPE CXX_MODULES FILES ${MODULE_SOURCES}
 )
 
-target_link_libraries(HelloWorld PRIVATE Rev gdiplus comdlg32 shell32)
+# Add Windows resources (RC files are compiled by MSVC rc.exe automatically)
+if(RC_SOURCES)
+    target_sources(LithoRev PRIVATE ${RC_SOURCES})
+endif()
+
+target_link_libraries(LithoRev PRIVATE Rev gdiplus comdlg32 shell32)
 
 # Build as a GUI app (no console window) for all non-Debug configs.
 # Keep the standard main() entry point via mainCRTStartup. Debug stays a
 # console app so dbg.hpp output remains visible.
 if (WIN32 AND MSVC)
-    target_link_options(HelloWorld PRIVATE
+    target_link_options(LithoRev PRIVATE
         $<$<NOT:$<CONFIG:Debug>>:/SUBSYSTEM:WINDOWS>
         $<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>
     )
 endif()
 
-target_compile_definitions(HelloWorld PRIVATE
+target_compile_definitions(LithoRev PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
 )
 

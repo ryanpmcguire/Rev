@@ -19,9 +19,9 @@ int main() {
         Application* application = new Application();
 
         Window* window = new Window(application->windows, Window::Details{
-            .name   = "LithoControl  v2.0",
-            .width  = 1500,
-            .height = 900
+            .name   = "LithoRev",
+            .width  = 1280,
+            .height = 720
         });
 
         Interface* iface = new Interface(window);

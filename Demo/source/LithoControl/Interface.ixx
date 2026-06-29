@@ -64,12 +64,13 @@ export namespace LithoControl {
     struct MsgQueue {
         std::mutex              mtx;
         std::deque<std::string> q;
+        HWND*                   pMainHwnd = nullptr;  // set by Interface ctor; avoids GetForegroundWindow
 
         void push(std::string s) {
             { std::lock_guard g(mtx); q.push_back(std::move(s)); }
             // Trigger a repaint so computeStyle drains this message without waiting
             // for the next user-input event. Safe to call from background threads.
-            HWND hw = GetForegroundWindow();
+            HWND hw = (pMainHwnd && *pMainHwnd) ? *pMainHwnd : GetForegroundWindow();
             if (hw) InvalidateRect(hw, nullptr, FALSE);
         }
 
@@ -271,6 +272,16 @@ export namespace LithoControl {
         bool              hdmiIsBlank    = true;
         std::atomic<uint32_t> hdmiSolidColor { 0 };  // 0=off; else fill HDMI with this BGRA
         std::thread       hdmiColorTestThread;
+        std::vector<uint8_t>  hdmiTestBGRA;           // 640×360×4; updated by animation thread
+        std::atomic<bool>     hdmiTestActive  { false };
+        std::atomic<bool>     hdmiTestRunning { false };
+        std::thread           hdmiTestThread;
+        Box*                  hdmiTestBtn     = nullptr;
+
+        // Cached HWND of the main Rev window. Captured in computeStyle on first call.
+        // Used for InvalidateRect so background threads always target the right window
+        // even when the HDMI projector window (WS_EX_TOPMOST) holds foreground focus.
+        HWND mainHwnd = nullptr;
 
         // Camera preview
         struct CameraDevice { std::string name; };
@@ -310,6 +321,8 @@ export namespace LithoControl {
         // -- Constructor ------------------------------------------------------
 
         Interface(Element* parent) : Box(parent) {
+
+            logQ.pMainHwnd = &mainHwnd;  // background threads use this instead of GetForegroundWindow
 
             Gdiplus::GdiplusStartupInput gi;
             Gdiplus::GdiplusStartup(&gdipToken, &gi, nullptr);
@@ -418,8 +431,7 @@ export namespace LithoControl {
                 if (e.keyboard.arrows.down)  { previewImg->offsetY += step; moved = true; }
                 if (moved) {
                     e.propagate = false;
-                    HWND hw = GetForegroundWindow();
-                    if (hw) InvalidateRect(hw, nullptr, FALSE);
+                    if (mainHwnd) InvalidateRect(mainHwnd, nullptr, FALSE);
                 }
             });
 
@@ -440,8 +452,7 @@ export namespace LithoControl {
                     return;
                 }
                 e.propagate = false;
-                HWND hw = GetForegroundWindow();
-                if (hw) InvalidateRect(hw, nullptr, FALSE);
+                if (mainHwnd) InvalidateRect(mainHwnd, nullptr, FALSE);
             });
 
             this->onMouseUp([this](Rev::Element::Event&) {
@@ -468,6 +479,8 @@ export namespace LithoControl {
 
         ~Interface() {
             abortFlag = true;
+            hdmiTestRunning.store(false);
+            if (hdmiTestThread.joinable()) hdmiTestThread.join();
             cameraRunning = false;
             { auto* r = cameraReader.load(); if (r) r->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM); }
             if (cameraThread.joinable()) cameraThread.join();
@@ -582,6 +595,13 @@ export namespace LithoControl {
                     uint32_t solid = self->hdmiSolidColor.load();
                     if (solid) {
                         std::fill(px.begin(), px.end(), solid);
+                    } else if (self->hdmiTestActive.load()) {
+                        std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
+                        if (self->hdmiTestBGRA.size() == 640u * 360u * 4u) {
+                            const auto* src = reinterpret_cast<const uint32_t*>(
+                                self->hdmiTestBGRA.data());
+                            std::copy(src, src + 640 * 360, px.begin());
+                        }
                     } else {
                         std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
                         if (!self->hdmiCurrentFrame.empty()) {
@@ -755,6 +775,202 @@ export namespace LithoControl {
                 logQ.push("[DISP] Color test done");
             });
             hdmiColorTestThread.detach();
+        }
+
+        void runTestAnimation() {
+            constexpr int W = 640, H = 360;
+            hdmiTestBGRA.resize(W * H * 4, 0);
+
+            Gdiplus::Bitmap bmp(W, H, PixelFormat32bppARGB);
+            Gdiplus::Graphics g(&bmp);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+
+            Gdiplus::FontFamily ff(L"Consolas");
+            Gdiplus::Font font(&ff, 14.0f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+
+            // SMPTE bar defs (GDI+ ARGB)
+            struct BarDef { int x0, x1; BYTE r, g2, b; };
+            const BarDef bars[] = {
+                {   0,  91, 255, 255, 255 },  // White
+                {  92, 182, 255, 255,   0 },  // Yellow
+                { 183, 273,   0, 255, 255 },  // Cyan
+                { 274, 365,   0, 255,   0 },  // Green
+                { 366, 456, 255,   0, 255 },  // Magenta
+                { 457, 547, 255,   0,   0 },  // Red
+                { 548, 639,   0,   0, 255 },  // Blue
+            };
+
+            // Scrolling marquee
+            const std::wstring marquee =
+                L"  LITHOCONTROL  ◆  640×360  ◆  RGB TEST PATTERN  "
+                L"◆  FOCUS: CENTRE CHECKERBOARD  ◆  ";
+
+            float marqueeW = 0.0f;
+            {
+                Gdiplus::RectF br;
+                g.MeasureString(marquee.c_str(), -1, &font, Gdiplus::PointF(0,0), &br);
+                marqueeW = br.Width;
+            }
+
+            auto t0 = std::chrono::steady_clock::now();
+            constexpr float PI = 3.14159265f;
+
+            while (hdmiTestRunning.load()) {
+                auto now = std::chrono::steady_clock::now();
+                float t = (float)std::chrono::duration<double>(now - t0).count();
+
+                g.Clear(Gdiplus::Color(255, 0, 0, 0));
+
+                // SMPTE bars (top 2/3)
+                for (const auto& b : bars) {
+                    Gdiplus::SolidBrush br(Gdiplus::Color(255, b.r, b.g2, b.b));
+                    g.FillRectangle(&br, b.x0, 0, b.x1 - b.x0 + 1, 240);
+                }
+
+                // Separator
+                {
+                    Gdiplus::Pen sp(Gdiplus::Color(80, 255, 255, 255), 1.0f);
+                    g.DrawLine(&sp, 0, 239, W, 239);
+                }
+
+                // Checkerboard focus target (8 px squares, 320×80, centred in bottom strip)
+                {
+                    Gdiplus::SolidBrush wb(Gdiplus::Color(255, 255, 255, 255));
+                    constexpr int CBX = (W - 320) / 2, CBY = 260, CBS = 8;
+                    for (int cy = 0; cy < 10; cy++)
+                        for (int cx = 0; cx < 40; cx++)
+                            if ((cx + cy) % 2 == 0)
+                                g.FillRectangle(&wb, CBX + cx*CBS, CBY + cy*CBS, CBS, CBS);
+                }
+
+                // Grid on bottom strip (dim)
+                {
+                    Gdiplus::Pen gp(Gdiplus::Color(45, 255, 255, 255), 1.0f);
+                    for (int x = 0; x < W; x += 80) g.DrawLine(&gp, x, 240, x, H);
+                    for (int y = 240; y < H; y += 40) g.DrawLine(&gp, 0, y, W, y);
+                }
+
+                // Crosshair
+                {
+                    Gdiplus::Pen cp(Gdiplus::Color(110, 255, 255, 255), 1.0f);
+                    g.DrawLine(&cp, 0, H/2, W, H/2);
+                    g.DrawLine(&cp, W/2, 0, W/2, H);
+                }
+
+                // Corner rotors — 4 corners, each with distinct colour and spin rate
+                struct Rotor { float x, y, rpm; BYTE r, g2, b; };
+                const Rotor rotors[] = {
+                    {  50.f,  50.f,  20.f, 255, 255, 255 },  // TL white
+                    { 590.f,  50.f, -25.f, 255, 220,   0 },  // TR yellow, opposite spin
+                    {  50.f, 310.f,  30.f,   0, 180, 255 },  // BL cyan
+                    { 590.f, 310.f, -18.f, 255,  70,  70 },  // BR red, opposite spin
+                };
+                for (const auto& ro : rotors) {
+                    Gdiplus::Color col(255, ro.r, ro.g2, ro.b);
+                    Gdiplus::Color colDim(70, ro.r, ro.g2, ro.b);
+
+                    // Black backing disc
+                    Gdiplus::SolidBrush bg(Gdiplus::Color(210, 0, 0, 0));
+                    g.FillEllipse(&bg, ro.x-40.f, ro.y-40.f, 80.f, 80.f);
+
+                    // Outer ring
+                    Gdiplus::Pen ringPen(colDim, 1.5f);
+                    g.DrawEllipse(&ringPen, ro.x-38.f, ro.y-38.f, 76.f, 76.f);
+
+                    // Tick marks (12, every 30°)
+                    Gdiplus::Pen tickPen(colDim, 1.0f);
+                    for (int i = 0; i < 12; i++) {
+                        float a = i * PI / 6.0f;
+                        float ri = (i % 3 == 0) ? 32.f : 35.f;
+                        g.DrawLine(&tickPen,
+                            ro.x + std::cos(a)*ri, ro.y + std::sin(a)*ri,
+                            ro.x + std::cos(a)*38.f, ro.y + std::sin(a)*38.f);
+                    }
+
+                    // 4 rotating spokes
+                    float angle = t * ro.rpm * 2.0f * PI / 60.0f;
+                    Gdiplus::Pen spokePen(col, 2.0f);
+                    for (int i = 0; i < 4; i++) {
+                        float a = angle + i * PI * 0.5f;
+                        g.DrawLine(&spokePen,
+                            ro.x, ro.y,
+                            ro.x + std::cos(a)*33.f, ro.y + std::sin(a)*33.f);
+                    }
+
+                    // Pulsing centre dot
+                    float pulse = 0.5f + 0.5f * std::sin(t * 5.0f + ro.x * 0.05f);
+                    float dr = 2.5f + pulse * 2.5f;
+                    Gdiplus::SolidBrush dotBr(col);
+                    g.FillEllipse(&dotBr, ro.x-dr, ro.y-dr, dr*2.f, dr*2.f);
+                }
+
+                // Scrolling marquee strip (bottom 18 px)
+                {
+                    Gdiplus::SolidBrush stripBr(Gdiplus::Color(210, 0, 0, 0));
+                    g.FillRectangle(&stripBr, 0, 342, W, 18);
+
+                    float scrollX = std::fmod(t * 80.0f, marqueeW);
+                    Gdiplus::SolidBrush textBr(Gdiplus::Color(255, 210, 210, 210));
+                    g.SetClip(Gdiplus::Rect(0, 342, W, 18));
+                    g.DrawString(marquee.c_str(), -1, &font,
+                                 Gdiplus::PointF(-scrollX, 344.f), &textBr);
+                    g.DrawString(marquee.c_str(), -1, &font,
+                                 Gdiplus::PointF(marqueeW - scrollX, 344.f), &textBr);
+                    g.ResetClip();
+                }
+
+                // Copy GDI+ bitmap → shared BGRA buffer (PixelFormat32bppARGB == BGRA in memory)
+                {
+                    Gdiplus::BitmapData bd;
+                    Gdiplus::Rect lr(0, 0, W, H);
+                    if (bmp.LockBits(&lr, Gdiplus::ImageLockModeRead,
+                                     PixelFormat32bppARGB, &bd) == Gdiplus::Ok) {
+                        std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+                        auto* src = static_cast<const uint8_t*>(bd.Scan0);
+                        int rowBytes = W * 4;
+                        int stride = std::abs(bd.Stride);
+                        for (int row = 0; row < H; row++)
+                            std::memcpy(hdmiTestBGRA.data() + row * rowBytes,
+                                        src + row * stride, rowBytes);
+                        bmp.UnlockBits(&bd);
+                    }
+                }
+
+                if (hdmiHwnd)  PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+                if (mainHwnd)  InvalidateRect(mainHwnd, nullptr, FALSE);
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(33));  // ~30 fps
+            }
+        }
+
+        void toggleTestImage() {
+            bool nowActive = !hdmiTestActive.load();
+            if (nowActive) {
+                hdmiSolidColor.store(0);
+                hdmiTestActive.store(true);
+                hdmiTestRunning.store(true);
+                hdmiTestThread = std::thread([this]() { runTestAnimation(); });
+            } else {
+                hdmiTestRunning.store(false);
+                if (hdmiTestThread.joinable()) hdmiTestThread.join();
+                hdmiTestActive.store(false);
+                if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+            }
+            if (hdmiTestBtn) {
+                hdmiTestBtn->styles.remove(&Theme::Btn);
+                hdmiTestBtn->styles.remove(&Theme::BtnHover);
+                hdmiTestBtn->styles.remove(&Theme::BtnAccent);
+                hdmiTestBtn->styles.remove(&Theme::BtnAccentHover);
+                if (nowActive) {
+                    hdmiTestBtn->styles.add(&Theme::BtnAccent);
+                    hdmiTestBtn->styles.add(&Theme::BtnAccentHover);
+                } else {
+                    hdmiTestBtn->styles.add(&Theme::Btn);
+                    hdmiTestBtn->styles.add(&Theme::BtnHover);
+                }
+            }
+            logQ.push(nowActive ? "[DISP] RGB test animation ON" : "[DISP] RGB test animation OFF");
         }
 
         // -- Camera panel ------------------------------------------------------
@@ -944,9 +1160,7 @@ export namespace LithoControl {
                     cameraFrameW = w; cameraFrameH = h;
                 }
                 cameraFrameReady = true;
-
-                HWND hw = GetForegroundWindow();
-                if (hw) InvalidateRect(hw, nullptr, FALSE);
+                if (mainHwnd) InvalidateRect(mainHwnd, nullptr, FALSE);
             }
 
             cameraReader.store(nullptr);
@@ -977,6 +1191,23 @@ export namespace LithoControl {
         // ---------------------------------------------------------------------
 
         void computeStyle(Rev::Element::Event& e) override {
+
+            // Capture the main window HWND once. computeStyle always runs on the main
+            // GUI thread so FindWindowW reliably locates the Rev host window regardless
+            // of which window currently holds foreground focus.
+            if (!mainHwnd) {
+                mainHwnd = FindWindowW(L"Room360RawViewWindow", nullptr);
+                if (mainHwnd) {
+                    SetWindowTextW(mainHwnd, L"LithoRev");
+                    HINSTANCE hinst = GetModuleHandleW(nullptr);
+                    HICON big   = (HICON)LoadImageW(hinst, MAKEINTRESOURCEW(1),
+                                                    IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+                    HICON small_ = (HICON)LoadImageW(hinst, MAKEINTRESOURCEW(1),
+                                                    IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+                    if (big)    SendMessageW(mainHwnd, WM_SETICON, ICON_BIG,   (LPARAM)big);
+                    if (small_) SendMessageW(mainHwnd, WM_SETICON, ICON_SMALL, (LPARAM)small_);
+                }
+            }
 
             // Apply connection-state changes posted by background threads.
             int cs = pendingConnState.exchange(-1);

@@ -1,0 +1,4 @@
+// LithoRev application resources
+#include <windows.h>
+
+1 ICON "app.ico"

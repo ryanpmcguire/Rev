@@ -29,7 +29,7 @@ namespace LithoControl {
         sidebarContent->style->size.width        = 100_pct;
 
         // Title
-        Text* title = new Text(sidebarContent, "LITHOCONTROL  v2.0");
+        Text* title = new Text(sidebarContent, "LITHOREV");
         title->style->size.width     = 100_pct;
         title->style->padding        = { 10_px, 8_px, 10_px, 10_px };
         title->style->text.color     = rgba(232, 232, 232, 1);
@@ -344,6 +344,7 @@ namespace LithoControl {
         Box* testRow = new Box(hdmiDisplayRow, { &Theme::RowH });
         testRow->style->margin.top = 4_px;
         makeBtn(testRow, "COLOR TEST", [this]() { colorTest(); });
+        hdmiTestBtn = makeBtn(testRow, "RGB TEST", [this]() { toggleTestImage(); });
     }
 
     // -- Camera panel ------------------------------------------------------
