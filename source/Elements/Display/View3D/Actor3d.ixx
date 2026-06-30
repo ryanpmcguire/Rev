@@ -86,6 +86,13 @@ export namespace Rev::Element::View3d {
         // over them. Depth TEST stays on either way.
         bool writesDepth = true;
 
+        // Polygon depth bias for this actor (glPolygonOffset factor/units). Negative pulls
+        // the actor TOWARD the camera, positive pushes it away. 0 disables. Used to lift a
+        // coplanar actor (e.g. the transparent delta ghost, whose faces coincide with the
+        // opaque models) off the surface so it composites deterministically instead of
+        // z-fighting. Applied only around this actor's own draw, then reset.
+        float depthBias = 0.0f;
+
         bool ownsMesh = false;
         bool ownsLines = false;
         bool ownsTriangles = false;
@@ -527,9 +534,11 @@ export namespace Rev::Element::View3d {
 
             shared->canvas->depthTest(true);
             shared->canvas->depthWrite(writesDepth);
+            if (depthBias != 0.0f) { shared->canvas->depthBias(depthBias, depthBias); }
 
             draw();
 
+            if (depthBias != 0.0f) { shared->canvas->depthBias(0.0f, 0.0f); }
             shared->canvas->depthTest(false);
             shared->canvas->depthWrite(true);   // restore for the next actor / the 2D pass
         }

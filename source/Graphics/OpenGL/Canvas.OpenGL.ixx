@@ -267,7 +267,7 @@ export namespace Rev::Graphics {
         void depthTest(bool enable) {
             if (enable) {
                 glEnable(GL_DEPTH_TEST);
-                glDepthFunc(GL_LEQUAL);
+                glDepthFunc(GL_LESS);
             }
             else {
                 glDisable(GL_DEPTH_TEST);
@@ -276,6 +276,22 @@ export namespace Rev::Graphics {
 
         void depthWrite(bool enable) {
             glDepthMask(enable ? GL_TRUE : GL_FALSE);
+        }
+
+        // Polygon depth bias (glPolygonOffset). Negative values pull fragments
+        // TOWARD the camera (smaller depth), positive push them away. Used to lift a
+        // coplanar overlay (e.g. a transparent ghost) off the surface it coincides with,
+        // so it wins/loses the depth test deterministically instead of z-fighting.
+        // factor == units == 0 disables it.
+        void depthBias(float factor, float units) {
+            if (factor == 0.0f && units == 0.0f) {
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(0.0f, 0.0f);
+            }
+            else {
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(factor, units);
+            }
         }
 
         void clearDepth() {
