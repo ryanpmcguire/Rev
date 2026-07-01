@@ -116,6 +116,11 @@ export namespace Rev::Primitives {
             float strokeWidth = -0.0f;
             float smoothing = -0.0f;
 
+            // Draw only the first N segments of this line (-1 = all). Pure draw-count gate:
+            // the full point set stays uploaded; lowering this reveals a prefix of the
+            // polyline with no re-pack/re-upload. Lets an owner scrub a path cheaply.
+            int visibleSegments = -1;
+
             std::vector<Vertex3>& getPoints() {
                 if (pPoints) { return *pPoints; }
                 return points;
@@ -247,11 +252,20 @@ export namespace Rev::Primitives {
 
                 if (instanceCounts[i] < 1) { continue; }
 
+                // Reveal a prefix: clamp the drawn segment count without touching the data.
+                size_t segs = instanceCounts[i];
+                if (i < lines.size() && lines[i].visibleSegments >= 0 &&
+                    static_cast<size_t>(lines[i].visibleSegments) < segs) {
+                    segs = static_cast<size_t>(lines[i].visibleSegments);
+                }
+
+                if (segs < 1) { continue; }
+
                 pointBuffers[i]->bind(0);   // samplerBuffer at unit 0
                 dataBuffers[i]->bind(1);    // uniform block at binding 1
 
                 canvas->drawArraysInstanced(
-                    Pipeline::Topology::TriangleList, 0, 15, instanceCounts[i]
+                    Pipeline::Topology::TriangleList, 0, 15, segs
                 );
             }
         }
