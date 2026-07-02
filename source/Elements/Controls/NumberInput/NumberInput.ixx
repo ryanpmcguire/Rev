@@ -92,6 +92,14 @@ export namespace Rev::Element {
             text->onLoseFocus([this](Event& e) {
                 commitOnLoseFocus(e);
             });
+
+            // Enter commits immediately — the universal "type a number, press Enter"
+            // gesture — through the same path as losing focus, so onValueChange fires
+            // with the interpreted value and the display reformats. Idempotent (the
+            // changed-guard in commitOnLoseFocus), so a held/repeated Enter is harmless.
+            onKeyDown([this](Event& e) {
+                if (e.keyboard.enter) { commit(e); }
+            });
         }
 
         void setDisabled(bool d) {

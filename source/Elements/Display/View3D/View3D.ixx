@@ -390,11 +390,13 @@ export namespace Rev::Element::View3d {
         // = camera.)
         bool pressLeft = false;
 
-        // Ray-cast the cursor and deliver hover to the actor under it.
+        // Ray-cast the cursor and deliver hover to the actor under it. Selectable-gated
+        // (Actor::hitTest): ghosts/overlays that opt out of picking don't take hover
+        // either — hover previews what a click would select.
         void mouseMove(Event& e) override {
 
             Hit hit;
-            Actor* nowHovered = hitTestVisible(e.mouse.pos, hit) ? hit.actor : nullptr;
+            Actor* nowHovered = hitTest(e.mouse.pos, hit) ? hit.actor : nullptr;
 
             if (hoveredActor && hoveredActor != nowHovered) { hoveredActor->onUnhover(); }
             if (nowHovered) { nowHovered->onHover(hit); }
@@ -420,8 +422,11 @@ export namespace Rev::Element::View3d {
 
                     bool additive = static_cast<bool>(e.keyboard.ctrl);
 
+                    // Selectable-gated: a visible-but-unselectable actor (a ghost, the
+                    // preview tool) must not intercept picks aimed at the geometry
+                    // beneath it. hitTestVisible stays the ORBIT-PIVOT test only.
                     Hit hit;
-                    bool got = hitTestVisible(e.mouse.pos, hit) && hit.actor;
+                    bool got = hitTest(e.mouse.pos, hit) && hit.actor;
 
                     if (!additive) { for (Actor* a : sceneActors()) { a->onDeselect(); } }
                     if (got) { hit.actor->onPick(hit, additive); }
