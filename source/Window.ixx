@@ -562,6 +562,15 @@ export namespace Rev {
 
             this->dirty.draw = false;
 
+            // Cascade inherited state (hidden / disabled / depth / opacity) BEFORE
+            // resolving styles, so applies.disabled variants match this frame's
+            // effective state. Cascading only inside the layout pass is not enough:
+            // a disabled toggle is pure paint (raises no layoutDirty), so its
+            // resolved.disabled would never recompute and the *Disabled styles
+            // would never (un)apply. A flip here marks styles dirty, which pushes
+            // the element into the restyle list resolved just below.
+            this->cascadeStyle();
+
             // Resolve own style, then any that are explicitly marked
             this->resolveStyle(e);
             for (Element* element : shared->dirty.restyle) { element->resolveStyle(e); }
