@@ -267,7 +267,7 @@ export namespace Rev::Graphics {
         void depthTest(bool enable) {
             if (enable) {
                 glEnable(GL_DEPTH_TEST);
-                glDepthFunc(GL_LESS);
+                glDepthFunc(GL_LEQUAL);
             }
             else {
                 glDisable(GL_DEPTH_TEST);
