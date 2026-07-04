@@ -3,6 +3,7 @@ module;
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,10 @@ export namespace Rev::Core {
         Count count = 0;
         std::vector<RevisionFlag*> targets;
         std::vector<Callback> callbacks;
+
+        // Hosted read cursors: the count each checking party last saw, keyed by an
+        // arbitrary token (usually the checker's `this`). See check().
+        std::unordered_map<void*, Count> cursors;
 
         [[nodiscard]] Count get() const noexcept {
             return count;
@@ -70,10 +75,30 @@ export namespace Rev::Core {
             callbacks.push_back({ nullptr, std::forward<Func>(func) });
         }
 
-        // Remove every callback registered by `owner` (call from its destructor).
+        // "Has this advanced since `token` last checked?" A first visit records the
+        // current count and reports dirty (the checker has never caught up); later
+        // visits are the ordered (<) test, and the cursor snaps to the head either
+        // way — checking IS acknowledging. The token is any stable address; a party
+        // only ever checks flags it has a persistent, recurring interest in, so the
+        // same discipline that unsubscribes callbacks clears the cursor (unsubscribe
+        // does both).
+        bool check(void* token) {
+
+            auto it = cursors.find(token);
+            if (it == cursors.end()) { cursors[token] = count; return true; }
+
+            bool dirty = it->second < count;
+            it->second = count;
+            return dirty;
+        }
+
+        // Remove every callback registered by `owner`, and its check cursor
+        // (call from its destructor).
         void unsubscribe(void* owner) {
 
             if (!owner) { return; }
+
+            cursors.erase(owner);
 
             callbacks.erase(
                 std::remove_if(

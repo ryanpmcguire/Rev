@@ -97,6 +97,26 @@ cursor is how a reader acknowledges work *without touching the shared source* �
 the entire point. The test is ordered (`<`), so a cursor that is ahead of the source does
 no work and is never dragged backward.
 
+## check(token) — hosted cursors
+
+`flag.check(this)` is the observer pattern with the cursor *storage* relocated into the
+flag: a map of token → count-last-seen. A first visit records the current count and
+reports dirty (a new checker has by definition never caught up); every later visit is the
+same ordered (`<`) test, and the cursor snaps to the head either way — checking *is*
+acknowledging. This is **not** the dirty-flag regression: each token has its own baseline,
+so no checker can steal another's signal; only the storage moved.
+
+Reach for it when one party tracks *many* flags (a supervisor checking each child's
+revision): the cursors ride along with the children and die with them, instead of the
+supervisor reconciling a parallel observer collection as children come and go.
+
+The lifecycle discipline is the one callbacks already demand, and it is *naturally*
+satisfied: a checker has, by the nature of the pattern, a persistent recurring interest in
+the flag — transient passers-by have no business checking — so when the **checker** dies
+first, it calls `unsubscribe(this)`, which now removes both its callbacks *and* its
+cursor. When the **flag's owner** dies first there is nothing to do; the cursors die with
+it.
+
 ## How not to use it
 
 - **Don't reset the source to acknowledge a read.** Advance an observer cursor; that is the
