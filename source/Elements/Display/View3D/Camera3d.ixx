@@ -8,6 +8,7 @@ module;
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
@@ -232,6 +233,28 @@ export namespace Rev::Element::View3d {
 
             syncZoomGoalsFromCurrent();
             pin();
+        }
+
+        // Re-express the camera in a new world frame: p_new = M * p_old (rigid, column-major).
+        // Distance/scale/blend are untouched; every world-space mirror (goals, pins, orbit
+        // state) hops together so in-flight interactions don't snap back.
+        void rebase(const float m[16]) {
+
+            glm::mat4 M = glm::make_mat4(m);
+            glm::quat q = glm::normalize(glm::quat_cast(glm::mat3(M)));
+
+            auto xf = [&](Core::Pos3 p) {
+                return fromGlm(glm::vec3(M * glm::vec4(toGlm(p), 1.0f)));
+            };
+
+            target     = xf(target);
+            targetGoal = xf(targetGoal);
+            pinTarget  = xf(pinTarget);
+            orbitPivot = xf(orbitPivot);
+            orbitEyeOffset = fromGlm(q * toGlm(orbitEyeOffset));
+
+            orientation    = glm::normalize(q * orientation);
+            pinOrientation = glm::normalize(q * pinOrientation);
         }
 
         // Basis
