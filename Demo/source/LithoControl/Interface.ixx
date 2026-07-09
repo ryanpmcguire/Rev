@@ -277,6 +277,9 @@ export namespace LithoControl {
         std::atomic<bool>     hdmiTestRunning { false };
         std::thread           hdmiTestThread;
         Box*                  hdmiTestBtn     = nullptr;
+        Box*                  uvBtn           = nullptr;
+        Text*                 uvBtnTxt        = nullptr;
+        bool                  uvOn            = false;
 
         // Cached HWND of the main Rev window. Captured in computeStyle on first call.
         // Used for InvalidateRect so background threads always target the right window

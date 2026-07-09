@@ -345,6 +345,32 @@ namespace LithoControl {
         testRow->style->margin.top = 4_px;
         makeBtn(testRow, "COLOR TEST", [this]() { colorTest(); });
         hdmiTestBtn = makeBtn(testRow, "RGB TEST", [this]() { toggleTestImage(); });
+
+        // UV laser toggle
+        Box* uvRow = new Box(body, { &Theme::RowH });
+        uvRow->style->margin.top = 8_px;
+        uvBtn = makeBtn(uvRow, "UV OFF", [this]() {
+            if (!connFlag) { logQ.push("Not connected"); return; }
+            if (platform == Platform::STM32 && stmSerial) {
+                uvOn = !uvOn;
+                std::lock_guard<std::mutex> lk(serialMtx);
+                stmSerial->sendText(uvOn ? "UV_ON\n" : "UV_OFF\n");
+                logQ.push(uvOn ? "-> UV_ON" : "-> UV_OFF");
+                if (uvBtnTxt) uvBtnTxt->content = uvOn ? "UV ON" : "UV OFF";
+                if (uvBtn) {
+                    uvBtn->styles.remove(&Theme::Btn);
+                    uvBtn->styles.remove(&Theme::BtnHover);
+                    uvBtn->styles.remove(&Theme::BtnWarning);
+                    if (uvOn) {
+                        uvBtn->styles.add(&Theme::BtnWarning);
+                    } else {
+                        uvBtn->styles.add(&Theme::Btn);
+                        uvBtn->styles.add(&Theme::BtnHover);
+                    }
+                }
+            }
+        });
+        uvBtnTxt = (Text*)uvBtn->children[0];
     }
 
     // -- Camera panel ------------------------------------------------------
