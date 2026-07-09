@@ -178,6 +178,10 @@ export namespace Rev {
                 dbg("[Client] send() on closed socket");
                 return;
             }
+            // send() is reachable from both the worker (heartbeat) and the main thread
+            // (posted commands); serialize the raw socket write so a pulse and a command
+            // line can't interleave on the wire.
+            std::lock_guard<std::mutex> lock(sendMutex_);
             int result = ::send(s, msg.c_str(), (int)msg.size(), 0);
             if (result == SOCKET_ERROR) {
                 dbg("[Client] send failed (%d)", WSAGetLastError());
@@ -253,6 +257,7 @@ export namespace Rev {
         std::atomic<SOCKET>  sock_       { INVALID_SOCKET };
         std::thread          worker_;
         bool                 wsaStarted_ = false;
+        std::mutex           sendMutex_;   // serializes the raw ::send() across threads
 
         // -- Heartbeat (set before connect; read on the worker thread) ---
 
