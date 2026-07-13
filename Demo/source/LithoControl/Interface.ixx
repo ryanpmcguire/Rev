@@ -2,6 +2,7 @@
 
 // Win32 + GDI+ for file dialogs and PNG->bitmap conversion
 #include <windows.h>
+#include <shellapi.h>
 #include <commdlg.h>
 #include <shlobj.h>
 #include <gdiplus.h>
@@ -124,6 +125,7 @@ export namespace LithoControl {
         std::atomic<bool> pendingPreviewReload { false };
         std::atomic<bool> pendingJobRescan    { false };
         std::atomic<bool> pendingSliceDone    { false };  // slicer worker -> reset SLICE btn
+        std::atomic<bool> pendingEdidDone     { false };  // edid worker -> reset APPLY EDID btn
         std::atomic<int>  pendingConnState    { -1 };  // -1 none, 0 disconnected, 1 connected
         // Display status set by worker threads, rendered into frameLabel on the main
         // thread: 0=idle, 1=running, 2=done, 3=estop. Avoids off-thread label writes.
@@ -280,6 +282,12 @@ export namespace LithoControl {
         Box*                  uvBtn           = nullptr;
         Text*                 uvBtnTxt        = nullptr;
         bool                  uvOn            = false;
+
+        // Projector EDID apply (pc/apply_edid.bat -- CRU-based override installer)
+        Box*                  edidBtn         = nullptr;
+        Text*                 edidBtnTxt      = nullptr;
+        std::atomic<bool>     edidApplying    { false };
+        std::thread           edidThread;
 
         // Cached HWND of the main Rev window. Captured in computeStyle on first call.
         // Used for InvalidateRect so background threads always target the right window
@@ -484,6 +492,7 @@ export namespace LithoControl {
             abortFlag = true;
             hdmiTestRunning.store(false);
             if (hdmiTestThread.joinable()) hdmiTestThread.join();
+            if (edidThread.joinable()) edidThread.join();
             cameraRunning = false;
             { auto* r = cameraReader.load(); if (r) r->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM); }
             if (cameraThread.joinable()) cameraThread.join();
@@ -1266,6 +1275,12 @@ export namespace LithoControl {
             // Reset the SLICE button label after the slicer worker finishes.
             if (pendingSliceDone.exchange(false) && sliceBtnTxt) {
                 sliceBtnTxt->content = "SLICE";
+            }
+
+            // Reset the APPLY EDID button label after the edid worker finishes.
+            if (pendingEdidDone.exchange(false)) {
+                edidApplying.store(false);
+                if (edidBtnTxt) edidBtnTxt->content = "APPLY EDID";
             }
 
             // Re-scan the jobs directory after a successful slice (main thread only).
@@ -2530,6 +2545,143 @@ export namespace LithoControl {
             }
 
             pendingSliceDone = true;   // reset SLICE label on the main thread
+        }
+
+        // ---------------------------------------------------------------------
+        // Projector EDID apply (pc/apply_edid.bat)
+        // ---------------------------------------------------------------------
+
+        void applyEdid() {
+            if (edidApplying.load()) return;
+            edidApplying.store(true);
+            if (edidBtnTxt) edidBtnTxt->content = "APPLYING...";
+            logQ.push("Applying projector EDID override (UAC prompt expected)...");
+
+            if (edidThread.joinable()) edidThread.join();
+            std::string repoRoot = dlpRoot;
+            edidThread = std::thread([this, repoRoot]() {
+                // An uncaught exception on this thread (e.g. from std::filesystem)
+                // calls std::terminate and takes the whole app down silently --
+                // catch here so a failure shows up in the log instead of a crash.
+                try {
+                    runEdidApplySubprocess(repoRoot);
+                } catch (const std::exception& e) {
+                    logQ.push(std::string("[ERR] EDID apply threw: ") + e.what());
+                    pendingEdidDone = true;
+                } catch (...) {
+                    logQ.push("[ERR] EDID apply threw an unknown exception");
+                    pendingEdidDone = true;
+                }
+            });
+        }
+
+        // Pushes lines from a log file to logQ, skipping the first `skipLines`
+        // (already-pushed) lines. Returns the file's current total line count,
+        // so the caller can pass it back in as `skipLines` on the next tail.
+        size_t tailLogFile(const std::string& path, size_t skipLines) {
+            std::ifstream log(path);
+            if (!log) return skipLines;
+            std::string line;
+            size_t i = 0;
+            while (std::getline(log, line)) {
+                if (i >= skipLines && !line.empty()) logQ.push(line);
+                ++i;
+            }
+            return i;
+        }
+
+        // Elevates a batch script via UAC and waits for it to exit. Returns the
+        // process exit code, or (DWORD)-1 if it couldn't be launched (e.g. UAC
+        // declined).
+        DWORD runElevatedBatch(const std::string& script, const std::string& cwd) {
+            SHELLEXECUTEINFOA sei{};
+            sei.cbSize      = sizeof(sei);
+            sei.fMask       = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpVerb      = "runas";
+            sei.lpFile      = script.c_str();
+            sei.lpDirectory = cwd.empty() ? nullptr : cwd.c_str();
+            sei.nShow       = SW_SHOWNORMAL;
+
+            if (!ShellExecuteExA(&sei) || !sei.hProcess) {
+                logQ.push("[ERR] Could not launch " + script + " (UAC declined?)");
+                return (DWORD)-1;
+            }
+
+            WaitForSingleObject(sei.hProcess, INFINITE);
+            DWORD exitCode = 1;
+            GetExitCodeProcess(sei.hProcess, &exitCode);
+            CloseHandle(sei.hProcess);
+            return exitCode;
+        }
+
+        // Elevates pc/apply_edid.bat via UAC -- writing the EDID override lives under
+        // HKLM, so this needs admin. stdout can't be piped across the elevation
+        // boundary the way runSlicerSubprocess() does, so the batch instead logs to
+        // %TEMP%\litho_apply_edid.log and this tails that file once it exits.
+        //
+        // The driver restart is deliberately a *separate* elevated script
+        // (pc/restart_driver.bat), only run after the user clicks OK on a prompt --
+        // reloading the driver drops LithoRev's own live GPU context, so we warn
+        // and let the user restart LithoRev afterward rather than doing it blind.
+        void runEdidApplySubprocess(const std::string& repoRoot) {
+            namespace fs = std::filesystem;
+
+            std::string installScript = repoRoot.empty()
+                ? "pc/apply_edid.bat"
+                : (repoRoot + "/pc/apply_edid.bat");
+
+            if (!fs::exists(installScript)) {
+                logQ.push("[ERR] Not found: " + installScript);
+                pendingEdidDone = true;
+                return;
+            }
+
+            char tempDir[MAX_PATH];
+            GetTempPathA(MAX_PATH, tempDir);
+            std::string logPath = std::string(tempDir) + "litho_apply_edid.log";
+            DeleteFileA(logPath.c_str());   // clear so we don't tail a stale run
+
+            DWORD installExit = runElevatedBatch(installScript, repoRoot);
+            size_t linesSoFar = tailLogFile(logPath, 0);
+
+            if (installExit != 0) {
+                logQ.push("[ERR] apply_edid.bat exited with code " + std::to_string(installExit));
+                pendingEdidDone = true;
+                return;
+            }
+
+            logQ.push("[OK] EDID override installed.");
+
+            int choice = MessageBoxA(mainHwnd,
+                "The projector EDID override was installed.\n\n"
+                "Click OK to restart the display driver now and apply it.\n"
+                "LithoRev's own display may drop when this happens -- if the "
+                "window closes or goes blank, restart LithoRev afterward.",
+                "Restart display driver?", MB_OKCANCEL | MB_ICONWARNING);
+
+            if (choice != IDOK) {
+                logQ.push("Driver restart skipped -- reboot manually to apply the override.");
+                pendingEdidDone = true;
+                return;
+            }
+
+            std::string restartScript = repoRoot.empty()
+                ? "pc/restart_driver.bat"
+                : (repoRoot + "/pc/restart_driver.bat");
+
+            if (!fs::exists(restartScript)) {
+                logQ.push("[ERR] Not found: " + restartScript);
+                pendingEdidDone = true;
+                return;
+            }
+
+            DWORD restartExit = runElevatedBatch(restartScript, repoRoot);
+            tailLogFile(logPath, linesSoFar);
+
+            logQ.push(restartExit == 0
+                ? "[OK] Driver restart finished -- reopen LithoRev if it closed"
+                : "[ERR] restart_driver.bat exited with code " + std::to_string(restartExit));
+            pendingEdidDone = true;
         }
 
         // ---------------------------------------------------------------------

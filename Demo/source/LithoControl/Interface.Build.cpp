@@ -307,6 +307,18 @@ namespace LithoControl {
             hdmiEvmCorrectChk->label->style->text.size  = 10_px;
         }
 
+        // Projector EDID override -- runs pc/apply_edid.bat, which installs the
+        // checked-in custom EDID (via a CRU-exported installer) and resets the
+        // display driver so a new/other PC picks up the same mode as the
+        // reference system. Always visible (not gated on Passthrough) since this
+        // is a one-time per-machine fix, independent of streaming mode.
+        {
+            Box* edidRow = new Box(body, { &Theme::RowH });
+            edidRow->style->margin.top = 8_px;
+            edidBtn = makeBtn(edidRow, "APPLY EDID", [this]() { applyEdid(); });
+            edidBtnTxt = (Text*)edidBtn->children[0];
+        }
+
         // Slot: display selector row is added/removed here so it takes no layout space
         // when hidden. Using addChild/removeChild (not Visibility::Hidden) avoids the
         // hit-area offset that occurs when a zero-height hidden element stays in the
