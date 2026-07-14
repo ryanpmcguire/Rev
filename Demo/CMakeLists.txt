@@ -30,7 +30,9 @@ file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
 )
 
 # Windows resource files (icon, version info)
-file(GLOB RC_SOURCES CONFIGURE_DEPENDS ${RCS_DIR}/*.rc)
+if(WIN32)
+    file(GLOB RC_SOURCES CONFIGURE_DEPENDS ${RCS_DIR}/*.rc)
+endif()
 
 # Add executable
 add_executable(LithoRev)
@@ -60,7 +62,10 @@ if(RC_SOURCES)
     target_sources(LithoRev PRIVATE ${RC_SOURCES})
 endif()
 
-target_link_libraries(LithoRev PRIVATE Rev gdiplus comdlg32 shell32)
+target_link_libraries(LithoRev PRIVATE Rev)
+if(WIN32)
+    target_link_libraries(LithoRev PRIVATE gdiplus comdlg32 shell32)
+endif()
 
 # Build as a GUI app (no console window) for all non-Debug configs.
 # Keep the standard main() entry point via mainCRTStartup. Debug stays a

@@ -143,6 +143,12 @@ target_sources(Rev
 add_dependencies(Rev EmbedResources)
 find_package(OpenGL REQUIRED)
 
+if(UNIX AND NOT APPLE)
+    find_package(Freetype REQUIRED)
+    find_package(GLEW REQUIRED)
+    find_package(X11 REQUIRED COMPONENTS Xrandr Xext)
+endif()
+
 target_include_directories(Rev PUBLIC
     ${SRC_DIR}
     ${RCS_DIR}/.modules
@@ -188,5 +194,14 @@ elseif (APPLE)
         "-framework MetalKit"     # (optional, for easier setup)
         "-framework Carbon"
         "-framework OpenGL"       # still needed if you keep GL backend
+    )
+elseif (UNIX)
+    target_link_libraries(Rev PUBLIC
+        GLEW::GLEW
+        Freetype::Freetype
+        OpenGL::GL
+        X11::X11
+        X11::Xrandr
+        X11::Xext
     )
 endif()
