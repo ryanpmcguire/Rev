@@ -3,6 +3,7 @@ module;
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 
 export module Rev.OS.Dialog;
@@ -163,6 +164,63 @@ export namespace Rev::OS {
 
             std::fprintf(stderr, "[UnsavedChanges] %s\n", itemName.c_str());
             return UnsavedChangesResult::Cancel;
+        }
+
+        static bool runCommandCapture(const std::string& command, std::string& out) {
+            out.clear();
+            FILE* pipe = popen(command.c_str(), "r");
+            if (!pipe) return false;
+
+            std::array<char, 512> buffer{};
+            while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+                out += buffer.data();
+            }
+
+            int status = pclose(pipe);
+            while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+            return status == 0 && !out.empty();
+        }
+
+        static std::string usableInitialDir(const std::string& initialDir) {
+            if (!initialDir.empty()) {
+                std::error_code ec;
+                if (std::filesystem::is_directory(initialDir, ec)) return initialDir;
+            }
+            if (const char* home = std::getenv("HOME")) {
+                if (*home) return home;
+            }
+            return std::filesystem::current_path().string();
+        }
+
+        // Native file-open dialog via kdialog/zenity. `filter` is accepted for
+        // signature parity with the Windows OPENFILENAME convention but is not
+        // applied -- neither backend filters reliably across desktop environments.
+        static bool OpenFile(
+            std::string& outPath,
+            const std::string& title,
+            const char* filter = "All Files\0*.*\0",
+            const std::string& initialDir = "",
+            void* owner = nullptr
+        ) {
+            (void)filter;
+            (void)owner;
+
+            std::string dir = usableInitialDir(initialDir);
+
+            if (commandExists("kdialog")) {
+                std::string command = "kdialog --title=" + shellQuote(title) +
+                    " --getopenfilename " + shellQuote(dir);
+                if (runCommandCapture(command, outPath)) return true;
+            }
+
+            if (commandExists("zenity")) {
+                std::string command = "zenity --file-selection --title=" + shellQuote(title) +
+                    " --filename=" + shellQuote((std::filesystem::path(dir) / "").string());
+                if (runCommandCapture(command, outPath)) return true;
+            }
+
+            std::fprintf(stderr, "[OpenFile] %s: no file dialog backend available\n", title.c_str());
+            return false;
         }
     };
 }

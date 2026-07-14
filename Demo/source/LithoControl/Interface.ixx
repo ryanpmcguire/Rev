@@ -1,11 +1,9 @@
 ﻿module;
 
-// Win32 + GDI+ for file dialogs and PNG->bitmap conversion
+// Win32 for COM-port enumeration, webcam capture, and window messaging
 #include <windows.h>
 #include <shellapi.h>
-#include <commdlg.h>
 #include <shlobj.h>
-#include <gdiplus.h>
 #include <setupapi.h>
 #pragma comment(lib, "setupapi.lib")
 
@@ -46,10 +44,13 @@ import Rev.Element.Dropdown;
 import Rev.Element.Checkbox;
 import Rev.Serial;
 import Rev.SocketClient;
+import Rev.OS.Dialog;
 import Rev.Primitive.Image;
 import Rev.Graphics.Texture;
 import LithoControl.Theme;
 import LithoControl.ImagePreview;
+import LithoControl.ImageDecode;
+import LithoControl.TestPatternRaster;
 
 export namespace LithoControl {
 
@@ -139,8 +140,6 @@ export namespace LithoControl {
         std::deque<std::string> logLines;
         std::deque<std::string> gcodeLines;
         static constexpr size_t MAX_LOG = 60;
-
-        ULONG_PTR gdipToken = 0;
 
         // -- Persisted settings -----------------------------------------------
 
@@ -335,9 +334,6 @@ export namespace LithoControl {
 
             logQ.pMainHwnd = &mainHwnd;  // background threads use this instead of GetForegroundWindow
 
-            Gdiplus::GdiplusStartupInput gi;
-            Gdiplus::GdiplusStartup(&gdipToken, &gi, nullptr);
-
             this->style->layout           = { Axis::Horizontal, Align::Start, Align::Start };
             this->style->size             = { 100_pct, 100_pct };
             this->style->background.color = rgba(13, 13, 13, 1);
@@ -502,7 +498,6 @@ export namespace LithoControl {
             delete stmSerial;
             delete piClient;
             saveSettings();
-            if (gdipToken) Gdiplus::GdiplusShutdown(gdipToken);
         }
 
         // -- Build sidebar -----------------------------------------------------
@@ -790,19 +785,20 @@ export namespace LithoControl {
         }
 
         void runTestAnimation() {
+            using namespace LithoControl::Raster;
             constexpr int W = 640, H = 360;
             hdmiTestBGRA.resize(W * H * 4, 0);
 
-            Gdiplus::Bitmap bmp(W, H, PixelFormat32bppARGB);
-            Gdiplus::Graphics g(&bmp);
-            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
+            std::vector<uint8_t> frame(W * H * 4, 0);
 
-            Gdiplus::FontFamily ff(L"Consolas");
-            Gdiplus::Font font(&ff, 14.0f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+            static BitmapFont font;
+            if (!font.loaded) {
+                std::string ttfPath = std::string(PROJECT_ROOT) + "/Rev/resources/Fonts/Roboto/Roboto.ttf";
+                font.load(ttfPath, 14.0f);
+            }
 
-            // SMPTE bar defs (GDI+ ARGB)
-            struct BarDef { int x0, x1; BYTE r, g2, b; };
+            // SMPTE bar defs
+            struct BarDef { int x0, x1; uint8_t r, g2, b; };
             const BarDef bars[] = {
                 {   0,  91, 255, 255, 255 },  // White
                 {  92, 182, 255, 255,   0 },  // Yellow
@@ -813,17 +809,12 @@ export namespace LithoControl {
                 { 548, 639,   0,   0, 255 },  // Blue
             };
 
-            // Scrolling marquee
-            const std::wstring marquee =
-                L"  LITHOCONTROL  ◆  640×360  ◆  RGB TEST PATTERN  "
-                L"◆  FOCUS: CENTRE CHECKERBOARD  ◆  ";
+            // Scrolling marquee (ASCII only -- the bitmap font atlas covers 32..127)
+            const std::string marquee =
+                "  LITHOCONTROL  *  640x360  *  RGB TEST PATTERN  "
+                "*  FOCUS: CENTRE CHECKERBOARD  *  ";
 
-            float marqueeW = 0.0f;
-            {
-                Gdiplus::RectF br;
-                g.MeasureString(marquee.c_str(), -1, &font, Gdiplus::PointF(0,0), &br);
-                marqueeW = br.Width;
-            }
+            float marqueeW = font.measure(marquee);
 
             auto t0 = std::chrono::steady_clock::now();
             constexpr float PI = 3.14159265f;
@@ -832,46 +823,37 @@ export namespace LithoControl {
                 auto now = std::chrono::steady_clock::now();
                 float t = (float)std::chrono::duration<double>(now - t0).count();
 
-                g.Clear(Gdiplus::Color(255, 0, 0, 0));
+                clear(frame.data(), W, H, { 0, 0, 0, 255 });
 
                 // SMPTE bars (top 2/3)
                 for (const auto& b : bars) {
-                    Gdiplus::SolidBrush br(Gdiplus::Color(255, b.r, b.g2, b.b));
-                    g.FillRectangle(&br, b.x0, 0, b.x1 - b.x0 + 1, 240);
+                    fillRect(frame.data(), W, H, b.x0, 0, b.x1 - b.x0 + 1, 240, { b.b, b.g2, b.r, 255 });
                 }
 
                 // Separator
-                {
-                    Gdiplus::Pen sp(Gdiplus::Color(80, 255, 255, 255), 1.0f);
-                    g.DrawLine(&sp, 0, 239, W, 239);
-                }
+                drawLine(frame.data(), W, H, 0, 239, (float)W, 239, { 255, 255, 255, 80 }, 1.0f);
 
                 // Checkerboard focus target (8 px squares, 320×80, centred in bottom strip)
                 {
-                    Gdiplus::SolidBrush wb(Gdiplus::Color(255, 255, 255, 255));
                     constexpr int CBX = (W - 320) / 2, CBY = 260, CBS = 8;
                     for (int cy = 0; cy < 10; cy++)
                         for (int cx = 0; cx < 40; cx++)
                             if ((cx + cy) % 2 == 0)
-                                g.FillRectangle(&wb, CBX + cx*CBS, CBY + cy*CBS, CBS, CBS);
+                                fillRect(frame.data(), W, H, CBX + cx*CBS, CBY + cy*CBS, CBS, CBS, { 255, 255, 255, 255 });
                 }
 
                 // Grid on bottom strip (dim)
                 {
-                    Gdiplus::Pen gp(Gdiplus::Color(45, 255, 255, 255), 1.0f);
-                    for (int x = 0; x < W; x += 80) g.DrawLine(&gp, x, 240, x, H);
-                    for (int y = 240; y < H; y += 40) g.DrawLine(&gp, 0, y, W, y);
+                    for (int x = 0; x < W; x += 80) drawLine(frame.data(), W, H, (float)x, 240, (float)x, (float)H, { 255, 255, 255, 45 }, 1.0f);
+                    for (int y = 240; y < H; y += 40) drawLine(frame.data(), W, H, 0, (float)y, (float)W, (float)y, { 255, 255, 255, 45 }, 1.0f);
                 }
 
                 // Crosshair
-                {
-                    Gdiplus::Pen cp(Gdiplus::Color(110, 255, 255, 255), 1.0f);
-                    g.DrawLine(&cp, 0, H/2, W, H/2);
-                    g.DrawLine(&cp, W/2, 0, W/2, H);
-                }
+                drawLine(frame.data(), W, H, 0, H/2.0f, (float)W, H/2.0f, { 255, 255, 255, 110 }, 1.0f);
+                drawLine(frame.data(), W, H, W/2.0f, 0, W/2.0f, (float)H, { 255, 255, 255, 110 }, 1.0f);
 
                 // Corner rotors — 4 corners, each with distinct colour and spin rate
-                struct Rotor { float x, y, rpm; BYTE r, g2, b; };
+                struct Rotor { float x, y, rpm; uint8_t r, g2, b; };
                 const Rotor rotors[] = {
                     {  50.f,  50.f,  20.f, 255, 255, 255 },  // TL white
                     { 590.f,  50.f, -25.f, 255, 220,   0 },  // TR yellow, opposite spin
@@ -879,74 +861,52 @@ export namespace LithoControl {
                     { 590.f, 310.f, -18.f, 255,  70,  70 },  // BR red, opposite spin
                 };
                 for (const auto& ro : rotors) {
-                    Gdiplus::Color col(255, ro.r, ro.g2, ro.b);
-                    Gdiplus::Color colDim(70, ro.r, ro.g2, ro.b);
+                    Color col    { ro.b, ro.g2, ro.r, 255 };
+                    Color colDim { ro.b, ro.g2, ro.r, 70 };
 
                     // Black backing disc
-                    Gdiplus::SolidBrush bg(Gdiplus::Color(210, 0, 0, 0));
-                    g.FillEllipse(&bg, ro.x-40.f, ro.y-40.f, 80.f, 80.f);
+                    fillCircle(frame.data(), W, H, ro.x, ro.y, 40.f, { 0, 0, 0, 210 });
 
                     // Outer ring
-                    Gdiplus::Pen ringPen(colDim, 1.5f);
-                    g.DrawEllipse(&ringPen, ro.x-38.f, ro.y-38.f, 76.f, 76.f);
+                    strokeCircle(frame.data(), W, H, ro.x, ro.y, 38.f, colDim, 1.5f);
 
                     // Tick marks (12, every 30°)
-                    Gdiplus::Pen tickPen(colDim, 1.0f);
                     for (int i = 0; i < 12; i++) {
                         float a = i * PI / 6.0f;
                         float ri = (i % 3 == 0) ? 32.f : 35.f;
-                        g.DrawLine(&tickPen,
+                        drawLine(frame.data(), W, H,
                             ro.x + std::cos(a)*ri, ro.y + std::sin(a)*ri,
-                            ro.x + std::cos(a)*38.f, ro.y + std::sin(a)*38.f);
+                            ro.x + std::cos(a)*38.f, ro.y + std::sin(a)*38.f, colDim, 1.0f);
                     }
 
                     // 4 rotating spokes
                     float angle = t * ro.rpm * 2.0f * PI / 60.0f;
-                    Gdiplus::Pen spokePen(col, 2.0f);
                     for (int i = 0; i < 4; i++) {
                         float a = angle + i * PI * 0.5f;
-                        g.DrawLine(&spokePen,
+                        drawLine(frame.data(), W, H,
                             ro.x, ro.y,
-                            ro.x + std::cos(a)*33.f, ro.y + std::sin(a)*33.f);
+                            ro.x + std::cos(a)*33.f, ro.y + std::sin(a)*33.f, col, 2.0f);
                     }
 
                     // Pulsing centre dot
                     float pulse = 0.5f + 0.5f * std::sin(t * 5.0f + ro.x * 0.05f);
                     float dr = 2.5f + pulse * 2.5f;
-                    Gdiplus::SolidBrush dotBr(col);
-                    g.FillEllipse(&dotBr, ro.x-dr, ro.y-dr, dr*2.f, dr*2.f);
+                    fillCircle(frame.data(), W, H, ro.x, ro.y, dr, col);
                 }
 
                 // Scrolling marquee strip (bottom 18 px)
                 {
-                    Gdiplus::SolidBrush stripBr(Gdiplus::Color(210, 0, 0, 0));
-                    g.FillRectangle(&stripBr, 0, 342, W, 18);
+                    fillRect(frame.data(), W, H, 0, 342, W, 18, { 0, 0, 0, 210 });
 
                     float scrollX = std::fmod(t * 80.0f, marqueeW);
-                    Gdiplus::SolidBrush textBr(Gdiplus::Color(255, 210, 210, 210));
-                    g.SetClip(Gdiplus::Rect(0, 342, W, 18));
-                    g.DrawString(marquee.c_str(), -1, &font,
-                                 Gdiplus::PointF(-scrollX, 344.f), &textBr);
-                    g.DrawString(marquee.c_str(), -1, &font,
-                                 Gdiplus::PointF(marqueeW - scrollX, 344.f), &textBr);
-                    g.ResetClip();
+                    Color textCol { 210, 210, 210, 255 };
+                    font.draw(frame.data(), W, H, marquee, -scrollX, 356.f, textCol, 0, 342, W, 360);
+                    font.draw(frame.data(), W, H, marquee, marqueeW - scrollX, 356.f, textCol, 0, 342, W, 360);
                 }
 
-                // Copy GDI+ bitmap → shared BGRA buffer (PixelFormat32bppARGB == BGRA in memory)
                 {
-                    Gdiplus::BitmapData bd;
-                    Gdiplus::Rect lr(0, 0, W, H);
-                    if (bmp.LockBits(&lr, Gdiplus::ImageLockModeRead,
-                                     PixelFormat32bppARGB, &bd) == Gdiplus::Ok) {
-                        std::lock_guard<std::mutex> lk(hdmiFrameMtx);
-                        auto* src = static_cast<const uint8_t*>(bd.Scan0);
-                        int rowBytes = W * 4;
-                        int stride = std::abs(bd.Stride);
-                        for (int row = 0; row < H; row++)
-                            std::memcpy(hdmiTestBGRA.data() + row * rowBytes,
-                                        src + row * stride, rowBytes);
-                        bmp.UnlockBits(&bd);
-                    }
+                    std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+                    hdmiTestBGRA = frame;
                 }
 
                 if (hdmiHwnd)  PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
@@ -2315,14 +2275,9 @@ export namespace LithoControl {
         // ---------------------------------------------------------------------
 
         void browseFile() {
-            OPENFILENAMEA ofn{};
-            char path[MAX_PATH] = {};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.lpstrFile   = path;
-            ofn.nMaxFile    = MAX_PATH;
-            ofn.lpstrFilter = "Images\0*.png;*.jpg;*.jpeg;*.bmp;*.svg\0All Files\0*.*\0";
-            ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-            if (GetOpenFileNameA(&ofn)) {
+            std::string path;
+            if (Rev::OS::Dialog::OpenFile(path, "Open Artwork",
+                    "Images\0*.png;*.jpg;*.jpeg;*.bmp;*.svg\0All Files\0*.*\0")) {
                 inputFilePath = path;
                 // Only update dlpRoot if the new file is inside the repo.
                 // If the user browses an image from an arbitrary folder, keep the
@@ -2773,37 +2728,21 @@ export namespace LithoControl {
             return true;
         }
 
-        // PNG file -> 640x360 1bpp bitmap (28800 bytes) using GDI+
+        // PNG file -> 640x360 1bpp bitmap (28800 bytes).
         // Job frames use red-channel-only PNGs (R=255 = expose, R=0 = mask).
         // PIXEL_ON = 0xF800 (pure red in RGB565) drives the blue LED via the
         // LTDC_R* -> EVM Blue wiring. Using max(R,G,B) makes this work for any
         // single-channel or white-pixel frame format.
         std::vector<uint8_t> pngToBitmap(const std::string& path) {
             const int W = 640, H = 360, BYTES = W * H / 8;
-            std::wstring wpath(path.begin(), path.end());
-            Gdiplus::Bitmap bmp(wpath.c_str());
 
-            // If wrong size, scale it
-            Gdiplus::Bitmap* src = &bmp;
-            Gdiplus::Bitmap* scaled = nullptr;
-            if ((int)bmp.GetWidth() != W || (int)bmp.GetHeight() != H) {
-                scaled = new Gdiplus::Bitmap(W, H);
-                Gdiplus::Graphics g(scaled);
-                g.DrawImage(&bmp, 0, 0, W, H);
-                src = scaled;
-            }
+            std::vector<uint8_t> px;
+            if (!LithoControl::decodeToRGBAResized(path, px, W, H)) return std::vector<uint8_t>(BYTES, 0);
 
             std::vector<uint8_t> result(BYTES, 0);
-            Gdiplus::BitmapData bd;
-            Gdiplus::Rect rect(0, 0, W, H);
-            src->LockBits(&rect, Gdiplus::ImageLockModeRead, PixelFormat32bppRGB, &bd);
-
-            auto* px = (uint8_t*)bd.Scan0;
             for (int y = 0; y < H; y++) {
                 for (int x = 0; x < W; x++) {
-                    uint8_t* p = px + y * bd.Stride + x * 4;
-                    // GDI+ 32bppRGB: BGR at [0],[1],[2]. Use max so any single
-                    // channel (red, blue, or white) correctly sets the bit.
+                    const uint8_t* p = px.data() + (y * W + x) * 4;
                     uint8_t luma = p[0] > p[1] ? p[0] : p[1];
                     if (p[2] > luma) luma = p[2];
                     if (luma >= 128) {
@@ -2813,8 +2752,6 @@ export namespace LithoControl {
                 }
             }
 
-            src->UnlockBits(&bd);
-            if (scaled) delete scaled;
             return result;
         }
 

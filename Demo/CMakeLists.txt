@@ -64,7 +64,7 @@ endif()
 
 target_link_libraries(LithoRev PRIVATE Rev)
 if(WIN32)
-    target_link_libraries(LithoRev PRIVATE gdiplus comdlg32 shell32)
+    target_link_libraries(LithoRev PRIVATE shell32)
 endif()
 
 # Build as a GUI app (no console window) for all non-Debug configs.
@@ -79,6 +79,7 @@ endif()
 
 target_compile_definitions(LithoRev PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
+    PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
 )
 
 target_compile_definitions(Rev PRIVATE

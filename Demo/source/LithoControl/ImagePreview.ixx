@@ -1,6 +1,4 @@
 module;
-#include <windows.h>
-#include <gdiplus.h>
 #include <string>
 #include <vector>
 #include <functional>
@@ -16,6 +14,7 @@ import Rev.Element.Box;
 import Rev.Element.Text;
 import Rev.Primitive.Image;
 import Rev.Graphics.Texture;
+import LithoControl.ImageDecode;
 
 export namespace LithoControl {
     using namespace Rev;
@@ -138,42 +137,10 @@ export namespace LithoControl {
             delete overlayTexture;
         }
 
-        // Decode a PNG/BMP/JPEG via GDI+ into a tightly-packed RGBA buffer.
+        // Decode a PNG/BMP/JPEG into a tightly-packed RGBA buffer.
         static bool decodeToRGBA(const std::string& path,
                                  std::vector<uint8_t>& out, int& w, int& h) {
-            std::wstring wp(path.begin(), path.end());
-            Gdiplus::Bitmap bmp(wp.c_str());
-            if (bmp.GetLastStatus() != Gdiplus::Ok) return false;
-
-            w = (int)bmp.GetWidth();
-            h = (int)bmp.GetHeight();
-            if (w <= 0 || h <= 0) return false;
-
-            Gdiplus::Bitmap rgbaBmp(w, h, PixelFormat32bppARGB);
-            {
-                Gdiplus::Graphics g(&rgbaBmp);
-                g.DrawImage(&bmp, 0, 0, w, h);
-            }
-
-            Gdiplus::BitmapData bd;
-            Gdiplus::Rect grect(0, 0, w, h);
-            rgbaBmp.LockBits(&grect, Gdiplus::ImageLockModeRead,
-                             PixelFormat32bppARGB, &bd);
-
-            out.assign((size_t)w * h * 4, 0);
-            auto* src = reinterpret_cast<uint8_t*>(bd.Scan0);
-            for (int row = 0; row < h; row++) {
-                for (int col = 0; col < w; col++) {
-                    int si = row * bd.Stride + col * 4;
-                    int di = (row * w + col) * 4;
-                    out[di+0] = src[si+2];  // R  (GDI+ stores BGRA)
-                    out[di+1] = src[si+1];  // G
-                    out[di+2] = src[si+0];  // B
-                    out[di+3] = src[si+3];  // A
-                }
-            }
-            rgbaBmp.UnlockBits(&bd);
-            return true;
+            return LithoControl::decodeToRGBA(path, out, w, h);
         }
 
         // Queue a decoded buffer for upload on the next render pass.
