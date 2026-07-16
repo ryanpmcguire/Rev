@@ -1,4 +1,4 @@
-#include <windows.h>
+#include <cstdlib>
 #include <exception>
 #include <string>
 
@@ -6,6 +6,7 @@ import Rev.Application;
 import Rev.Window;
 import Rev.Serial;
 import Rev.SocketClient;
+import Rev.OS.Dialog;
 import Rev.Element.Event;
 
 import LithoControl.Interface;
@@ -28,14 +29,13 @@ int main() {
         (void)iface;
 
         application->run();
-        ExitProcess(0);   // force exit: detached threads (HDMI window) keep the process alive otherwise
+        std::_Exit(0);   // force exit: detached threads (HDMI window) keep the process alive otherwise
     } catch (const std::exception& ex) {
-        MessageBoxA(nullptr, ex.what(), "LithoControl – Unhandled Exception", MB_OK | MB_ICONERROR);
+        Rev::OS::Dialog::Error("LithoControl - Unhandled Exception", ex.what());
         return 1;
     } catch (...) {
-        MessageBoxA(nullptr,
-            "An unknown exception was thrown during startup.",
-            "LithoControl – Unhandled Exception", MB_OK | MB_ICONERROR);
+        Rev::OS::Dialog::Error("LithoControl - Unhandled Exception",
+            "An unknown exception was thrown during startup.");
         return 1;
     }
 
