@@ -13,7 +13,7 @@ PROJECT_ROOT = pathlib.Path(args.project_root).resolve()
 
 SRC_EXTS = {".cpp", ".h", ".hpp", ".ixx", ".mxx", ".cppm"}
 
-OUTPUT_DIR = PROJECT_ROOT / "Rev/Resources/.modules"
+OUTPUT_DIR = PROJECT_ROOT / "Rev/resources/.modules"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 ATLAS_FILE = OUTPUT_DIR / "Files.ixx"
