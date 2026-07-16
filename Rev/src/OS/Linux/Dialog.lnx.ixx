@@ -24,6 +24,13 @@ export namespace Rev::OS {
         Cancel
     };
 
+    // Zenity-only -- kdialog is a KDE/Plasma tool that can be present (as a
+    // transitive dependency of something else) without a working Plasma/D-Bus
+    // session behind it, in which case invoking it can hang or misbehave
+    // instead of cleanly failing. commandExists() only checks the binary
+    // exists, not that it actually works outside a KDE session, so on
+    // GTK-based desktops (XFCE, GNOME, Cinnamon, ...) it's not a safe first
+    // choice. zenity is the reliable baseline there.
     struct Dialog {
 
         static std::string shellQuote(const std::string& value) {
@@ -43,17 +50,6 @@ export namespace Rev::OS {
             return std::system(test.c_str()) == 0;
         }
 
-        static int exitCode(int status) {
-            if (status < 0) return status;
-            return (status >> 8) & 0xff;
-        }
-
-        static bool runKDialogMessage(const std::string& kind, const std::string& title, const std::string& message) {
-            if (!commandExists("kdialog")) return false;
-            std::string command = "kdialog --title=" + shellQuote(title) + " --" + kind + " " + shellQuote(message) + " >/dev/null 2>&1";
-            return std::system(command.c_str()) == 0;
-        }
-
         static bool runZenity(const std::string& kind, const std::string& title, const std::string& message) {
             if (!commandExists("zenity")) return false;
             std::string command = "zenity --" + kind + " --title=" + shellQuote(title) + " --text=" + shellQuote(message) + " >/dev/null 2>&1";
@@ -66,7 +62,6 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
-            if (runKDialogMessage("msgbox", title, message)) return DialogResult::Ok;
             if (runZenity("info", title, message)) return DialogResult::Ok;
             std::fprintf(stderr, "[Info] %s: %s\n", title.c_str(), message.c_str());
             return DialogResult::Ok;
@@ -78,7 +73,6 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
-            if (runKDialogMessage("sorry", title, message)) return DialogResult::Ok;
             if (runZenity("warning", title, message)) return DialogResult::Ok;
             std::fprintf(stderr, "[Warning] %s: %s\n", title.c_str(), message.c_str());
             return DialogResult::Ok;
@@ -90,7 +84,6 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
-            if (runKDialogMessage("error", title, message)) return DialogResult::Ok;
             if (runZenity("error", title, message)) return DialogResult::Ok;
             std::fprintf(stderr, "[Error] %s: %s\n", title.c_str(), message.c_str());
             return DialogResult::Ok;
@@ -102,10 +95,6 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
-            if (commandExists("kdialog")) {
-                std::string command = "kdialog --title=" + shellQuote(title) + " --yesno " + shellQuote(message) + " >/dev/null 2>&1";
-                return std::system(command.c_str()) == 0 ? DialogResult::Yes : DialogResult::No;
-            }
             if (commandExists("zenity")) {
                 std::string command = "zenity --question --title=" + shellQuote(title) + " --text=" + shellQuote(message) + " >/dev/null 2>&1";
                 return std::system(command.c_str()) == 0 ? DialogResult::Yes : DialogResult::No;
@@ -119,21 +108,6 @@ export namespace Rev::OS {
             void* owner = nullptr
         ) {
             (void)owner;
-
-            if (commandExists("kdialog")) {
-                std::string command =
-                    "kdialog --title=" + shellQuote("Unsaved Changes") +
-                    " --warningyesnocancel " + shellQuote("Save changes to \"" + itemName + "\" before closing?") +
-                    " --yes-label=" + shellQuote("Save") +
-                    " --no-label=" + shellQuote("Discard") +
-                    " --cancel-label=" + shellQuote("Cancel") +
-                    " >/dev/null 2>&1";
-
-                int code = exitCode(std::system(command.c_str()));
-                if (code == 0) return UnsavedChangesResult::Save;
-                if (code == 1) return UnsavedChangesResult::Discard;
-                if (code == 2) return UnsavedChangesResult::Cancel;
-            }
 
             if (commandExists("zenity")) {
                 std::string output;
@@ -192,9 +166,10 @@ export namespace Rev::OS {
             return std::filesystem::current_path().string();
         }
 
-        // Native file-open dialog via kdialog/zenity. `filter` is accepted for
-        // signature parity with the Windows OPENFILENAME convention but is not
-        // applied -- neither backend filters reliably across desktop environments.
+        // Native file-open dialog via zenity. `filter` is accepted for
+        // signature parity with the Windows OPENFILENAME convention but is
+        // not applied -- zenity's --file-filter support is inconsistent
+        // enough across desktop environments not to rely on it.
         static bool OpenFile(
             std::string& outPath,
             const std::string& title,
@@ -205,22 +180,15 @@ export namespace Rev::OS {
             (void)filter;
             (void)owner;
 
+            if (!commandExists("zenity")) {
+                std::fprintf(stderr, "[OpenFile] %s: zenity not found\n", title.c_str());
+                return false;
+            }
+
             std::string dir = usableInitialDir(initialDir);
-
-            if (commandExists("kdialog")) {
-                std::string command = "kdialog --title=" + shellQuote(title) +
-                    " --getopenfilename " + shellQuote(dir);
-                if (runCommandCapture(command, outPath)) return true;
-            }
-
-            if (commandExists("zenity")) {
-                std::string command = "zenity --file-selection --title=" + shellQuote(title) +
-                    " --filename=" + shellQuote((std::filesystem::path(dir) / "").string());
-                if (runCommandCapture(command, outPath)) return true;
-            }
-
-            std::fprintf(stderr, "[OpenFile] %s: no file dialog backend available\n", title.c_str());
-            return false;
+            std::string command = "zenity --file-selection --title=" + shellQuote(title) +
+                " --filename=" + shellQuote((std::filesystem::path(dir) / "").string());
+            return runCommandCapture(command, outPath);
         }
     };
 }
