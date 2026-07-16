@@ -1,11 +1,9 @@
 ﻿module;
 
-// Win32 for COM-port enumeration, webcam capture, and window messaging
+// Win32 for webcam capture and window messaging
 #include <windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
-#include <setupapi.h>
-#pragma comment(lib, "setupapi.lib")
 
 // Windows Media Foundation for webcam capture
 #include <mfapi.h>
@@ -45,6 +43,7 @@ import Rev.Element.Checkbox;
 import Rev.Serial;
 import Rev.SocketClient;
 import Rev.OS.Dialog;
+import Rev.OS.SerialPort;
 import Rev.Primitive.Image;
 import Rev.Graphics.Texture;
 import LithoControl.Theme;
@@ -2200,56 +2199,12 @@ export namespace LithoControl {
         }
 
         void scanPorts(bool autoSelect = true) {
-            static const GUID PORTS_GUID = {
-                0x4d36e978, 0xe325, 0x11ce,
-                { 0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18 }
-            };
 
-            HDEVINFO devInfo = SetupDiGetClassDevsA(&PORTS_GUID, nullptr, nullptr, DIGCF_PRESENT);
-            if (devInfo == INVALID_HANDLE_VALUE) {
-                logQ.push("[SCAN] SetupDi failed");
-                return;
-            }
-
-            SP_DEVINFO_DATA devData{};
-            devData.cbSize = sizeof(devData);
             std::vector<Dropdown::Option> found;
-
-            for (DWORD i = 0; SetupDiEnumDeviceInfo(devInfo, i, &devData); ++i) {
-
-                char friendlyName[256] = {};
-                SetupDiGetDeviceRegistryPropertyA(devInfo, &devData, SPDRP_FRIENDLYNAME,
-                    nullptr, (PBYTE)friendlyName, sizeof(friendlyName), nullptr);
-
-                char portName[32] = {};
-                HKEY hKey = SetupDiOpenDevRegKey(devInfo, &devData,
-                    DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
-                if (hKey != INVALID_HANDLE_VALUE) {
-                    DWORD portLen = sizeof(portName);
-                    RegQueryValueExA(hKey, "PortName", nullptr, nullptr,
-                        (LPBYTE)portName, &portLen);
-                    RegCloseKey(hKey);
-                }
-
-                if (portName[0] == '\0' || strncmp(portName, "COM", 3) != 0) continue;
-
-                std::string friendly(friendlyName);
-                // Strip the redundant " (COMx)" suffix that Windows appends
-                std::string suffix = " (" + std::string(portName) + ")";
-                auto spos = friendly.rfind(suffix);
-                if (spos != std::string::npos) friendly.erase(spos);
-
-                std::string label;
-                if (!friendly.empty())
-                    label = std::string(portName) + " -- " + friendly;
-                else
-                    label = std::string(portName);
-
-                found.push_back({ label, std::string(portName) });
-                logQ.push("[SCAN] " + label);
+            for (const auto& p : Rev::OS::SerialPort::List()) {
+                found.push_back({ p.label, p.device });
+                logQ.push("[SCAN] " + p.label);
             }
-
-            SetupDiDestroyDeviceInfoList(devInfo);
 
             if (found.empty()) {
                 logQ.push("[SCAN] No COM ports found");
