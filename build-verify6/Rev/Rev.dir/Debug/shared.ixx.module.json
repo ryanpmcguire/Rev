@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Rev.dir\\Debug\\Shared.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Debug\\Rev.pdb",
+                "Rev.dir\\Debug\\",
+                "Rev.dir\\Debug\\Rev.Core.Shared.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Rev.Core.Shared",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\core\\shared.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": []
+        }
+    ]
+}

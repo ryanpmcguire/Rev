@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Rev.dir\\Debug\\Serial.win.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Debug\\Rev.pdb",
+                "Rev.dir\\Debug\\",
+                "Rev.dir\\Debug\\Rev.Serial.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Rev.Serial",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\os\\windows\\serial.win.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": []
+        }
+    ]
+}

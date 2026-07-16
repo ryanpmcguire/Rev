@@ -44,6 +44,7 @@ import Rev.Serial;
 import Rev.SocketClient;
 import Rev.OS.Dialog;
 import Rev.OS.SerialPort;
+import Rev.OS.Display;
 import Rev.Primitive.Image;
 import Rev.Graphics.Texture;
 import LithoControl.Theme;
@@ -248,7 +249,7 @@ export namespace LithoControl {
         float jobListThumbDragStartScroll = 0.0f;
 
         // HDMI Passthrough
-        struct HdmiDisplay { std::string devName; std::string label; RECT rect; };
+        struct HdmiDisplay { std::string devName; std::string label; int x, y, w, h; };
         std::vector<HdmiDisplay> hdmiDisplays;
         Checkbox*   hdmiPassthroughChk = nullptr;
         Checkbox*   hdmiRedChk        = nullptr;
@@ -264,7 +265,7 @@ export namespace LithoControl {
         Box*        hdmiDisplaySlot    = nullptr;
         Box*        hdmiDisplayRow     = nullptr;
         Dropdown*   hdmiDisplayDrop    = nullptr;
-        HWND        hdmiHwnd           = nullptr;
+        void*       hdmiHwnd           = nullptr;  // HWND on Windows; opaque handle to platform state on Linux
         std::thread hdmiWinThread;
         std::atomic<bool> hdmiWinRunning { false };
         std::mutex        hdmiFrameMtx;
@@ -541,24 +542,11 @@ export namespace LithoControl {
 
         void scanDisplays() {
             hdmiDisplays.clear();
-            DISPLAY_DEVICEA dd{};
-            dd.cb = sizeof(dd);
             std::vector<Dropdown::Option> opts;
-            for (DWORD i = 0; EnumDisplayDevicesA(nullptr, i, &dd, 0); ++i) {
-                if (!(dd.StateFlags & DISPLAY_DEVICE_ACTIVE)) continue;
-                DEVMODEA dm{};
-                dm.dmSize = sizeof(dm);
-                EnumDisplaySettingsA(dd.DeviceName, ENUM_CURRENT_SETTINGS, &dm);
-                RECT r{ (LONG)dm.dmPosition.x, (LONG)dm.dmPosition.y,
-                        (LONG)(dm.dmPosition.x + (LONG)dm.dmPelsWidth),
-                        (LONG)(dm.dmPosition.y + (LONG)dm.dmPelsHeight) };
-                bool primary = !!(dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE);
-                std::string lbl = std::string(dd.DeviceName) + "  " +
-                    std::to_string(dm.dmPelsWidth) + "x" + std::to_string(dm.dmPelsHeight) +
-                    (primary ? "  (primary)" : "");
-                hdmiDisplays.push_back({ std::string(dd.DeviceName), lbl, r });
-                opts.push_back({ lbl, std::string(dd.DeviceName) });
-                logQ.push("[DISP] " + lbl);
+            for (const auto& d : Rev::OS::Display::List()) {
+                hdmiDisplays.push_back({ d.id, d.label, d.x, d.y, d.w, d.h });
+                opts.push_back({ d.label, d.id });
+                logQ.push("[DISP] " + d.label);
             }
             if (hdmiDisplayDrop) hdmiDisplayDrop->params.options = opts;
         }
@@ -567,134 +555,19 @@ export namespace LithoControl {
             if (!hdmiDisplayDrop) return;
             std::string dev = hdmiDisplayDrop->params.value;
             if (dev.empty()) { logQ.push("[DISP] No display selected"); return; }
-            DEVMODEA dm{};
-            dm.dmSize       = sizeof(dm);
-            dm.dmPelsWidth  = 640;
-            dm.dmPelsHeight = 360;
-            dm.dmBitsPerPel = 32;
-            dm.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
-            LONG r = ChangeDisplaySettingsExA(dev.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY, nullptr);
-            if (r == DISP_CHANGE_SUCCESSFUL)
+            if (Rev::OS::Display::SetMode(dev, 640, 360))
                 logQ.push("[DISP] Set 640x360 OK on " + dev);
             else
-                logQ.push("[DISP] Set resolution failed (" + std::to_string(r) + ")");
+                logQ.push("[DISP] Set resolution failed");
         }
 
-        // ---- HDMI fullscreen window ------------------------------------------
-
-        static LRESULT CALLBACK HdmiWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-            static const UINT WM_LITHO_FRAME = WM_USER + 1;
-            if (msg == WM_CREATE) {
-                auto* cs = reinterpret_cast<CREATESTRUCTA*>(lp);
-                SetWindowLongPtrA(hwnd, GWLP_USERDATA, (LONG_PTR)cs->lpCreateParams);
-                return 0;
-            }
-            auto* self = reinterpret_cast<Interface*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
-            if (msg == WM_LITHO_FRAME || msg == WM_PAINT) {
-                PAINTSTRUCT ps;
-                HDC hdc = (msg == WM_PAINT) ? BeginPaint(hwnd, &ps) : GetDC(hwnd);
-                RECT rc; GetClientRect(hwnd, &rc);
-                int ww = rc.right, wh = rc.bottom;
-                // Build 32bpp pixel buffer from current 1bpp frame or solid color
-                std::vector<uint32_t> px(640 * 360, 0xFF000000u);
-                if (self) {
-                    uint32_t solid = self->hdmiSolidColor.load();
-                    if (solid) {
-                        std::fill(px.begin(), px.end(), solid);
-                    } else if (self->hdmiTestActive.load()) {
-                        std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
-                        if (self->hdmiTestBGRA.size() == 640u * 360u * 4u) {
-                            const auto* src = reinterpret_cast<const uint32_t*>(
-                                self->hdmiTestBGRA.data());
-                            std::copy(src, src + 640 * 360, px.begin());
-                        }
-                    } else {
-                        std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
-                        if (!self->hdmiCurrentFrame.empty()) {
-                            const auto& bmp = self->hdmiCurrentFrame;
-                            uint32_t onColor = self->hdmiChannelMask.load();
-                            for (int i = 0; i < 640 * 360; i++) {
-                                uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
-                                px[i] = bit ? onColor : 0xFF000000u;
-                            }
-                        }
-                    }
-                }
-                BITMAPINFO bmi{};
-                bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
-                bmi.bmiHeader.biWidth       = 640;
-                bmi.bmiHeader.biHeight      = -360;
-                bmi.bmiHeader.biPlanes      = 1;
-                bmi.bmiHeader.biBitCount    = 32;
-                bmi.bmiHeader.biCompression = BI_RGB;
-                StretchDIBits(hdc, 0, 0, ww, wh, 0, 0, 640, 360,
-                              px.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
-                if (msg == WM_PAINT) EndPaint(hwnd, &ps);
-                else ReleaseDC(hwnd, hdc);
-                return 0;
-            }
-            if (msg == WM_SETCURSOR) {
-                SetCursor(NULL);
-                return TRUE;
-            }
-            if (msg == WM_KEYDOWN && wp == VK_ESCAPE) {
-                DestroyWindow(hwnd);
-                return 0;
-            }
-            if (msg == WM_DESTROY) {
-                if (self) self->hdmiWinRunning = false;
-                PostQuitMessage(0);
-                return 0;
-            }
-            return DefWindowProcA(hwnd, msg, wp, lp);
-        }
-
-        void openHdmiWindow() {
-            if (hdmiHwnd) { logQ.push("[DISP] Window already open"); return; }
-            if (!hdmiDisplayDrop || hdmiDisplayDrop->params.value.empty()) {
-                logQ.push("[DISP] Select a display first"); return;
-            }
-            std::string dev = hdmiDisplayDrop->params.value;
-            RECT monRect{};
-            for (auto& d : hdmiDisplays)
-                if (d.devName == dev) { monRect = d.rect; break; }
-
-            hdmiWinRunning = true;
-            hdmiWinThread = std::thread([this, monRect]() {
-                HINSTANCE hinst = GetModuleHandleA(nullptr);
-                WNDCLASSA wc{};
-                wc.lpfnWndProc   = HdmiWndProc;
-                wc.hInstance     = hinst;
-                wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-                wc.lpszClassName = "LithoHdmi";
-                RegisterClassA(&wc);
-
-                int x = monRect.left, y = monRect.top;
-                int w = monRect.right  - monRect.left;
-                int h = monRect.bottom - monRect.top;
-                hdmiHwnd = CreateWindowExA(
-                    WS_EX_TOPMOST, "LithoHdmi", "LithoControl Projector",
-                    WS_POPUP | WS_VISIBLE,
-                    x, y, w, h, nullptr, nullptr, hinst, this);
-
-                if (!hdmiHwnd) { hdmiWinRunning = false; logQ.push("[DISP] Window create failed"); return; }
-                logQ.push("[DISP] Projector window open (ESC to close)");
-
-                MSG msg;
-                while (GetMessageA(&msg, nullptr, 0, 0)) {
-                    TranslateMessage(&msg);
-                    DispatchMessageA(&msg);
-                }
-                hdmiHwnd = nullptr;
-                UnregisterClassA("LithoHdmi", hinst);
-                logQ.push("[DISP] Projector window closed");
-            });
-            hdmiWinThread.detach();
-        }
-
-        void closeHdmiWindow() {
-            if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_CLOSE, 0, 0);
-        }
+        // ---- HDMI fullscreen window --------------------------------------
+        // Implemented per-platform in Interface.HdmiWindow.win.cpp / .lnx.cpp:
+        // a borderless, always-on-top window pinned over a specific monitor,
+        // repainted on demand from hdmiCurrentFrame/hdmiSolidColor/hdmiTestBGRA.
+        void openHdmiWindow();
+        void closeHdmiWindow();
+        void requestHdmiRepaint();   // no-op if the window isn't open
 
         void renderBitmapToHdmi(const std::vector<uint8_t>& bmp) {
             {
@@ -702,8 +575,7 @@ export namespace LithoControl {
                 hdmiCurrentFrame = bmp;
                 hdmiIsBlank = false;
             }
-            if (hdmiHwnd)
-                PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+            requestHdmiRepaint();
         }
 
         void blankHdmi() {
@@ -712,13 +584,12 @@ export namespace LithoControl {
                 hdmiCurrentFrame.clear();
                 hdmiIsBlank = true;
             }
-            if (hdmiHwnd)
-                PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+            requestHdmiRepaint();
         }
 
         void showSolid(uint32_t bgra) {
             hdmiSolidColor.store(bgra);
-            if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+            requestHdmiRepaint();
         }
 
         // Scale the cached artwork RGBA to 640×360, threshold to 1bpp, and push to
@@ -777,7 +648,7 @@ export namespace LithoControl {
                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
                 hdmiSolidColor.store(0);
-                if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+                requestHdmiRepaint();
                 logQ.push("[DISP] Color test done");
             });
             hdmiColorTestThread.detach();
@@ -908,7 +779,7 @@ export namespace LithoControl {
                     hdmiTestBGRA = frame;
                 }
 
-                if (hdmiHwnd)  PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+                requestHdmiRepaint();
                 if (mainHwnd)  InvalidateRect(mainHwnd, nullptr, FALSE);
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(33));  // ~30 fps
@@ -926,7 +797,7 @@ export namespace LithoControl {
                 hdmiTestRunning.store(false);
                 if (hdmiTestThread.joinable()) hdmiTestThread.join();
                 hdmiTestActive.store(false);
-                if (hdmiHwnd) PostMessageA(hdmiHwnd, WM_USER + 1, 0, 0);
+                requestHdmiRepaint();
             }
             if (hdmiTestBtn) {
                 hdmiTestBtn->styles.remove(&Theme::Btn);

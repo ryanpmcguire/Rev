@@ -1,0 +1,35 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Rev.dir\\Debug\\Font.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Debug\\Rev.pdb",
+                "Rev.dir\\Debug\\",
+                "Rev.dir\\Debug\\Rev.Core.Font.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Rev.Core.Font",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\core\\font.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": [
+                {
+                    "logical-name": "Rev.Core.Resource"
+                },
+                {
+                    "logical-name": "Rev.Graphics.Canvas"
+                },
+                {
+                    "logical-name": "Rev.Graphics.UniformBuffer"
+                },
+                {
+                    "logical-name": "Rev.Graphics.Texture"
+                }
+            ]
+        }
+    ]
+}

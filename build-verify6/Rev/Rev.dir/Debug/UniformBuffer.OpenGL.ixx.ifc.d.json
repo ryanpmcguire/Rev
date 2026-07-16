@@ -1,0 +1,37 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\graphics\\opengl\\uniformbuffer.opengl.ixx",
+        "ProvidedModule": "Rev.Graphics.UniformBuffer",
+        "Includes": [
+            "c:\\users\\don\\documents\\github\\rev\\rev\\external\\glew\\glew.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\gl\\glu.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\shared\\winapifamily.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\shared\\winpackagefamily.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\um\\gl\\gl.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\cstring",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\yvals_core.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\vcruntime.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\sal.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\concurrencysal.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\vadefs.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\xkeycheck.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\string.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\corecrt.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\corecrt_memory.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\corecrt_memcpy_s.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\errno.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\vcruntime_string.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\corecrt_wstring.h",
+            "c:\\users\\don\\documents\\github\\rev\\rev\\external\\dbg.hpp",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\cstdio",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\stdio.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\corecrt_wstdio.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\corecrt_stdio_config.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\cstdarg",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\stdarg.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

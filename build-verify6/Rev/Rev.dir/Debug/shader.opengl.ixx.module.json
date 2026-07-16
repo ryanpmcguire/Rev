@@ -1,0 +1,26 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Rev.dir\\Debug\\Shader.OpenGL.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Debug\\Rev.pdb",
+                "Rev.dir\\Debug\\",
+                "Rev.dir\\Debug\\Rev.Graphics.Shader.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Rev.Graphics.Shader",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\graphics\\opengl\\shader.opengl.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": [
+                {
+                    "logical-name": "Rev.Core.Resource"
+                }
+            ]
+        }
+    ]
+}

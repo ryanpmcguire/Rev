@@ -1,0 +1,87 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\graphics\\primitives\\image\\image.ixx",
+        "ProvidedModule": "Rev.Primitive.Image",
+        "Includes": [
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\cstddef",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\yvals_core.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\vcruntime.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\sal.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\concurrencysal.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\vadefs.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\xkeycheck.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\stddef.h",
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.26100.0\\ucrt\\corecrt.h",
+            "c:\\program files (x86)\\microsoft visual studio\\18\\buildtools\\vc\\tools\\msvc\\14.51.36231\\include\\xtr1common",
+            "c:\\users\\don\\documents\\github\\rev\\rev\\external\\managed.hpp"
+        ],
+        "ImportedModules": [
+            {
+                "Name": "Rev.Primitive",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Primitive.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Core.Resource",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Resource.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Core.Shared",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Shared.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Core.Rect",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Rect.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Core.Vertex",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Vertex.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.Canvas",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Canvas.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.UniformBuffer",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\UniformBuffer.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.VertexBuffer",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\VertexBuffer.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.Pipeline",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Pipeline.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.Shader",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Shader.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.Texture",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Texture.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.NativeWindow",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\NativeWindow.win.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.CommandBuffer",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\CommandBuffer.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Graphics.FrameBuffer",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\FrameBuffer.OpenGL.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Core.Pos",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Pos.ixx.ifc"
+            },
+            {
+                "Name": "Rev.Core.Color",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Color.ixx.ifc"
+            }
+        ],
+        "ImportedHeaderUnits": []
+    }
+}

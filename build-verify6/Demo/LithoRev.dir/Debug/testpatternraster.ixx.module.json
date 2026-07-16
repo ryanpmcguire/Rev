@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "LithoRev.dir\\Debug\\TestPatternRaster.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Demo\\LithoRev.dir\\Debug\\vc145.pdb",
+                "LithoRev.dir\\Debug\\",
+                "LithoRev.dir\\Debug\\LithoControl.TestPatternRaster.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "LithoControl.TestPatternRaster",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\demo\\source\\lithocontrol\\testpatternraster.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": []
+        }
+    ]
+}

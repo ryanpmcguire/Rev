@@ -1,0 +1,80 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "LithoRev.dir\\Debug\\/source/LithoControl/Interface.ixx.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Demo\\LithoRev.dir\\Debug\\vc145.pdb",
+                "LithoRev.dir\\Debug\\/source/LithoControl/Interface.ixx.module.json",
+                "LithoRev.dir\\Debug\\/source/LithoControl/Interface.ixx.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "LithoControl.Interface",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\demo\\source\\lithocontrol\\interface.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": [
+                {
+                    "logical-name": "Rev.Element"
+                },
+                {
+                    "logical-name": "Rev.Element.Event"
+                },
+                {
+                    "logical-name": "Rev.Element.Style"
+                },
+                {
+                    "logical-name": "Rev.Element.Box"
+                },
+                {
+                    "logical-name": "Rev.Element.Text"
+                },
+                {
+                    "logical-name": "Rev.Element.TextInput"
+                },
+                {
+                    "logical-name": "Rev.Element.Dropdown"
+                },
+                {
+                    "logical-name": "Rev.Element.Checkbox"
+                },
+                {
+                    "logical-name": "Rev.Serial"
+                },
+                {
+                    "logical-name": "Rev.SocketClient"
+                },
+                {
+                    "logical-name": "Rev.OS.Dialog"
+                },
+                {
+                    "logical-name": "Rev.OS.SerialPort"
+                },
+                {
+                    "logical-name": "Rev.OS.Display"
+                },
+                {
+                    "logical-name": "Rev.Primitive.Image"
+                },
+                {
+                    "logical-name": "Rev.Graphics.Texture"
+                },
+                {
+                    "logical-name": "LithoControl.Theme"
+                },
+                {
+                    "logical-name": "LithoControl.ImagePreview"
+                },
+                {
+                    "logical-name": "LithoControl.ImageDecode"
+                },
+                {
+                    "logical-name": "LithoControl.TestPatternRaster"
+                }
+            ]
+        }
+    ]
+}

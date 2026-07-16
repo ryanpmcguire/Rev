@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Rev.dir\\Debug\\/src/Core/Svg.ixx.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Debug\\Rev.pdb",
+                "Rev.dir\\Debug\\/src/Core/Svg.ixx.module.json",
+                "Rev.dir\\Debug\\/src/Core/Svg.ixx.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Rev.Core.Svg",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\core\\svg.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": [
+                {
+                    "logical-name": "Rev.Core.Resource"
+                },
+                {
+                    "logical-name": "Rev.Graphics.Canvas"
+                },
+                {
+                    "logical-name": "Rev.Graphics.Texture"
+                }
+            ]
+        }
+    ]
+}

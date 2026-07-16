@@ -1,0 +1,18 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "LithoRev.dir\\Debug\\Interface.Build.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Demo\\LithoRev.dir\\Debug\\vc145.pdb",
+                "LithoRev.dir\\Debug\\"
+            ],
+            "requires": [
+                {
+                    "logical-name": "LithoControl.Interface"
+                }
+            ]
+        }
+    ]
+}

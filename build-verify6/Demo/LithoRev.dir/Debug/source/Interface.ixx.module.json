@@ -1,0 +1,59 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "LithoRev.dir\\Debug\\/source/Interface.ixx.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Demo\\LithoRev.dir\\Debug\\vc145.pdb",
+                "LithoRev.dir\\Debug\\/source/Interface.ixx.module.json",
+                "LithoRev.dir\\Debug\\/source/Interface.ixx.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Interface",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\demo\\source\\interface.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": [
+                {
+                    "logical-name": "Rev.Element"
+                },
+                {
+                    "logical-name": "Rev.Element.Style"
+                },
+                {
+                    "logical-name": "Rev.Element.Event"
+                },
+                {
+                    "logical-name": "Rev.Element.Box"
+                },
+                {
+                    "logical-name": "Rev.Element.Text"
+                },
+                {
+                    "logical-name": "Rev.Element.Slider"
+                },
+                {
+                    "logical-name": "Rev.Element.Dropdown"
+                },
+                {
+                    "logical-name": "Rev.Element.Radio"
+                },
+                {
+                    "logical-name": "Rev.Element.Checkbox"
+                },
+                {
+                    "logical-name": "Rev.Element.TextInput"
+                },
+                {
+                    "logical-name": "Rev.Element.Chart"
+                },
+                {
+                    "logical-name": "Rev.Serial"
+                }
+            ]
+        }
+    ]
+}

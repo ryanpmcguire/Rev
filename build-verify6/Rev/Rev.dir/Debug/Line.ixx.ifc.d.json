@@ -1,0 +1,15 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\core\\line.ixx",
+        "ProvidedModule": "Rev.Core.Line",
+        "Includes": [],
+        "ImportedModules": [
+            {
+                "Name": "Rev.Core.Vertex",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Vertex.ixx.ifc"
+            }
+        ],
+        "ImportedHeaderUnits": []
+    }
+}

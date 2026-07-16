@@ -1,0 +1,9 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/Don/Documents/GitHub/Rev/build-verify6/cmake_install.cmake",
+		"C:/Users/Don/Documents/GitHub/Rev/build-verify6/Rev/cmake_install.cmake",
+		"C:/Users/Don/Documents/GitHub/Rev/build-verify6/Demo/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

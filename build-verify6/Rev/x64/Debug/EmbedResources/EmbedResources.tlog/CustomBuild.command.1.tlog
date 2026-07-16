@@ -1,0 +1,26 @@
+^C:\USERS\DON\DOCUMENTS\GITHUB\REV\BUILD-VERIFY6\CMAKEFILES\C25606780634FF193B600AF405FBC25F\EMBEDRESOURCES.RULE
+setlocal
+cd C:\Users\Don\Documents\GitHub\Rev
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo "Running resource embed script..."
+if %errorlevel% neq 0 goto :cmEnd
+C:\Python314\python.exe C:/Users/Don/Documents/GitHub/Rev/Rev/scripts/Create_Resource_Modules.py --project-root C:/Users/Don/Documents/GitHub/Rev
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\DON\DOCUMENTS\GITHUB\REV\REV\CMAKELISTS.TXT
+setlocal
+"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/Don/Documents/GitHub/Rev -BC:/Users/Don/Documents/GitHub/Rev/build-verify6 --check-stamp-file C:/Users/Don/Documents/GitHub/Rev/build-verify6/Rev/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

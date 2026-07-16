@@ -1,0 +1,50 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Rev.dir\\Debug\\/src/Elements/Text.ixx.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Debug\\Rev.pdb",
+                "Rev.dir\\Debug\\/src/Elements/Text.ixx.module.json",
+                "Rev.dir\\Debug\\/src/Elements/Text.ixx.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Rev.Element.Text",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\elements\\text.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": [
+                {
+                    "logical-name": "Rev.Element.Style"
+                },
+                {
+                    "logical-name": "Rev.Element.Event"
+                },
+                {
+                    "logical-name": "Rev.Element.Box"
+                },
+                {
+                    "logical-name": "Rev.Core.Pos"
+                },
+                {
+                    "logical-name": "Rev.Core.Resource"
+                },
+                {
+                    "logical-name": "Rev.Core.Observable"
+                },
+                {
+                    "logical-name": "Rev.Core.Font"
+                },
+                {
+                    "logical-name": "Rev.Primitive.Text"
+                },
+                {
+                    "logical-name": "Rev.Primitive.Lines"
+                }
+            ]
+        }
+    ]
+}

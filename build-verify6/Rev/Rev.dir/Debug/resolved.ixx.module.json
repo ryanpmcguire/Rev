@@ -1,0 +1,26 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Rev.dir\\Debug\\Resolved.obj",
+            "outputs": [
+                "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Debug\\Rev.pdb",
+                "Rev.dir\\Debug\\",
+                "Rev.dir\\Debug\\Rev.Element.Resolved.ifc"
+            ],
+            "provides": [
+                {
+                    "logical-name": "Rev.Element.Resolved",
+                    "source-path": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\element\\resolved.ixx",
+                    "is-interface": true
+                }
+            ],
+            "requires": [
+                {
+                    "logical-name": "Rev.Element.Style"
+                }
+            ]
+        }
+    ]
+}

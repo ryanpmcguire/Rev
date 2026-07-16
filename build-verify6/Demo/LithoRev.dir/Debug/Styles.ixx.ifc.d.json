@@ -1,0 +1,15 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\users\\don\\documents\\github\\rev\\demo\\source\\styles.ixx",
+        "ProvidedModule": "Styles",
+        "Includes": [],
+        "ImportedModules": [
+            {
+                "Name": "Rev.Element.Style",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Style.ixx.ifc"
+            }
+        ],
+        "ImportedHeaderUnits": []
+    }
+}

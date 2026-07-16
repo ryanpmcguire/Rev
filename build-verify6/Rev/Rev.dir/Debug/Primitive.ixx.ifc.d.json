@@ -1,0 +1,15 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\users\\don\\documents\\github\\rev\\rev\\src\\graphics\\primitives\\primitive.ixx",
+        "ProvidedModule": "Rev.Primitive",
+        "Includes": [],
+        "ImportedModules": [
+            {
+                "Name": "Rev.Graphics.Canvas",
+                "BMI": "C:\\Users\\Don\\Documents\\GitHub\\Rev\\build-verify6\\Rev\\Rev.dir\\Debug\\Canvas.OpenGL.ixx.ifc"
+            }
+        ],
+        "ImportedHeaderUnits": []
+    }
+}

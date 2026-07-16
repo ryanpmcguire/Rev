@@ -1,0 +1,184 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\external\glm\detail\glm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\resources\.modules\Files.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Color.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\DirtyFlag.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Font.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\FontAtlas.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Line.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Lrtb.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Observable.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Pos.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Rect.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Resource.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Shared.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Svg.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Transform.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\Vertex.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Core\View.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Element\Element.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Element\Event\Event.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Element\Resolved.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Element\Style\Style.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Element\Style\Themes\Default.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Box.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Controls\Checkbox\Checkbox.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Controls\Dropdown\Dropdown.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Controls\Radio\Radio.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Controls\Slider.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Controls\TextInput\TextInput.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Display\Chart.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Svg.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Elements\Text.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\GlobalTime.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\Canvas.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\CommandBuffer.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\FrameBuffer.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\Pipeline.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\Shader.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\Texture.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\UniformBuffer.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\OpenGL\VertexBuffer.OpenGL.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Primitives\Image\Image.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Primitives\Lines\Lines.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Primitives\Primitive.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Primitives\Rectangle\Rectangle.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Primitives\Svg\Svg.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Primitives\Text\Text.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Primitives\Triangles\Triangles.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Graphics\Vulkan\Vulkan.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Native\Windows\Application.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Native\Windows\NativeWindow.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\OS\Windows\Dialog.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\OS\Windows\Display.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\OS\Windows\Serial.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\OS\Windows\SerialPort.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\OS\Windows\Socket.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\OS\Windows\SocketClient.win.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Don\Documents\GitHub\Rev\Rev\src\Window.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Don\Documents\GitHub\Rev\Rev\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{103654E4-5DAD-3246-A969-1AC26DA45277}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

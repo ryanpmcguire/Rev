@@ -1,0 +1,10 @@
+^C:\USERS\DON\DOCUMENTS\GITHUB\REV\DEMO\CMAKELISTS.TXT
+setlocal
+"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/Don/Documents/GitHub/Rev -BC:/Users/Don/Documents/GitHub/Rev/build-verify6 --check-stamp-file C:/Users/Don/Documents/GitHub/Rev/build-verify6/Demo/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
