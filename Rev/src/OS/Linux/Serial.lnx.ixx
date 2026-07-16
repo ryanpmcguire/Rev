@@ -123,7 +123,10 @@ export namespace Rev {
 
             if (handle < 0) return;
 
-            tcflush(handle, TCIFLUSH);
+            // TCFLSH/TCIFLUSH come from the same asm/termbits.h family used
+            // for TCGETS2/TCSETS2 above -- avoid <termios.h> here, it
+            // redeclares struct termios and conflicts with asm/termbits.h.
+            ioctl(handle, TCFLSH, TCIFLUSH);
         }
 
         void sendBytes(const void* data, size_t size) {

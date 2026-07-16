@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <vector>
 #include <functional>
 
