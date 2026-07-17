@@ -14,6 +14,7 @@ module;
 #include <mutex>
 #include <thread>
 #include <atomic>
+#include <functional>
 
 module LithoControl.Interface;   // implementation unit -- no 'export'
 
@@ -204,6 +205,73 @@ namespace LithoControl {
         MFShutdown();
         if (uninitCom) CoUninitialize();
         logQ.push("[CAM] Stopped");
+    }
+
+    // ---------------------------------------------------------------------
+    // Slicer subprocess (see SlicerSubprocess.lnx.cpp for the Linux side).
+    //
+    // Lives here rather than its own SlicerSubprocess.win.cpp: a standalone
+    // 4th implementation unit of LithoControl.Interface reproducibly hit the
+    // same MSVC C++20-modules internal compiler error (C1116, "importing
+    // module Rev.SocketClient... Specialization of std::_Stop_callback_base::
+    // _Do_attach") already worked around once for EdidApply -- see
+    // HdmiWindow.win.cpp for the full diagnosis. Folding it into this
+    // existing (3rd) implementation unit sidesteps it again.
+    // ---------------------------------------------------------------------
+
+    int Interface::runCapturedProcess(const std::string& cmd, const std::string& cwd,
+                                       const std::function<void(const std::string&)>& onLine) {
+        SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
+        HANDLE hR, hW;
+        CreatePipe(&hR, &hW, &sa, 0);
+        SetHandleInformation(hR, HANDLE_FLAG_INHERIT, 0);
+
+        STARTUPINFOA si{};
+        si.cb         = sizeof(si);
+        si.hStdOutput = hW;
+        si.hStdError  = hW;
+        si.dwFlags    = STARTF_USESTDHANDLES;
+
+        const char* cwdArg = cwd.empty() ? nullptr : cwd.c_str();
+
+        PROCESS_INFORMATION pi{};
+        // CreateProcessA requires a mutable command-line buffer.
+        std::string mutableCmd = cmd;
+        BOOL ok = CreateProcessA(nullptr, mutableCmd.data(),
+                                 nullptr, nullptr, TRUE,
+                                 CREATE_NO_WINDOW, nullptr, cwdArg, &si, &pi);
+        CloseHandle(hW);
+
+        if (!ok) {
+            CloseHandle(hR);
+            return -1;
+        }
+
+        char buf[256];
+        DWORD rd;
+        std::string pending;
+        while (ReadFile(hR, buf, sizeof(buf) - 1, &rd, nullptr) && rd > 0) {
+            buf[rd] = '\0';
+            pending.append(buf, rd);
+
+            size_t pos;
+            while ((pos = pending.find('\n')) != std::string::npos) {
+                std::string line = pending.substr(0, pos);
+                pending.erase(0, pos + 1);
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (!line.empty()) onLine(line);
+            }
+        }
+        if (!pending.empty()) onLine(pending);
+
+        DWORD exitCode = 1;
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        CloseHandle(hR);
+
+        return (int)exitCode;
     }
 
 } // namespace LithoControl

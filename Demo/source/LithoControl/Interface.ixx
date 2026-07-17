@@ -1,7 +1,10 @@
 ﻿module;
 
-// Win32 for window messaging
+// Win32 for the taskbar icon only (see computeStyle()) -- everything else
+// that used to need it has moved into platform-specific files.
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 #include <string>
 #include <vector>
@@ -2020,6 +2023,14 @@ export namespace LithoControl {
             }).detach();
         }
 
+        // Runs `cmd` (a full shell command line) with cwd as its working directory,
+        // invoking onLine for each complete line of its merged stdout+stderr as it
+        // arrives. Returns the process exit code, or -1 if the process couldn't be
+        // started at all. Implemented per-platform in SlicerSubprocess.win.cpp
+        // (CreateProcessA + pipe) / SlicerSubprocess.lnx.cpp (popen).
+        static int runCapturedProcess(const std::string& cmd, const std::string& cwd,
+                                       const std::function<void(const std::string&)>& onLine);
+
         void runSlicerSubprocess(
             const std::string& inFile,
             const std::string& exposeMs,
@@ -2058,7 +2069,16 @@ export namespace LithoControl {
                    (absOutDir.back() == '\\' || absOutDir.back() == '/'))
                 absOutDir.pop_back();
 
-            std::string cmd = "python \"" + slicerScript + "\" \"" + inFile + "\""
+            // Most Linux distros only ship "python3" -- "python" is unaliased
+            // unless python-is-python3 is installed. Windows Python installs
+            // conventionally provide "python" (the py.org installer and the
+            // Microsoft Store package both do).
+#ifdef _WIN32
+            const char* pythonExe = "python";
+#else
+            const char* pythonExe = "python3";
+#endif
+            std::string cmd = std::string(pythonExe) + " \"" + slicerScript + "\" \"" + inFile + "\""
                 " --expose-ms " + exposeMs +
                 " --feed-rate " + feedRate +
                 " --threshold " + threshold +
@@ -2075,64 +2095,25 @@ export namespace LithoControl {
                 cmd += " --no-send";
             }
 
-            SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
-            HANDLE hR, hW;
-            CreatePipe(&hR, &hW, &sa, 0);
-            SetHandleInformation(hR, HANDLE_FLAG_INHERIT, 0);
+            int parsedCols = 0, parsedRows = 0;
+            int exitCode = runCapturedProcess(cmd, repoRoot, [&](const std::string& line) {
+                logQ.push(line);   // slicer.py already prefixes "[SLICER]"
+                // Parse "Tiles:  2 cols x 2 rows = N frames"
+                auto tpos = line.find("Tiles:");
+                if (tpos != std::string::npos) {
+                    int c = 0, r = 0;
+                    if (std::sscanf(line.c_str() + tpos + 6, " %d cols x %d rows", &c, &r) == 2) {
+                        parsedCols = c;
+                        parsedRows = r;
+                    }
+                }
+            });
 
-            STARTUPINFOA si{};
-            si.cb           = sizeof(si);
-            si.hStdOutput   = hW;
-            si.hStdError    = hW;
-            si.dwFlags      = STARTF_USESTDHANDLES;
-
-            // Set subprocess CWD to repoRoot so relative paths inside the slicer work
-            const char* cwd = repoRoot.empty() ? nullptr : repoRoot.c_str();
-
-            PROCESS_INFORMATION pi{};
-            BOOL ok = CreateProcessA(nullptr, (LPSTR)cmd.c_str(),
-                                     nullptr, nullptr, TRUE,
-                                     CREATE_NO_WINDOW, nullptr, cwd, &si, &pi);
-            CloseHandle(hW);
-
-            if (!ok) {
-                CloseHandle(hR);
+            if (exitCode < 0) {
                 logQ.push("[ERR] Failed to start slicer -- is Python in PATH?");
                 pendingSliceDone = true;   // reset SLICE label on main thread
                 return;
             }
-
-            char buf[256];
-            DWORD rd;
-            int parsedCols = 0, parsedRows = 0;
-            while (ReadFile(hR, buf, sizeof(buf) - 1, &rd, nullptr) && rd > 0) {
-                buf[rd] = '\0';
-                std::string chunk(buf, rd);
-                std::istringstream ss(chunk);
-                std::string line;
-                while (std::getline(ss, line)) {
-                    if (!line.empty() && line.back() == '\r') line.pop_back();
-                    if (!line.empty()) {
-                        logQ.push(line);   // slicer.py already prefixes "[SLICER]"
-                        // Parse "Tiles:  2 cols x 2 rows = N frames"
-                        auto tpos = line.find("Tiles:");
-                        if (tpos != std::string::npos) {
-                            int c = 0, r = 0;
-                            if (std::sscanf(line.c_str() + tpos + 6, " %d cols x %d rows", &c, &r) == 2) {
-                                parsedCols = c;
-                                parsedRows = r;
-                            }
-                        }
-                    }
-                }
-            }
-
-            DWORD exitCode = 1;
-            WaitForSingleObject(pi.hProcess, INFINITE);
-            GetExitCodeProcess(pi.hProcess, &exitCode);
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-            CloseHandle(hR);
 
             if (exitCode == 0) {
                 logQ.push("[OK] Slice complete");
