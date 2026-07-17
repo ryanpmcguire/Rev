@@ -72,7 +72,7 @@ export namespace Rev {
 
             window = new NativeWindow(
                 parent->window->handle,
-                { details.width, details.height },
+                NativeWindow::Size{ details.width, details.height },
                 [this](WinEvent& event) { this->onEvent(event); }
             );
 
@@ -87,7 +87,7 @@ export namespace Rev {
 
             window = new NativeWindow(
                 parent,
-                { details.width, details.height },
+                NativeWindow::Size{ details.width, details.height },
                 [this](WinEvent& event) { this->onEvent(event); }
             );
 
@@ -106,7 +106,7 @@ export namespace Rev {
             // Create native window
             window = new NativeWindow(
                 nullptr,
-                { details.width, details.height },
+                NativeWindow::Size{ details.width, details.height },
                 [this](WinEvent& event) { this->onEvent(event); }
             );
 
