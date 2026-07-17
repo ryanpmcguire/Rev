@@ -1,9 +1,7 @@
 ﻿module;
 
-// Win32 for window messaging and shell APIs
+// Win32 for window messaging
 #include <windows.h>
-#include <shellapi.h>
-#include <shlobj.h>
 
 #include <string>
 #include <vector>
@@ -1980,15 +1978,8 @@ export namespace LithoControl {
         }
 
         void browseJobsDir() {
-            BROWSEINFOA bi{};
-            char path[MAX_PATH] = {};
-            bi.pszDisplayName = path;
-            bi.lpszTitle      = "Select jobs folder";
-            bi.ulFlags        = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
-            LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-            if (pidl) {
-                SHGetPathFromIDListA(pidl, path);
-                CoTaskMemFree(pidl);
+            std::string path;
+            if (Rev::OS::Dialog::PickFolder(path, "Select jobs folder")) {
                 if (jobsDirInput) jobsDirInput->text->content = path;
                 settings.jobsDir = path;
                 saveSettings();
@@ -2199,120 +2190,84 @@ export namespace LithoControl {
             return i;
         }
 
-        // Elevates a batch script via UAC and waits for it to exit. Returns the
-        // process exit code, or (DWORD)-1 if it couldn't be launched (e.g. UAC
-        // declined).
-        DWORD runElevatedBatch(const std::string& script, const std::string& cwd) {
-            SHELLEXECUTEINFOA sei{};
-            sei.cbSize      = sizeof(sei);
-            sei.fMask       = SEE_MASK_NOCLOSEPROCESS;
-            sei.lpVerb      = "runas";
-            sei.lpFile      = script.c_str();
-            sei.lpDirectory = cwd.empty() ? nullptr : cwd.c_str();
-            sei.nShow       = SW_SHOWNORMAL;
-
-            if (!ShellExecuteExA(&sei) || !sei.hProcess) {
-                logQ.push("[ERR] Could not launch " + script + " (UAC declined?)");
-                return (DWORD)-1;
-            }
-
-            WaitForSingleObject(sei.hProcess, INFINITE);
-            DWORD exitCode = 1;
-            GetExitCodeProcess(sei.hProcess, &exitCode);
-            CloseHandle(sei.hProcess);
-            return exitCode;
-        }
-
-        // Elevates pc/apply_edid.bat via UAC -- writing the EDID override lives under
-        // HKLM, so this needs admin. stdout can't be piped across the elevation
-        // boundary the way runSlicerSubprocess() does, so the batch instead logs to
-        // %TEMP%\litho_apply_edid.log and this tails that file once it exits.
-        //
-        // The driver restart is deliberately a *separate* elevated script
-        // (pc/restart_driver.bat), only run after the user clicks OK on a prompt --
-        // reloading the driver drops LithoRev's own live GPU context, so we warn
-        // and let the user restart LithoRev afterward rather than doing it blind.
-        void runEdidApplySubprocess(const std::string& repoRoot) {
-            namespace fs = std::filesystem;
-
-            std::string installScript = repoRoot.empty()
-                ? "pc/apply_edid.bat"
-                : (repoRoot + "/pc/apply_edid.bat");
-
-            if (!fs::exists(installScript)) {
-                logQ.push("[ERR] Not found: " + installScript);
-                pendingEdidDone = true;
-                return;
-            }
-
-            char tempDir[MAX_PATH];
-            GetTempPathA(MAX_PATH, tempDir);
-            std::string logPath = std::string(tempDir) + "litho_apply_edid.log";
-            DeleteFileA(logPath.c_str());   // clear so we don't tail a stale run
-
-            DWORD installExit = runElevatedBatch(installScript, repoRoot);
-            size_t linesSoFar = tailLogFile(logPath, 0);
-
-            if (installExit != 0) {
-                logQ.push("[ERR] apply_edid.bat exited with code " + std::to_string(installExit));
-                pendingEdidDone = true;
-                return;
-            }
-
-            logQ.push("[OK] EDID override installed.");
-
-            auto choice = Rev::OS::Dialog::Confirm("Restart display driver?",
-                "The projector EDID override was installed.\n\n"
-                "Click OK to restart the display driver now and apply it.\n"
-                "LithoRev's own display may drop when this happens -- if the "
-                "window closes or goes blank, restart LithoRev afterward.");
-
-            if (choice != Rev::OS::DialogResult::Yes) {
-                logQ.push("Driver restart skipped -- reboot manually to apply the override.");
-                pendingEdidDone = true;
-                return;
-            }
-
-            std::string restartScript = repoRoot.empty()
-                ? "pc/restart_driver.bat"
-                : (repoRoot + "/pc/restart_driver.bat");
-
-            if (!fs::exists(restartScript)) {
-                logQ.push("[ERR] Not found: " + restartScript);
-                pendingEdidDone = true;
-                return;
-            }
-
-            DWORD restartExit = runElevatedBatch(restartScript, repoRoot);
-            tailLogFile(logPath, linesSoFar);
-
-            logQ.push(restartExit == 0
-                ? "[OK] Driver restart finished -- reopen LithoRev if it closed"
-                : "[ERR] restart_driver.bat exited with code " + std::to_string(restartExit));
-            pendingEdidDone = true;
-        }
+        // Elevates pc/apply_edid.bat via UAC (writing the EDID override lives under
+        // HKLM) and, after confirmation, pc/restart_driver.bat. Windows-only --
+        // there's no Linux equivalent to a CRU-based EDID override or a Windows
+        // display driver restart; a custom projector mode on Linux would go
+        // through XRandR instead (see Rev::OS::Display::SetMode), a different
+        // enough mechanism that it's not a drop-in port. Implemented in
+        // EdidApply.win.cpp / EdidApply.lnx.cpp (Linux: logs unsupported).
+        void runEdidApplySubprocess(const std::string& repoRoot);
 
         // ---------------------------------------------------------------------
         // Settings persistence (INI file in %APPDATA%)
         // ---------------------------------------------------------------------
 
         std::string settingsPath() {
-            char ap[MAX_PATH];
-            SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, ap);
-            std::string dir = std::string(ap) + "\\LithoControl";
-            CreateDirectoryA(dir.c_str(), nullptr);
-            return dir + "\\settings.ini";
+            namespace fs = std::filesystem;
+#ifdef _WIN32
+            const char* base = std::getenv("APPDATA");
+            fs::path dir = fs::path(base ? base : ".") / "LithoControl";
+#else
+            const char* home = std::getenv("HOME");
+            fs::path dir = fs::path(home ? home : ".") / ".config" / "LithoControl";
+#endif
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            return (dir / "settings.ini").string();
+        }
+
+        // Minimal portable INI reader/writer -- a single flat [section], no
+        // comments or nesting, which is all settings.ini actually needs. Replaces
+        // GetPrivateProfileString/WritePrivateProfileString (Windows-only).
+        static std::vector<std::pair<std::string, std::string>> readIniSection(
+                const std::string& path, const std::string& section) {
+            std::vector<std::pair<std::string, std::string>> kv;
+            std::ifstream f(path);
+            if (!f) return kv;
+
+            std::string line;
+            bool inSection = false;
+            while (std::getline(f, line)) {
+                while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t'))
+                    line.pop_back();
+                size_t start = line.find_first_not_of(" \t");
+                if (start == std::string::npos) continue;
+                line = line.substr(start);
+                if (line.empty()) continue;
+
+                if (line.front() == '[' && line.back() == ']') {
+                    inSection = (line.substr(1, line.size() - 2) == section);
+                    continue;
+                }
+                if (!inSection) continue;
+
+                auto eq = line.find('=');
+                if (eq == std::string::npos) continue;
+                kv.push_back({ line.substr(0, eq), line.substr(eq + 1) });
+            }
+            return kv;
+        }
+
+        static void writeIniSection(const std::string& path, const std::string& section,
+                const std::vector<std::pair<std::string, std::string>>& kv) {
+            std::ofstream f(path, std::ios::trunc);
+            f << "[" << section << "]\n";
+            for (auto& [k, v] : kv) f << k << "=" << v << "\n";
         }
 
         void loadSettings() {
             std::string ini = settingsPath();
+            auto kv = readIniSection(ini, "LithoControl");
             auto gi = [&](const char* k, int def) -> int {
-                return GetPrivateProfileIntA("LithoControl", k, def, ini.c_str());
+                for (auto& [key, val] : kv) {
+                    if (key == k) { try { return std::stoi(val); } catch (...) { return def; } }
+                }
+                return def;
             };
             auto gs = [&](const char* k, const char* def) -> std::string {
-                char buf[256];
-                GetPrivateProfileStringA("LithoControl", k, def, buf, sizeof(buf), ini.c_str());
-                return buf;
+                for (auto& [key, val] : kv) if (key == k) return val;
+                return def;
             };
             settings.exposeMs  = gi("exposeMs",  3000);
             settings.feedRate  = (float)gi("feedRateX10", 200) / 10.0f;
@@ -2331,12 +2286,9 @@ export namespace LithoControl {
 
         void saveSettings() {
             std::string ini = settingsPath();
-            auto wi = [&](const char* k, int v) {
-                WritePrivateProfileStringA("LithoControl", k, std::to_string(v).c_str(), ini.c_str());
-            };
-            auto ws = [&](const char* k, const std::string& v) {
-                WritePrivateProfileStringA("LithoControl", k, v.c_str(), ini.c_str());
-            };
+            std::vector<std::pair<std::string, std::string>> kv;
+            auto wi = [&](const char* k, int v) { kv.push_back({ k, std::to_string(v) }); };
+            auto ws = [&](const char* k, const std::string& v) { kv.push_back({ k, v }); };
             wi("exposeMs",     settings.exposeMs);
             wi("feedRateX10",  (int)(settings.feedRate  * 10));
             wi("threshold",    settings.threshold);
@@ -2350,6 +2302,7 @@ export namespace LithoControl {
             ws("jobsDir",      jobsDirInput ? jobsDirInput->text->content.get() : settings.jobsDir);
             ws("platform",     platform == Platform::Pi ? "pi" : "stm32");
             ws("dlpRoot",      dlpRoot);
+            writeIniSection(ini, "LithoControl", kv);
         }
 
         // ---------------------------------------------------------------------

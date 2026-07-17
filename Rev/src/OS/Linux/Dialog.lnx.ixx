@@ -190,5 +190,24 @@ export namespace Rev::OS {
                 " --filename=" + shellQuote((std::filesystem::path(dir) / "").string());
             return runCommandCapture(command, outPath);
         }
+
+        // Native folder-picker dialog via zenity.
+        static bool PickFolder(
+            std::string& outPath,
+            const std::string& title,
+            void* owner = nullptr
+        ) {
+            (void)owner;
+
+            if (!commandExists("zenity")) {
+                std::fprintf(stderr, "[PickFolder] %s: zenity not found\n", title.c_str());
+                return false;
+            }
+
+            std::string dir = usableInitialDir("");
+            std::string command = "zenity --file-selection --directory --title=" + shellQuote(title) +
+                " --filename=" + shellQuote((std::filesystem::path(dir) / "").string());
+            return runCommandCapture(command, outPath);
+        }
     };
 }

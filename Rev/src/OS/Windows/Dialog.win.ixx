@@ -4,6 +4,7 @@ module;
 
 #include <windows.h>
 #include <commdlg.h>
+#include <shlobj.h>
 
 export module Rev.OS.Dialog;
 
@@ -95,6 +96,30 @@ export namespace Rev::OS {
             ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 
             if (!GetOpenFileNameA(&ofn)) return false;
+
+            outPath = path;
+            return true;
+        }
+
+        // Native folder-picker dialog.
+        static bool PickFolder(
+            std::string& outPath,
+            const std::string& title,
+            void* owner = nullptr
+        ) {
+            char path[MAX_PATH] = {};
+
+            BROWSEINFOA bi{};
+            bi.hwndOwner      = (HWND)owner;
+            bi.pszDisplayName = path;
+            bi.lpszTitle      = title.c_str();
+            bi.ulFlags        = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
+
+            LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+            if (!pidl) return false;
+
+            SHGetPathFromIDListA(pidl, path);
+            CoTaskMemFree(pidl);
 
             outPath = path;
             return true;
