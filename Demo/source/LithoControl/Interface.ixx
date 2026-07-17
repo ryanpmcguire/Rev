@@ -18,6 +18,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <ctime>
 #include <cmath>
 
 #include <dbg.hpp>
@@ -39,6 +40,7 @@ import Rev.OS.Dialog;
 import Rev.OS.SerialPort;
 import Rev.OS.Display;
 import Rev.OS.ThreadControl;
+import Rev.OS.Clipboard;
 import Rev.Primitive.Image;
 import Rev.Graphics.Texture;
 import LithoControl.Theme;
@@ -968,9 +970,10 @@ export namespace LithoControl {
             std::string msg;
             bool runnerUpdated = false;
             while (logQ.pop(msg)) {
-                SYSTEMTIME lt{}; GetLocalTime(&lt);
+                std::time_t nowT = std::time(nullptr);
+                std::tm lt = *std::localtime(&nowT);
                 char ts[12];
-                std::snprintf(ts, sizeof(ts), "%02d:%02d:%02d ", lt.wHour, lt.wMinute, lt.wSecond);
+                std::snprintf(ts, sizeof(ts), "%02d:%02d:%02d ", lt.tm_hour, lt.tm_min, lt.tm_sec);
                 logLines.push_back(std::string(ts) + msg);
                 if (logLines.size() > MAX_LOG) logLines.pop_front();
                 runnerUpdated = true;
@@ -2412,16 +2415,7 @@ export namespace LithoControl {
         void copyToClipboard(const std::deque<std::string>& lines) {
             std::string text;
             for (auto& l : lines) { text += l; text += '\n'; }
-            if (!OpenClipboard(nullptr)) return;
-            EmptyClipboard();
-            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
-            if (hMem) {
-                auto* dst = static_cast<char*>(GlobalLock(hMem));
-                std::memcpy(dst, text.c_str(), text.size() + 1);
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_TEXT, hMem);
-            }
-            CloseClipboard();
+            Rev::OS::Clipboard::SetText(text);
         }
     };
 
