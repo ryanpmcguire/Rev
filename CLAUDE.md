@@ -4,19 +4,40 @@ This file provides guidance to Claude Code when working in the Rev repository.
 
 ## Project Overview
 
-Rev is a GPU-accelerated C++23 GUI framework. It uses C++20 modules (`.ixx` files), a flex-style layout engine, and native platform backends (Win32 + OpenGL on Windows, Cocoa + Metal on macOS). The primary use case driving active development is a **DLP photolithography control GUI** (`Demo/source/LithoControl/Interface.ixx`).
+Rev is a GPU-accelerated C++23 GUI framework. It uses C++20 modules (`.ixx` files), a flex-style layout engine, and native platform backends (Win32 + OpenGL on Windows, X11 + OpenGL on Linux, Cocoa + Metal on macOS). The primary use case driving active development is a **DLP photolithography control GUI** (`Demo/source/LithoControl/Interface.ixx`).
 
 ## Build system
 
-- **CMake 3.26+** required (C++ module scanning needs `CMAKE_EXPERIMENTAL_CXX_MODULE_CMAKE_API`)
-- **MSVC 2022** for Windows; Apple Clang for macOS
+- **CMake 3.26+** on Windows (MSVC's module support); **CMake ≥4.3.2** on Linux/Clang — older apt-packaged cmake (e.g. Debian trixie's 3.31.6) can't do C++20 module dependency scanning correctly. If apt's version is too old: `pip install --user --break-system-packages cmake`.
+- **MSVC 2022+** for Windows; **Clang 18** (via Ninja) for Linux; Apple Clang for macOS
 - Source files are collected with `GLOB_RECURSE` — **adding a new `.ixx` file anywhere under `Rev/src/` or `Demo/source/` is automatically picked up, no CMakeLists edit needed** (exception: new link libraries must be added manually)
-- Platform filter: files named `*.win.ixx` compile on Windows only; `*.mac.ixx` on macOS only
+- Platform filter: files named `*.win.ixx` compile on Windows only, `*.lnx.ixx` on Linux only, `*.mac.ixx` on macOS only. The filter regex only recognizes simple two-segment names (`Name.marker.ext`) — a three-segment name like `Foo.Bar.win.cpp` silently loses its platform marker and gets compiled on every platform. Keep new platform-specific files to the two-segment form.
 
 ```
+# Windows
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --target HelloWorld
+
+# Linux
+cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+  -DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=$(command -v clang-scan-deps-18)
+cmake --build build-linux --target LithoRev -j"$(nproc)"
 ```
+
+### Linux/XFCE port (branch `lithorev-linux`)
+
+`LithoRev` builds and links successfully on Linux (Clang 18 + Ninja, verified both under WSL2 Debian and natively on Linux Mint XFCE). Notes specific to this port:
+
+- **Header hygiene**: MSVC's standard library headers transitively pull in `<algorithm>`, `<cstdint>`, `<filesystem>`, `<cmath>` etc. in places Clang/libstdc++ don't. Any "no member named X in namespace std" or "use of undeclared identifier" error on Linux that looks like a real standard-library symbol is almost always a missing include that MSVC was silently tolerating — add the include rather than looking for a logic bug.
+- **`Window` name collision**: X11's `Xlib.h` defines a global `Window` typedef (`typedef XID Window`) that collides with `Rev::Window` wherever a file has `using namespace Rev;` in scope (e.g. any `LithoControl.Interface` implementation unit). Qualify X11 window handles as `::Window` in those files.
+- **`Rev::Application::windows`** must be `std::vector<Window*>` on every platform (matching the `Window(std::vector<Window*>&, Details)` constructor) — it was `std::vector<void*>` on Linux only and broke `main.cpp`.
+- **`Rev.OS.SerialPort::List()` on Linux**: `/dev/ttyS0`–`ttyS31` (legacy platform 8250 UARTs) are always present in `/sys/class/tty` with a `device` symlink regardless of real hardware, so a plain "has a device symlink" check isn't enough to filter them out. Uses the same `TIOCGSERIAL`/`PORT_UNKNOWN` probe as pyserial's `comports()` to skip phantom `ttyS*` ports; `ttyUSB*`/`ttyACM*` are trusted as-is.
+- **Known gaps, not ported**:
+  - `EdidApply.lnx.cpp` is a stub — CRU-based EDID override has no Linux equivalent; a Linux projector-mode override would need to go through `xrandr` separately.
+  - **E-STOP thread cancellation** (`Rev::OS::ThreadControl`, `pthread_kill`/`SIGUSR1`-based on Linux vs. `CancelSynchronousIo` on Windows) has not been hardware-tested. Verify before trusting it on a live gantry/laser session.
+- **Runtime deps on the target machine**: `libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglew-dev libfreetype-dev python3 xclip` (or `xsel`) via apt, plus `clang-tools-18` if `clang-scan-deps-18` isn't already on `PATH`.
+- `PROJECT_ROOT` is baked in at compile time as `CMAKE_SOURCE_DIR` (used to locate `Rev/resources/Fonts/Roboto/Roboto.ttf` and by `Resource.ixx`'s dev-mode file resolution) — build **on** the target machine, at whatever path you actually intend to run from, rather than copying a binary built elsewhere at a different path.
 
 ## Module naming convention
 
@@ -169,9 +190,11 @@ void computeStyle(Event& e) override {
 
 ## OS modules
 
-### `Rev.Serial` (`Rev/src/OS/Serial.ixx`)
+Each `Rev.OS.*` module is split per-platform (`Windows/Foo.win.ixx`, `Linux/Foo.lnx.ixx`, `MacOS/Foo.mac.ixx` where it exists) behind one shared module name/interface, selected at compile time by the platform file filter above.
 
-Win32 `CreateFile` serial port. Constructor opens port; destructor closes handle.
+### `Rev.Serial` (`OS/Windows/Serial.win.ixx`, `OS/Linux/Serial.lnx.ixx`)
+
+Serial port I/O — Win32 `CreateFile` on Windows, `termios` on Linux. Constructor opens port; destructor closes handle/fd.
 
 - `sendBytes(data, n)` — write raw bytes
 - `sendText(str)` — write string
@@ -180,17 +203,37 @@ Win32 `CreateFile` serial port. Constructor opens port; destructor closes handle
 - `readBytes(n, timeoutMs=5000)` — reads exactly n bytes, returns `std::vector<uint8_t>`
 - `connected()` — true if handle is valid
 
-**Timeout notes:** `readLine` / `readBytes` temporarily set `ReadTotalTimeoutConstant` to the given timeout (in ms), then restore the default (50ms). Always call from a background thread.
+**Timeout notes:** `readLine` / `readBytes` temporarily set the read timeout to the given value (Windows: `ReadTotalTimeoutConstant`; Linux: `VTIME`/`poll`), then restore the default. Always call from a background thread.
 
-### `Rev.SocketClient` (`Rev/src/OS/SocketClient.ixx`)
+### `Rev.SocketClient` (`OS/Windows/SocketClient.win.ixx`, `OS/Linux/SocketClient.lnx.ixx`)
 
-WinSock2 TCP client. Connects synchronously with 5-second timeout; receives lines asynchronously on an internal thread.
+TCP client — WinSock2 on Windows, BSD sockets on Linux. Connects synchronously with 5-second timeout; receives lines asynchronously on an internal thread.
 
 - `connect(host, port)` — resolves hostname, connects, starts receive thread; returns `bool`
 - `sendLine(msg)` — sends `msg + "\n"`
 - `disconnect()` — shuts down socket, joins thread; safe to call from any thread
 - `isConnected()` — true if socket is valid
 - Callback fires on the receive thread — post to a `MsgQueue` rather than touching UI directly
+
+### `Rev.OS.SerialPort` (`OS/Windows/SerialPort.win.ixx`, `OS/Linux/SerialPort.lnx.ixx`)
+
+`List()` returns available serial ports for the COM-port dropdown. Windows: SetupAPI enumeration. Linux: walks `/sys/class/tty`, filtering out phantom `ttyS0..31` via `TIOCGSERIAL` (see Linux port notes above) and reading `manufacturer`/`product` sysfs attributes for the friendly label.
+
+### `Rev.OS.Display` (`OS/Windows/Display.win.ixx`, `OS/Linux/Display.lnx.ixx`)
+
+`List()`/`SetMode()` for display enumeration and mode-setting. Windows: `EnumDisplayDevicesA`/`ChangeDisplaySettingsExA`. Linux: reuses `Rev::NativeWindow::getDisplays()` (XRandR) for listing, shells out to `xrandr` for `SetMode()`.
+
+### `Rev.OS.ThreadControl` (`OS/Windows/ThreadControl.win.ixx`, `OS/Linux/ThreadControl.lnx.ixx`)
+
+Safety-critical E-STOP mechanism — interrupts a blocking I/O call on another thread. `CurrentThreadHandle()`, `CancelBlockingIo(handle)`, `ReleaseThreadHandle(handle)`. Windows: `CancelSynchronousIo`. Linux: `pthread_kill(SIGUSR1)` with a `sigaction` handler that has deliberately **no** `SA_RESTART` (so `EINTR` propagates instead of the syscall auto-restarting), plus a `thread_local` flag (`ConsumeCancelFlag()`) so a read loop can distinguish a real cancellation from a spurious `EINTR`. **Not hardware-tested on Linux** — verify before relying on it for a live E-STOP.
+
+### `Rev.OS.Clipboard` (`OS/Windows/Clipboard.win.ixx`, `OS/Linux/Clipboard.lnx.ixx`)
+
+`SetText(text)`. Windows: `OpenClipboard`/`SetClipboardData`. Linux: shells out to `xclip -selection clipboard`, falling back to `xsel --clipboard --input` (there's no native clipboard API on X11 without becoming a selection owner and answering `SelectionRequest` events asynchronously).
+
+### `Rev.OS.Dialog` (`OS/Windows/Dialog.win.ixx`, `OS/Linux/Dialog.lnx.ixx`)
+
+File/folder pickers and message boxes. Linux implementation shells out to `zenity`.
 
 ## LithoControl Interface
 
@@ -217,15 +260,17 @@ The sidebar uses a manually-driven scroll (no Rev scrollbar widget) because the 
 
 ### Dependencies for LithoControl
 
-`Demo/CMakeLists.txt` links `gdiplus comdlg32 shell32` in addition to `Rev`. These are Win32 system libraries — no install required.
+`Demo/CMakeLists.txt` links `gdiplus comdlg32 shell32` on Windows (Win32 system libraries, no install required) and `X11 GLEW freetype pthread` on Linux (`libx11-dev libglew-dev libfreetype-dev` via apt), gated behind `WIN32`/platform checks in the CMakeLists.
 
 ### Key design decisions
 
-- `pngToBitmap(path)` uses GDI+ (`Gdiplus::Bitmap::LockBits`) to decode PNG frames and pack them into 28,800-byte 1bpp MSB-first bitmaps for the STM32 `PATTERN` command
-- Slicer runs as a subprocess (`CreateProcess` → `pc/slicer.py`) so the C++ GUI does not need Pillow/numpy
-- Settings stored in `%APPDATA%\LithoControl\settings.ini` via `WritePrivateProfileString`
+- `pngToBitmap(path)` uses GDI+ (`Gdiplus::Bitmap::LockBits`) on Windows to decode PNG frames and pack them into 28,800-byte 1bpp MSB-first bitmaps for the STM32 `PATTERN` command
+- Slicer runs as a subprocess (`Interface::runCapturedProcess` → `pc/slicer.py`; Windows: `CreateProcess`+pipe, Linux: `popen`) so the C++ GUI does not need Pillow/numpy. Invokes `python` on Windows, `python3` on Linux (most distros don't alias `python` → `python3`).
+- Settings stored via a small hand-rolled `[section]`/`key=value` INI reader/writer (`readIniSection`/`writeIniSection`, `<fstream>` only) at `%APPDATA%\LithoControl\settings.ini` on Windows, `~/.config/LithoControl/settings.ini` on Linux
 - `refreshJobList()` scans the local jobs directory for subdirs containing `manifest.json`
 - The `selectedJob` string tracks the currently highlighted job across `rebuildJobList()` calls
+- HDMI/projector passthrough window (`HdmiWindow.win.cpp` / `HdmiWindow.lnx.cpp`) bypasses Rev's own window abstraction entirely — raw Win32 (`CreateWindowExW`+GDI blit) or raw Xlib (`override_redirect` window + `XPutImage`) — because neither platform's `Rev::Window` exposes borderless-topcanless-blit primitives it needs
+- Camera capture (`CameraCapture.win.cpp` / `CameraCapture.lnx.cpp`): Media Foundation `IMFSourceReader` on Windows, V4L2 mmap'd buffer I/O + `poll()` on Linux (hand-written BT.601 YUYV→RGBA conversion since V4L2 has no automatic format-conversion pipeline like Media Foundation's video processor MFT)
 
 ### STM32 serial protocol (from `litho_runner.py` notes)
 
