@@ -322,6 +322,18 @@ void rev_mac_window_set_size(RevMacWindowHandle handle, int w, int h) {
     }
 }
 
+void rev_mac_window_set_title(RevMacWindowHandle handle, const char* title) {
+
+    if (!handle || !title) return;
+
+    NSObject* obj = (__bridge NSObject*)handle;
+    if ([obj isKindOfClass:[NSWindow class]]) {
+        NSWindow* window = (NSWindow*)obj;
+        [window setTitle:[NSString stringWithUTF8String:title]];
+    }
+    // No-op for the embedded NSView case -- a subview has no title of its own.
+}
+
 
 // Utility
 //--------------------------------------------------

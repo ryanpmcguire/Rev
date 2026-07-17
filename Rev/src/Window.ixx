@@ -103,6 +103,8 @@ export namespace Rev {
 
         void unifiedConstructor() {
 
+            if (window && !details.name.empty()) window->setTitle(details.name);
+
             shared = new Shared();
             shared->event = &event;
 

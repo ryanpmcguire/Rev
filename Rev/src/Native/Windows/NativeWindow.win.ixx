@@ -289,9 +289,13 @@ export namespace Rev {
             this->notifyEvent({ WinEvent::Type::Resize, 0, 0, size.w, size.h });
         }
 
+        void setTitle(const std::string& title) {
+            SetWindowTextA(handle, title.c_str());
+        }
+
         ~NativeWindow() {
             //dbg("[NativeWindow] destroying");
-        
+
             if (hglrc) {
                 wglMakeCurrent(nullptr, nullptr);
                 wglDeleteContext(hglrc);

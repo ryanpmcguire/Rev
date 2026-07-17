@@ -34,6 +34,7 @@ export module LithoControl.Interface;
 
 import Rev.Element;
 import Rev.Element.Event;
+import Rev.Window;
 import Rev.Element.Style;
 import Rev.Element.Box;
 import Rev.Element.Text;
@@ -66,14 +67,15 @@ export namespace LithoControl {
     struct MsgQueue {
         std::mutex              mtx;
         std::deque<std::string> q;
-        HWND*                   pMainHwnd = nullptr;  // set by Interface ctor; avoids GetForegroundWindow
+        Window*                 ownerWindow = nullptr;  // set by Interface ctor
 
         void push(std::string s) {
             { std::lock_guard g(mtx); q.push_back(std::move(s)); }
             // Trigger a repaint so computeStyle drains this message without waiting
-            // for the next user-input event. Safe to call from background threads.
-            HWND hw = (pMainHwnd && *pMainHwnd) ? *pMainHwnd : GetForegroundWindow();
-            if (hw) InvalidateRect(hw, nullptr, FALSE);
+            // for the next user-input event. requestFrame() is documented safe to
+            // call from background threads on every NativeWindow backend (Win32
+            // InvalidateRect / X11 XSendEvent ClientMessage).
+            if (ownerWindow && ownerWindow->window) ownerWindow->window->requestFrame();
         }
 
         bool pop(std::string& out) {
@@ -288,10 +290,15 @@ export namespace LithoControl {
         std::atomic<bool>     edidApplying    { false };
         std::thread           edidThread;
 
-        // Cached HWND of the main Rev window. Captured in computeStyle on first call.
-        // Used for InvalidateRect so background threads always target the right window
-        // even when the HDMI projector window (WS_EX_TOPMOST) holds foreground focus.
-        HWND mainHwnd = nullptr;
+        // The owning top-level Window, set once in the constructor. Used for
+        // requestFrame() so background threads can trigger a repaint regardless
+        // of which window (e.g. the HDMI projector window) currently holds
+        // foreground focus.
+        Window* ownerWindow = nullptr;
+
+        // Set once in computeStyle() the first time the native window handle is
+        // available (Windows only, for the taskbar icon -- see computeStyle()).
+        bool iconApplied = false;
 
         // Camera preview
         struct CameraDevice { std::string name; };
@@ -332,7 +339,8 @@ export namespace LithoControl {
 
         Interface(Element* parent) : Box(parent) {
 
-            logQ.pMainHwnd = &mainHwnd;  // background threads use this instead of GetForegroundWindow
+            ownerWindow = dynamic_cast<Window*>(parent);
+            logQ.ownerWindow = ownerWindow;
 
             this->style->layout           = { Axis::Horizontal, Align::Start, Align::Start };
             this->style->size             = { 100_pct, 100_pct };
@@ -438,7 +446,7 @@ export namespace LithoControl {
                 if (e.keyboard.arrows.down)  { previewImg->offsetY += step; moved = true; }
                 if (moved) {
                     e.propagate = false;
-                    if (mainHwnd) InvalidateRect(mainHwnd, nullptr, FALSE);
+                    requestRepaint();
                 }
             });
 
@@ -459,7 +467,7 @@ export namespace LithoControl {
                     return;
                 }
                 e.propagate = false;
-                if (mainHwnd) InvalidateRect(mainHwnd, nullptr, FALSE);
+                requestRepaint();
             });
 
             this->onMouseUp([this](Rev::Element::Event&) {
@@ -590,6 +598,12 @@ export namespace LithoControl {
         void showSolid(uint32_t bgra) {
             hdmiSolidColor.store(bgra);
             requestHdmiRepaint();
+        }
+
+        // Repaint the main Rev window. Safe to call from background threads --
+        // see the comment on MsgQueue::push().
+        void requestRepaint() {
+            if (ownerWindow && ownerWindow->window) ownerWindow->window->requestFrame();
         }
 
         // Scale the cached artwork RGBA to 640×360, threshold to 1bpp, and push to
@@ -780,7 +794,7 @@ export namespace LithoControl {
                 }
 
                 requestHdmiRepaint();
-                if (mainHwnd)  InvalidateRect(mainHwnd, nullptr, FALSE);
+                requestRepaint();
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(33));  // ~30 fps
             }
@@ -1002,7 +1016,7 @@ export namespace LithoControl {
                     cameraFrameW = w; cameraFrameH = h;
                 }
                 cameraFrameReady = true;
-                if (mainHwnd) InvalidateRect(mainHwnd, nullptr, FALSE);
+                requestRepaint();
             }
 
             cameraReader.store(nullptr);
@@ -1034,22 +1048,25 @@ export namespace LithoControl {
 
         void computeStyle(Rev::Element::Event& e) override {
 
-            // Capture the main window HWND once. computeStyle always runs on the main
-            // GUI thread so FindWindowW reliably locates the Rev host window regardless
-            // of which window currently holds foreground focus.
-            if (!mainHwnd) {
-                mainHwnd = FindWindowW(L"Room360RawViewWindow", nullptr);
-                if (mainHwnd) {
-                    SetWindowTextW(mainHwnd, L"LithoRev");
+            // Taskbar/title-bar icon (Windows only -- Linux has no WM_SETICON
+            // equivalent; window titling itself is now handled cross-platform by
+            // Window::Details.name at construction, see main.cpp). Runs once, as
+            // soon as the native window handle exists.
+#ifdef _WIN32
+            if (!iconApplied && ownerWindow && ownerWindow->window && ownerWindow->window->handle) {
+                iconApplied = true;
+                {
+                    HWND hwnd = ownerWindow->window->handle;
                     HINSTANCE hinst = GetModuleHandleW(nullptr);
                     HICON big   = (HICON)LoadImageW(hinst, MAKEINTRESOURCEW(1),
                                                     IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
                     HICON small_ = (HICON)LoadImageW(hinst, MAKEINTRESOURCEW(1),
                                                     IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
-                    if (big)    SendMessageW(mainHwnd, WM_SETICON, ICON_BIG,   (LPARAM)big);
-                    if (small_) SendMessageW(mainHwnd, WM_SETICON, ICON_SMALL, (LPARAM)small_);
+                    if (big)    SendMessageW(hwnd, WM_SETICON, ICON_BIG,   (LPARAM)big);
+                    if (small_) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)small_);
                 }
             }
+#endif
 
             // Apply connection-state changes posted by background threads.
             int cs = pendingConnState.exchange(-1);
@@ -2433,14 +2450,13 @@ export namespace LithoControl {
 
             logQ.push("[OK] EDID override installed.");
 
-            int choice = MessageBoxA(mainHwnd,
+            auto choice = Rev::OS::Dialog::Confirm("Restart display driver?",
                 "The projector EDID override was installed.\n\n"
                 "Click OK to restart the display driver now and apply it.\n"
                 "LithoRev's own display may drop when this happens -- if the "
-                "window closes or goes blank, restart LithoRev afterward.",
-                "Restart display driver?", MB_OKCANCEL | MB_ICONWARNING);
+                "window closes or goes blank, restart LithoRev afterward.");
 
-            if (choice != IDOK) {
+            if (choice != Rev::OS::DialogResult::Yes) {
                 logQ.push("Driver restart skipped -- reboot manually to apply the override.");
                 pendingEdidDone = true;
                 return;

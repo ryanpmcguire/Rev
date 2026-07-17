@@ -1,6 +1,7 @@
 module;
 
 #include <functional>
+#include <string>
 #include <unordered_map>
 #include <dbg.hpp>
 #include "../WinEvent.hpp"
@@ -62,6 +63,10 @@ export namespace Rev {
         // methods
         void setSize(int w, int h) {
             rev_mac_window_set_size(handle, w, h);
+        };
+
+        void setTitle(const std::string& title) {
+            rev_mac_window_set_title(handle, title.c_str());
         };
 
         void setCursor(Element::Cursor newCursor) {
