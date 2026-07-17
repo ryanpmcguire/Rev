@@ -53,8 +53,20 @@ export namespace Rev {
         Pos downPos = { 0, 0 };
 
         // With other Rev window as parent
-        Window(Window* parent, Details details = Details()) : Element(parent) {
-            
+        //
+        // The Details-less overloads delegate rather than using a
+        // `Details details = Details()` default argument: a default argument
+        // is parsed as part of Window's own class body, and evaluating it
+        // needs Details' default member initializers resolved in a
+        // complete-class context -- MSVC is lenient about this since Details
+        // is a nested class, but it's not standard-conforming (Clang rejects
+        // it: "default member initializer ... needed within definition of
+        // enclosing class ... outside of member functions"). A delegating
+        // constructor's mem-initializer list is itself a complete-class
+        // context regardless, so it sidesteps the issue on both compilers.
+        Window(Window* parent) : Window(parent, Details()) {}
+        Window(Window* parent, Details details) : Element(parent) {
+
             this->parent = parent;
             this->details = details;
 
@@ -68,7 +80,8 @@ export namespace Rev {
         }
 
         // With native window as parent
-        Window(void* parent, Details details = Details()) : Element() {
+        Window(void* parent) : Window(parent, Details()) {}
+        Window(void* parent, Details details) : Element() {
 
             this->details = details;
 
@@ -84,7 +97,8 @@ export namespace Rev {
         }
 
         // With application as parent
-        Window(std::vector<Window*>& group, Details details = Details()) : Element() {
+        Window(std::vector<Window*>& group) : Window(group, Details()) {}
+        Window(std::vector<Window*>& group, Details details) : Element() {
 
             this->parent = this;
             this->details = details;
@@ -97,7 +111,7 @@ export namespace Rev {
             );
 
             group.push_back(this);
-            
+
             this->unifiedConstructor();
         }
 
