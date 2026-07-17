@@ -15,6 +15,8 @@ module;
 
 export module Rev.Serial;
 
+import Rev.OS.ThreadControl;
+
 export namespace Rev {
 
     struct Serial {
@@ -183,7 +185,15 @@ export namespace Rev {
                 ssize_t n = read(handle, &ch, 1);
 
                 if (n <= 0) {
-                    if (n < 0 && errno == EINTR) continue;
+                    // A genuine CancelBlockingIo() interruption (E-STOP) must abort
+                    // here, not retry -- otherwise the narrow window between poll()
+                    // returning ready and this read() completing could swallow the
+                    // cancellation and block again for a full fresh timeout. Any
+                    // *other* EINTR (e.g. a debugger attaching) is still just retried.
+                    if (n < 0 && errno == EINTR) {
+                        if (Rev::OS::ThreadControl::ConsumeCancelFlag()) break;
+                        continue;
+                    }
                     break;
                 }
 
@@ -211,7 +221,10 @@ export namespace Rev {
 
                 ssize_t rd = read(handle, result.data() + total, n - total);
                 if (rd <= 0) {
-                    if (rd < 0 && errno == EINTR) continue;
+                    if (rd < 0 && errno == EINTR) {
+                        if (Rev::OS::ThreadControl::ConsumeCancelFlag()) break;
+                        continue;
+                    }
                     break;
                 }
 

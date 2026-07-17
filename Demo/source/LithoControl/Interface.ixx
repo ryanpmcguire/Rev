@@ -35,6 +35,7 @@ import Rev.SocketClient;
 import Rev.OS.Dialog;
 import Rev.OS.SerialPort;
 import Rev.OS.Display;
+import Rev.OS.ThreadControl;
 import Rev.Primitive.Image;
 import Rev.Graphics.Texture;
 import LithoControl.Theme;
@@ -102,7 +103,7 @@ export namespace LithoControl {
         std::atomic<bool> resetting  { false };   // true while sendReset thread is running
         std::atomic<bool> jobRunning { false };   // true while runStm32Job is executing
         std::thread       jobThread;
-        HANDLE            jobThreadHandle = nullptr;  // for CancelSynchronousIo on E-STOP
+        void*             jobThreadHandle = nullptr;  // for ThreadControl::CancelBlockingIo on E-STOP
         // Handle of whichever detached gantry op (jog/home/set-home) is currently
         // running, so E-STOP can cancel its blocking serial read too.
         std::atomic<void*> gantryThreadHandle { nullptr };
@@ -1509,7 +1510,7 @@ export namespace LithoControl {
                 runStm32Job(dir + "/" + jobName);
             });
             // Win32 thread handle so E-STOP can cancel a blocking serial read on it.
-            jobThreadHandle = (HANDLE)jobThread.native_handle();
+            jobThreadHandle = reinterpret_cast<void*>(jobThread.native_handle());
         }
 
         void pauseJob() {
@@ -1529,8 +1530,8 @@ export namespace LithoControl {
             logQ.push("ABORT sent");
             jobState = JobState::Idle;
             // Unblock the job/jog thread's pending (synchronous) read so it stops promptly.
-            if (jobRunning && jobThreadHandle) CancelSynchronousIo(jobThreadHandle);
-            if (HANDLE gh = (HANDLE)gantryThreadHandle.load()) CancelSynchronousIo(gh);
+            if (jobRunning && jobThreadHandle) Rev::OS::ThreadControl::CancelBlockingIo(jobThreadHandle);
+            if (void* gh = gantryThreadHandle.load()) Rev::OS::ThreadControl::CancelBlockingIo(gh);
             if (stmSerial) stmSerial->cancel();
             // Offload the write so a blocking/contended serial port can't freeze the UI.
             std::thread([this]() {
@@ -1653,17 +1654,15 @@ export namespace LithoControl {
         // Jog
         // ---------------------------------------------------------------------
 
-        // Run a gantry command on a detached thread while publishing its Win32 handle
-        // so E-STOP can CancelSynchronousIo() the blocking serial read it's parked on.
+        // Run a gantry command on a detached thread while publishing its handle
+        // so E-STOP can interrupt the blocking serial read it's parked on.
         void runGantryOp(std::function<void()> op) {
             std::thread([this, op]() {
-                HANDLE h = nullptr;
-                DuplicateHandle(GetCurrentProcess(), GetCurrentThread(),
-                                GetCurrentProcess(), &h, 0, FALSE, DUPLICATE_SAME_ACCESS);
+                void* h = Rev::OS::ThreadControl::CurrentThreadHandle();
                 gantryThreadHandle.store(h);
                 op();
                 gantryThreadHandle.store(nullptr);
-                if (h) CloseHandle(h);
+                Rev::OS::ThreadControl::ReleaseThreadHandle(h);
             }).detach();
         }
 
@@ -1720,14 +1719,18 @@ export namespace LithoControl {
             estopped  = true;
             abortFlag = true;
 
-            // CancelSynchronousIo on the owning thread is the correct way to unblock
-            // a synchronous ReadFile. stmSerial->cancel() (PurgeComm RXABORT +
-            // CancelIoEx) is NOT called here because it queues a second
-            // ERROR_OPERATION_ABORTED completion on the handle, which then causes the
-            // first two ReadFile calls in sendReset (BLANK, $X) to fail immediately
-            // even after ClearCommError, leaving FluidNC locked.
-            if (jobRunning && jobThreadHandle) CancelSynchronousIo(jobThreadHandle);
-            if (HANDLE gh = (HANDLE)gantryThreadHandle.load()) CancelSynchronousIo(gh);
+            // Interrupting the blocking read via ThreadControl::CancelBlockingIo
+            // (Win32 CancelSynchronousIo / POSIX pthread_kill) is the correct way
+            // to unblock it here. stmSerial->cancel() is deliberately NOT called
+            // -- on Windows it (PurgeComm RXABORT + CancelIoEx) queues a second
+            // ERROR_OPERATION_ABORTED completion on the handle, which then causes
+            // the first two ReadFile calls in sendReset (BLANK, $X) to fail
+            // immediately even after ClearCommError, leaving FluidNC locked. The
+            // same call is used on Linux for consistency, though tcflush() there
+            // doesn't have an identically-documented failure mode -- unverified
+            // on real hardware, flag if sendReset misbehaves after E-STOP.
+            if (jobRunning && jobThreadHandle) Rev::OS::ThreadControl::CancelBlockingIo(jobThreadHandle);
+            if (void* gh = gantryThreadHandle.load()) Rev::OS::ThreadControl::CancelBlockingIo(gh);
 
             dispState = 3;          // computeStyle renders the E-STOP label
             jobState  = JobState::Idle;
