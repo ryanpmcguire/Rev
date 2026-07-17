@@ -29,6 +29,54 @@ file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
     ${RCS_DIR}/.modules/*.ixx
 )
 
+# Filter sources by platform marker in the filename (e.g. Foo.win.cpp,
+# Foo.lnx.cpp) -- same convention/mechanism as Rev/CMakeLists.txt.
+#--------------------------------------------------
+
+if(WIN32)
+  set(OS_MARKER "win")
+elseif(APPLE)
+  set(OS_MARKER "mac")
+elseif(UNIX)
+  set(OS_MARKER "lnx")
+endif()
+
+function(filter_sources out_var)
+    set(result "")
+    foreach(src ${ARGN})
+        get_filename_component(fname ${src} NAME)
+
+        string(REGEX MATCHALL "\\.([^.]+)\\." markers ${fname})
+
+        set(ok TRUE)
+        foreach(m ${markers})
+            string(REPLACE "." "" m ${m})
+            string(TOLOWER "${m}" m)
+
+            if(m STREQUAL "${OS_MARKER}")
+                # allowed, matches current OS
+            elseif(m IN_LIST VALID_OS_MARKERS)
+                # mismatched marker -> exclude
+                set(ok FALSE)
+            endif()
+        endforeach()
+
+        if(ok)
+            list(APPEND result ${src})
+        endif()
+    endforeach()
+
+    set(${out_var} "${result}" PARENT_SCOPE)
+endfunction()
+
+set(VALID_OS_MARKERS win mac osx ios lnx linux unix android)
+
+filter_sources(CPP_SOURCES_FILTERED ${CPP_SOURCES})
+filter_sources(MODULE_SOURCES_FILTERED ${MODULE_SOURCES})
+
+set(CPP_SOURCES ${CPP_SOURCES_FILTERED})
+set(MODULE_SOURCES ${MODULE_SOURCES_FILTERED})
+
 # Windows resource files (icon, version info)
 if(WIN32)
     file(GLOB RC_SOURCES CONFIGURE_DEPENDS ${RCS_DIR}/*.rc)
