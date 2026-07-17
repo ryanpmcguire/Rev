@@ -20,7 +20,7 @@ namespace LithoControl {
     // side never touches the main app window's HWND.
     struct HdmiX11State {
         Display* display = nullptr;
-        Window   window  = 0;
+        ::Window window  = 0;
         GC       gc      = 0;
         Atom     repaintAtom = 0;
         int      w = 640, h = 360;
@@ -75,9 +75,11 @@ namespace LithoControl {
                   0, 0, 0, 0, state->w, state->h);
 
         // `scaled` is stack/vector-owned, not img->data -- detach before
-        // XDestroyImage so it doesn't free() memory it doesn't own.
+        // destroying the image so it doesn't free() memory it doesn't own.
+        // Called through the image's own function table rather than the
+        // XDestroyImage() macro, which some Xlib.h layouts don't expose here.
         img->data = nullptr;
-        XDestroyImage(img);
+        img->f.destroy_image(img);
 
         XFlush(state->display);
     }
@@ -112,7 +114,7 @@ namespace LithoControl {
             }
 
             int screen = DefaultScreen(state->display);
-            Window root = RootWindow(state->display, screen);
+            ::Window root = RootWindow(state->display, screen);
 
             XSetWindowAttributes attrs{};
             attrs.override_redirect = True;   // no WM decoration, bypasses WM entirely --

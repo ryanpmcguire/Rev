@@ -14,7 +14,7 @@ export namespace Rev {
 
     struct Application {
 
-        std::vector<void*> windows;
+        std::vector<Window*> windows;
 
         Application() {}
         ~Application() {}
@@ -24,7 +24,7 @@ export namespace Rev {
                 NativeWindow::pumpEvents();
 
                 for (auto it = windows.begin(); it != windows.end();) {
-                    Window* window = static_cast<Window*>(*it);
+                    Window* window = *it;
                     if (!window) {
                         it = windows.erase(it);
                         continue;
@@ -55,8 +55,7 @@ export namespace Rev {
         }
 
         void removeWindow(Window* target) {
-            void* handle = static_cast<void*>(target);
-            auto it = std::find(windows.begin(), windows.end(), handle);
+            auto it = std::find(windows.begin(), windows.end(), target);
             if (it != windows.end()) {
                 windows.erase(it);
                 delete target;

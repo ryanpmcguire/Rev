@@ -7,6 +7,8 @@ module;
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <filesystem>
+#include <cmath>
 
 module LithoControl.Interface;   // implementation unit — no 'export'
 
