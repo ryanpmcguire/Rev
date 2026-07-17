@@ -1,6 +1,7 @@
 module;
 
 #include <cstddef>
+#include <cstring>
 #include <vector>
 #include <numeric>
 

@@ -2,6 +2,7 @@ module;
 
 #include <vector>
 #include <numeric>
+#include <cstring>
 #include <glew/glew.h>
 
 export module Rev.Graphics.VertexBuffer;
