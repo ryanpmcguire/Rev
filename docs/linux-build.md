@@ -78,22 +78,26 @@ appropriate path.
 The Linux backend is X11/GLX. On Wayland sessions it is expected to run
 through XWayland; native Wayland support is not implemented.
 
-## Known remaining blocker: GDI+
+## Status
 
-`Demo/source/LithoControl/Interface.ixx` and `ImagePreview.ixx` use Win32
-GDI+ (`<gdiplus.h>`) directly for image decoding/scaling and for immediate-
-mode drawing of the status dial and marquee text, plus `OPENFILENAMEA` for
-the file-open dialog. None of this is behind a Rev abstraction yet, so it
-will not compile on Linux as-is. Options to unblock:
+`LithoRev` builds, links, and runs end-to-end on Linux (verified under WSL2
+Debian and natively on Linux Mint XFCE). The GDI+-only image decode/drawing
+and `OPENFILENAMEA` file dialog that originally blocked the Linux build have
+been replaced with cross-platform equivalents (`ImageDecode.ixx` via
+`stb_image`, `TestPatternRaster.ixx` for the status dial/marquee, and
+`Rev::OS::Dialog`, which now has both a Windows and Linux implementation).
 
-- Replace GDI+ image loading/scaling with `stb_image` (already vendorable)
-  feeding `Rev.Primitive.Image` / `Rev.Graphics.Texture`.
-- Replace the GDI+ dial/marquee drawing with Rev's own primitives
-  (`Rectangle`, `Text`, etc.) instead of rasterizing to an offscreen
-  `Gdiplus::Bitmap`.
-- Replace `OPENFILENAMEA` with `Rev::OS::Dialog` (already ported for Linux
-  in `Rev/src/OS/Linux/Dialog.lnx.ixx`; needs a thin Windows counterpart for
-  parity).
+## Known remaining gaps
 
-This is app-level work, separate from the platform-layer port in this
-branch.
+- **EDID override** (`Demo/source/LithoControl/EdidApply.win.cpp`) is a
+  Windows-only feature (CRU-based) with no Linux equivalent implemented —
+  `EdidApply.lnx.cpp` is a stub that logs and no-ops. A Linux projector-mode
+  override would need to go through `xrandr` separately.
+- **E-STOP thread cancellation** (`Rev::OS::ThreadControl`,
+  `pthread_kill`/`SIGUSR1`-based on Linux vs. `CancelSynchronousIo` on
+  Windows) has not been hardware-tested on Linux. Verify it actually
+  interrupts a blocking serial read before relying on it for a live
+  gantry/laser session.
+
+Full technical detail (toolchain, per-platform module split, every bug found
+during the port) lives in the top-level `CLAUDE.md` under "Linux/XFCE port".

@@ -4,6 +4,8 @@ module;
 #include <cstdlib>
 #include <string>
 
+#include "ShellUtil.hpp"
+
 export module Rev.OS.Clipboard;
 
 export namespace Rev::OS {
@@ -11,10 +13,7 @@ export namespace Rev::OS {
     struct Clipboard {
 
         static bool commandExists(const char* command) {
-            std::string test = "command -v ";
-            test += command;
-            test += " >/dev/null 2>&1";
-            return std::system(test.c_str()) == 0;
+            return Rev::OS::detail::commandExists(command);
         }
 
         // No native clipboard API on X11 without becoming a selection owner

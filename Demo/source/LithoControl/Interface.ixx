@@ -565,12 +565,21 @@ export namespace LithoControl {
         }
 
         // ---- HDMI fullscreen window --------------------------------------
-        // Implemented per-platform in Interface.HdmiWindow.win.cpp / .lnx.cpp:
+        // Implemented per-platform in HdmiWindow.win.cpp / .lnx.cpp:
         // a borderless, always-on-top window pinned over a specific monitor,
         // repainted on demand from hdmiCurrentFrame/hdmiSolidColor/hdmiTestBGRA.
         void openHdmiWindow();
         void closeHdmiWindow();
         void requestHdmiRepaint();   // no-op if the window isn't open
+
+        // Builds a 640x360 BGRA pixel buffer from hdmiSolidColor / hdmiTestBGRA
+        // (if hdmiTestActive) / hdmiCurrentFrame+hdmiChannelMask, in that
+        // priority order. Shared by both platforms' paint routines (Windows:
+        // HdmiWndProc's WM_PAINT/WM_LITHO_FRAME; Linux: paintHdmiWindow) so the
+        // composition logic can't drift between them. `outPx640x360` must
+        // already be sized to 640*360 by the caller. Implemented once in
+        // Interface.Build.cpp (compiled on every platform).
+        void composeHdmiFrame(uint32_t* outPx640x360);
 
         void renderBitmapToHdmi(const std::vector<uint8_t>& bmp) {
             {

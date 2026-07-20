@@ -6,6 +6,8 @@ module;
 #include <filesystem>
 #include <string>
 
+#include "ShellUtil.hpp"
+
 export module Rev.OS.Dialog;
 
 export namespace Rev::OS {
@@ -44,10 +46,7 @@ export namespace Rev::OS {
         }
 
         static bool commandExists(const char* command) {
-            std::string test = "command -v ";
-            test += command;
-            test += " >/dev/null 2>&1";
-            return std::system(test.c_str()) == 0;
+            return Rev::OS::detail::commandExists(command);
         }
 
         static bool runZenity(const std::string& kind, const std::string& title, const std::string& message) {

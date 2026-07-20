@@ -9,6 +9,7 @@ module;
 #include <memory>
 #include <filesystem>
 #include <cmath>
+#include <cstdint>
 
 module LithoControl.Interface;   // implementation unit — no 'export'
 
@@ -1015,6 +1016,34 @@ namespace LithoControl {
 
         if (cb) btn->onMouseDown([cb](Rev::Element::Event&) { cb(); });
         return btn;
+    }
+
+    // See declaration in Interface.ixx -- shared by both platforms' HDMI
+    // paint routines so the frame-composition logic (previously duplicated
+    // verbatim in HdmiWindow.win.cpp and HdmiWindow.lnx.cpp) lives in one place.
+    void Interface::composeHdmiFrame(uint32_t* outPx640x360) {
+        std::fill(outPx640x360, outPx640x360 + 640 * 360, 0xFF000000u);
+
+        uint32_t solid = hdmiSolidColor.load();
+        if (solid) {
+            std::fill(outPx640x360, outPx640x360 + 640 * 360, solid);
+        } else if (hdmiTestActive.load()) {
+            std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+            if (hdmiTestBGRA.size() == 640u * 360u * 4u) {
+                const auto* src = reinterpret_cast<const uint32_t*>(hdmiTestBGRA.data());
+                std::copy(src, src + 640 * 360, outPx640x360);
+            }
+        } else {
+            std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+            if (!hdmiCurrentFrame.empty()) {
+                const auto& bmp = hdmiCurrentFrame;
+                uint32_t onColor = hdmiChannelMask.load();
+                for (int i = 0; i < 640 * 360; i++) {
+                    uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
+                    outPx640x360[i] = bit ? onColor : 0xFF000000u;
+                }
+            }
+        }
     }
 
 } // namespace LithoControl

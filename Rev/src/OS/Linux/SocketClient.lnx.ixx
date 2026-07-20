@@ -160,7 +160,7 @@ export namespace Rev {
                 while ((pos = buf.find('\n')) != std::string::npos) {
 
                     std::string line = buf.substr(0, pos);
-                    buf = buf.substr(pos + 1);
+                    buf.erase(0, pos + 1);
 
                     if (!line.empty() && line.back() == '\r') line.pop_back();
 

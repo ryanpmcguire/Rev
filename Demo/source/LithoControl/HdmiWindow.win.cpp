@@ -27,30 +27,9 @@ namespace LithoControl {
             RECT rc; GetClientRect(hwnd, &rc);
             int ww = rc.right, wh = rc.bottom;
             // Build 32bpp pixel buffer from current 1bpp frame or solid color
+            // (shared with the Linux HDMI window -- see Interface::composeHdmiFrame)
             std::vector<uint32_t> px(640 * 360, 0xFF000000u);
-            if (self) {
-                uint32_t solid = self->hdmiSolidColor.load();
-                if (solid) {
-                    std::fill(px.begin(), px.end(), solid);
-                } else if (self->hdmiTestActive.load()) {
-                    std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
-                    if (self->hdmiTestBGRA.size() == 640u * 360u * 4u) {
-                        const auto* src = reinterpret_cast<const uint32_t*>(
-                            self->hdmiTestBGRA.data());
-                        std::copy(src, src + 640 * 360, px.begin());
-                    }
-                } else {
-                    std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
-                    if (!self->hdmiCurrentFrame.empty()) {
-                        const auto& bmp = self->hdmiCurrentFrame;
-                        uint32_t onColor = self->hdmiChannelMask.load();
-                        for (int i = 0; i < 640 * 360; i++) {
-                            uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
-                            px[i] = bit ? onColor : 0xFF000000u;
-                        }
-                    }
-                }
-            }
+            if (self) self->composeHdmiFrame(px.data());
             BITMAPINFO bmi{};
             bmi.bmiHeader.biSize        = sizeof(bmi.bmiHeader);
             bmi.bmiHeader.biWidth       = 640;

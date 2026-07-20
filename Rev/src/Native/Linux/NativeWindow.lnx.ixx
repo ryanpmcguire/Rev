@@ -541,19 +541,13 @@ export namespace Rev {
         static float displayScale() {
             ensureDisplay();
 
-            if (const char* forcedScale = std::getenv("REV_SCALE")) {
-                float value = std::strtof(forcedScale, nullptr);
-                if (value > 0.0f) return std::clamp(value, 0.5f, 4.0f);
-            }
-
-            if (const char* toolkitScale = std::getenv("GDK_SCALE")) {
-                float value = std::strtof(toolkitScale, nullptr);
-                if (value > 0.0f) return std::clamp(value, 0.5f, 4.0f);
-            }
-
-            if (const char* qtScale = std::getenv("QT_SCALE_FACTOR")) {
-                float value = std::strtof(qtScale, nullptr);
-                if (value > 0.0f) return std::clamp(value, 0.5f, 4.0f);
+            // REV_SCALE (explicit override) takes priority, then whatever
+            // toolkit scale the desktop environment has already set.
+            for (const char* var : { "REV_SCALE", "GDK_SCALE", "QT_SCALE_FACTOR" }) {
+                if (const char* scale = std::getenv(var)) {
+                    float value = std::strtof(scale, nullptr);
+                    if (value > 0.0f) return std::clamp(value, 0.5f, 4.0f);
+                }
             }
 
             float xftDpi = xftDpiValue();

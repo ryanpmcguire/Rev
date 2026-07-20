@@ -24,6 +24,14 @@ namespace LithoControl {
         GC       gc      = 0;
         Atom     repaintAtom = 0;
         int      w = 640, h = 360;
+
+        // Reused across paintHdmiWindow() calls -- this runs on every Expose,
+        // every test-pattern animation tick (~30 fps), and every explicit
+        // repaint request, so re-allocating these multi-megabyte buffers each
+        // frame is real per-frame churn. resize() is a no-op once the sizes
+        // settle (source is fixed 640x360; scaled tracks the window size).
+        std::vector<uint32_t> pxBuf;
+        std::vector<uint32_t> scaledBuf;
     };
 
     // uint32_t values throughout this feature are BGRA-in-memory (matches the
@@ -32,31 +40,17 @@ namespace LithoControl {
     // X11's default TrueColor visual expects at depth 24 -- no conversion needed.
     static void paintHdmiWindow(Interface* self, HdmiX11State* state) {
 
-        std::vector<uint32_t> px(640 * 360, 0xFF000000u);
-        uint32_t solid = self->hdmiSolidColor.load();
-        if (solid) {
-            std::fill(px.begin(), px.end(), solid);
-        } else if (self->hdmiTestActive.load()) {
-            std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
-            if (self->hdmiTestBGRA.size() == 640u * 360u * 4u) {
-                const auto* src = reinterpret_cast<const uint32_t*>(self->hdmiTestBGRA.data());
-                std::copy(src, src + 640 * 360, px.begin());
-            }
-        } else {
-            std::lock_guard<std::mutex> lk(self->hdmiFrameMtx);
-            if (!self->hdmiCurrentFrame.empty()) {
-                const auto& bmp = self->hdmiCurrentFrame;
-                uint32_t onColor = self->hdmiChannelMask.load();
-                for (int i = 0; i < 640 * 360; i++) {
-                    uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
-                    px[i] = bit ? onColor : 0xFF000000u;
-                }
-            }
-        }
+        std::vector<uint32_t>& px = state->pxBuf;
+        if (px.size() != 640u * 360u) px.resize(640u * 360u);
+
+        // Shared with the Windows HDMI window -- see Interface::composeHdmiFrame
+        self->composeHdmiFrame(px.data());
 
         // Nearest-neighbor scale to the window's actual size -- X11 has no
         // built-in stretch-blit like GDI's StretchDIBits.
-        std::vector<uint32_t> scaled((size_t)state->w * state->h);
+        std::vector<uint32_t>& scaled = state->scaledBuf;
+        size_t scaledLen = (size_t)state->w * state->h;
+        if (scaled.size() != scaledLen) scaled.resize(scaledLen);
         for (int y = 0; y < state->h; y++) {
             int sy = y * 360 / state->h;
             for (int x = 0; x < state->w; x++) {

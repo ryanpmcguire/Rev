@@ -8,6 +8,7 @@ module;
 #include <cstring>
 #include <cerrno>
 #include <chrono>
+#include <utility>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -218,8 +219,11 @@ namespace LithoControl {
             }
 
             {
+                // swap, not copy -- leaves the old (already correctly-sized)
+                // buffer in `rgba` for the next iteration's resize()/fill
+                // instead of paying for a full-frame copy under the lock
                 std::lock_guard<std::mutex> lk(cameraFrameMtx);
-                cameraFrameRGBA = rgba;
+                std::swap(cameraFrameRGBA, rgba);
                 cameraFrameW = w; cameraFrameH = h;
             }
             cameraFrameReady = true;
