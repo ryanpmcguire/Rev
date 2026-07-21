@@ -310,6 +310,11 @@ export namespace LithoControl {
         // Opaque platform capture-session handle (IMFSourceReader* on Windows,
         // unused on Linux -- see CameraCapture.win.cpp / CameraCapture.lnx.cpp).
         std::atomic<void*>           cameraReader    { nullptr };
+        // Windows only: which capture path the current/last-started camera
+        // uses -- generic MediaFoundation UVC, or the AmScope vendor SDK
+        // (Rev.AmcamCamera, see AmcamCamera.win.ixx). Unused on Linux.
+        enum class CameraBackend { MediaFoundation, AmScope };
+        CameraBackend                 cameraBackend  { CameraBackend::MediaFoundation };
 
         bool hdmiPassthrough() const {
             return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
@@ -842,6 +847,13 @@ export namespace LithoControl {
         void startCamera();
         void stopCamera();
         void runCameraCapture(int deviceIdx);
+
+        // Windows only, implemented in CameraCapture.win.cpp via
+        // Rev.AmcamCamera -- the AmScope vendor-SDK capture path (used for
+        // the MU130 and other AmScope cameras) selected when the chosen
+        // cameraDrop entry carries an "amcam:" id. No Linux implementation;
+        // never referenced from the Linux build.
+        void runCameraCaptureAmcam(const std::string& deviceId);
 
         void toggleCamera() {
             if (cameraRunning) {

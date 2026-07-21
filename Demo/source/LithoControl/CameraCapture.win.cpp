@@ -13,10 +13,13 @@ module;
 #include <vector>
 #include <mutex>
 #include <thread>
+#include <chrono>
 #include <atomic>
 #include <functional>
 
 module LithoControl.Interface;   // implementation unit -- no 'export'
+
+import Rev.AmcamCamera;
 
 namespace LithoControl {
 
@@ -50,25 +53,53 @@ namespace LithoControl {
             }
             if (nameStr.empty()) nameStr = "Camera " + std::to_string(i);
             cameraDevices.push_back({ nameStr });
-            opts.push_back({ nameStr, std::to_string(i) });
+            opts.push_back({ nameStr, "mf:" + std::to_string(i) });
             ppDevices[i]->Release();
         }
         CoTaskMemFree(ppDevices);
         MFShutdown();
         if (uninitCom) CoUninitialize();
 
+        // AmScope vendor-SDK devices (amcam.dll) -- covers cameras like the
+        // MU130 that the calib-dt tooling drives directly through the same
+        // SDK rather than through the generic MediaFoundation/UVC path above.
+        size_t amcamCount = 0;
+        for (const auto& d : Rev::AmcamCamera::listDevices()) {
+            std::string label = "AmScope: " + d.name;
+            cameraDevices.push_back({ label });
+            opts.push_back({ label, "amcam:" + d.id });
+            amcamCount++;
+        }
+
         if (cameraDrop) cameraDrop->params.options = opts;
-        logQ.push("[CAM] Found " + std::to_string(count) + " camera(s)");
+        logQ.push("[CAM] Found " + std::to_string(count) + " camera(s), "
+                   + std::to_string(amcamCount) + " AmScope SDK device(s)");
     }
 
     void Interface::startCamera() {
         if (!cameraDrop || cameraDrop->params.value.empty()) {
             logQ.push("[CAM] Select a camera first"); return;
         }
+
+        const std::string& value = cameraDrop->params.value;
+
+        if (value.rfind("amcam:", 0) == 0) {
+            std::string deviceId = value.substr(6);
+            cameraBackend = CameraBackend::AmScope;
+
+            if (cameraBtnTxt) cameraBtnTxt->content = "STOP";
+            cameraRunning = true;
+            if (cameraThread.joinable()) cameraThread.detach();
+            cameraThread = std::thread([this, deviceId]() { runCameraCaptureAmcam(deviceId); });
+            return;
+        }
+
+        std::string idxStr = value.rfind("mf:", 0) == 0 ? value.substr(3) : value;
         int idx = 0;
-        try { idx = std::stoi(cameraDrop->params.value); }
+        try { idx = std::stoi(idxStr); }
         catch (...) { logQ.push("[CAM] Invalid device"); return; }
 
+        cameraBackend = CameraBackend::MediaFoundation;
         if (cameraBtnTxt) cameraBtnTxt->content = "STOP";
         cameraRunning = true;
         if (cameraThread.joinable()) cameraThread.detach();
@@ -77,10 +108,52 @@ namespace LithoControl {
 
     void Interface::stopCamera() {
         cameraRunning = false;
-        auto* r = reinterpret_cast<IMFSourceReader*>(cameraReader.load());
-        if (r) r->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
+        if (cameraBackend == CameraBackend::MediaFoundation) {
+            auto* r = reinterpret_cast<IMFSourceReader*>(cameraReader.load());
+            if (r) r->Flush(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
+        }
         if (cameraThread.joinable()) cameraThread.join();
         if (cameraBtnTxt) cameraBtnTxt->content = "START";
+    }
+
+    // AmScope vendor-SDK capture path (see Rev.AmcamCamera / AmcamCamera.win.ixx).
+    // The SDK delivers frames on its own thread via Rev::AmcamCamera's
+    // callback; this function just keeps the RAII camera object alive until
+    // stopCamera() clears cameraRunning.
+    void Interface::runCameraCaptureAmcam(const std::string& deviceId) {
+        logQ.push("[CAM] Starting AmScope SDK capture...");
+
+        Rev::AmcamCamera cam(deviceId, [this](const uint8_t* bgr, int w, int h) {
+            std::vector<uint8_t> rgba((size_t)w * h * 4);
+            for (int i = 0; i < w * h; i++) {
+                rgba[i * 4 + 0] = bgr[i * 3 + 2];
+                rgba[i * 4 + 1] = bgr[i * 3 + 1];
+                rgba[i * 4 + 2] = bgr[i * 3 + 0];
+                rgba[i * 4 + 3] = 255;
+            }
+            {
+                std::lock_guard<std::mutex> lk(cameraFrameMtx);
+                cameraFrameRGBA = std::move(rgba);
+                cameraFrameW = w; cameraFrameH = h;
+            }
+            cameraFrameReady = true;
+            requestRepaint();
+        });
+
+        if (!cam.connected()) {
+            logQ.push("[CAM] AmScope camera failed to open");
+            cameraRunning = false;
+            if (cameraBtnTxt) cameraBtnTxt->content = "START";
+            return;
+        }
+
+        logQ.push("[CAM] Live (AmScope SDK): " + std::to_string(cam.width) + "x" + std::to_string(cam.height));
+
+        while (cameraRunning) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        logQ.push("[CAM] Stopped");
     }
 
     void Interface::runCameraCapture(int deviceIdx) {
