@@ -241,17 +241,41 @@ namespace LithoControl {
         setActive(pageTabCalibrationBtn, currentPage == Page::Calibration);
         setActive(pageTabExecutionBtn,   currentPage == Page::Execution);
 
-        // Runner/G-code logs are Execution-page only.
+        // The status panel is shown on Execution (full: progress + runner
+        // log + G-code stream) and reused on Calibration as a plain terminal
+        // for calib-dt's command output (which already flows into the same
+        // runner log via runCalibDtSubprocess() -- see logQ/logLines), with
+        // the job-progress row and G-code column hidden since neither
+        // applies there. Hidden entirely on Connections.
+        bool execPage  = (currentPage == Page::Execution);
+        bool calibPage = (currentPage == Page::Calibration);
+        bool showStatus = execPage || calibPage;
+
         if (rightPanelBox && statusDragHandle && statusPanelBox) {
-            bool execPage = (currentPage == Page::Execution);
             auto& kids = rightPanelBox->children;
             bool dragIn = std::find(kids.begin(), kids.end(), (Element*)statusDragHandle) != kids.end();
             bool boxIn  = std::find(kids.begin(), kids.end(), (Element*)statusPanelBox)  != kids.end();
-            if (execPage && !dragIn) rightPanelBox->addChild(statusDragHandle);
-            if (execPage && !boxIn)  rightPanelBox->addChild(statusPanelBox);
-            if (!execPage && dragIn) rightPanelBox->removeChild(statusDragHandle);
-            if (!execPage && boxIn)  rightPanelBox->removeChild(statusPanelBox);
+            if (showStatus && !dragIn) rightPanelBox->addChild(statusDragHandle);
+            if (showStatus && !boxIn)  rightPanelBox->addChild(statusPanelBox);
+            if (!showStatus && dragIn) rightPanelBox->removeChild(statusDragHandle);
+            if (!showStatus && boxIn)  rightPanelBox->removeChild(statusPanelBox);
         }
+
+        if (statusProgRow && statusProgRow->parent) {
+            Element* parent = statusProgRow->parent;
+            auto& kids = parent->children;
+            bool isIn = std::find(kids.begin(), kids.end(), (Element*)statusProgRow) != kids.end();
+            if (execPage && !isIn) parent->addChild(statusProgRow);
+            if (!execPage && isIn) parent->removeChild(statusProgRow);
+        }
+        if (gcodeColBox && gcodeColBox->parent) {
+            Element* parent = gcodeColBox->parent;
+            auto& kids = parent->children;
+            bool isIn = std::find(kids.begin(), kids.end(), (Element*)gcodeColBox) != kids.end();
+            if (execPage && !isIn) parent->addChild(gcodeColBox);
+            if (!execPage && isIn) parent->removeChild(gcodeColBox);
+        }
+        if (runnerLogLbl) runnerLogLbl->content = execPage ? "RUNNER LOG" : "TERMINAL";
     }
 
     // -- Sidebar collapse handle -------------------------------------------
@@ -796,12 +820,21 @@ namespace LithoControl {
             startCalibDtAction("capture-frames --frames 20 --out captures");
         })->style->margin.bottom = 4_px;
 
+        // PROJECT PATTERN and RUN CALIBRATION deliberately do NOT call
+        // calib-dt's own project-pattern script or pass it --project-pattern/
+        // --projector-monitor -- that opens calib-dt's own fullscreen OpenCV
+        // window, a second window uncoordinated with (and fighting for the
+        // same monitor as) LithoRev's HDMI passthrough window. Instead the
+        // grid is generated and displayed by LithoRev itself (see
+        // toggleCalibGrid()/runCalibrationWithGrid(), hdmiCalibGridActive),
+        // so it shares the one HDMI window and picks up Flip H/V like every
+        // other projector output mode.
         makeBtn(body, "PROJECT PATTERN", [this]() {
-            startCalibDtAction("project-pattern --list-monitors");
+            toggleCalibGrid();
         })->style->margin.bottom = 4_px;
 
         makeBtn(body, "RUN CALIBRATION", [this]() {
-            startCalibDtAction("run-calibration --camera --project-pattern --projector-monitor 1 --out calibration_output");
+            startCalibrationWithGrid();
         })->style->margin.bottom = 4_px;
 
         makeBtn(body, "ANALYZE SENSITIVITY", [this]() {
@@ -1223,6 +1256,7 @@ namespace LithoControl {
         // Frame label + progress
         Box* progRow = new Box(sp, { &Theme::RowH });
         progRow->style->margin.bottom = 6_px;
+        statusProgRow = progRow;
 
         frameLabel = new Text(progRow, "IDLE");
         frameLabel->style->text.color = rgba(232, 232, 232, 0.4f);
@@ -1254,6 +1288,7 @@ namespace LithoControl {
         runnerHdr->style->margin.bottom = 4_px;
 
         Text* runnerLbl = new Text(runnerHdr, "RUNNER LOG");
+        runnerLogLbl = runnerLbl;
         runnerLbl->style->text.color = rgba(232, 232, 232, 0.4f);
         runnerLbl->style->text.size  = 9_px;
         runnerLbl->style->size       = { Grow() };
@@ -1293,6 +1328,7 @@ namespace LithoControl {
         // -- G-code log ----------------------------------------------------
 
         Box* gcodeCol = new Box(logRow);
+        gcodeColBox = gcodeCol;
         gcodeCol->style->layout      = { Axis::Vertical, Align::Start, Align::Start };
         gcodeCol->style->size.width  = Grow();
         gcodeCol->style->size.height = Grow();
@@ -1422,12 +1458,43 @@ namespace LithoControl {
     // See declaration in Interface.ixx -- shared by both platforms' HDMI
     // paint routines so the frame-composition logic (previously duplicated
     // verbatim in HdmiWindow.win.cpp and HdmiWindow.lnx.cpp) lives in one place.
+    // Line-grid calibration target, generated directly at the DMD's native
+    // 640x360 (mirrors calib-dt's own make_line_grid(), which draws the same
+    // pattern but at the *monitor's* full resolution -- wrong for this rig,
+    // since the DMD is a fixed 640x360 device and everything downstream of
+    // composeHdmiFrame() assumes that logical resolution). Generating it here
+    // instead of in calib-dt means the projected grid gets Flip H/V and goes
+    // through the one HDMI window LithoRev already owns, instead of calib-dt
+    // opening a second, uncoordinated fullscreen window on top of it.
+    static void generateCalibGrid(uint32_t* outPx640x360) {
+        constexpr int W = 640, H = 360, pitch = 40, lineWidth = 2;
+        std::fill(outPx640x360, outPx640x360 + W * H, 0xFF000000u);
+
+        int half = lineWidth / 2;
+        for (int x = W / 2 % pitch; x < W; x += pitch) {
+            for (int dx = -half; dx < lineWidth - half; dx++) {
+                int xx = x + dx;
+                if (xx < 0 || xx >= W) continue;
+                for (int y = 0; y < H; y++) outPx640x360[y * W + xx] = 0xFFFFFFFFu;
+            }
+        }
+        for (int y = H / 2 % pitch; y < H; y += pitch) {
+            for (int dy = -half; dy < lineWidth - half; dy++) {
+                int yy = y + dy;
+                if (yy < 0 || yy >= H) continue;
+                for (int x = 0; x < W; x++) outPx640x360[yy * W + x] = 0xFFFFFFFFu;
+            }
+        }
+    }
+
     void Interface::composeHdmiFrame(uint32_t* outPx640x360) {
         std::fill(outPx640x360, outPx640x360 + 640 * 360, 0xFF000000u);
 
         uint32_t solid = hdmiSolidColor.load();
         if (solid) {
             std::fill(outPx640x360, outPx640x360 + 640 * 360, solid);
+        } else if (hdmiCalibGridActive.load()) {
+            generateCalibGrid(outPx640x360);
         } else if (hdmiTestActive.load()) {
             std::lock_guard<std::mutex> lk(hdmiFrameMtx);
             if (hdmiTestBGRA.size() == 640u * 360u * 4u) {
