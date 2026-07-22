@@ -218,16 +218,19 @@ namespace LithoControl {
                 yuyvToRgba(src, w, h, rgba);
             }
 
-            {
-                // swap, not copy -- leaves the old (already correctly-sized)
-                // buffer in `rgba` for the next iteration's resize()/fill
-                // instead of paying for a full-frame copy under the lock
-                std::lock_guard<std::mutex> lk(cameraFrameMtx);
-                std::swap(cameraFrameRGBA, rgba);
-                cameraFrameW = w; cameraFrameH = h;
+            if (shouldEmitCameraFrame()) {
+                applyCameraAdjustments(rgba, w, h);
+                {
+                    // swap, not copy -- leaves the old (already correctly-sized)
+                    // buffer in `rgba` for the next iteration's resize()/fill
+                    // instead of paying for a full-frame copy under the lock
+                    std::lock_guard<std::mutex> lk(cameraFrameMtx);
+                    std::swap(cameraFrameRGBA, rgba);
+                    cameraFrameW = w; cameraFrameH = h;
+                }
+                cameraFrameReady = true;
+                requestRepaint();
             }
-            cameraFrameReady = true;
-            requestRepaint();
 
             ioctl(fd, VIDIOC_QBUF, &buf);
         }

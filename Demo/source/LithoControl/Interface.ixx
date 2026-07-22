@@ -20,11 +20,16 @@
 #include <algorithm>
 #include <ctime>
 #include <cmath>
+#include <chrono>
+#include <cstring>
+#include <cstdio>
 
 #include <dbg.hpp>
+#include <managed.hpp>
 
 export module LithoControl.Interface;
 
+import Rev.Core.Resource;
 import Rev.Element;
 import Rev.Element.Event;
 import Rev.Window;
@@ -46,6 +51,7 @@ import Rev.Graphics.Texture;
 import LithoControl.Theme;
 import LithoControl.ImagePreview;
 import LithoControl.ImageDecode;
+import LithoControl.ImageEncode;
 import LithoControl.TestPatternRaster;
 
 export namespace LithoControl {
@@ -96,6 +102,7 @@ export namespace LithoControl {
 
         std::string inputFilePath;
         std::string dlpRoot;     // set when a file is loaded; used to resolve slicer/jobs paths
+        std::string calibDtRoot; // calib-dt repo root, for the Calibration Actions panel (uv run <script>)
         std::string selectedJob;
         std::vector<std::string> jobs;
         bool jobListDirty = false;
@@ -154,7 +161,28 @@ export namespace LithoControl {
             std::string jobsDir  = "./jobs";
             std::string platform = "stm32";
             std::string dlpRoot  = "";   // persisted repo root for resolving ./jobs
+            std::string calibDtRoot = ""; // persisted calib-dt repo root
         } settings;
+
+        // -- Pages --------------------------------------------------------------
+        // The sidebar is split into three pages (PROJECTS/CALIBRATION/EXECUTION)
+        // instead of showing every section at once. Each section built in
+        // buildSidebar() is wrapped by makeSection() into a single Box that gets
+        // attached to/detached from sidebarContent as a whole (addChild/
+        // removeChild -- same "fully absent from the layout tree" pattern
+        // already used for hdmiDisplayRow, rather than Visibility::Hidden,
+        // which leaves a zero-height hit-area behind). The Execution page also
+        // shows the runner/G-code log panel in the right panel (see
+        // updatePageVisibility() / statusDragHandle / statusPanelBox).
+        enum class Page { Connections, Calibration, Execution };
+        Page currentPage = Page::Connections;
+        std::vector<std::pair<Page, Box*>> pageSections;
+        Box* pageTabConnectionsBtn = nullptr;
+        Box* pageTabCalibrationBtn = nullptr;
+        Box* pageTabExecutionBtn   = nullptr;
+        Box* rightPanelBox         = nullptr;
+        Box* statusDragHandle      = nullptr;
+        Text* calibDtPathLabel     = nullptr;
 
         // -- Sidebar scroll ----------------------------------------------------
 
@@ -256,6 +284,18 @@ export namespace LithoControl {
         // BGRA on-pixel color for the HDMI projector window (channels checkboxes).
         // Default 0xFF000000 = no channels enabled (black). Updated in computeStyle.
         std::atomic<uint32_t> hdmiChannelMask { 0xFF000000u };
+        // Physical flip to compensate for the projector's mount/optical path
+        // (e.g. a mirror in the relay, or a rear/ceiling mount) -- applied in
+        // composeHdmiFrame() to every frame sent to the projector window
+        // (solid-color test, RGB test animation, and actual job frames
+        // alike), since whatever flips the optical path flips all of them.
+        // Atomics because composeHdmiFrame() is read from the projector
+        // window's own message-loop thread, not necessarily the main thread
+        // (same reasoning as hdmiChannelMask/hdmiSolidColor above).
+        Checkbox*   hdmiFlipHChk = nullptr;
+        Checkbox*   hdmiFlipVChk = nullptr;
+        std::atomic<bool> hdmiFlipH { false };
+        std::atomic<bool> hdmiFlipV { false };
         // Last decoded artwork pixels, cached so channel toggles repush without re-decode.
         std::vector<uint8_t> hdmiArtworkRGBA;
         int hdmiArtworkW = 0, hdmiArtworkH = 0;
@@ -316,6 +356,176 @@ export namespace LithoControl {
         enum class CameraBackend { MediaFoundation, AmScope };
         CameraBackend                 cameraBackend  { CameraBackend::MediaFoundation };
 
+        // Camera adjustment controls (flip/rotate/brightness/contrast/target
+        // FPS/output resolution). Applied uniformly to every captured frame
+        // regardless of backend -- see applyCameraAdjustments(). Rotation/
+        // resolution/FPS are compact button groups rather than Dropdowns:
+        // a Dropdown's option list is a position:absolute overlay that gets
+        // clipped by the sidebar's Overflow::Hide when opened near the
+        // bottom of the scrolled viewport (see Theme::SidebarRoot), which
+        // made the lower options unreachable. Brightness/contrast are the
+        // same custom track+fill drag-slider pattern as the zoom/overlay
+        // sliders above (the framework Slider element's default label/value
+        // styling is dark-on-light and unreadable on this dark sidebar).
+        // Click/drag handlers write straight into the atomics below; the
+        // capture thread (which calls applyCameraAdjustments()) reads them
+        // directly, and a per-frame sync block updates the fill bars/labels.
+        Checkbox*             cameraFlipHChk        = nullptr;
+        Checkbox*             cameraFlipVChk        = nullptr;
+
+        Box*                  cameraBrightTrack     = nullptr;
+        Box*                  cameraBrightFill      = nullptr;
+        Text*                 cameraBrightLabel     = nullptr;
+        bool                  cameraBrightDragging  = false;
+
+        Box*                  cameraContrastTrack   = nullptr;
+        Box*                  cameraContrastFill    = nullptr;
+        Text*                 cameraContrastLabel   = nullptr;
+        bool                  cameraContrastDragging = false;
+
+        std::atomic<bool>     cameraFlipH        { false };
+        std::atomic<bool>     cameraFlipV        { false };
+        std::atomic<int>      cameraRotationDeg  { 0 };    // 0, 90, 180, 270
+        std::atomic<int>      cameraBrightness   { 0 };    // -100..100
+        std::atomic<int>      cameraContrastPct  { 100 };  // 0..300 (%)
+        std::atomic<int>      cameraTargetFps    { 0 };    // 0 = unlimited
+        std::atomic<int>      cameraResW         { 0 };    // 0 = native (no rescale)
+        std::atomic<int>      cameraResH         { 0 };
+        std::chrono::steady_clock::time_point cameraLastFrameTime{};
+
+        // Software FPS cap shared by both capture backends -- not a true
+        // sensor frame-rate control, just throttles how often a captured
+        // frame is staged for preview.
+        bool shouldEmitCameraFrame() {
+            int fps = cameraTargetFps.load();
+            if (fps <= 0) return true;
+            auto now = std::chrono::steady_clock::now();
+            double minIntervalMs = 1000.0 / fps;
+            double elapsedMs = std::chrono::duration<double, std::milli>(now - cameraLastFrameTime).count();
+            if (elapsedMs < minIntervalMs) return false;
+            cameraLastFrameTime = now;
+            return true;
+        }
+
+        // Per-frame post-processing applied identically regardless of
+        // capture backend (MediaFoundation/V4L2 UVC or the AmScope vendor
+        // SDK) -- deliberately not driving vendor-specific sensor controls,
+        // which differ wildly between UVC devices and the amcam SDK. This
+        // adjusts the displayed preview only; it is not a substitute for
+        // calib-dt's photometric calibration.
+        void applyCameraAdjustments(std::vector<uint8_t>& rgba, int& w, int& h) {
+            bool flipH        = cameraFlipH.load();
+            bool flipV        = cameraFlipV.load();
+            int  rot          = cameraRotationDeg.load();
+            int  brightness   = cameraBrightness.load();
+            int  contrastPct  = cameraContrastPct.load();
+            int  targetW      = cameraResW.load();
+            int  targetH      = cameraResH.load();
+
+            if (flipH) {
+                for (int y = 0; y < h; y++) {
+                    uint8_t* row = rgba.data() + (size_t)y * w * 4;
+                    for (int x = 0; x < w / 2; x++) {
+                        int lo = x * 4, hi = (w - 1 - x) * 4;
+                        for (int c = 0; c < 4; c++) std::swap(row[lo + c], row[hi + c]);
+                    }
+                }
+            }
+            if (flipV) {
+                for (int y = 0; y < h / 2; y++) {
+                    uint8_t* rowA = rgba.data() + (size_t)y * w * 4;
+                    uint8_t* rowB = rgba.data() + (size_t)(h - 1 - y) * w * 4;
+                    for (int x = 0; x < w * 4; x++) std::swap(rowA[x], rowB[x]);
+                }
+            }
+
+            if (rot == 90 || rot == 270) {
+                std::vector<uint8_t> rotated((size_t)w * h * 4);
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        int nx = (rot == 90) ? (h - 1 - y) : y;
+                        int ny = (rot == 90) ? x           : (w - 1 - x);
+                        std::memcpy(&rotated[((size_t)ny * h + nx) * 4],
+                                    &rgba[((size_t)y * w + x) * 4], 4);
+                    }
+                }
+                rgba.swap(rotated);
+                std::swap(w, h);
+            } else if (rot == 180) {
+                size_t n = (size_t)w * h;
+                for (size_t i = 0; i < n / 2; i++) {
+                    uint8_t* a = &rgba[i * 4];
+                    uint8_t* b = &rgba[(n - 1 - i) * 4];
+                    for (int c = 0; c < 4; c++) std::swap(a[c], b[c]);
+                }
+            }
+
+            if (brightness != 0 || contrastPct != 100) {
+                float c = contrastPct / 100.0f;
+                for (size_t i = 0; i < rgba.size(); i += 4) {
+                    for (int ch = 0; ch < 3; ch++) { // leave alpha untouched
+                        float v = (rgba[i + ch] - 128.0f) * c + 128.0f + brightness;
+                        rgba[i + ch] = (uint8_t)std::clamp(v, 0.0f, 255.0f);
+                    }
+                }
+            }
+
+            if (targetW > 0 && targetH > 0 && (targetW != w || targetH != h)) {
+                std::vector<uint8_t> resized((size_t)targetW * targetH * 4);
+                for (int y = 0; y < targetH; y++) {
+                    int sy = y * h / targetH;
+                    for (int x = 0; x < targetW; x++) {
+                        int sx = x * w / targetW;
+                        std::memcpy(&resized[((size_t)y * targetW + x) * 4],
+                                    &rgba[((size_t)sy * w + sx) * 4], 4);
+                    }
+                }
+                rgba.swap(resized);
+                w = targetW; h = targetH;
+            }
+        }
+
+        // Writes the current live camera preview frame to
+        // <cwd>/camera_captures/capture_YYYYMMDD_HHMMSS.png -- a quick grab
+        // from the GUI, distinct from calib-dt's capture-frames script
+        // (which drives the camera directly for batch calibration capture).
+        void saveCameraFrame() {
+            std::vector<uint8_t> rgba;
+            int w = 0, h = 0;
+            {
+                std::lock_guard<std::mutex> lk(cameraFrameMtx);
+                if (cameraFrameW <= 0 || cameraFrameH <= 0) {
+                    logQ.push("[CAM] No frame to save yet");
+                    return;
+                }
+                rgba = cameraFrameRGBA;
+                w = cameraFrameW; h = cameraFrameH;
+            }
+
+            std::filesystem::path dir = std::filesystem::current_path() / "camera_captures";
+            std::error_code ec;
+            std::filesystem::create_directories(dir, ec);
+            if (ec) {
+                logQ.push("[CAM] Could not create " + dir.string() + ": " + ec.message());
+                return;
+            }
+
+            std::time_t nowT = std::time(nullptr);
+            std::tm lt = *std::localtime(&nowT);
+            char ts[32];
+            std::snprintf(ts, sizeof(ts), "capture_%04d%02d%02d_%02d%02d%02d.png",
+                          lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+                          lt.tm_hour, lt.tm_min, lt.tm_sec);
+
+            std::filesystem::path outPath = dir / ts;
+
+            if (encodeRGBAToPng(outPath.string(), rgba.data(), w, h)) {
+                logQ.push("[CAM] Saved " + outPath.string());
+            } else {
+                logQ.push("[CAM] Failed to save frame");
+            }
+        }
+
         bool hdmiPassthrough() const {
             return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
                 && hdmiHwnd != nullptr;
@@ -370,9 +580,17 @@ export namespace LithoControl {
                     }
                 }
             }
+
+            calibDtRoot = settings.calibDtRoot;
+            if (calibDtRoot.empty() && !dlpRoot.empty()) {
+                std::string guess = findCalibDtRoot(dlpRoot);
+                if (!guess.empty()) { calibDtRoot = guess; settings.calibDtRoot = guess; }
+            }
+
             buildSidebar();
             buildCollapseHandle();
             buildRightPanel();
+            updatePageVisibility();   // now that rightPanelBox/statusPanelBox exist, apply the default page
             refreshJobList();
             scanPorts(false);    // populate the COM list at startup; don't select/connect
             scanCameras();       // auto-populate camera dropdown
@@ -412,6 +630,20 @@ export namespace LithoControl {
                     if (w > 0.0f) {
                         float t = std::clamp((e.mouse.pos.x - zoomSliderTrack->rect.x) / w, 0.0f, 1.0f);
                         previewImg->zoom = 0.1f * std::pow(200.0f, t);
+                    }
+                }
+                if (cameraBrightDragging && cameraBrightTrack) {
+                    float w = cameraBrightTrack->rect.w;
+                    if (w > 0.0f) {
+                        float t = std::clamp((e.mouse.pos.x - cameraBrightTrack->rect.x) / w, 0.0f, 1.0f);
+                        cameraBrightness = (int)std::lround(-100.0f + t * 200.0f);
+                    }
+                }
+                if (cameraContrastDragging && cameraContrastTrack) {
+                    float w = cameraContrastTrack->rect.w;
+                    if (w > 0.0f) {
+                        float t = std::clamp((e.mouse.pos.x - cameraContrastTrack->rect.x) / w, 0.0f, 1.0f);
+                        cameraContrastPct = (int)std::lround(t * 300.0f);
                     }
                 }
                 if (sbThumbDragging && sidebarBox && sidebarContent) {
@@ -477,6 +709,8 @@ export namespace LithoControl {
                 overlaySliderDragging = false;
                 zoomSliderDragging    = false;
                 jobListThumbDragging  = false;
+                cameraBrightDragging   = false;
+                cameraContrastDragging = false;
                 if (sidebarDragging && !sidebarDragMoved) {
                     // Click (no drag) -- toggle collapse
                     sidebarCollapsed = !sidebarCollapsed;
@@ -517,13 +751,16 @@ export namespace LithoControl {
         void buildCollapseHandle();
         void buildConnectionPanel(Box* body);
         void buildDisplayPanel(Box* body);
-        void buildCameraPanel(Box* body);
+        void buildCameraDevicePanel(Box* body);
+        void buildCameraSettingsPanel(Box* body);
+        void buildCalibrationPanel(Box* body);
         void buildSlicerPanel(Box* body);
         void buildJobPanel(Box* body);
         void buildJogPanel(Box* body);
         void buildRightPanel();
         void updateSendChkVisibility();
-        std::function<void()> makeSection(Box* parent, const std::string& title, Box*& body);
+        void updatePageVisibility();
+        Box* makeSection(Box* parent, const std::string& title, Box*& body);
         Box* makeBtn(Box* parent, const std::string& label,
                      std::function<void()> cb,
                      bool accent = false, bool danger = false,
@@ -686,8 +923,13 @@ export namespace LithoControl {
 
             static BitmapFont font;
             if (!font.loaded) {
-                std::string ttfPath = std::string(PROJECT_ROOT) + "/Rev/resources/Fonts/Roboto/Roboto.ttf";
-                font.load(ttfPath, 14.0f);
+                // Embedded via Rev's File()/resource-atlas pipeline (see
+                // Rev/scripts/Create_Resource_Modules.py) -- the TTF bytes are
+                // baked into the binary at build time, so the marquee text
+                // renders even when LithoRev.exe is copied to a machine with
+                // no Rev source tree present.
+                auto ttf = File("Rev/resources/Fonts/Roboto/Roboto.ttf");
+                font.load(ttf.data, ttf.size, 14.0f);
             }
 
             // SMPTE bar defs
@@ -1057,6 +1299,35 @@ export namespace LithoControl {
                 }
             }
 
+            // Mirror flip checkbox UI into atomics the capture thread can read
+            // safely (see applyCameraAdjustments()). Rotation/resolution/FPS
+            // and brightness/contrast are button groups and drag-sliders that
+            // write straight into their atomics on click/drag; only the fill
+            // bar/label visuals need syncing here.
+            if (cameraFlipHChk) cameraFlipH = cameraFlipHChk->value.get();
+            if (cameraFlipVChk) cameraFlipV = cameraFlipVChk->value.get();
+
+            if (cameraBrightFill || cameraBrightLabel) {
+                int val = cameraBrightness.load();
+                float t = std::clamp((val + 100.0f) / 200.0f, 0.0f, 1.0f);
+                if (cameraBrightFill) cameraBrightFill->style->size.width = Pct(t * 100.0f);
+                if (cameraBrightLabel) {
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%+d", val);
+                    cameraBrightLabel->content = buf;
+                }
+            }
+            if (cameraContrastFill || cameraContrastLabel) {
+                int val = cameraContrastPct.load();
+                float t = std::clamp(val / 300.0f, 0.0f, 1.0f);
+                if (cameraContrastFill) cameraContrastFill->style->size.width = Pct(t * 100.0f);
+                if (cameraContrastLabel) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "%d%%", val);
+                    cameraContrastLabel->content = buf;
+                }
+            }
+
             // Drain live camera frame into preview
             if (cameraFrameReady.exchange(false) && previewImg) {
                 std::lock_guard<std::mutex> lk(cameraFrameMtx);
@@ -1180,6 +1451,15 @@ export namespace LithoControl {
                     hdmiChannelMask.store(mask);
                     pushArtworkToHdmi();
                 }
+            }
+
+            // Mirror HDMI flip checkboxes into atomics composeHdmiFrame()
+            // reads (may run on the projector window's own thread).
+            {
+                bool fh = hdmiFlipHChk && hdmiFlipHChk->value.get();
+                bool fv = hdmiFlipVChk && hdmiFlipVChk->value.get();
+                if (fh != hdmiFlipH.load()) { hdmiFlipH.store(fh); requestHdmiRepaint(); }
+                if (fv != hdmiFlipV.load()) { hdmiFlipV.store(fv); requestHdmiRepaint(); }
             }
 
             // Show/hide the display selector row based on the passthrough checkbox.
@@ -2290,6 +2570,7 @@ export namespace LithoControl {
             settings.jobsDir   = gs("jobsDir",  "./jobs");
             settings.platform  = gs("platform", "stm32");
             settings.dlpRoot   = gs("dlpRoot",  "");
+            settings.calibDtRoot = gs("calibDtRoot", "");
         }
 
         void saveSettings() {
@@ -2310,6 +2591,7 @@ export namespace LithoControl {
             ws("jobsDir",      jobsDirInput ? jobsDirInput->text->content.get() : settings.jobsDir);
             ws("platform",     platform == Platform::Pi ? "pi" : "stm32");
             ws("dlpRoot",      dlpRoot);
+            ws("calibDtRoot",  calibDtRoot);
             writeIniSection(ini, "LithoControl", kv);
         }
 
@@ -2408,6 +2690,39 @@ export namespace LithoControl {
                 p = parent;
             }
             return "";
+        }
+
+        // Guesses the calib-dt repo as a sibling of the DLP-photolithography
+        // repo (both are typically checked out side-by-side under the same
+        // GitHub folder) -- only used to prefill the Calibration Actions
+        // panel's folder field; the user can always browse to override it.
+        static std::string findCalibDtRoot(const std::string& dlpRootPath) {
+            namespace fs = std::filesystem;
+            if (dlpRootPath.empty()) return "";
+            fs::path candidate = fs::path(dlpRootPath).parent_path() / "calib-dt";
+            if (fs::exists(candidate / "pyproject.toml")) return candidate.string();
+            return "";
+        }
+
+        // Runs a calib-dt CLI script (`uv run <scriptArgs>`) with calibDtRoot
+        // as the working directory, streaming its output into the log --
+        // same subprocess mechanism as runSlicerSubprocess(), just pointed at
+        // a different repo. Call from a detached thread (see startCalibDtAction).
+        void runCalibDtSubprocess(const std::string& scriptArgs) {
+            if (calibDtRoot.empty()) {
+                logQ.push("[CALIB] Set the calib-dt folder first");
+                return;
+            }
+            std::string cmd = "uv run " + scriptArgs;
+            logQ.push("[CALIB] $ " + cmd);
+            int exitCode = runCapturedProcess(cmd, calibDtRoot, [this](const std::string& line) {
+                logQ.push("[CALIB] " + line);
+            });
+            logQ.push(exitCode == 0 ? "[CALIB] Done" : "[CALIB] Exit code " + std::to_string(exitCode));
+        }
+
+        void startCalibDtAction(const std::string& scriptArgs) {
+            std::thread([this, scriptArgs]() { runCalibDtSubprocess(scriptArgs); }).detach();
         }
 
         static std::string fmtFloat(float v) {

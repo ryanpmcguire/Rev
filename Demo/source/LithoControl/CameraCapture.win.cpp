@@ -124,6 +124,8 @@ namespace LithoControl {
         logQ.push("[CAM] Starting AmScope SDK capture...");
 
         Rev::AmcamCamera cam(deviceId, [this](const uint8_t* bgr, int w, int h) {
+            if (!shouldEmitCameraFrame()) return;
+
             std::vector<uint8_t> rgba((size_t)w * h * 4);
             for (int i = 0; i < w * h; i++) {
                 rgba[i * 4 + 0] = bgr[i * 3 + 2];
@@ -131,6 +133,7 @@ namespace LithoControl {
                 rgba[i * 4 + 2] = bgr[i * 3 + 0];
                 rgba[i * 4 + 3] = 255;
             }
+            applyCameraAdjustments(rgba, w, h);
             {
                 std::lock_guard<std::mutex> lk(cameraFrameMtx);
                 cameraFrameRGBA = std::move(rgba);
@@ -263,13 +266,16 @@ namespace LithoControl {
             pBuffer->Release();
             pSample->Release();
 
-            {
-                std::lock_guard<std::mutex> lk(cameraFrameMtx);
-                cameraFrameRGBA = std::move(rgba);
-                cameraFrameW = w; cameraFrameH = h;
+            if (shouldEmitCameraFrame()) {
+                applyCameraAdjustments(rgba, w, h);
+                {
+                    std::lock_guard<std::mutex> lk(cameraFrameMtx);
+                    cameraFrameRGBA = std::move(rgba);
+                    cameraFrameW = w; cameraFrameH = h;
+                }
+                cameraFrameReady = true;
+                requestRepaint();
             }
-            cameraFrameReady = true;
-            requestRepaint();
         }
 
         cameraReader.store(nullptr);

@@ -39,29 +39,79 @@ namespace LithoControl {
         title->style->border.bottom.color = rgba(42, 42, 42, 1);
         title->style->border.bottom.width = 1_px;
 
+        // Page tabs -- switches which section groups are attached to
+        // sidebarContent (see updatePageVisibility()) instead of showing
+        // every section stacked at once.
+        Box* pageTabRow = new Box(sidebarContent, { &Theme::RowH });
+        pageTabRow->style->layout        = { Axis::Horizontal, Align::Start, Align::Center };
+        pageTabRow->style->padding       = { 6_px, 6_px, 8_px, 8_px };
+        pageTabRow->style->margin.bottom = 0_px;
+        pageTabRow->style->border.bottom = { rgba(42, 42, 42, 1), 1_px };
+
+        auto makePageTab = [this](Box* parent, const std::string& label, Page page) {
+            Box* b = new Box(parent, { &Theme::Btn, &Theme::BtnHover });
+            b->style->size   = { Grow(), 24_px };
+            b->style->margin = { 2_px, 2_px, 0_px, 0_px };
+            Text* t = new Text(b, label);
+            t->style->text.size  = 9_px;
+            t->style->text.color = rgba(232, 232, 232, 1);
+            b->onMouseDown([this, page](Rev::Element::Event&) {
+                currentPage = page;
+                updatePageVisibility();
+            });
+            return b;
+        };
+        pageTabConnectionsBtn = makePageTab(pageTabRow, "CONNECTIONS", Page::Connections);
+        pageTabCalibrationBtn = makePageTab(pageTabRow, "CALIBRATION", Page::Calibration);
+        pageTabExecutionBtn   = makePageTab(pageTabRow, "EXECUTION", Page::Execution);
+
         Box* connBody = nullptr;
-        makeSection(sidebarContent, "CONNECTION", connBody);
+        Box* connSection = makeSection(sidebarContent, "CONNECTION", connBody);
         buildConnectionPanel(connBody);
 
         Box* dispBody = nullptr;
-        makeSection(sidebarContent, "DISPLAY OUTPUT", dispBody);
+        Box* dispSection = makeSection(sidebarContent, "DISPLAY OUTPUT", dispBody);
         buildDisplayPanel(dispBody);
 
         Box* slicerBody = nullptr;
-        makeSection(sidebarContent, "SLICER", slicerBody);
+        Box* slicerSection = makeSection(sidebarContent, "SLICER", slicerBody);
         buildSlicerPanel(slicerBody);
 
         Box* jobBody = nullptr;
-        makeSection(sidebarContent, "JOB QUEUE", jobBody);
+        Box* jobSection = makeSection(sidebarContent, "JOB QUEUE", jobBody);
         buildJobPanel(jobBody);
 
         Box* jogBody = nullptr;
-        makeSection(sidebarContent, "JOG", jogBody);
+        Box* jogSection = makeSection(sidebarContent, "JOG", jogBody);
         buildJogPanel(jogBody);
 
-        Box* cameraBody = nullptr;
-        makeSection(sidebarContent, "CAMERA", cameraBody);
-        buildCameraPanel(cameraBody);
+        Box* cameraDeviceBody = nullptr;
+        Box* cameraDeviceSection = makeSection(sidebarContent, "CAMERA", cameraDeviceBody);
+        buildCameraDevicePanel(cameraDeviceBody);
+
+        Box* cameraSettingsBody = nullptr;
+        Box* cameraSettingsSection = makeSection(sidebarContent, "CAMERA SETTINGS", cameraSettingsBody);
+        buildCameraSettingsPanel(cameraSettingsBody);
+
+        Box* calibBody = nullptr;
+        Box* calibSection = makeSection(sidebarContent, "CALIBRATION ACTIONS", calibBody);
+        buildCalibrationPanel(calibBody);
+
+        // CONNECTIONS: link setup + projector output + camera device select.
+        // CALIBRATION: camera preview/settings + calib-dt subprocess actions.
+        // EXECUTION: artwork/job management, gantry jog + (in the right
+        // panel) the runner/G-code logs.
+        pageSections = {
+            { Page::Connections, connSection },
+            { Page::Connections, dispSection },
+            { Page::Connections, cameraDeviceSection },
+            { Page::Execution,   slicerSection },
+            { Page::Execution,   jobSection },
+            { Page::Calibration, cameraSettingsSection },
+            { Page::Calibration, calibSection },
+            { Page::Execution,   jogSection },
+        };
+        updatePageVisibility();
 
         // Scrollbar track: thin strip on the right edge of the sidebar.
         // Absolutely positioned so it stays fixed while content scrolls.
@@ -113,12 +163,18 @@ namespace LithoControl {
         });
     }
 
-    // Collapsible section header + body.
-    // Returns a toggle() callable — call it after populating the body to start
-    // the section collapsed; the header click calls the same function to expand.
-    std::function<void()> Interface::makeSection(Box* parent, const std::string& title, Box*& body) {
+    // Collapsible section header + body, both wrapped in a single container
+    // Box that's returned so callers (buildSidebar()) can group whole
+    // sections into pages -- attaching/detaching the wrapper as a unit via
+    // addChild/removeChild (see updatePageVisibility()) rather than having
+    // to track each section's header and body separately.
+    Box* Interface::makeSection(Box* parent, const std::string& title, Box*& body) {
 
-        Box* hdr = new Box(parent, { &Theme::SectionHdr, &Theme::SectionHdrHover });
+        Box* wrapper = new Box(parent);
+        wrapper->style->layout     = { Axis::Vertical, Align::Start, Align::Start, Wrap::False };
+        wrapper->style->size.width = 100_pct;
+
+        Box* hdr = new Box(wrapper, { &Theme::SectionHdr, &Theme::SectionHdrHover });
         hdr->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
 
         Text* arrow = new Text(hdr, "v");
@@ -130,7 +186,7 @@ namespace LithoControl {
         lbl->style->text.color = rgba(232, 232, 232, 0.4f);
         lbl->style->text.size  = 10_px;
 
-        body = new Box(parent, { &Theme::SectionBody });
+        body = new Box(wrapper, { &Theme::SectionBody });
 
         // Saved children used as collapse-state indicator (empty = expanded)
         auto saved = std::make_shared<std::vector<Element*>>();
@@ -153,7 +209,49 @@ namespace LithoControl {
 
         hdr->onMouseDown([toggle](Rev::Element::Event&) { toggle(); });
 
-        return toggle;
+        return wrapper;
+    }
+
+    // Attaches/detaches whole sections (see makeSection()) to sidebarContent
+    // based on currentPage, and shows the runner/G-code status panel only on
+    // the Execution page. Called once at startup (after buildRightPanel(), so
+    // rightPanelBox/statusPanelBox already exist) and again on every tab click.
+    void Interface::updatePageVisibility() {
+        for (auto& [page, sec] : pageSections) {
+            if (!sec || !sidebarContent) continue;
+            bool shouldShow = (page == currentPage);
+            auto& kids = sidebarContent->children;
+            bool isChild = std::find(kids.begin(), kids.end(), (Element*)sec) != kids.end();
+            if (shouldShow && !isChild) sidebarContent->addChild(sec);
+            else if (!shouldShow && isChild) sidebarContent->removeChild(sec);
+        }
+
+        // Switching pages changes the content height under the (unchanged)
+        // scroll offset, so reset to the top rather than leaving the view
+        // scrolled into empty space.
+        sidebarScrollY = 0.0f;
+        if (sidebarContent) sidebarContent->style->position.top = Px(0);
+
+        auto setActive = [](Box* btn, bool active) {
+            if (!btn) return;
+            btn->style->background.color = active ? rgba(0, 87, 255, 1) : rgba(30, 30, 30, 1);
+            btn->style->border.color     = active ? rgba(0, 87, 255, 1) : rgba(42, 42, 42, 1);
+        };
+        setActive(pageTabConnectionsBtn, currentPage == Page::Connections);
+        setActive(pageTabCalibrationBtn, currentPage == Page::Calibration);
+        setActive(pageTabExecutionBtn,   currentPage == Page::Execution);
+
+        // Runner/G-code logs are Execution-page only.
+        if (rightPanelBox && statusDragHandle && statusPanelBox) {
+            bool execPage = (currentPage == Page::Execution);
+            auto& kids = rightPanelBox->children;
+            bool dragIn = std::find(kids.begin(), kids.end(), (Element*)statusDragHandle) != kids.end();
+            bool boxIn  = std::find(kids.begin(), kids.end(), (Element*)statusPanelBox)  != kids.end();
+            if (execPage && !dragIn) rightPanelBox->addChild(statusDragHandle);
+            if (execPage && !boxIn)  rightPanelBox->addChild(statusPanelBox);
+            if (!execPage && dragIn) rightPanelBox->removeChild(statusDragHandle);
+            if (!execPage && boxIn)  rightPanelBox->removeChild(statusPanelBox);
+        }
     }
 
     // -- Sidebar collapse handle -------------------------------------------
@@ -309,6 +407,31 @@ namespace LithoControl {
             hdmiEvmCorrectChk->label->style->text.size  = 10_px;
         }
 
+        // Flip correction: compensates for a mirrored/rotated optical path or
+        // mount (e.g. a relay mirror, rear projection, ceiling mount).
+        // Applied to everything sent to the projector window in
+        // composeHdmiFrame() -- solid-color test, RGB test animation, and
+        // actual job frames alike.
+        {
+            Text* flipHdr = new Text(body, "FLIP");
+            flipHdr->style->text.color    = rgba(232, 232, 232, 0.4f);
+            flipHdr->style->text.size     = 9_px;
+            flipHdr->style->margin.top    = 8_px;
+            flipHdr->style->margin.bottom = 4_px;
+
+            Box* flipRow = new Box(body, { &Theme::RowH });
+            flipRow->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+
+            hdmiFlipHChk = new Checkbox(flipRow, { .label = "Flip H", .def = false });
+            hdmiFlipHChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
+            hdmiFlipHChk->label->style->text.size  = 10_px;
+            hdmiFlipHChk->style->margin.right      = 12_px;
+
+            hdmiFlipVChk = new Checkbox(flipRow, { .label = "Flip V", .def = false });
+            hdmiFlipVChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
+            hdmiFlipVChk->label->style->text.size  = 10_px;
+        }
+
         // Projector EDID override -- runs pc/apply_edid.bat, which installs the
         // checked-in custom EDID (via a CRU-exported installer) and resets the
         // display driver so a new/other PC picks up the same mode as the
@@ -389,7 +512,12 @@ namespace LithoControl {
 
     // -- Camera panel ------------------------------------------------------
 
-    void Interface::buildCameraPanel(Box* body) {
+    // Device selection only (scan/select/start-stop) -- lives on the
+    // Connections page, alongside the serial/socket link and projector
+    // output, since it's the same kind of "what am I talking to" setup.
+    // The actual preview/adjustment controls are buildCameraSettingsPanel(),
+    // on the Calibration page.
+    void Interface::buildCameraDevicePanel(Box* body) {
         Text* devLbl = new Text(body, "DEVICE");
         devLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
         devLbl->style->text.size     = 9_px;
@@ -407,6 +535,278 @@ namespace LithoControl {
         Box* startBtn = makeBtn(btnRow, "START", nullptr, true);
         cameraBtnTxt = (Text*)startBtn->children[0];
         startBtn->onMouseDown([this](Rev::Element::Event&) { toggleCamera(); });
+    }
+
+    // Live-preview adjustments + Save Frame -- lives on the Calibration page.
+    void Interface::buildCameraSettingsPanel(Box* body) {
+        makeBtn(body, "SAVE FRAME", [this]() { saveCameraFrame(); });
+
+        // -- Adjustments (flip/rotate/brightness/contrast/FPS/resolution) --
+        // Applied to every captured frame in software, identically across
+        // backends -- see Interface::applyCameraAdjustments().
+
+        auto sectionLbl = [](Box* parent, const std::string& text) {
+            Text* t = new Text(parent, text);
+            t->style->text.color    = rgba(232, 232, 232, 0.4f);
+            t->style->text.size     = 9_px;
+            t->style->margin.top    = 8_px;
+            t->style->margin.bottom = 4_px;
+            return t;
+        };
+
+        // Flip checkboxes -- Theme::RowH centers+spaces its children, which
+        // reads as a huge gap for two small checkboxes; override to a
+        // left-packed row (same fix already applied to the HDMI channel
+        // checkbox row above) and give each an explicit light-colored label
+        // (Checkbox's default label style is dark, meant for a light bg).
+        Box* flipRow = new Box(body, { &Theme::RowH });
+        flipRow->style->layout    = { Axis::Horizontal, Align::Start, Align::Center };
+        flipRow->style->margin.top = 4_px;
+
+        cameraFlipHChk = new Checkbox(flipRow, { .label = "Flip H", .def = false });
+        cameraFlipHChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
+        cameraFlipHChk->label->style->text.size  = 10_px;
+        cameraFlipHChk->style->margin.right      = 12_px;
+
+        cameraFlipVChk = new Checkbox(flipRow, { .label = "Flip V", .def = false });
+        cameraFlipVChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
+        cameraFlipVChk->label->style->text.size  = 10_px;
+
+        // Rotation / resolution / target-FPS: compact toggle-button groups
+        // instead of Dropdowns. A Dropdown's option list is a
+        // position:absolute overlay that gets clipped by the sidebar's
+        // Overflow::Hide (Theme::SidebarRoot) when it opens near the bottom
+        // of the scrolled viewport, making the lower options unreachable --
+        // button groups render in-flow so they can't be clipped that way.
+        // A toggle group can span multiple rows (Box* parent varies per
+        // call) while still highlighting exclusively across the whole set --
+        // the button/value pairs accumulate in the shared `group` vector
+        // across calls, so selecting one clears the highlight on every
+        // other button that shares the same group, not just its own row.
+        using ToggleGroup = std::vector<std::pair<Box*, std::string>>;
+        auto addToggleRow = [this](Box* parent, std::shared_ptr<ToggleGroup> group, float btnWidth,
+                                    std::vector<std::pair<std::string, std::string>> opts,
+                                    std::function<void(const std::string&)> onSelect) {
+            auto highlight = [group](const std::string& sel) {
+                for (auto& [btn, v] : *group) {
+                    bool on = (v == sel);
+                    btn->style->background.color = on ? rgba(0, 87, 255, 1)  : rgba(30, 30, 30, 1);
+                    btn->style->border.color     = on ? rgba(0, 87, 255, 1)  : rgba(42, 42, 42, 1);
+                }
+            };
+            for (auto& [label, value] : opts) {
+                Box* b = new Box(parent, { &Theme::Btn, &Theme::BtnHover });
+                b->style->size      = { Px(btnWidth), 22_px };
+                b->style->size.max  = { Px(btnWidth), 22_px };
+                b->style->margin    = { 2_px, 2_px, 0_px, 0_px };
+                Text* t = new Text(b, label);
+                t->style->text.size  = 10_px;
+                t->style->text.color = rgba(232, 232, 232, 1);
+                group->push_back({ b, value });
+                b->onMouseDown([value, onSelect, highlight](Rev::Element::Event&) {
+                    onSelect(value);
+                    highlight(value);
+                });
+            }
+        };
+
+        sectionLbl(body, "ROTATION");
+        Box* rotRow = new Box(body, { &Theme::RowH });
+        rotRow->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+        auto rotGroup = std::make_shared<ToggleGroup>();
+        addToggleRow(rotRow, rotGroup, 46.0f,
+            { {"0", "0"}, {"90", "90"}, {"180", "180"}, {"270", "270"} },
+            [this](const std::string& v) { cameraRotationDeg = std::stoi(v); });
+        for (auto& [btn, v] : *rotGroup)
+            if (v == "0") { btn->style->background.color = rgba(0, 87, 255, 1); btn->style->border.color = rgba(0, 87, 255, 1); }
+
+        sectionLbl(body, "RESOLUTION");
+        Box* resRow1 = new Box(body, { &Theme::RowH });
+        resRow1->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+        Box* resRow2 = new Box(body, { &Theme::RowH });
+        resRow2->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+        auto selectRes = [this](const std::string& v) {
+            int rw = 0, rh = 0;
+            std::sscanf(v.c_str(), "%dx%d", &rw, &rh);
+            cameraResW = rw; cameraResH = rh; // 0x0 == native, no rescale
+        };
+        auto resGroup = std::make_shared<ToggleGroup>();
+        addToggleRow(resRow1, resGroup, 76.0f,
+            { {"Native", "0x0"}, {"1280x1024", "1280x1024"}, {"1024x768", "1024x768"} }, selectRes);
+        addToggleRow(resRow2, resGroup, 76.0f,
+            { {"800x600", "800x600"}, {"640x480", "640x480"}, {"320x240", "320x240"} }, selectRes);
+        for (auto& [btn, v] : *resGroup)
+            if (v == "0x0") { btn->style->background.color = rgba(0, 87, 255, 1); btn->style->border.color = rgba(0, 87, 255, 1); }
+
+        sectionLbl(body, "TARGET FPS");
+        Box* fpsRow1 = new Box(body, { &Theme::RowH });
+        fpsRow1->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+        Box* fpsRow2 = new Box(body, { &Theme::RowH });
+        fpsRow2->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+        auto selectFps = [this](const std::string& v) { cameraTargetFps = std::stoi(v); };
+        auto fpsGroup = std::make_shared<ToggleGroup>();
+        addToggleRow(fpsRow1, fpsGroup, 60.0f,
+            { {"Unlimited", "0"}, {"5", "5"}, {"10", "10"} }, selectFps);
+        addToggleRow(fpsRow2, fpsGroup, 60.0f,
+            { {"15", "15"}, {"20", "20"}, {"30", "30"} }, selectFps);
+        for (auto& [btn, v] : *fpsGroup)
+            if (v == "0") { btn->style->background.color = rgba(0, 87, 255, 1); btn->style->border.color = rgba(0, 87, 255, 1); }
+
+        // Section label with a small RESET button flush to the right --
+        // used for brightness/contrast so each can be snapped back to its
+        // default without dragging the slider by eye.
+        auto sectionLblWithReset = [](Box* parent, const std::string& text, std::function<void()> onReset) {
+            Box* row = new Box(parent, { &Theme::RowH });
+            row->style->layout      = { Axis::Horizontal, Align::Start, Align::Center };
+            row->style->margin.top    = 8_px;
+            row->style->margin.bottom = 4_px;
+
+            Text* t = new Text(row, text);
+            t->style->text.color = rgba(232, 232, 232, 0.4f);
+            t->style->text.size  = 9_px;
+            t->style->size.width = Grow();
+
+            Box* resetBtn = new Box(row, { &Theme::Btn, &Theme::BtnHover });
+            resetBtn->style->size     = { 40_px, 16_px };
+            resetBtn->style->size.max = { 40_px, 16_px };
+            Text* resetTxt = new Text(resetBtn, "RESET");
+            resetTxt->style->text.size  = 8_px;
+            resetTxt->style->text.color = rgba(232, 232, 232, 0.8f);
+            resetBtn->onMouseDown([onReset](Rev::Element::Event&) { onReset(); });
+        };
+
+        // Brightness / contrast: same custom track+fill drag-slider pattern
+        // as the zoom/overlay sliders in buildPreviewBar() -- the framework
+        // Slider element's default label/value text is dark-on-light and
+        // came out unreadable on this dark sidebar, plus its label+value
+        // Text children sit flush against each other with no separator.
+        sectionLblWithReset(body, "BRIGHTNESS", [this]() { cameraBrightness = 0; });
+        cameraBrightTrack = new Box(body);
+        cameraBrightTrack->style->size             = { Grow(), 10_px };
+        cameraBrightTrack->style->background.color = rgba(28, 28, 28, 1);
+        cameraBrightTrack->style->border.color     = rgba(60, 60, 60, 1);
+        cameraBrightTrack->style->border.radius    = 5_px;
+        cameraBrightTrack->style->border.width     = 1_px;
+        cameraBrightTrack->style->overflow         = Overflow::Hide;
+        cameraBrightTrack->style->cursor           = Cursor::ArrowsHorizontal;
+
+        cameraBrightFill = new Box(cameraBrightTrack);
+        cameraBrightFill->style->layout.position  = Position::Absolute;
+        cameraBrightFill->style->position.left    = Px(0);
+        cameraBrightFill->style->position.top     = Px(0);
+        cameraBrightFill->style->size.height      = 100_pct;
+        cameraBrightFill->style->size.width       = Pct(50.0f);
+        cameraBrightFill->style->background.color = rgba(0, 87, 255, 1);
+        cameraBrightFill->style->border.radius    = 5_px;
+
+        cameraBrightTrack->onMouseDown([this](Rev::Element::Event& e) {
+            cameraBrightDragging = true;
+            if (cameraBrightTrack->rect.w > 0.0f) {
+                float t = std::clamp((e.mouse.pos.x - cameraBrightTrack->rect.x)
+                                     / cameraBrightTrack->rect.w, 0.0f, 1.0f);
+                cameraBrightness = (int)std::lround(-100.0f + t * 200.0f);
+            }
+            e.propagate = false;
+        });
+
+        cameraBrightLabel = new Text(body, "+0");
+        cameraBrightLabel->style->text.color   = rgba(232, 232, 232, 0.6f);
+        cameraBrightLabel->style->text.size    = 9_px;
+        cameraBrightLabel->style->margin.top   = 3_px;
+
+        sectionLblWithReset(body, "CONTRAST", [this]() { cameraContrastPct = 100; });
+        cameraContrastTrack = new Box(body);
+        cameraContrastTrack->style->size             = { Grow(), 10_px };
+        cameraContrastTrack->style->background.color = rgba(28, 28, 28, 1);
+        cameraContrastTrack->style->border.color     = rgba(60, 60, 60, 1);
+        cameraContrastTrack->style->border.radius    = 5_px;
+        cameraContrastTrack->style->border.width     = 1_px;
+        cameraContrastTrack->style->overflow         = Overflow::Hide;
+        cameraContrastTrack->style->cursor           = Cursor::ArrowsHorizontal;
+
+        cameraContrastFill = new Box(cameraContrastTrack);
+        cameraContrastFill->style->layout.position  = Position::Absolute;
+        cameraContrastFill->style->position.left    = Px(0);
+        cameraContrastFill->style->position.top     = Px(0);
+        cameraContrastFill->style->size.height      = 100_pct;
+        cameraContrastFill->style->size.width       = Pct(100.0f / 3.0f);
+        cameraContrastFill->style->background.color = rgba(0, 160, 120, 1);
+        cameraContrastFill->style->border.radius    = 5_px;
+
+        cameraContrastTrack->onMouseDown([this](Rev::Element::Event& e) {
+            cameraContrastDragging = true;
+            if (cameraContrastTrack->rect.w > 0.0f) {
+                float t = std::clamp((e.mouse.pos.x - cameraContrastTrack->rect.x)
+                                     / cameraContrastTrack->rect.w, 0.0f, 1.0f);
+                cameraContrastPct = (int)std::lround(t * 300.0f);
+            }
+            e.propagate = false;
+        });
+
+        cameraContrastLabel = new Text(body, "100%");
+        cameraContrastLabel->style->text.color  = rgba(232, 232, 232, 0.6f);
+        cameraContrastLabel->style->text.size   = 9_px;
+        cameraContrastLabel->style->margin.top  = 3_px;
+    }
+
+    // -- Calibration Actions panel -------------------------------------------
+    // Front-end for calib-dt's CLI scripts (see ../calib-dt), invoked the same
+    // way the Slicer panel shells out to pc/slicer.py -- via runCapturedProcess
+    // (see runCalibDtSubprocess() in Interface.ixx). calib-dt is a separate,
+    // actively-changing scipy/opencv codebase; this panel deliberately does
+    // not reimplement any of its feature-extraction/optimization math in C++.
+
+    void Interface::buildCalibrationPanel(Box* body) {
+        Text* pathLbl = new Text(body, "CALIB-DT FOLDER");
+        pathLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+        pathLbl->style->text.size     = 9_px;
+        pathLbl->style->margin.bottom = 4_px;
+
+        Box* pathRow = new Box(body, { &Theme::RowH });
+        pathRow->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+
+        calibDtPathLabel = new Text(pathRow, calibDtRoot.empty() ? "(not set)" : calibDtRoot);
+        calibDtPathLabel->style->text.color  = rgba(232, 232, 232, 0.6f);
+        calibDtPathLabel->style->text.size   = 10_px;
+        calibDtPathLabel->style->text.wrap   = Wrap::BreakWord;
+        calibDtPathLabel->style->size.width  = Grow();
+
+        Box* browseBtn = makeBtn(pathRow, "...", [this]() {
+            std::string path;
+            if (Rev::OS::Dialog::PickFolder(path, "Select calib-dt folder")) {
+                calibDtRoot = path;
+                settings.calibDtRoot = path;
+                saveSettings();
+                if (calibDtPathLabel) calibDtPathLabel->content = path;
+            }
+        });
+        browseBtn->style->size     = { 40_px, Grow() };
+        browseBtn->style->size.max.width = 40_px;
+
+        Text* actLbl = new Text(body, "ACTIONS");
+        actLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+        actLbl->style->text.size     = 9_px;
+        actLbl->style->margin.top    = 8_px;
+        actLbl->style->margin.bottom = 4_px;
+
+        // Defaults mirror calib-dt's own README examples; the log lines each
+        // script prints (progress, warnings, output paths) stream straight
+        // into the runner log via startCalibDtAction()/runCalibDtSubprocess().
+        makeBtn(body, "CAPTURE FRAMES", [this]() {
+            startCalibDtAction("capture-frames --frames 20 --out captures");
+        })->style->margin.bottom = 4_px;
+
+        makeBtn(body, "PROJECT PATTERN", [this]() {
+            startCalibDtAction("project-pattern --list-monitors");
+        })->style->margin.bottom = 4_px;
+
+        makeBtn(body, "RUN CALIBRATION", [this]() {
+            startCalibDtAction("run-calibration --camera --project-pattern --projector-monitor 1 --out calibration_output");
+        })->style->margin.bottom = 4_px;
+
+        makeBtn(body, "ANALYZE SENSITIVITY", [this]() {
+            startCalibDtAction("analyze-sensitivity --out sensitivity_output");
+        });
     }
 
     // -- Slicer panel ------------------------------------------------------
@@ -653,6 +1053,7 @@ namespace LithoControl {
     void Interface::buildRightPanel() {
 
         Box* rp = new Box(this, { &Theme::RightPanel });
+        rightPanelBox = rp;
 
         // Preview control bar -- frame cycling + merge for sliced jobs
         Box* prevBar = new Box(rp);
@@ -801,7 +1202,7 @@ namespace LithoControl {
         };
 
         // Drag handle between preview and status panel
-        Box* statusDragHandle = new Box(rp);
+        statusDragHandle = new Box(rp);
         statusDragHandle->style->size             = { 100_pct, 6_px };
         statusDragHandle->style->background.color = rgba(28, 28, 28, 1);
         statusDragHandle->style->border.top       = { rgba(42, 42, 42, 1), 1_px };
@@ -1042,6 +1443,25 @@ namespace LithoControl {
                     uint8_t bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
                     outPx640x360[i] = bit ? onColor : 0xFF000000u;
                 }
+            }
+        }
+
+        // Physical flip to compensate for the projector's mount/optical path
+        // -- applied last so it covers the solid-color test, RGB test
+        // animation, and actual job frames alike (see hdmiFlipH/hdmiFlipV).
+        bool flipH = hdmiFlipH.load();
+        bool flipV = hdmiFlipV.load();
+        if (flipH) {
+            for (int y = 0; y < 360; y++) {
+                uint32_t* row = outPx640x360 + y * 640;
+                std::reverse(row, row + 640);
+            }
+        }
+        if (flipV) {
+            for (int y = 0; y < 180; y++) {
+                std::swap_ranges(outPx640x360 + y * 640,
+                                  outPx640x360 + y * 640 + 640,
+                                  outPx640x360 + (359 - y) * 640);
             }
         }
     }

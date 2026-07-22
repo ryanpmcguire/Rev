@@ -3,7 +3,6 @@ module;
 #include <cstdint>
 #include <cmath>
 #include <cstdio>
-#include <fstream>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -91,8 +90,10 @@ export namespace LithoControl::Raster {
         }
     }
 
-    // Bitmap font baked once from a TTF file on disk (kept tiny -- no packer,
-    // no atlas resource pipeline; this is a standalone diagnostic overlay).
+    // Bitmap font baked once from TTF bytes embedded in the binary via Rev's
+    // File()/resource-atlas pipeline (see runTestAnimation()) -- no on-disk
+    // font file is needed at runtime, so this survives being copied to a
+    // machine without the source tree present.
     struct BitmapFont {
         static constexpr int ATLAS_SIZE = 512;
         std::vector<unsigned char> atlas;
@@ -100,18 +101,14 @@ export namespace LithoControl::Raster {
         int firstChar = 32, numChars = 96;
         bool loaded = false;
 
-        bool load(const std::string& ttfPath, float pixelHeight) {
-            std::ifstream f(ttfPath, std::ios::binary);
-            if (!f) return false;
-            std::vector<unsigned char> data((std::istreambuf_iterator<char>(f)),
-                                             std::istreambuf_iterator<char>());
-            if (data.empty()) return false;
+        bool load(const unsigned char* ttfData, size_t ttfSize, float pixelHeight) {
+            if (!ttfData || ttfSize == 0) return false;
 
             atlas.assign(ATLAS_SIZE * ATLAS_SIZE, 0);
             chars.assign(numChars, {});
 
             int result = stbtt_BakeFontBitmap(
-                data.data(), 0, pixelHeight,
+                ttfData, 0, pixelHeight,
                 atlas.data(), ATLAS_SIZE, ATLAS_SIZE,
                 firstChar, numChars, chars.data());
 
