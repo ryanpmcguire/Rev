@@ -19,7 +19,8 @@ layout(std140, binding = 1) uniform Data {
     float uPointCount;
     float uOpacity;
     vec2  uViewport;
-    vec2  _pad;
+    float uUseVertexColor;  // 0 => uniform uColor, 1 => per-point colour
+    float _pad;
 };
 
 in vec2 v_pos;
@@ -31,6 +32,8 @@ flat in float v_aa;
 flat in float v_round;
 flat in float v_ndcz0;
 flat in float v_ndcz1;
+flat in vec4 v_col0;
+flat in vec4 v_col1;
 
 out vec4 FragColor;
 
@@ -61,7 +64,11 @@ void main() {
     float ndcz = mix(v_ndcz0, v_ndcz1, h);
     gl_FragDepth = ndcz * 0.5 + 0.5;
 
-    FragColor = vec4(uColor.rgb, uColor.a * alpha);
+    // Colour: uniform by default; per-point gradient (mixed along the segment by h)
+    // when enabled. h is the same parameter the depth interpolation uses.
+    vec4 col = (uUseVertexColor > 0.5) ? mix(v_col0, v_col1, h) : uColor;
+
+    FragColor = vec4(col.rgb, col.a * alpha);
 
     FragColor.a *= uOpacity; // Opacity
 }

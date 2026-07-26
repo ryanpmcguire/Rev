@@ -27,7 +27,8 @@ layout(std140, binding = 1) uniform Data {
     float uPointCount;
     float uOpacity;
     vec2  uViewport;     // logical pixels; pixel space matches gl_FragCoord under ortho
-    vec2  _pad;
+    float uUseVertexColor;  // 0 => uniform uColor, 1 => per-point colour TBO
+    float _pad;
 };
 
 // Bound by View3D once per frame (binding 2), shared with Mesh3d / Lines3d.
@@ -44,9 +45,12 @@ layout(std140, binding = 3) uniform Model {
     mat4 uModel;
 };
 
+// One interleaved buffer: 4 RG32F texels per point -- position then colour.
 layout(binding = 0) uniform samplerBuffer uPoints;
 
 out vec2 v_pos;
+flat out vec4 v_col0;      // per-point colour at p0 (mixed by the FS along the segment)
+flat out vec4 v_col1;      // per-point colour at p1
 flat out vec2 v_p0;
 flat out vec2 v_p1;
 flat out vec2 v_prev;     // previous point (for the corner-aware fan SDF)
@@ -58,11 +62,18 @@ flat out float v_ndcz1;   // NDC depth at p1
 
 const float PI = 3.14159265358979;
 
-// Point i in world space: packed as two RG32F texels -- (x, y) then (z, _).
+// Point i in world space: texels 4i, 4i+1 -- (x, y) then (z, _).
 vec3 fetchWorld(int i) {
-    vec2 a = texelFetch(uPoints, 2 * i).xy;
-    vec2 b = texelFetch(uPoints, 2 * i + 1).xy;
+    vec2 a = texelFetch(uPoints, 4 * i).xy;
+    vec2 b = texelFetch(uPoints, 4 * i + 1).xy;
     return vec3(a.x, a.y, b.x);
+}
+
+// Colour for point i: texels 4i+2, 4i+3 -- (r, g) then (b, a).
+vec4 fetchColor(int i) {
+    vec2 a = texelFetch(uPoints, 4 * i + 2).xy;
+    vec2 b = texelFetch(uPoints, 4 * i + 3).xy;
+    return vec4(a.x, a.y, b.x, b.y);
 }
 
 // Clip -> pixel. All geometry is built here, so stroke width stays in pixels.
@@ -218,6 +229,11 @@ void main() {
     v_round  = round;
     v_ndcz0  = clip0.z / clip0.w;
     v_ndcz1  = clip1.z / clip1.w;
+
+    // Per-point colour (fetched even when unused; the FS gates on uUseVertexColor).
+    // The corner fan sits at p0, so it inherits p0's colour, which is acceptable.
+    v_col0   = fetchColor(i0);
+    v_col1   = fetchColor(i1);
 
     // Map the pixel-space vertex back to clip, carrying the anchor's depth/w so
     // the rasterizer's perspective divide reproduces our pixel position.

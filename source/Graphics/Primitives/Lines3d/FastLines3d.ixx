@@ -37,8 +37,10 @@ export namespace Rev::Primitives {
     // Drop-in sibling of Lines3d: bind the camera UBO at binding 2 (View3D does
     // this), set the per-actor world/model transforms with setTransforms(), set
     // the viewport (logical pixels) with setViewport(), then compute()/draw().
-    // Points live in a TBO (two RG32F texels per point: (x,y) then (z,_)), and
-    // each segment is one instance of a 15-vertex template.
+    // Points live in ONE TBO (four RG32F texels per point: (x,y),(z,_),(r,g),(b,a)
+    // -- position then colour, interleaved), and each segment is one instance of a
+    // 15-vertex template. One samplerBuffer at binding 0, matching every other
+    // primitive here; the colour rides the same buffer so no second sampler unit.
     struct FastLines3d : public Primitive {
 
         // Shared
@@ -74,7 +76,7 @@ export namespace Rev::Primitives {
             float opacity = 1.0f;  // 28
             float viewportX = 1.0f;// 32  (vec2 uViewport)
             float viewportY = 1.0f;// 36
-            float pad0 = 0.0f;     // 40
+            float useVertexColor = 0.0f;  // 40  (0 => uniform uColor, 1 => interleaved per-point color)
             float pad1 = 0.0f;     // 44
         };
 
@@ -94,6 +96,12 @@ export namespace Rev::Primitives {
         float strokeWidth = 1.0f;
         float smoothing = 1.0f;
         float opacity = 1.0f;
+
+        // When true, the fragment colour comes from the interleaved per-point colour
+        // (packed alongside each point's position from Vertex3::color in compute())
+        // instead of the uniform `color`. Off by default so uniform-colour owners
+        // (ghost, semantic palette) are byte-for-byte unchanged.
+        bool useVertexColor = false;
 
         // Viewport in logical pixels (so the stroke width is in logical pixels).
         // The owner (e.g. an Actor) sets this from the View's canvas size.
@@ -130,7 +138,7 @@ export namespace Rev::Primitives {
         std::vector<Line> lines;
 
         // Per-line GPU resources, pooled and reused across frames.
-        std::vector<TextureBuffer*> pointBuffers;
+        std::vector<TextureBuffer*> pointBuffers;   // interleaved position + colour, 4 texels/point
         std::vector<UniformBuffer*> dataBuffers;
         std::vector<size_t> instanceCounts;   // segments per line (= points - 1)
 
@@ -138,7 +146,7 @@ export namespace Rev::Primitives {
         UniformBuffer* xformBuff = nullptr;
         float* xform = nullptr;   // [0..15] world, [16..31] model
 
-        std::vector<float> scratch;           // xyz packing scratch
+        std::vector<float> scratch;           // interleaved xyz + rgba packing scratch
 
         // Create
         FastLines3d(Canvas* canvas, std::vector<std::vector<Vertex3>*> pLines = {}) : Primitive(canvas) {
@@ -195,7 +203,8 @@ export namespace Rev::Primitives {
         }
 
         // Upload: pack each line's points into its TBO and uniform block. Each
-        // point becomes two RG32F texels -- (x, y) then (z, 0).
+        // point becomes four RG32F texels -- (x,y),(z,0),(r,g),(b,a): position then
+        // colour, interleaved so one samplerBuffer (binding 0) carries both.
         void compute() override {
 
             if (!dirty) { return; }
@@ -210,16 +219,19 @@ export namespace Rev::Primitives {
 
                 if (pts.size() < 2) { instanceCounts[i] = 0; continue; }
 
-                scratch.resize(pts.size() * 4);
+                // Four texels per point: position (x,y),(z,0) then colour (r,g),(b,a).
+                scratch.resize(pts.size() * 8);
                 for (size_t k = 0; k < pts.size(); k++) {
-                    scratch[k * 4 + 0] = pts[k].x;
-                    scratch[k * 4 + 1] = pts[k].y;
-                    scratch[k * 4 + 2] = pts[k].z;
-                    scratch[k * 4 + 3] = 0.0f;
+                    scratch[k * 8 + 0] = pts[k].x;
+                    scratch[k * 8 + 1] = pts[k].y;
+                    scratch[k * 8 + 2] = pts[k].z;
+                    scratch[k * 8 + 3] = 0.0f;
+                    scratch[k * 8 + 4] = pts[k].color.r;
+                    scratch[k * 8 + 5] = pts[k].color.g;
+                    scratch[k * 8 + 6] = pts[k].color.b;
+                    scratch[k * 8 + 7] = pts[k].color.a;
                 }
-
-                // Two texels per point.
-                pointBuffers[i]->set(scratch.data(), pts.size() * 2);
+                pointBuffers[i]->set(scratch.data(), pts.size() * 4);
 
                 Data block;
                 block.color = color ? color : lines[i].color;
@@ -229,6 +241,7 @@ export namespace Rev::Primitives {
                 block.opacity = opacity;
                 block.viewportX = viewportWidth;
                 block.viewportY = viewportHeight;
+                block.useVertexColor = useVertexColor ? 1.0f : 0.0f;
 
                 dataBuffers[i]->set(&block);
 
@@ -261,7 +274,7 @@ export namespace Rev::Primitives {
 
                 if (segs < 1) { continue; }
 
-                pointBuffers[i]->bind(0);   // samplerBuffer at unit 0
+                pointBuffers[i]->bind(0);   // interleaved position+colour samplerBuffer at unit 0
                 dataBuffers[i]->bind(1);    // uniform block at binding 1
 
                 canvas->drawArraysInstanced(
