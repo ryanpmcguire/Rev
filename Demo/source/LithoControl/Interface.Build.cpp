@@ -771,6 +771,116 @@ namespace LithoControl {
         cameraContrastLabel->style->text.color  = rgba(232, 232, 232, 0.6f);
         cameraContrastLabel->style->text.size   = 9_px;
         cameraContrastLabel->style->margin.top  = 3_px;
+
+        // -- Extended UVC settings (exposure / gain-ISO) --------------------
+        // Manual hardware controls for a generic UVC camera (e.g. an 8MP USB
+        // camera) -- built here but kept detached from the tree by default
+        // and only re-attached (see the sync block in computeStyle()) while
+        // such a camera is running. The AmScope SDK path (MU130 etc.) drives
+        // its own auto-exposure internally and has no equivalent control
+        // surface, so this section never shows for it.
+        cameraExtendedSlot = new Box(body);
+        cameraExtendedSlot->style->layout     = { Axis::Vertical, Align::Start, Align::Start };
+        cameraExtendedSlot->style->size.width = Grow();
+
+        cameraExtendedBox = new Box(cameraExtendedSlot);
+        cameraExtendedBox->style->layout     = { Axis::Vertical, Align::Start, Align::Start };
+        cameraExtendedBox->style->size.width = Grow();
+
+        sectionLbl(cameraExtendedBox, "EXTENDED SETTINGS (UVC)");
+
+        Box* autoExpoRow = new Box(cameraExtendedBox, { &Theme::RowH });
+        autoExpoRow->style->layout     = { Axis::Horizontal, Align::Start, Align::Center };
+        autoExpoRow->style->margin.top = 4_px;
+        cameraAutoExpoChk = new Checkbox(autoExpoRow, { .label = "Auto Exposure", .def = true });
+        cameraAutoExpoChk->label->style->text.color = rgba(232, 232, 232, 0.7f);
+        cameraAutoExpoChk->label->style->text.size  = 10_px;
+
+        sectionLblWithReset(cameraExtendedBox, "EXPOSURE", [this]() {
+            int mid = (cameraExposureMin.load() + cameraExposureMax.load()) / 2;
+            cameraExposureVal = mid;
+            setCameraExposure(mid);
+        });
+        cameraExposureTrack = new Box(cameraExtendedBox);
+        cameraExposureTrack->style->size             = { Grow(), 10_px };
+        cameraExposureTrack->style->background.color = rgba(28, 28, 28, 1);
+        cameraExposureTrack->style->border.color     = rgba(60, 60, 60, 1);
+        cameraExposureTrack->style->border.radius    = 5_px;
+        cameraExposureTrack->style->border.width     = 1_px;
+        cameraExposureTrack->style->overflow         = Overflow::Hide;
+        cameraExposureTrack->style->cursor           = Cursor::ArrowsHorizontal;
+
+        cameraExposureFill = new Box(cameraExposureTrack);
+        cameraExposureFill->style->layout.position  = Position::Absolute;
+        cameraExposureFill->style->position.left    = Px(0);
+        cameraExposureFill->style->position.top     = Px(0);
+        cameraExposureFill->style->size.height      = 100_pct;
+        cameraExposureFill->style->size.width       = Pct(0.0f);
+        cameraExposureFill->style->background.color = rgba(255, 149, 0, 1);
+        cameraExposureFill->style->border.radius    = 5_px;
+
+        cameraExposureTrack->onMouseDown([this](Rev::Element::Event& e) {
+            cameraExposureDragging = true;
+            int lo = cameraExposureMin.load(), hi = cameraExposureMax.load();
+            if (hi > lo && cameraExposureTrack->rect.w > 0.0f) {
+                float t = std::clamp((e.mouse.pos.x - cameraExposureTrack->rect.x)
+                                     / cameraExposureTrack->rect.w, 0.0f, 1.0f);
+                int v = lo + (int)std::lround(t * (hi - lo));
+                cameraExposureVal = v;
+                setCameraExposure(v);
+            }
+            e.propagate = false;
+        });
+
+        cameraExposureLabel = new Text(cameraExtendedBox, "-");
+        cameraExposureLabel->style->text.color  = rgba(232, 232, 232, 0.6f);
+        cameraExposureLabel->style->text.size   = 9_px;
+        cameraExposureLabel->style->margin.top  = 3_px;
+
+        sectionLblWithReset(cameraExtendedBox, "GAIN (ISO)", [this]() {
+            int lo = cameraGainMin.load();
+            cameraGainVal = lo;
+            setCameraGain(lo);
+        });
+        cameraGainTrack = new Box(cameraExtendedBox);
+        cameraGainTrack->style->size             = { Grow(), 10_px };
+        cameraGainTrack->style->background.color = rgba(28, 28, 28, 1);
+        cameraGainTrack->style->border.color     = rgba(60, 60, 60, 1);
+        cameraGainTrack->style->border.radius    = 5_px;
+        cameraGainTrack->style->border.width     = 1_px;
+        cameraGainTrack->style->overflow         = Overflow::Hide;
+        cameraGainTrack->style->cursor           = Cursor::ArrowsHorizontal;
+
+        cameraGainFill = new Box(cameraGainTrack);
+        cameraGainFill->style->layout.position  = Position::Absolute;
+        cameraGainFill->style->position.left    = Px(0);
+        cameraGainFill->style->position.top     = Px(0);
+        cameraGainFill->style->size.height      = 100_pct;
+        cameraGainFill->style->size.width       = Pct(0.0f);
+        cameraGainFill->style->background.color = rgba(191, 90, 242, 1);
+        cameraGainFill->style->border.radius    = 5_px;
+
+        cameraGainTrack->onMouseDown([this](Rev::Element::Event& e) {
+            cameraGainDragging = true;
+            int lo = cameraGainMin.load(), hi = cameraGainMax.load();
+            if (hi > lo && cameraGainTrack->rect.w > 0.0f) {
+                float t = std::clamp((e.mouse.pos.x - cameraGainTrack->rect.x)
+                                     / cameraGainTrack->rect.w, 0.0f, 1.0f);
+                int v = lo + (int)std::lround(t * (hi - lo));
+                cameraGainVal = v;
+                setCameraGain(v);
+            }
+            e.propagate = false;
+        });
+
+        cameraGainLabel = new Text(cameraExtendedBox, "-");
+        cameraGainLabel->style->text.color  = rgba(232, 232, 232, 0.6f);
+        cameraGainLabel->style->text.size   = 9_px;
+        cameraGainLabel->style->margin.top  = 3_px;
+
+        // Hidden until a generic UVC camera (not AmScope) is running -- see
+        // the attach/detach sync in computeStyle().
+        cameraExtendedSlot->removeChild(cameraExtendedBox);
     }
 
     // -- Calibration Actions panel -------------------------------------------

@@ -406,6 +406,49 @@ export namespace LithoControl {
         std::atomic<int>      cameraResH         { 0 };
         std::chrono::steady_clock::time_point cameraLastFrameTime{};
 
+        // -- Extended UVC controls (exposure / gain-ISO) ---------------------
+        // Generic UVC cameras only (Windows Media Foundation / the sole Linux
+        // V4L2 backend) -- the AmScope vendor SDK path (CameraBackend::AmScope,
+        // used for the MU130 etc.) manages its own auto-exposure internally
+        // and has no manual control surface, so this section stays detached
+        // whenever that backend is active. Min==max (both 0) means the
+        // connected UVC device doesn't expose that control.
+        Checkbox*             cameraAutoExpoChk     = nullptr;
+
+        Box*                  cameraExposureTrack   = nullptr;
+        Box*                  cameraExposureFill    = nullptr;
+        Text*                 cameraExposureLabel   = nullptr;
+        bool                  cameraExposureDragging = false;
+
+        Box*                  cameraGainTrack       = nullptr;
+        Box*                  cameraGainFill        = nullptr;
+        Text*                 cameraGainLabel       = nullptr;
+        bool                  cameraGainDragging    = false;
+
+        // Slot the extended-settings block attaches to/detaches from -- see
+        // the sync in computeStyle(). Detaching (rather than
+        // Visibility::Hidden) removes it from layout entirely, same as
+        // platformRowSlot below.
+        Box*                  cameraExtendedSlot    = nullptr;
+        Box*                  cameraExtendedBox     = nullptr;
+
+        std::atomic<bool>     cameraAutoExposure  { true };
+        std::atomic<int>      cameraExposureVal   { 0 };
+        std::atomic<int>      cameraExposureMin   { 0 };
+        std::atomic<int>      cameraExposureMax   { 0 };
+        std::atomic<int>      cameraGainVal       { 0 };
+        std::atomic<int>      cameraGainMin       { 0 };
+        std::atomic<int>      cameraGainMax       { 0 };
+
+        // Live capture-session handles used to push manual exposure/gain to
+        // the device -- IAMCameraControl*/IAMVideoProcAmp* on Windows (see
+        // CameraCapture.win.cpp), the open V4L2 fd on Linux (see
+        // CameraCapture.lnx.cpp). Null/-1 while no UVC camera is running or
+        // the AmScope backend is active.
+        std::atomic<void*>    cameraCtrlIface    { nullptr };  // Windows: IAMCameraControl*
+        std::atomic<void*>    cameraProcAmpIface { nullptr };  // Windows: IAMVideoProcAmp*
+        std::atomic<int>      cameraCtrlFd       { -1 };       // Linux: V4L2 device fd
+
         // Software FPS cap shared by both capture backends -- not a true
         // sensor frame-rate control, just throttles how often a captured
         // frame is staged for preview.
@@ -659,6 +702,26 @@ export namespace LithoControl {
                         cameraContrastPct = (int)std::lround(t * 300.0f);
                     }
                 }
+                if (cameraExposureDragging && cameraExposureTrack) {
+                    float w = cameraExposureTrack->rect.w;
+                    int lo = cameraExposureMin.load(), hi = cameraExposureMax.load();
+                    if (w > 0.0f && hi > lo) {
+                        float t = std::clamp((e.mouse.pos.x - cameraExposureTrack->rect.x) / w, 0.0f, 1.0f);
+                        int v = lo + (int)std::lround(t * (hi - lo));
+                        cameraExposureVal = v;
+                        setCameraExposure(v);
+                    }
+                }
+                if (cameraGainDragging && cameraGainTrack) {
+                    float w = cameraGainTrack->rect.w;
+                    int lo = cameraGainMin.load(), hi = cameraGainMax.load();
+                    if (w > 0.0f && hi > lo) {
+                        float t = std::clamp((e.mouse.pos.x - cameraGainTrack->rect.x) / w, 0.0f, 1.0f);
+                        int v = lo + (int)std::lround(t * (hi - lo));
+                        cameraGainVal = v;
+                        setCameraGain(v);
+                    }
+                }
                 if (sbThumbDragging && sidebarBox && sidebarContent) {
                     // Map thumb travel (track minus thumb) to content scroll range.
                     float trackH   = sidebarBox->rect.h;
@@ -724,6 +787,8 @@ export namespace LithoControl {
                 jobListThumbDragging  = false;
                 cameraBrightDragging   = false;
                 cameraContrastDragging = false;
+                cameraExposureDragging = false;
+                cameraGainDragging     = false;
                 if (sidebarDragging && !sidebarDragMoved) {
                     // Click (no drag) -- toggle collapse
                     sidebarCollapsed = !sidebarCollapsed;
@@ -1110,6 +1175,13 @@ export namespace LithoControl {
         // never referenced from the Linux build.
         void runCameraCaptureAmcam(const std::string& deviceId);
 
+        // Extended UVC controls (exposure/gain-ISO) -- implemented per-
+        // platform alongside the capture loop that owns the device handle.
+        // No-ops while the AmScope backend is active or no camera is running.
+        void setCameraExposure(int value);
+        void setCameraGain(int value);
+        void setCameraAutoExposure(bool enabled);
+
         void toggleCamera() {
             if (cameraRunning) {
                 stopCamera();
@@ -1339,6 +1411,44 @@ export namespace LithoControl {
                     std::snprintf(buf, sizeof(buf), "%d%%", val);
                     cameraContrastLabel->content = buf;
                 }
+            }
+
+            // Extended UVC settings: mirror the auto-exposure checkbox into
+            // the hardware only on change (not every frame).
+            if (cameraAutoExpoChk) {
+                bool chk = cameraAutoExpoChk->value.get();
+                if (chk != cameraAutoExposure.load()) {
+                    cameraAutoExposure = chk;
+                    setCameraAutoExposure(chk);
+                }
+            }
+            if (cameraExposureFill || cameraExposureLabel) {
+                int lo = cameraExposureMin.load(), hi = cameraExposureMax.load();
+                int val = cameraExposureVal.load();
+                float t = (hi > lo) ? std::clamp((float)(val - lo) / (float)(hi - lo), 0.0f, 1.0f) : 0.0f;
+                if (cameraExposureFill) cameraExposureFill->style->size.width = Pct(t * 100.0f);
+                if (cameraExposureLabel)
+                    cameraExposureLabel->content = (hi > lo) ? std::to_string(val) : "not supported by this camera";
+            }
+            if (cameraGainFill || cameraGainLabel) {
+                int lo = cameraGainMin.load(), hi = cameraGainMax.load();
+                int val = cameraGainVal.load();
+                float t = (hi > lo) ? std::clamp((float)(val - lo) / (float)(hi - lo), 0.0f, 1.0f) : 0.0f;
+                if (cameraGainFill) cameraGainFill->style->size.width = Pct(t * 100.0f);
+                if (cameraGainLabel)
+                    cameraGainLabel->content = (hi > lo) ? std::to_string(val) : "not supported by this camera";
+            }
+
+            // Extended settings only apply to generic UVC cameras (Windows
+            // Media Foundation / the sole Linux backend) -- keep the section
+            // detached (no layout space, same as platformRowSlot) whenever
+            // the AmScope SDK backend is active or no camera is running.
+            if (cameraExtendedSlot && cameraExtendedBox) {
+                bool wantExtended = cameraRunning.load() && cameraBackend != CameraBackend::AmScope;
+                auto& kids = cameraExtendedSlot->children;
+                bool present = std::find(kids.begin(), kids.end(), (Element*)cameraExtendedBox) != kids.end();
+                if (wantExtended && !present) cameraExtendedSlot->addChild(cameraExtendedBox);
+                else if (!wantExtended && present) cameraExtendedSlot->removeChild(cameraExtendedBox);
             }
 
             // Drain live camera frame into preview

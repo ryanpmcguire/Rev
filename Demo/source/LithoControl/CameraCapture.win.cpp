@@ -4,10 +4,12 @@ module;
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
+#include <strmif.h>
 #pragma comment(lib, "mf.lib")
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
+#pragma comment(lib, "strmiids.lib")
 
 #include <string>
 #include <vector>
@@ -22,6 +24,12 @@ module LithoControl.Interface;   // implementation unit -- no 'export'
 import Rev.AmcamCamera;
 
 namespace LithoControl {
+
+    // Forward declarations -- defined further down alongside runCameraCapture()
+    // (the only place queryCameraExtendedRange() has an IMFMediaSource to query),
+    // but releaseCameraExtendedCtrl() also needs to be reachable from
+    // runCameraCaptureAmcam() above it.
+    static void releaseCameraExtendedCtrl(Interface* self);
 
     void Interface::scanCameras() {
         HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -123,6 +131,13 @@ namespace LithoControl {
     void Interface::runCameraCaptureAmcam(const std::string& deviceId) {
         logQ.push("[CAM] Starting AmScope SDK capture...");
 
+        // No manual exposure/gain surface on this backend -- the SDK drives
+        // its own auto-exposure (see AmcamCamera.win.ixx). Ensure any
+        // extended-settings state left over from a prior MF session is
+        // cleared so the (hidden, per CameraBackend::AmScope gating) UI
+        // doesn't retain stale values.
+        releaseCameraExtendedCtrl(this);
+
         Rev::AmcamCamera cam(deviceId, [this](const uint8_t* bgr, int w, int h) {
             if (!shouldEmitCameraFrame()) return;
 
@@ -159,6 +174,90 @@ namespace LithoControl {
         logQ.push("[CAM] Stopped");
     }
 
+    // -- Extended UVC controls (exposure / gain-ISO) -------------------------
+    // Most UVC webcam drivers still implement the legacy DirectShow control
+    // interfaces (IAMCameraControl / IAMVideoProcAmp) on the same media
+    // source object Media Foundation hands back from ActivateObject(), even
+    // though capture itself goes through IMFSourceReader -- so no separate
+    // DirectShow graph is needed just to reach exposure/gain. Not every
+    // camera/driver supports these; GetRange() failing (min==max stays 0) is
+    // the "unsupported" signal surfaced in the UI. Never called for the
+    // AmScope SDK backend (CameraBackend::AmScope), which has its own
+    // internal auto-exposure and no equivalent control surface here.
+    // Only acquires the interface pointers -- deliberately does NOT read the
+    // exposure/gain range yet. GetRange() reflects whatever capture format is
+    // active *at the moment it's called*, and on most UVC sensors the max
+    // exposure is capped to roughly one frame period (a driver/firmware
+    // limit, not something this code imposes) -- calling it here, before the
+    // RGB32/frame-rate negotiation below, would report the device's default
+    // (often high-frame-rate) mode's ceiling rather than the one actually in
+    // use. See refreshCameraExtendedRange(), called once negotiation is done.
+    static void acquireCameraExtendedCtrl(Interface* self, IMFMediaSource* pSource) {
+        IAMCameraControl* pCamCtrl = nullptr;
+        pSource->QueryInterface(IID_IAMCameraControl, (void**)&pCamCtrl);
+        IAMVideoProcAmp* pProcAmp = nullptr;
+        pSource->QueryInterface(IID_IAMVideoProcAmp, (void**)&pProcAmp);
+        self->cameraCtrlIface.store(pCamCtrl);
+        self->cameraProcAmpIface.store(pProcAmp);
+    }
+
+    static void refreshCameraExtendedRange(Interface* self) {
+        auto* pCamCtrl = reinterpret_cast<IAMCameraControl*>(self->cameraCtrlIface.load());
+        auto* pProcAmp = reinterpret_cast<IAMVideoProcAmp*>(self->cameraProcAmpIface.load());
+
+        long lo = 0, hi = 0, step = 0, def = 0, flags = 0;
+        if (pCamCtrl && SUCCEEDED(pCamCtrl->GetRange(CameraControl_Exposure, &lo, &hi, &step, &def, &flags))) {
+            self->cameraExposureMin = (int)lo;
+            self->cameraExposureMax = (int)hi;
+            self->cameraExposureVal = (int)def;
+            long curVal = 0, curFlags = 0;
+            if (SUCCEEDED(pCamCtrl->Get(CameraControl_Exposure, &curVal, &curFlags))) {
+                self->cameraExposureVal   = (int)curVal;
+                self->cameraAutoExposure  = (curFlags & CameraControl_Flags_Auto) != 0;
+            }
+        } else {
+            self->cameraExposureMin = self->cameraExposureMax = 0;
+        }
+
+        if (pProcAmp && SUCCEEDED(pProcAmp->GetRange(VideoProcAmp_Gain, &lo, &hi, &step, &def, &flags))) {
+            self->cameraGainMin = (int)lo;
+            self->cameraGainMax = (int)hi;
+            self->cameraGainVal = (int)def;
+            long curVal = 0, curFlags = 0;
+            if (SUCCEEDED(pProcAmp->Get(VideoProcAmp_Gain, &curVal, &curFlags)))
+                self->cameraGainVal = (int)curVal;
+        } else {
+            self->cameraGainMin = self->cameraGainMax = 0;
+        }
+    }
+
+    static void releaseCameraExtendedCtrl(Interface* self) {
+        if (auto* p = reinterpret_cast<IAMCameraControl*>(self->cameraCtrlIface.exchange(nullptr))) p->Release();
+        if (auto* p = reinterpret_cast<IAMVideoProcAmp*>(self->cameraProcAmpIface.exchange(nullptr))) p->Release();
+        self->cameraExposureMin = self->cameraExposureMax = 0;
+        self->cameraGainMin     = self->cameraGainMax     = 0;
+    }
+
+    void Interface::setCameraExposure(int value) {
+        auto* pCamCtrl = reinterpret_cast<IAMCameraControl*>(cameraCtrlIface.load());
+        if (!pCamCtrl) return;
+        pCamCtrl->Set(CameraControl_Exposure, value,
+                      cameraAutoExposure.load() ? CameraControl_Flags_Auto : CameraControl_Flags_Manual);
+    }
+
+    void Interface::setCameraGain(int value) {
+        auto* pProcAmp = reinterpret_cast<IAMVideoProcAmp*>(cameraProcAmpIface.load());
+        if (!pProcAmp) return;
+        pProcAmp->Set(VideoProcAmp_Gain, value, VideoProcAmp_Flags_Manual);
+    }
+
+    void Interface::setCameraAutoExposure(bool enabled) {
+        auto* pCamCtrl = reinterpret_cast<IAMCameraControl*>(cameraCtrlIface.load());
+        if (!pCamCtrl) return;
+        pCamCtrl->Set(CameraControl_Exposure, (long)cameraExposureVal.load(),
+                      enabled ? CameraControl_Flags_Auto : CameraControl_Flags_Manual);
+    }
+
     void Interface::runCameraCapture(int deviceIdx) {
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         bool uninitCom = (hr == S_OK);
@@ -192,6 +291,14 @@ namespace LithoControl {
             MFShutdown(); if (uninitCom) CoUninitialize(); return;
         }
 
+        // Acquire the DirectShow-compatibility control interfaces for manual
+        // exposure/gain before pSource is released below -- QueryInterface
+        // AddRefs independently, so the returned pointers stay valid for the
+        // life of this capture session regardless of pSource's own lifetime.
+        // Range is queried later, once the capture format is actually set
+        // (see refreshCameraExtendedRange()).
+        acquireCameraExtendedCtrl(this, pSource);
+
         // Enable the MF video processor so we can request RGB32 output
         // regardless of the camera's native format (NV12, YUY2, etc.)
         IMFAttributes* pReaderAttr = nullptr;
@@ -205,22 +312,44 @@ namespace LithoControl {
 
         if (FAILED(hr)) {
             logQ.push("[CAM] Failed to create source reader");
+            releaseCameraExtendedCtrl(this);
             cameraRunning = false;
             MFShutdown(); if (uninitCom) CoUninitialize(); return;
         }
 
-        // Request RGB32 (BGRA, bottom-up) output so no YUV conversion needed
+        // Request RGB32 (BGRA, bottom-up) output so no YUV conversion needed.
+        // Also request a lower frame rate when TARGET FPS is set to anything
+        // but Unlimited -- on most UVC sensors the max manual/auto exposure
+        // time is capped to roughly one frame period by the driver/firmware
+        // (not by this app), so a high default capture rate is why the
+        // exposure slider's ceiling can look artificially low (e.g. -3 =
+        // 125ms at a high frame rate). Best-effort: if the device rejects
+        // the combined subtype+frame-rate request, retry with just the
+        // subtype so capture still works, just without a wider ceiling.
         IMFMediaType* pType = nullptr;
         MFCreateMediaType(&pType);
         pType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
         pType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+        int reqFps = cameraTargetFps.load();
+        if (reqFps > 0) MFSetAttributeRatio(pType, MF_MT_FRAME_RATE, (UINT32)reqFps, 1);
         hr = pReader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
                                           nullptr, pType);
         pType->Release();
 
+        if (FAILED(hr) && reqFps > 0) {
+            logQ.push("[CAM] Camera rejected " + std::to_string(reqFps) + " fps, retrying at native rate");
+            MFCreateMediaType(&pType);
+            pType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+            pType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+            hr = pReader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                                              nullptr, pType);
+            pType->Release();
+        }
+
         if (FAILED(hr)) {
             logQ.push("[CAM] RGB32 not supported by this camera");
             pReader->Release();
+            releaseCameraExtendedCtrl(this);
             cameraRunning = false;
             MFShutdown(); if (uninitCom) CoUninitialize(); return;
         }
@@ -229,9 +358,17 @@ namespace LithoControl {
         pReader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &pActual);
         UINT32 fw = 0, fh = 0;
         MFGetAttributeSize(pActual, MF_MT_FRAME_SIZE, &fw, &fh);
+        UINT32 fpsNum = 0, fpsDen = 1;
+        MFGetAttributeRatio(pActual, MF_MT_FRAME_RATE, &fpsNum, &fpsDen);
         pActual->Release();
 
-        logQ.push("[CAM] Live: " + std::to_string(fw) + "x" + std::to_string(fh));
+        // Now that the real capture format (including frame rate) is locked
+        // in, the exposure/gain range the driver reports reflects what's
+        // actually achievable in this session.
+        refreshCameraExtendedRange(this);
+
+        logQ.push("[CAM] Live: " + std::to_string(fw) + "x" + std::to_string(fh) +
+                   (fpsDen > 0 ? (" @ " + std::to_string(fpsNum / fpsDen) + "fps") : ""));
         cameraReader.store(pReader);
 
         while (cameraRunning) {
@@ -280,6 +417,7 @@ namespace LithoControl {
 
         cameraReader.store(nullptr);
         pReader->Release();
+        releaseCameraExtendedCtrl(this);
         cameraRunning = false;
         MFShutdown();
         if (uninitCom) CoUninitialize();

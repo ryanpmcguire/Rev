@@ -101,6 +101,65 @@ namespace LithoControl {
         if (cameraBtnTxt) cameraBtnTxt->content = "START";
     }
 
+    // -- Extended UVC controls (exposure / gain-ISO) -------------------------
+    // Standard V4L2 controls -- supported by any UVC-compliant camera (the
+    // 8MP USB camera etc.); not called for the AmScope SDK backend, which
+    // doesn't exist on Linux (see CameraBackend, Windows-only).
+    static void queryCameraExtendedRange(Interface* self, int fd) {
+        v4l2_queryctrl q{};
+
+        q.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+        if (ioctl(fd, VIDIOC_QUERYCTRL, &q) == 0 && !(q.flags & V4L2_CTRL_FLAG_DISABLED)) {
+            self->cameraExposureMin = q.minimum;
+            self->cameraExposureMax = q.maximum;
+            v4l2_control c{}; c.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+            self->cameraExposureVal = (ioctl(fd, VIDIOC_G_CTRL, &c) == 0) ? c.value : q.default_value;
+        } else {
+            self->cameraExposureMin = self->cameraExposureMax = 0;
+        }
+
+        v4l2_control autoExpo{};
+        autoExpo.id = V4L2_CID_EXPOSURE_AUTO;
+        autoExpo.value = self->cameraAutoExposure.load() ? V4L2_EXPOSURE_APERTURE_PRIORITY : V4L2_EXPOSURE_MANUAL;
+        ioctl(fd, VIDIOC_S_CTRL, &autoExpo);   // best-effort; not every driver exposes this control
+
+        q = {};
+        q.id = V4L2_CID_GAIN;
+        if (ioctl(fd, VIDIOC_QUERYCTRL, &q) == 0 && !(q.flags & V4L2_CTRL_FLAG_DISABLED)) {
+            self->cameraGainMin = q.minimum;
+            self->cameraGainMax = q.maximum;
+            v4l2_control c{}; c.id = V4L2_CID_GAIN;
+            self->cameraGainVal = (ioctl(fd, VIDIOC_G_CTRL, &c) == 0) ? c.value : q.default_value;
+        } else {
+            self->cameraGainMin = self->cameraGainMax = 0;
+        }
+
+        self->cameraCtrlFd.store(fd);
+    }
+
+    void Interface::setCameraExposure(int value) {
+        int fd = cameraCtrlFd.load();
+        if (fd < 0) return;
+        v4l2_control c{}; c.id = V4L2_CID_EXPOSURE_ABSOLUTE; c.value = value;
+        ioctl(fd, VIDIOC_S_CTRL, &c);
+    }
+
+    void Interface::setCameraGain(int value) {
+        int fd = cameraCtrlFd.load();
+        if (fd < 0) return;
+        v4l2_control c{}; c.id = V4L2_CID_GAIN; c.value = value;
+        ioctl(fd, VIDIOC_S_CTRL, &c);
+    }
+
+    void Interface::setCameraAutoExposure(bool enabled) {
+        int fd = cameraCtrlFd.load();
+        if (fd < 0) return;
+        v4l2_control c{};
+        c.id = V4L2_CID_EXPOSURE_AUTO;
+        c.value = enabled ? V4L2_EXPOSURE_APERTURE_PRIORITY : V4L2_EXPOSURE_MANUAL;
+        ioctl(fd, VIDIOC_S_CTRL, &c);
+    }
+
     void Interface::runCameraCapture(int deviceIdx) {
         std::string path = "/dev/video" + std::to_string(deviceIdx);
         int fd = open(path.c_str(), O_RDWR);
@@ -186,6 +245,11 @@ namespace LithoControl {
             return;
         }
 
+        // Extended exposure/gain controls -- best-effort, queried once
+        // streaming so the device is fully configured; not every UVC driver
+        // supports these (see queryCameraExtendedRange()).
+        queryCameraExtendedRange(this, fd);
+
         logQ.push("[CAM] Live: " + std::to_string(w) + "x" + std::to_string(h) +
                    (isRgb24 ? " RGB24" : " YUYV"));
 
@@ -237,6 +301,9 @@ namespace LithoControl {
 
         ioctl(fd, VIDIOC_STREAMOFF, &type);
         for (auto& b : buffers) munmap(b.start, b.length);
+        cameraCtrlFd.store(-1);
+        cameraExposureMin = cameraExposureMax = 0;
+        cameraGainMin     = cameraGainMax     = 0;
         close(fd);
         cameraRunning = false;
         logQ.push("[CAM] Stopped");
