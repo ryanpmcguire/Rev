@@ -314,8 +314,8 @@ namespace LithoControl {
         platLbl->style->margin.bottom = 4_px;
 
         platformDrop = new Dropdown(body, {
-            .options = { { "STM32 (Serial)", "stm32" }, { "Pi Zero 2W (TCP)", "pi" } },
-            .placeholder = "STM32 (Serial)",
+            .options = { { "STM32 / UV Tester (Serial)", "stm32" }, { "Pi Zero 2W (TCP)", "pi" } },
+            .placeholder = "STM32 / UV Tester (Serial)",
             .value = (settings.platform == "pi") ? "pi" : "stm32"
         });
         platformDrop->label->style->visibility = Visibility::Hidden;
