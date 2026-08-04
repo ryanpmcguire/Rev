@@ -506,6 +506,7 @@ namespace LithoControl {
         testRow->style->margin.top = 4_px;
         makeBtn(testRow, "COLOR TEST", [this]() { colorTest(); });
         hdmiTestBtn = makeBtn(testRow, "RGB TEST", [this]() { toggleTestImage(); });
+        hdmiCustomImageBtn = makeBtn(testRow, "CUSTOM IMAGE", [this]() { loadCustomImage(); });
 
         // UV laser toggle
         Box* uvRow = new Box(body, { &Theme::RowH });
@@ -1605,6 +1606,12 @@ namespace LithoControl {
             std::fill(outPx640x360, outPx640x360 + 640 * 360, solid);
         } else if (hdmiCalibGridActive.load()) {
             generateCalibGrid(outPx640x360);
+        } else if (hdmiCustomImageActive.load()) {
+            std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+            if (hdmiCustomImageBGRA.size() == 640u * 360u * 4u) {
+                const auto* src = reinterpret_cast<const uint32_t*>(hdmiCustomImageBGRA.data());
+                std::copy(src, src + 640 * 360, outPx640x360);
+            }
         } else if (hdmiTestActive.load()) {
             std::lock_guard<std::mutex> lk(hdmiFrameMtx);
             if (hdmiTestBGRA.size() == 640u * 360u * 4u) {

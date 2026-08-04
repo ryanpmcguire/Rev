@@ -328,6 +328,13 @@ export namespace LithoControl {
         std::atomic<bool>     hdmiCalibGridActive { false };
         std::thread           hdmiTestThread;
         Box*                  hdmiTestBtn     = nullptr;
+        // User-supplied still image shown on the projector in place of the
+        // built-in RGB test pattern (see loadCustomImage()). Takes priority
+        // over hdmiTestBGRA in composeHdmiFrame() but not over hdmiSolidColor
+        // or the calibration grid.
+        std::vector<uint8_t>  hdmiCustomImageBGRA;  // 640x360x4; empty = none loaded
+        std::atomic<bool>     hdmiCustomImageActive { false };
+        Box*                  hdmiCustomImageBtn    = nullptr;
         Box*                  uvBtn           = nullptr;
         Text*                 uvBtnTxt        = nullptr;
         bool                  uvOn            = false;
@@ -1132,6 +1139,7 @@ export namespace LithoControl {
         void toggleTestImage() {
             bool nowActive = !hdmiTestActive.load();
             if (nowActive) {
+                hdmiCustomImageActive.store(false);
                 hdmiSolidColor.store(0);
                 hdmiTestActive.store(true);
                 hdmiTestRunning.store(true);
@@ -1156,6 +1164,54 @@ export namespace LithoControl {
                 }
             }
             logQ.push(nowActive ? "[DISP] RGB test animation ON" : "[DISP] RGB test animation OFF");
+        }
+
+        // Lets the user pick any image file and show it on the projector in
+        // place of the built-in RGB test pattern -- useful for checking focus
+        // or color reproduction against their own reference artwork rather
+        // than only the generated test pattern.
+        void loadCustomImage() {
+            if (!hdmiPassthrough()) { logQ.push("[DISP] Open projector window first"); return; }
+
+            std::string path;
+            if (!Rev::OS::Dialog::OpenFile(path, "Open Test Image",
+                    "Images\0*.png;*.jpg;*.jpeg;*.bmp\0All Files\0*.*\0")) return;
+
+            std::vector<uint8_t> rgba;
+            if (!LithoControl::decodeToRGBAResized(path, rgba, 640, 360)) {
+                logQ.push("[DISP] Failed to load image: " + path);
+                return;
+            }
+
+            std::vector<uint8_t> bgra(640u * 360u * 4u);
+            for (size_t i = 0; i < 640u * 360u; i++) {
+                bgra[i * 4 + 0] = rgba[i * 4 + 2];  // B
+                bgra[i * 4 + 1] = rgba[i * 4 + 1];  // G
+                bgra[i * 4 + 2] = rgba[i * 4 + 0];  // R
+                bgra[i * 4 + 3] = rgba[i * 4 + 3];  // A
+            }
+
+            if (hdmiTestActive.load()) {
+                hdmiTestRunning.store(false);
+                if (hdmiTestThread.joinable()) hdmiTestThread.join();
+                hdmiTestActive.store(false);
+                if (hdmiTestBtn) {
+                    hdmiTestBtn->styles.remove(&Theme::BtnAccent);
+                    hdmiTestBtn->styles.remove(&Theme::BtnAccentHover);
+                    hdmiTestBtn->styles.add(&Theme::Btn);
+                    hdmiTestBtn->styles.add(&Theme::BtnHover);
+                }
+            }
+            hdmiSolidColor.store(0);
+
+            {
+                std::lock_guard<std::mutex> lk(hdmiFrameMtx);
+                hdmiCustomImageBGRA = std::move(bgra);
+            }
+            hdmiCustomImageActive.store(true);
+            requestHdmiRepaint();
+            logQ.push("[DISP] Custom test image loaded: " +
+                      std::filesystem::path(path).filename().string());
         }
 
         // -- Camera panel ------------------------------------------------------
