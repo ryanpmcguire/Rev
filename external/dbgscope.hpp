@@ -1,10 +1,10 @@
 #ifndef DBGSCOPE_H
 #define DBGSCOPE_H
 
-// Structured, per-scope-timed, hierarchically-grouped derive logging layered on top of
-// the flat `dbg` primitive. Option B: per-stage buffering flushed grouped at derive end,
-// so the two sequential derive passes (all geometry, then all toolpaths) still render as
-// one [Stage N] block per stage. The WHOLE facility compiles out in release exactly like
+// Structured, per-scope-timed derive logging layered on top of the flat `dbg` primitive.
+// Diagnostics are emitted and flushed immediately: a long OCC operation must identify
+// the active stage/scope while it is running, not reveal it only after the derive ends.
+// The WHOLE facility compiles out in release exactly like
 // dbg.hpp -- no chrono, no allocation, no string building on the hot path.
 //
 // Reporting only, never behavior (same house rule as Operation::OpDiag): nothing here
@@ -27,12 +27,11 @@ namespace dbgscope {
     // (all levels emit today); reserved so inner sub-op chatter can be dialed down later.
     inline int level = 2;
 
-    // One stage's buffered block. `lines` are fully-formatted content/sub-op lines
-    // (each already carries its "[Stage N] ..." prefix); `totalMs` accumulates only the
-    // direct (depth-1) child scopes so nested sub-scopes are not double-counted.
+    // One stage's live-log state. `totalMs` accumulates only direct (depth-1)
+    // child scopes so nested sub-scopes are not double-counted.
     struct Block {
         int stage = 0;
-        std::vector<std::string> lines;
+        bool started = false;
         long long totalMs = 0;
     };
 
@@ -44,19 +43,26 @@ namespace dbgscope {
         // the geometry pass writes stages ascending; the toolpath pass reuses them.
         Block& forStage(int stage) {
             for (Block& b : blocks) { if (b.stage == stage) { return b; } }
-            blocks.push_back(Block{ stage, {}, 0 });
+            blocks.push_back(Block{ stage, false, 0 });
             return blocks.back();
         }
 
-        // Emit every block: "[Stage N] Calculating..." header, its lines, a
-        // "[Stage N] Done in Nms" total, and a blank line between stages (none trailing).
+        void start(Block& block) {
+            if (block.started) { return; }
+            block.started = true;
+            dbg("[Stage %d] Calculating...", block.stage);
+        }
+
+        // Geometry and toolpath are separate passes, so only their combined stage total
+        // remains deferred. All actionable diagnostics have already printed live.
         void flush() {
+            bool first = true;
             for (size_t i = 0; i < blocks.size(); i++) {
                 Block& b = blocks[i];
-                dbg("[Stage %d] Calculating...", b.stage);
-                for (const std::string& l : b.lines) { dbg("%s", l.c_str()); }
+                if (!b.started) { continue; }
+                if (!first) { dbg(""); }
                 dbg("[Stage %d] Done in %lldms", b.stage, b.totalMs);
-                if (i + 1 < blocks.size()) { dbg(""); }
+                first = false;
             }
             blocks.clear();
         }
@@ -67,12 +73,12 @@ namespace dbgscope {
     inline thread_local int  curStage = 0;         // 1-based stage index being processed
     inline thread_local int  depth    = 0;         // scope nesting depth (0 = at stage level)
 
-    // File a diagnostic content line into the current stage block, or print live when no
-    // derive session is active (e.g. a single-stage GUI edit). Prefix mirrors the block.
+    // Emit a diagnostic content line immediately. dbg() flushes stdout on every line.
     inline void note(const std::string& s) {
         if (active && curStage > 0) {
-            active->forStage(curStage).lines.push_back(
-                "[Stage " + std::to_string(curStage) + "] " + s);
+            Block& block = active->forStage(curStage);
+            active->start(block);
+            dbg("[Stage %d] %s", curStage, s.c_str());
         } else {
             dbg("%s", s.c_str());
         }
@@ -89,7 +95,7 @@ namespace dbgscope {
 
     // Owns the active Log for one derive. Construction arms routing and starts a whole-
     // derive clock (used only for the [Derive] summary split); flush() is called
-    // explicitly by the driver AFTER both passes so nothing prints mid-compute.
+    // explicitly by the driver after both passes to print combined stage totals.
     struct Session {
         Log log;
         std::chrono::steady_clock::time_point t0;
@@ -117,20 +123,29 @@ namespace dbgscope {
         std::chrono::steady_clock::time_point t0;
         std::string label;
         int myDepth;
+        int myStage;
         bool routed;
         explicit Scope(const std::string& lbl)
             : t0(std::chrono::steady_clock::now()), label(lbl) {
             depth++;
             myDepth = depth;
+            myStage = curStage;
             routed  = (active && curStage > 0);
+            if (routed) {
+                Block& block = active->forStage(myStage);
+                active->start(block);
+                dbg("[Stage %d] %s Calculating...", myStage, label.c_str());
+            }
+            else {
+                dbg("%s Calculating...", label.c_str());
+            }
         }
         ~Scope() {
             long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - t0).count();
             if (routed) {
-                Block& b = active->forStage(curStage);
-                b.lines.push_back("[Stage " + std::to_string(curStage) + "] "
-                    + label + " Done in " + std::to_string(ms) + "ms");
+                Block& b = active->forStage(myStage);
+                dbg("[Stage %d] %s Done in %lldms", myStage, label.c_str(), ms);
                 if (myDepth == 1) { b.totalMs += ms; }
             } else {
                 dbg("%s Done in %lldms", label.c_str(), ms);
