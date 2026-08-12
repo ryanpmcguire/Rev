@@ -29,6 +29,16 @@ namespace LithoControl {
         sidebarContent->style->layout.position   = Position::Absolute;
         sidebarContent->style->layout.wrap       = Wrap::False;
         sidebarContent->style->size.width        = 100_pct;
+        // Dropdown popups (camera/HDMI display/etc) are absolutely-positioned
+        // children that render BELOW their own box, but they're still clipped
+        // by this container's overflow:hidden scroll boundary (see sb's
+        // Overflow::Hide, needed for the custom scrollbar) regardless of
+        // their own z-index -- there's no "escape the clip" mechanism here.
+        // A dropdown sitting near the bottom of a page's content therefore
+        // has its option list cut off with nothing below it to scroll into.
+        // Generous bottom padding on the whole scrollable column gives every
+        // dropdown, wherever it ends up, room below it to fully open into.
+        sidebarContent->style->padding.bottom    = 260_px;
 
         // Title
         Text* title = new Text(sidebarContent, "LITHOREV");

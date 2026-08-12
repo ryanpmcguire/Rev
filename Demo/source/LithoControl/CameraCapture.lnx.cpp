@@ -62,14 +62,24 @@ namespace LithoControl {
             if (fd < 0) continue;
 
             v4l2_capability cap{};
-            if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0 &&
-                (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
+            // cap.capabilities reports the UNION of capabilities across every
+            // sibling device node a driver exposes (capture, metadata, ...),
+            // not just this one -- checking it directly makes a camera's
+            // metadata-only node falsely claim VIDEO_CAPTURE too, listing
+            // every physical camera twice. cap.device_caps holds THIS node's
+            // actual capabilities; use it whenever the driver advertises it
+            // (V4L2_CAP_DEVICE_CAPS), which is the case for any reasonably
+            // modern V4L2 driver.
+            if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0) {
+                uint32_t deviceCaps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS)
+                                     ? cap.device_caps : cap.capabilities;
+                if (deviceCaps & V4L2_CAP_VIDEO_CAPTURE) {
+                    std::string name(reinterpret_cast<const char*>(cap.card));
+                    if (name.empty()) name = path;
 
-                std::string name(reinterpret_cast<const char*>(cap.card));
-                if (name.empty()) name = path;
-
-                cameraDevices.push_back({ name });
-                opts.push_back({ name + " (" + path + ")", std::to_string(i) });
+                    cameraDevices.push_back({ name });
+                    opts.push_back({ name + " (" + path + ")", std::to_string(i) });
+                }
             }
             close(fd);
         }
