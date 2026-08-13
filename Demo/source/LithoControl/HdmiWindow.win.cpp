@@ -60,16 +60,23 @@ namespace LithoControl {
     }
 
     void Interface::openHdmiWindow() {
-        if (hdmiHwnd) { logQ.push("[DISP] Window already open"); return; }
+        {
+            std::lock_guard<std::mutex> lk(hdmiWindowMtx);
+            if (hdmiHwnd || hdmiWinRunning.load()) {
+                logQ.push("[DISP] Window already open");
+                return;
+            }
+        }
         if (!hdmiDisplayDrop || hdmiDisplayDrop->params.value.empty()) {
             logQ.push("[DISP] Select a display first"); return;
         }
+        if (hdmiWinThread.joinable()) hdmiWinThread.join();
         std::string dev = hdmiDisplayDrop->params.value;
         int mx = 0, my = 0, mw = 640, mh = 360;
         for (auto& d : hdmiDisplays)
             if (d.devName == dev) { mx = d.x; my = d.y; mw = d.w; mh = d.h; break; }
 
-        hdmiWinRunning = true;
+        hdmiWinRunning.store(true);
         hdmiWinThread = std::thread([this, mx, my, mw, mh]() {
             HINSTANCE hinst = GetModuleHandleA(nullptr);
             WNDCLASSA wc{};
@@ -83,9 +90,12 @@ namespace LithoControl {
                 WS_EX_TOPMOST, "LithoHdmi", "LithoControl Projector",
                 WS_POPUP | WS_VISIBLE,
                 mx, my, mw, mh, nullptr, nullptr, hinst, this);
-            hdmiHwnd = hwnd;
+            {
+                std::lock_guard<std::mutex> lk(hdmiWindowMtx);
+                hdmiHwnd = hwnd;
+            }
 
-            if (!hwnd) { hdmiWinRunning = false; logQ.push("[DISP] Window create failed"); return; }
+            if (!hwnd) { hdmiWinRunning.store(false); logQ.push("[DISP] Window create failed"); return; }
             logQ.push("[DISP] Projector window open (ESC to close)");
 
             MSG msg;
@@ -93,18 +103,22 @@ namespace LithoControl {
                 TranslateMessage(&msg);
                 DispatchMessageA(&msg);
             }
-            hdmiHwnd = nullptr;
+            {
+                std::lock_guard<std::mutex> lk(hdmiWindowMtx);
+                hdmiHwnd = nullptr;
+            }
             UnregisterClassA("LithoHdmi", hinst);
             logQ.push("[DISP] Projector window closed");
         });
-        hdmiWinThread.detach();
     }
 
     void Interface::closeHdmiWindow() {
+        std::lock_guard<std::mutex> lk(hdmiWindowMtx);
         if (hdmiHwnd) PostMessageA((HWND)hdmiHwnd, WM_CLOSE, 0, 0);
     }
 
     void Interface::requestHdmiRepaint() {
+        std::lock_guard<std::mutex> lk(hdmiWindowMtx);
         if (hdmiHwnd) PostMessageA((HWND)hdmiHwnd, WM_USER + 1, 0, 0);
     }
 

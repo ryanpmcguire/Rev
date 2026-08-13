@@ -10,6 +10,7 @@ module;
 #include <algorithm>
 #include <vector>
 #include <unordered_map>
+#include <atomic>
 #include <poll.h>
 
 #include <X11/Xlib.h>
@@ -196,9 +197,9 @@ export namespace Rev {
         int posX = 0;
         int posY = 0;
         Element::Cursor cursor;
-        bool dirty = false;
-        bool frameQueued = false;
-        bool closed = false;
+        std::atomic<bool> dirty { false };
+        std::atomic<bool> frameQueued { false };
+        std::atomic<bool> closed { false };
         bool minimized = false;
         bool maximized = false;
         bool fullscreen = false;
@@ -403,9 +404,10 @@ export namespace Rev {
         }
 
         void requestFrame(bool force = false) {
-            if (frameQueued && !force) return;
-            dirty = true;
-            frameQueued = true;
+            bool expected = false;
+            if (!force && !frameQueued.compare_exchange_strong(expected, true)) return;
+            frameQueued.store(true);
+            dirty.store(true);
 
             XEvent ev{};
             ev.type = ClientMessage;
@@ -497,9 +499,10 @@ export namespace Rev {
         }
 
         void swapBuffers() {
+            if (!isContextCurrent()) { makeContextCurrent(); }
             glXSwapBuffers(xDisplay, xWindow);
             completeSyncRequest();
-            dirty = false;
+            dirty.store(false);
         }
 
         static void validateGlCapabilities() {
@@ -884,7 +887,7 @@ export namespace Rev {
             ensureDisplay();
             for (auto& [_, window] : windows) {
                 if (!window) continue;
-                if (window->dirty || window->frameQueued) return true;
+                if (window->dirty.load() || window->frameQueued.load()) return true;
 #if REV_HAS_XSYNC
                 if (window->hasPendingSync) return true;
 #endif
@@ -916,7 +919,7 @@ export namespace Rev {
                 switch (ev.type) {
                     case ClientMessage:
                         if (ev.xclient.message_type == revFrameRequest) {
-                            self->frameQueued = false;
+                            self->frameQueued.store(false);
                             self->notifyEvent({ WinEvent::Type::Paint });
                         }
                         else if (ev.xclient.message_type == wmProtocols) {

@@ -310,6 +310,7 @@ export namespace LithoControl {
         Box*        hdmiDisplayRow     = nullptr;
         Dropdown*   hdmiDisplayDrop    = nullptr;
         void*       hdmiHwnd           = nullptr;  // HWND on Windows; opaque handle to platform state on Linux
+        mutable std::mutex hdmiWindowMtx;
         std::thread hdmiWinThread;
         std::atomic<bool> hdmiWinRunning { false };
         std::mutex        hdmiFrameMtx;
@@ -317,6 +318,7 @@ export namespace LithoControl {
         bool              hdmiIsBlank    = true;
         std::atomic<uint32_t> hdmiSolidColor { 0 };  // 0=off; else fill HDMI with this BGRA
         std::thread       hdmiColorTestThread;
+        std::atomic<bool> hdmiColorTestRunning { false };
         std::vector<uint8_t>  hdmiTestBGRA;           // 640×360×4; updated by animation thread
         std::atomic<bool>     hdmiTestActive  { false };
         std::atomic<bool>     hdmiTestRunning { false };
@@ -540,6 +542,7 @@ export namespace LithoControl {
         }
 
         bool hdmiPassthrough() const {
+            std::lock_guard<std::mutex> lk(hdmiWindowMtx);
             return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
                 && hdmiHwnd != nullptr;
         }
@@ -744,12 +747,14 @@ export namespace LithoControl {
         ~Interface() {
             abortFlag = true;
             hdmiTestRunning.store(false);
+            hdmiColorTestRunning.store(false);
             if (hdmiTestThread.joinable()) hdmiTestThread.join();
+            if (hdmiColorTestThread.joinable()) hdmiColorTestThread.join();
             if (edidThread.joinable()) edidThread.join();
             stopCamera();
             if (jobThread.joinable()) jobThread.join();
-            if (hdmiWinThread.joinable())      hdmiWinThread.detach();
-            if (hdmiColorTestThread.joinable()) hdmiColorTestThread.detach();
+            closeHdmiWindow();
+            if (hdmiWinThread.joinable()) hdmiWinThread.join();
             delete stmSerial;
             delete piClient;
             saveSettings();
@@ -898,7 +903,11 @@ export namespace LithoControl {
 
         void colorTest() {
             if (!hdmiPassthrough()) { logQ.push("[DISP] Open projector window first"); return; }
-            if (hdmiColorTestThread.joinable()) hdmiColorTestThread.detach();
+            if (hdmiColorTestRunning.exchange(true)) {
+                logQ.push("[DISP] Color test already running");
+                return;
+            }
+            if (hdmiColorTestThread.joinable()) hdmiColorTestThread.join();
             // Capture the EVM correction state at the moment the test starts.
             bool evm = hdmiEvmCorrectChk && hdmiEvmCorrectChk->value.get();
             hdmiColorTestThread = std::thread([this, evm]() {
@@ -914,17 +923,17 @@ export namespace LithoControl {
                     { 0x00FFFFFFu, 0x00FFFFFFu, "WHITE" },
                 };
                 for (auto& s : steps) {
-                    if (abortFlag) break;
+                    if (abortFlag || !hdmiColorTestRunning.load()) break;
                     logQ.push(std::string("[DISP] ") + s.name);
                     showSolid(evm ? s.evm : s.normal);
-                    for (int i = 0; i < 200 && !abortFlag; i++)
+                    for (int i = 0; i < 200 && !abortFlag && hdmiColorTestRunning.load(); i++)
                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
                 hdmiSolidColor.store(0);
                 requestHdmiRepaint();
+                hdmiColorTestRunning.store(false);
                 logQ.push("[DISP] Color test done");
             });
-            hdmiColorTestThread.detach();
         }
 
         void runTestAnimation() {

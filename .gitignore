@@ -1,3 +1,4 @@
 build/
 resources/.modules
 build-verify*/
+result

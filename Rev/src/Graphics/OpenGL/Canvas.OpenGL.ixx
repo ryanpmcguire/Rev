@@ -71,6 +71,7 @@ export namespace Rev::Graphics {
         void beginFrame() {
             
             if (!window) { return; }
+            window->makeContextCurrent();
 
             // Ensure cache coherency (wait for flush) before proceeding
             // (this is because any changes to buffers need to make it to

@@ -79,16 +79,23 @@ namespace LithoControl {
     }
 
     void Interface::openHdmiWindow() {
-        if (hdmiHwnd) { logQ.push("[DISP] Window already open"); return; }
+        {
+            std::lock_guard<std::mutex> lk(hdmiWindowMtx);
+            if (hdmiHwnd || hdmiWinRunning.load()) {
+                logQ.push("[DISP] Window already open");
+                return;
+            }
+        }
         if (!hdmiDisplayDrop || hdmiDisplayDrop->params.value.empty()) {
             logQ.push("[DISP] Select a display first"); return;
         }
+        if (hdmiWinThread.joinable()) hdmiWinThread.join();
         std::string dev = hdmiDisplayDrop->params.value;
         int mx = 0, my = 0, mw = 640, mh = 360;
         for (auto& d : hdmiDisplays)
             if (d.devName == dev) { mx = d.x; my = d.y; mw = d.w; mh = d.h; break; }
 
-        hdmiWinRunning = true;
+        hdmiWinRunning.store(true);
         hdmiWinThread = std::thread([this, mx, my, mw, mh]() {
 
             auto* state = new HdmiX11State();
@@ -101,7 +108,7 @@ namespace LithoControl {
             // be interacted with, i.e. before openHdmiWindow() is reachable).
             state->display = XOpenDisplay(nullptr);
             if (!state->display) {
-                hdmiWinRunning = false;
+                hdmiWinRunning.store(false);
                 logQ.push("[DISP] XOpenDisplay failed");
                 delete state;
                 return;
@@ -128,7 +135,10 @@ namespace LithoControl {
             XMapRaised(state->display, state->window);
             XFlush(state->display);
 
-            hdmiHwnd = state;
+            {
+                std::lock_guard<std::mutex> lk(hdmiWindowMtx);
+                hdmiHwnd = state;
+            }
             logQ.push("[DISP] Projector window open (ESC to close)");
 
             paintHdmiWindow(this, state);
@@ -152,22 +162,27 @@ namespace LithoControl {
                 std::this_thread::sleep_for(std::chrono::milliseconds(8));
             }
 
-            XDestroyWindow(state->display, state->window);
-            XFreeGC(state->display, state->gc);
-            XCloseDisplay(state->display);
-            delete state;
+            {
+                std::lock_guard<std::mutex> lk(hdmiWindowMtx);
+                hdmiHwnd = nullptr;
+                XDestroyWindow(state->display, state->window);
+                XFreeGC(state->display, state->gc);
+                XCloseDisplay(state->display);
+                delete state;
+            }
 
-            hdmiHwnd = nullptr;
+            hdmiWinRunning.store(false);
             logQ.push("[DISP] Projector window closed");
         });
-        hdmiWinThread.detach();
     }
 
     void Interface::closeHdmiWindow() {
-        hdmiWinRunning = false;   // the event loop above notices and tears down
+        hdmiWinRunning.store(false);
+        requestHdmiRepaint();
     }
 
     void Interface::requestHdmiRepaint() {
+        std::lock_guard<std::mutex> lk(hdmiWindowMtx);
         if (!hdmiHwnd) return;
         auto* state = reinterpret_cast<HdmiX11State*>(hdmiHwnd);
 
