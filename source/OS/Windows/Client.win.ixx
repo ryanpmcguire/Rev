@@ -116,11 +116,18 @@ export namespace Rev {
             // (posted commands); serialize the raw socket write so a pulse and a command
             // line can't interleave on the wire.
             std::lock_guard<std::mutex> lock(sendMutex_);
-            int result = ::send(s, msg.c_str(), (int)msg.size(), 0);
-            if (result == SOCKET_ERROR) {
-                dbg("[Client] send failed (%d)", WSAGetLastError());
-            } else {
-                //dbg("[Client] Sent %d bytes", result);
+            std::size_t sent = 0;
+            while (sent < msg.size()) {
+                const int result = ::send(s, msg.data() + sent, (int)(msg.size() - sent), 0);
+                if (result == SOCKET_ERROR) {
+                    dbg("[Client] send failed after %zu/%zu bytes (%d)", sent, msg.size(), WSAGetLastError());
+                    return;
+                }
+                if (result == 0) {
+                    dbg("[Client] send made no progress after %zu/%zu bytes", sent, msg.size());
+                    return;
+                }
+                sent += static_cast<std::size_t>(result);
             }
         }
 

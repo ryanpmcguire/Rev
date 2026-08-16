@@ -99,10 +99,20 @@ export namespace Rev {
             // main thread; serialize the raw WriteFile so two writes can't
             // interleave on the wire.
             std::lock_guard<std::mutex> lock(sendMutex_);
-            DWORD written = 0;
-            BOOL ok = WriteFile(h, msg.data(), (DWORD)msg.size(), &written, nullptr);
-            if (!ok) {
-                dbg("[SerialClient] Write failed (%lu)", GetLastError());
+            std::size_t sent = 0;
+            while (sent < msg.size()) {
+                DWORD written = 0;
+                const DWORD remaining = static_cast<DWORD>(msg.size() - sent);
+                const BOOL ok = WriteFile(h, msg.data() + sent, remaining, &written, nullptr);
+                if (!ok) {
+                    dbg("[SerialClient] Write failed after %zu/%zu bytes (%lu)", sent, msg.size(), GetLastError());
+                    return;
+                }
+                if (written == 0) {
+                    dbg("[SerialClient] Write made no progress after %zu/%zu bytes", sent, msg.size());
+                    return;
+                }
+                sent += static_cast<std::size_t>(written);
             }
         }
 
