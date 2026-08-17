@@ -408,17 +408,17 @@ namespace LithoControl {
             Box* chanRow = new Box(body, { &Theme::RowH });
             chanRow->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
 
-            hdmiRedChk = new Checkbox(chanRow, { .label = "RED", .def = false });
+            hdmiRedChk = new Checkbox(chanRow, { .label = "RED", .def = true });
             hdmiRedChk->label->style->text.color = rgba(255, 80, 80, 1);
             hdmiRedChk->label->style->text.size  = 10_px;
             hdmiRedChk->style->margin.right      = 8_px;
 
-            hdmiGreenChk = new Checkbox(chanRow, { .label = "GREEN", .def = false });
+            hdmiGreenChk = new Checkbox(chanRow, { .label = "GREEN", .def = true });
             hdmiGreenChk->label->style->text.color = rgba(80, 220, 80, 1);
             hdmiGreenChk->label->style->text.size  = 10_px;
             hdmiGreenChk->style->margin.right      = 8_px;
 
-            hdmiBlueChk = new Checkbox(chanRow, { .label = "BLUE", .def = false });
+            hdmiBlueChk = new Checkbox(chanRow, { .label = "BLUE", .def = true });
             hdmiBlueChk->label->style->text.color = rgba(80, 140, 255, 1);
             hdmiBlueChk->label->style->text.size  = 10_px;
             hdmiBlueChk->style->margin.right      = 8_px;
@@ -1615,8 +1615,14 @@ namespace LithoControl {
         } else if (hdmiTestActive.load()) {
             std::lock_guard<std::mutex> lk(hdmiFrameMtx);
             if (hdmiTestBGRA.size() == 640u * 360u * 4u) {
+                // Mask by the same R/G/B "OUTPUT CHANNELS" checkboxes used for
+                // artwork playback, so toggling a channel off blanks it in the
+                // test animation too (mask already carries the EVM R<->B swap
+                // and the alpha byte -- see the recompute in the update loop).
                 const auto* src = reinterpret_cast<const uint32_t*>(hdmiTestBGRA.data());
-                std::copy(src, src + 640 * 360, outPx640x360);
+                uint32_t chanMask = hdmiChannelMask.load();
+                for (int i = 0; i < 640 * 360; i++)
+                    outPx640x360[i] = src[i] & chanMask;
             }
         } else {
             std::lock_guard<std::mutex> lk(hdmiFrameMtx);
