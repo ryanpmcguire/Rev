@@ -1,82 +1,41 @@
 module;
 
-#include <X11/Xlib.h>
-#include <X11/keysym.h>
-#include <string>
-#include <vector>
-#include <cstdint>
+#include <spawn.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <atomic>
 #include <chrono>
-#include <mutex>
+#include <cstdint>
+#include <cstring>
+#include <string>
 #include <thread>
-#include <algorithm>
+#include <vector>
+
+extern char **environ;
 
 module LithoControl.Interface;   // implementation unit -- no 'export'
 
 namespace LithoControl {
 
-    // Opaque state behind Interface::hdmiHwnd (void*) on Linux. Deliberately a
-    // dedicated XOpenDisplay() connection, independent of Rev's own NativeWindow
-    // connection -- keeps this feature fully self-contained, same as the Windows
-    // side never touches the main app window's HWND.
-    struct HdmiX11State {
-        Display* display = nullptr;
-        ::Window window  = 0;
-        GC       gc      = 0;
-        Atom     repaintAtom = 0;
-        int      w = 640, h = 360;
-
-        // Reused across paintHdmiWindow() calls -- this runs on every Expose,
-        // every test-pattern animation tick (~30 fps), and every explicit
-        // repaint request, so re-allocating these multi-megabyte buffers each
-        // frame is real per-frame churn. resize() is a no-op once the sizes
-        // settle (source is fixed 640x360; scaled tracks the window size).
-        std::vector<uint32_t> pxBuf;
-        std::vector<uint32_t> scaledBuf;
+    // Opaque state behind Interface::hdmiHwnd (void*) on Linux. The projector
+    // window is a completely separate executable (LithoRevProjector, raylib-
+    // based -- see ProjectorHelper/), launched via posix_spawn(). Two earlier
+    // approaches were tried and ruled out on hardware: an in-process
+    // background thread with its own X11 connection (froze even without any
+    // custom display mode involved), and fork()+exec() of this same binary
+    // (fork() is unsafe to call from a process with an active OpenGL context
+    // -- LithoRev's main window has one -- and corrupted the PARENT's own
+    // rendering even though the forked child was always fine). posix_spawn()
+    // to a genuinely separate executable avoids both: LithoRev's process
+    // never calls fork() at all.
+    struct ProjectorProcState {
+        pid_t pid = -1;
+        int   sock = -1;
+        std::thread senderThread;
+        std::thread readerThread;
+        std::atomic<bool> dirty   { true };   // paint once immediately after open
+        std::atomic<bool> running { true };
     };
-
-    // uint32_t values throughout this feature are BGRA-in-memory (matches the
-    // Win32 GDI convention the rest of Interface.ixx was written against),
-    // which on a little-endian machine is exactly the 0x00RRGGBB pixel format
-    // X11's default TrueColor visual expects at depth 24 -- no conversion needed.
-    static void paintHdmiWindow(Interface* self, HdmiX11State* state) {
-
-        std::vector<uint32_t>& px = state->pxBuf;
-        if (px.size() != 640u * 360u) px.resize(640u * 360u);
-
-        // Shared with the Windows HDMI window -- see Interface::composeHdmiFrame
-        self->composeHdmiFrame(px.data());
-
-        // Nearest-neighbor scale to the window's actual size -- X11 has no
-        // built-in stretch-blit like GDI's StretchDIBits.
-        std::vector<uint32_t>& scaled = state->scaledBuf;
-        size_t scaledLen = (size_t)state->w * state->h;
-        if (scaled.size() != scaledLen) scaled.resize(scaledLen);
-        for (int y = 0; y < state->h; y++) {
-            int sy = y * 360 / state->h;
-            for (int x = 0; x < state->w; x++) {
-                int sx = x * 640 / state->w;
-                scaled[(size_t)y * state->w + x] = px[(size_t)sy * 640 + sx];
-            }
-        }
-
-        XImage* img = XCreateImage(
-            state->display, DefaultVisual(state->display, DefaultScreen(state->display)),
-            24, ZPixmap, 0, reinterpret_cast<char*>(scaled.data()),
-            state->w, state->h, 32, 0);
-        if (!img) return;
-
-        XPutImage(state->display, state->window, state->gc, img,
-                  0, 0, 0, 0, state->w, state->h);
-
-        // `scaled` is stack/vector-owned, not img->data -- detach before
-        // destroying the image so it doesn't free() memory it doesn't own.
-        // Called through the image's own function table rather than the
-        // XDestroyImage() macro, which some Xlib.h layouts don't expose here.
-        img->data = nullptr;
-        img->f.destroy_image(img);
-
-        XFlush(state->display);
-    }
 
     void Interface::openHdmiWindow() {
         if (hdmiHwnd) { logQ.push("[DISP] Window already open"); return; }
@@ -88,99 +47,128 @@ namespace LithoControl {
         for (auto& d : hdmiDisplays)
             if (d.devName == dev) { mx = d.x; my = d.y; mw = d.w; mh = d.h; break; }
 
+        // LithoRevProjector is built as a sibling of this executable (same
+        // Demo/ output directory) -- resolve it relative to our own path
+        // rather than assuming a working directory or PATH entry.
+        char exePath[4096];
+        ssize_t pathLen = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+        if (pathLen <= 0) {
+            logQ.push("[DISP] Could not resolve own executable path");
+            return;
+        }
+        exePath[pathLen] = '\0';
+        std::string helperPath(exePath);
+        size_t slash = helperPath.find_last_of('/');
+        helperPath = (slash == std::string::npos ? "" : helperPath.substr(0, slash + 1)) + "LithoRevProjector";
+
+        int sv[2];
+        if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
+            logQ.push("[DISP] socketpair failed"); return;
+        }
+
+        std::string fdArg = "3";
+        std::string xArg = std::to_string(mx), yArg = std::to_string(my);
+        std::string wArg = std::to_string(mw), hArg = std::to_string(mh);
+        char* args[] = {
+            const_cast<char*>(helperPath.c_str()),
+            const_cast<char*>(fdArg.c_str()), const_cast<char*>(xArg.c_str()),
+            const_cast<char*>(yArg.c_str()), const_cast<char*>(wArg.c_str()),
+            const_cast<char*>(hArg.c_str()), nullptr
+        };
+
+        // posix_spawn() rather than fork()+exec(): unlike fork(), it doesn't
+        // duplicate this process's address space (and with it, whatever
+        // OpenGL/driver-internal state the main window's GL context holds),
+        // which is what made the previous fork()-based attempt corrupt the
+        // PARENT's own rendering. file_actions here does the same job
+        // fork()'s child-side dup2()/close() used to: give the new process
+        // our end of the socketpair as fd 3, without ever touching this
+        // process's own memory image to do it.
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, sv[1], 3);
+        posix_spawn_file_actions_addclose(&actions, sv[0]);
+        if (sv[1] != 3) posix_spawn_file_actions_addclose(&actions, sv[1]);
+
+        pid_t pid = -1;
+        int rc = posix_spawn(&pid, helperPath.c_str(), &actions, nullptr, args, environ);
+        posix_spawn_file_actions_destroy(&actions);
+
+        if (rc != 0) {
+            logQ.push("[DISP] Failed to launch LithoRevProjector (" + helperPath + ")");
+            close(sv[0]); close(sv[1]);
+            return;
+        }
+
+        close(sv[1]);   // our copy of the child's end -- the child has its own via dup2
+
+        auto* state  = new ProjectorProcState();
+        state->pid   = pid;
+        state->sock  = sv[0];
+
+        hdmiHwnd = state;
         hdmiWinRunning = true;
-        hdmiWinThread = std::thread([this, mx, my, mw, mh]() {
+        logQ.push("[DISP] Projector window open (ESC or CLOSE to close)");
 
-            auto* state = new HdmiX11State();
-            state->w = mw; state->h = mh;
-
-            // A separate XOpenDisplay() connection to the same X server;
-            // safe to use from this thread concurrently with Rev's own main-
-            // window connection because Rev already calls XInitThreads()
-            // during its own NativeWindow startup (before the GUI can even
-            // be interacted with, i.e. before openHdmiWindow() is reachable).
-            state->display = XOpenDisplay(nullptr);
-            if (!state->display) {
-                hdmiWinRunning = false;
-                logQ.push("[DISP] XOpenDisplay failed");
-                delete state;
-                return;
-            }
-
-            int screen = DefaultScreen(state->display);
-            ::Window root = RootWindow(state->display, screen);
-
-            XSetWindowAttributes attrs{};
-            attrs.override_redirect = True;   // no WM decoration, bypasses WM entirely --
-                                               // the X11 analog of WS_POPUP | WS_EX_TOPMOST
-            attrs.background_pixel  = BlackPixel(state->display, screen);
-            attrs.event_mask        = ExposureMask | KeyPressMask | StructureNotifyMask;
-
-            state->window = XCreateWindow(
-                state->display, root,
-                mx, my, mw, mh, 0,
-                CopyFromParent, InputOutput, CopyFromParent,
-                CWOverrideRedirect | CWBackPixel | CWEventMask, &attrs);
-
-            state->gc = XCreateGC(state->display, state->window, 0, nullptr);
-            state->repaintAtom = XInternAtom(state->display, "LITHO_HDMI_REPAINT", False);
-
-            XMapRaised(state->display, state->window);
-            XFlush(state->display);
-
-            hdmiHwnd = state;
-            logQ.push("[DISP] Projector window open (ESC to close)");
-
-            paintHdmiWindow(this, state);
-
-            while (hdmiWinRunning.load()) {
-                while (XPending(state->display) > 0) {
-                    XEvent ev;
-                    XNextEvent(state->display, &ev);
-
-                    if (ev.type == Expose) {
-                        paintHdmiWindow(this, state);
-                    } else if (ev.type == KeyPress) {
-                        KeySym ks = XLookupKeysym(&ev.xkey, 0);
-                        if (ks == XK_Escape) hdmiWinRunning = false;
-                    } else if (ev.type == ClientMessage &&
-                               ev.xclient.message_type == state->repaintAtom) {
-                        paintHdmiWindow(this, state);
+        // Sends the latest composed frame whenever requestHdmiRepaint() marks
+        // it dirty -- deliberately polling+coalescing rather than sending on
+        // every single dirty signal, so a burst of repaint requests (e.g.
+        // the RGB test animation) collapses to one frame per tick instead of
+        // queuing up.
+        state->senderThread = std::thread([this, state]() {
+            std::vector<uint32_t> px(640u * 360u);
+            const size_t total = px.size() * sizeof(uint32_t);
+            while (state->running.load()) {
+                if (state->dirty.exchange(false)) {
+                    composeHdmiFrame(px.data());
+                    const char* buf = reinterpret_cast<const char*>(px.data());
+                    size_t sent = 0;
+                    bool ok = true;
+                    while (sent < total) {
+                        ssize_t n = send(state->sock, buf + sent, total - sent, MSG_NOSIGNAL);
+                        if (n <= 0) { ok = false; break; }
+                        sent += (size_t)n;
                     }
+                    if (!ok) { state->running.store(false); break; }
                 }
-                if (!hdmiWinRunning.load()) break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(8));
             }
+        });
 
-            XDestroyWindow(state->display, state->window);
-            XFreeGC(state->display, state->gc);
-            XCloseDisplay(state->display);
-            delete state;
+        // LithoRevProjector never sends anything back -- this just blocks
+        // until the socket closes, which happens when it exits for any
+        // reason (ESC pressed, killed, crashed) or when closeHdmiWindow()
+        // shuts this side down. Either way, that's the one signal that means
+        // "the projector window is gone now," and all cleanup happens here.
+        state->readerThread = std::thread([this, state]() {
+            char scratch[64];
+            while (recv(state->sock, scratch, sizeof(scratch), 0) > 0) {}
+
+            state->running.store(false);
+            if (state->senderThread.joinable()) state->senderThread.join();
+            close(state->sock);
 
             hdmiHwnd = nullptr;
+            hdmiWinRunning = false;
             logQ.push("[DISP] Projector window closed");
+            delete state;
         });
-        hdmiWinThread.detach();
+        state->readerThread.detach();
     }
 
     void Interface::closeHdmiWindow() {
-        hdmiWinRunning = false;   // the event loop above notices and tears down
+        if (!hdmiHwnd) return;
+        auto* state = reinterpret_cast<ProjectorProcState*>(hdmiHwnd);
+        // Unblocks the reader thread's recv() safely from this thread --
+        // unlike close(), which races with a concurrent blocking recv() on
+        // the same fd, shutdown() is the documented-safe way to do this.
+        // The reader thread does all the actual teardown once it wakes up.
+        shutdown(state->sock, SHUT_RDWR);
     }
 
     void Interface::requestHdmiRepaint() {
         if (!hdmiHwnd) return;
-        auto* state = reinterpret_cast<HdmiX11State*>(hdmiHwnd);
-
-        // ClientMessage with event_mask=0 in XSendEvent delivers directly to
-        // this window's event queue regardless of its selected input masks --
-        // the standard idiom for cross-thread/cross-client signaling in X11,
-        // equivalent to Win32 PostMessage(hwnd, WM_USER+1, ...).
-        XClientMessageEvent ev{};
-        ev.type = ClientMessage;
-        ev.window = state->window;
-        ev.message_type = state->repaintAtom;
-        ev.format = 32;
-        XSendEvent(state->display, state->window, False, 0, (XEvent*)&ev);
-        XFlush(state->display);
+        auto* state = reinterpret_cast<ProjectorProcState*>(hdmiHwnd);
+        state->dirty.store(true);
     }
 }

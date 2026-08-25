@@ -43,3 +43,11 @@ project(RevRoot)
 
 add_subdirectory(Rev)
 add_subdirectory(Demo)
+
+# Standalone raylib-based projector-window process (Linux only -- Windows
+# keeps its existing in-process HDMI window, which never had this problem).
+# See ProjectorHelper/CMakeLists.txt for why this replaced the previous
+# fork()-from-LithoRev approach.
+if(UNIX AND NOT APPLE)
+    add_subdirectory(ProjectorHelper)
+endif()
