@@ -675,6 +675,19 @@ export namespace LithoControl {
                 return;
             }
 
+            // measure_scale_reference() (calib-dt) runs circle detection on
+            // EVERY file in this folder and aborts the whole calibration if
+            // ANY of them fails -- confirmed on the target: "2 scale-
+            // reference image(s)" loaded when only one fresh capture was
+            // intended, because old captures (including ones saved before
+            // the white-flash fix existed, showing the grid instead of a
+            // clean circle) were still sitting here. This is meant to hold
+            // ONE current reference, not an accumulating archive like
+            // camera_captures/ -- clear it before writing the new one.
+            for (auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+                if (entry.is_regular_file()) std::filesystem::remove(entry.path(), ec);
+            }
+
             std::time_t nowT = std::time(nullptr);
             std::tm lt = *std::localtime(&nowT);
             char ts[48];
