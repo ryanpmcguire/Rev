@@ -340,14 +340,33 @@ namespace LithoControl {
             }
 
             if (shouldEmitCameraFrame()) {
-                applyCameraAdjustments(rgba, w, h);
+                // Local copies -- applyCameraAdjustments() mutates its w/h
+                // out-params when the RESOLUTION preset causes a resize
+                // (target != actual capture size, which was never possible
+                // before cameraResW/H got a non-"Native" default: the resize
+                // block used to never run at all). `w`/`h` above are NOT
+                // local to this iteration -- they're the outer loop's
+                // driver-negotiated capture dimensions, reused on every
+                // subsequent DQBUF to size `rgba` and index into `src`
+                // (backed by an mmap'd V4L2 buffer sized for THAT capture
+                // resolution, not the display target). Passing them directly
+                // let the resize silently overwrite the real capture size
+                // with the target size -- the next iteration then read past
+                // the actual mmap'd buffer by however much larger the target
+                // was, a real out-of-bounds read into unmapped memory
+                // (segfault, or a delayed crash from heap corruption if it
+                // landed in the process heap instead) -- reproduced on the
+                // target as soon as the driver negotiated anything other
+                // than exactly the requested resolution.
+                int outW = w, outH = h;
+                applyCameraAdjustments(rgba, outW, outH);
                 {
                     // swap, not copy -- leaves the old (already correctly-sized)
                     // buffer in `rgba` for the next iteration's resize()/fill
                     // instead of paying for a full-frame copy under the lock
                     std::lock_guard<std::mutex> lk(cameraFrameMtx);
                     std::swap(cameraFrameRGBA, rgba);
-                    cameraFrameW = w; cameraFrameH = h;
+                    cameraFrameW = outW; cameraFrameH = outH;
                 }
                 cameraFrameReady = true;
                 requestRepaint();
