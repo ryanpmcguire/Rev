@@ -661,6 +661,10 @@ export namespace LithoControl {
                 std::string guess = findCalibDtRoot(dlpRoot);
                 if (!guess.empty()) { calibDtRoot = guess; settings.calibDtRoot = guess; }
             }
+            if (calibDtRoot.empty()) {
+                std::string guess = findCalibDtRootNearCwd();
+                if (!guess.empty()) { calibDtRoot = guess; settings.calibDtRoot = guess; }
+            }
 
             buildSidebar();
             buildCollapseHandle();
@@ -2904,6 +2908,25 @@ export namespace LithoControl {
             namespace fs = std::filesystem;
             if (dlpRootPath.empty()) return "";
             fs::path candidate = fs::path(dlpRootPath).parent_path() / "calib-dt";
+            if (fs::exists(candidate / "pyproject.toml")) return candidate.string();
+            return "";
+        }
+
+        // Second guess, tried only if findCalibDtRoot() above came up empty
+        // (i.e. dlpRoot was never set -- nobody's opened a job file from
+        // inside DLP-photolithography yet). On the Linux target,
+        // deploy-and-run.sh deploys calib-dt as a sibling of wherever it put
+        // Rev (e.g. ~/dev/calib-dt next to ~/dev/Rev), and that's also this
+        // process's own working directory at startup (see main.cpp's
+        // "Working Directory" raylib log line) -- so the same sibling-of-cwd
+        // guess deploy-and-run.sh itself uses works here too, with no
+        // platform-specific "resolve my own executable path" code needed.
+        static std::string findCalibDtRootNearCwd() {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            fs::path cwd = fs::current_path(ec);
+            if (ec || cwd.empty()) return "";
+            fs::path candidate = cwd.parent_path() / "calib-dt";
             if (fs::exists(candidate / "pyproject.toml")) return candidate.string();
             return "";
         }
