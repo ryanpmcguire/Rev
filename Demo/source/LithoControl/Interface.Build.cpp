@@ -918,6 +918,18 @@ namespace LithoControl {
         browseBtn->style->size     = { 40_px, Grow() };
         browseBtn->style->size.max.width = 40_px;
 
+        // Status banner: the ONE thing that should be glanceable without
+        // scrolling the runner log below -- idle/running/succeeded/failed,
+        // plus a next-step hint, color-coded (see calibStatusLbl handling in
+        // computeStyle()). Previously the only feedback was scrolling log
+        // text, easy to miss and giving no clear pass/fail signal.
+        calibStatusLbl = new Text(body, "Idle -- no calibration action run yet");
+        calibStatusLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+        calibStatusLbl->style->text.size     = 10_px;
+        calibStatusLbl->style->text.wrap     = Wrap::BreakWord;
+        calibStatusLbl->style->margin.top    = 8_px;
+        calibStatusLbl->style->margin.bottom = 4_px;
+
         Text* actLbl = new Text(body, "ACTIONS");
         actLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
         actLbl->style->text.size     = 9_px;
@@ -926,9 +938,11 @@ namespace LithoControl {
 
         // Defaults mirror calib-dt's own README examples; the log lines each
         // script prints (progress, warnings, output paths) stream straight
-        // into the runner log via startCalibDtAction()/runCalibDtSubprocess().
+        // into the runner log via startCalibDtAction()/runCalibDtSubprocess(),
+        // and the pass/fail summary + next step goes to calibStatusLbl above.
         makeBtn(body, "CAPTURE FRAMES", [this]() {
-            startCalibDtAction("capture-frames --frames 20 --out captures");
+            startCalibDtAction("capture-frames --frames 20 --out captures", "CAPTURE FRAMES",
+                "Saved to captures/ -- ready for RUN CALIBRATION.");
         })->style->margin.bottom = 4_px;
 
         // PROJECT PATTERN and RUN CALIBRATION deliberately do NOT call
@@ -949,7 +963,8 @@ namespace LithoControl {
         })->style->margin.bottom = 4_px;
 
         makeBtn(body, "ANALYZE SENSITIVITY", [this]() {
-            startCalibDtAction("analyze-sensitivity --out sensitivity_output");
+            startCalibDtAction("analyze-sensitivity --out sensitivity_output", "ANALYZE SENSITIVITY",
+                "Wrote sensitivity_output/ -- review its diagnostic report.");
         });
     }
 

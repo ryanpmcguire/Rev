@@ -191,6 +191,18 @@ export namespace LithoControl {
         Text* runnerLogLbl         = nullptr;
         Text*      calibDtPathLabel  = nullptr;
 
+        // Calibration run status -- set by runCalibDtSubprocess() on its worker
+        // thread, drained into calibStatusLbl on the main thread in computeStyle()
+        // (same pending-flag handoff pattern as posUpdatePending/pendingPosX).
+        // Exists because the only prior feedback was scrolling runner-log text,
+        // easy to miss among many lines and giving no clear pass/fail/next-step.
+        enum class CalibStatus { Idle, Running, Success, Failed };
+        std::atomic<int>  calibStatus      { (int)CalibStatus::Idle };
+        std::atomic<bool> calibStatusDirty { false };
+        std::mutex        calibStatusMtx;
+        std::string       pendingCalibStatusMsg;
+        Text*             calibStatusLbl = nullptr;
+
         // -- Sidebar scroll ----------------------------------------------------
 
         float sidebarScrollY   = 0.0f;
@@ -1360,6 +1372,19 @@ export namespace LithoControl {
                 if (posXLabel) posXLabel->content = pendingPosX;
                 if (posYLabel) posYLabel->content = pendingPosY;
                 if (posZLabel) posZLabel->content = pendingPosZ;
+            }
+
+            // Render the calibration status banner from the worker-set state.
+            if (calibStatusDirty.exchange(false) && calibStatusLbl) {
+                std::string msg;
+                { std::lock_guard<std::mutex> lk(calibStatusMtx); msg = pendingCalibStatusMsg; }
+                calibStatusLbl->content = msg;
+                switch ((CalibStatus)calibStatus.load()) {
+                    case CalibStatus::Running: calibStatusLbl->style->text.color = rgba(255, 204, 0, 1);   break;
+                    case CalibStatus::Success: calibStatusLbl->style->text.color = rgba(52, 199, 89, 1);   break;
+                    case CalibStatus::Failed:  calibStatusLbl->style->text.color = rgba(255, 59, 48, 1);   break;
+                    default:                   calibStatusLbl->style->text.color = rgba(232, 232, 232, 0.4f); break;
+                }
             }
 
             // Reload preview image with tile grid after a successful slice
@@ -2883,25 +2908,54 @@ export namespace LithoControl {
             return "";
         }
 
+        // Sets the calibration status banner (calibStatusLbl, drained on the main
+        // thread in computeStyle()) from whatever worker thread is running a
+        // calib-dt action. `msg` should be self-contained -- it's the only
+        // feedback visible without scrolling the runner log.
+        void setCalibStatus(CalibStatus status, const std::string& msg) {
+            {
+                std::lock_guard<std::mutex> lk(calibStatusMtx);
+                pendingCalibStatusMsg = msg;
+            }
+            calibStatus.store((int)status);
+            calibStatusDirty.store(true);
+        }
+
         // Runs a calib-dt CLI script (`uv run <scriptArgs>`) with calibDtRoot
         // as the working directory, streaming its output into the log --
         // same subprocess mechanism as runSlicerSubprocess(), just pointed at
         // a different repo. Call from a detached thread (see startCalibDtAction).
-        void runCalibDtSubprocess(const std::string& scriptArgs) {
+        // `actionLabel` names the action for the status banner and its
+        // success/failure next-step hint (e.g. "RUN CALIBRATION").
+        void runCalibDtSubprocess(const std::string& scriptArgs, const std::string& actionLabel,
+                                   const std::string& successHint = "") {
             if (calibDtRoot.empty()) {
                 logQ.push("[CALIB] Set the calib-dt folder first");
+                setCalibStatus(CalibStatus::Failed, actionLabel + ": set the calib-dt folder first (above)");
                 return;
             }
+            setCalibStatus(CalibStatus::Running, actionLabel + ": running...");
             std::string cmd = "uv run " + scriptArgs;
             logQ.push("[CALIB] $ " + cmd);
             int exitCode = runCapturedProcess(cmd, calibDtRoot, [this](const std::string& line) {
                 logQ.push("[CALIB] " + line);
             });
-            logQ.push(exitCode == 0 ? "[CALIB] Done" : "[CALIB] Exit code " + std::to_string(exitCode));
+            if (exitCode == 0) {
+                logQ.push("[CALIB] Done");
+                setCalibStatus(CalibStatus::Success, actionLabel + ": succeeded." +
+                    (successHint.empty() ? "" : (" " + successHint)));
+            } else {
+                logQ.push("[CALIB] Exit code " + std::to_string(exitCode));
+                setCalibStatus(CalibStatus::Failed, actionLabel + ": FAILED (exit " +
+                    std::to_string(exitCode) + "). Scroll the runner log above for the error, or press CPY to copy it.");
+            }
         }
 
-        void startCalibDtAction(const std::string& scriptArgs) {
-            std::thread([this, scriptArgs]() { runCalibDtSubprocess(scriptArgs); }).detach();
+        void startCalibDtAction(const std::string& scriptArgs, const std::string& actionLabel,
+                                 const std::string& successHint = "") {
+            std::thread([this, scriptArgs, actionLabel, successHint]() {
+                runCalibDtSubprocess(scriptArgs, actionLabel, successHint);
+            }).detach();
         }
 
         // Toggles the calibration grid on LithoRev's own HDMI window (see
@@ -2929,7 +2983,8 @@ export namespace LithoControl {
             requestHdmiRepaint();
             logQ.push("[CALIB] Projecting calibration grid...");
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            runCalibDtSubprocess("run-calibration --camera --out calibration_output");
+            runCalibDtSubprocess("run-calibration --camera --out calibration_output", "RUN CALIBRATION",
+                "Check calibration_output/summary_report.txt for the fit RMS error.");
             hdmiCalibGridActive.store(false);
             requestHdmiRepaint();
         }
@@ -2961,10 +3016,16 @@ export namespace LithoControl {
             return (bot > top) ? (bot - top) : 0.0f;
         }
 
+        // Copies `lines` to the OS clipboard, pushing a result line into the
+        // runner log either way -- previously this failed silently, which was
+        // indistinguishable from "it worked but nothing looked different."
         void copyToClipboard(const std::deque<std::string>& lines) {
             std::string text;
             for (auto& l : lines) { text += l; text += '\n'; }
-            Rev::OS::Clipboard::SetText(text);
+            bool ok = Rev::OS::Clipboard::SetText(text);
+            logQ.push(ok
+                ? ("[COPY] Copied " + std::to_string(lines.size()) + " line(s) to clipboard")
+                : "[COPY] Failed -- install xclip (or xsel) on Linux, then retry");
         }
     };
 
