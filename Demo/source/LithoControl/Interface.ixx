@@ -3063,13 +3063,31 @@ export namespace LithoControl {
         // a different repo. Call from a detached thread (see startCalibDtAction).
         // `actionLabel` names the action for the status banner and its
         // success/failure next-step hint (e.g. "RUN CALIBRATION").
+        //
+        // `usesCamera`: most UVC cameras only allow ONE exclusive open at a
+        // time. LithoRev's own live preview (STARTED on the Camera page)
+        // holds the device open continuously -- if a calib-dt action that
+        // ALSO opens the camera (capture-frames, run-calibration --camera)
+        // fires while that's still running, both sides fight over the same
+        // device. Depending on the driver that can leave it wedged badly
+        // enough that only a physical unplug/replug resets it -- exactly
+        // the symptom reported on the target. Stop our own preview first
+        // (blocks until the capture thread has actually released the
+        // device) and restart it after, so the two never overlap.
         void runCalibDtSubprocess(const std::string& scriptArgs, const std::string& actionLabel,
-                                   const std::string& successHint = "") {
+                                   const std::string& successHint = "", bool usesCamera = false) {
             if (calibDtRoot.empty()) {
                 logQ.push("[CALIB] Set the calib-dt folder first");
                 setCalibStatus(CalibStatus::Failed, actionLabel + ": set the calib-dt folder first (above)");
                 return;
             }
+
+            bool releasedCamera = usesCamera && cameraRunning.load();
+            if (releasedCamera) {
+                logQ.push("[CALIB] Releasing camera preview so calib-dt can open the device...");
+                stopCamera();
+            }
+
             setCalibStatus(CalibStatus::Running, actionLabel + ": running...");
             std::string cmd = "uv run " + scriptArgs;
             logQ.push("[CALIB] $ " + cmd);
@@ -3085,12 +3103,17 @@ export namespace LithoControl {
                 setCalibStatus(CalibStatus::Failed, actionLabel + ": FAILED (exit " +
                     std::to_string(exitCode) + "). Scroll the runner log above for the error, or press CPY to copy it.");
             }
+
+            if (releasedCamera) {
+                logQ.push("[CALIB] Resuming camera preview...");
+                startCamera();
+            }
         }
 
         void startCalibDtAction(const std::string& scriptArgs, const std::string& actionLabel,
-                                 const std::string& successHint = "") {
-            std::thread([this, scriptArgs, actionLabel, successHint]() {
-                runCalibDtSubprocess(scriptArgs, actionLabel, successHint);
+                                 const std::string& successHint = "", bool usesCamera = false) {
+            std::thread([this, scriptArgs, actionLabel, successHint, usesCamera]() {
+                runCalibDtSubprocess(scriptArgs, actionLabel, successHint, usesCamera);
             }).detach();
         }
 
@@ -3178,7 +3201,8 @@ export namespace LithoControl {
                 "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "'" +
                     resArgs + diameterArgs + " --out calibration_output",
                 "RUN CALIBRATION",
-                "Check calibration_output/summary_report.txt for the fit RMS error.");
+                "Check calibration_output/summary_report.txt for the fit RMS error.",
+                /*usesCamera=*/true);
             hdmiCalibGridActive.store(false);
             requestHdmiRepaint();
         }
