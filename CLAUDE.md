@@ -291,3 +291,78 @@ The sidebar uses a manually-driven scroll (no Rev scrollbar widget) because the 
 
 PC → Pi: `START_JOB <name>`, `PAUSE`, `RESUME`, `ABORT`, `LIST_JOBS`  
 Pi → PC: `JOB_START <name>`, `FRAME n/total`, `GCODE <line>`, `JOB_DONE`, `JOB_PAUSED`, `JOBS job1,job2,...`, `ERROR <msg>`
+
+## Work log
+
+Current-state function docs for the Calibration Actions panel and camera
+capture live in `Demo/source/LithoControl/README.md`. This section is for
+root causes and why things were built the way they were — context that
+doesn't belong in that README.
+
+### 2026-08-26: Calibration workflow debugging session (branch `litho-rev`)
+
+Long session getting the Calibration Actions panel actually working against
+a real 1080p30 USB camera (Arducam IMX323, Amazon B0CGLW3Z1N) on an ME580
+microscope rig, driven entirely by real `outputs.txt`/screenshot evidence
+off the target Linux machine rather than guessed blind. In rough order:
+
+- **`SIGCHLD` set to `SIG_IGN` process-wide** (`main.cpp`, meant only to
+  reap the detached `LithoRevProjector` helper) was silently breaking
+  `waitpid()` for every *other* subprocess in the app too, including
+  `std::system()`-based checks like `Clipboard::commandExists("xclip")` —
+  it kept reporting "not found" even though `apt` confirmed it was
+  installed. Fixed by reaping only that specific helper's pid, from its
+  own reader thread, instead of touching `SIGCHLD` disposition at all.
+- **`runCapturedProcess()`'s `cd '<cwd>' && cmd 2>&1`** only redirected
+  `cmd`'s stderr, not `cd`'s — a failed `cd` (e.g. a stale calib-dt folder
+  path) went to this process's own inherited stderr (the real terminal)
+  instead of into the pipe this function reads, invisible in the GUI's own
+  runner log the whole time. Fixed by wrapping the whole list in `{ ...; }`.
+- **Camera device list showed a real USB camera twice**, through three
+  attempted fixes before the actual root cause: `scanCameras()`'s dedup key
+  needs to be the device *name*, not label+path — every `/dev/videoN` path
+  is unique by construction, so a path-based "exact duplicate" check can
+  never catch a camera that legitimately exposes more than one
+  `VIDEO_CAPTURE`-capable node.
+- **A real segfault** turned out to be `applyCameraAdjustments(rgba, w, h)`
+  mutating the capture loop's *persistent* w/h (reused every frame to index
+  into the V4L2 mmap'd buffer) via its resize out-params — dormant for the
+  entire life of that resize code, since the resolution preset defaulted to
+  "Native" (0x0, resize path never ran) until this session changed that
+  default. Fixed by passing local copies into that call instead.
+- **Camera resolution presets were the AmScope MU130's native modes**
+  (1280x1024/1024x768), a leftover from before the Linux port existed — not
+  this camera at all. Went through 800x600 (this camera's actual raw-YUYV
+  ceiling) before landing on real MJPEG support (`decodeToRGBAFromMemory`,
+  `stb_image`, already vendored) to get genuine 1920x1080@30 — this camera
+  needs MJPEG or H.264 for anything past ~800x600, a real USB2.0 bandwidth
+  limit, not just a driver quirk.
+- **`LITHOREV_DATA_DIR`**: camera captures/scale-reference frames were
+  landing in `~/dev/Rev` even when launched off the USB drive, because
+  `deploy-and-run.sh` always deploys-then-runs from `~/dev/Rev` regardless
+  of whether it was invoked from the drive or the desktop shortcut — `cwd`
+  alone can't tell those two launch styles apart. Needed an explicit env
+  var from the deploy script, not a cwd guess. Same reasoning extended to
+  calib-dt's own `--out` folders (`calibration_output` etc.), which are
+  relative to `calibDtRoot` and were never mirrored to the drive at all
+  until a user found a good calibration run sitting only on the target
+  machine's disk with the USB drive already unplugged.
+- **`SAVE SCALE REF` was capturing the wrong thing entirely**: the
+  calibration slide's known-diameter circle isn't self-luminous, and a
+  frame taken while the projector showed the calibration grid captured the
+  grid reflecting off the slide, not the circle — confirmed from an actual
+  shared image. Fixed by flashing solid white before capturing
+  (`hdmiSolidColor` already takes priority over the grid in
+  `composeHdmiFrame()`, so the grid itself needed no changes).
+- **Projector helper process left running after closing via the OS "X"
+  button**: `main()` calls `std::_Exit(0)` on exit (deliberately, to avoid a
+  different hang from detached threads), which skips destructors entirely —
+  nothing was telling `LithoRevProjector` to exit unless the in-app CLOSE
+  button was used specifically. Fixed by calling `closeHdmiWindow()`
+  (a synchronous kernel-level socket half-close, doesn't need this
+  process to stay alive afterward) right before the `_Exit`.
+- **A "successful" calibration run reporting `Final RMS: 0.0000 px`** was
+  not evidence of a good fit — no `--holdout-fraction` was being passed, so
+  the number was measured on the same points the model was fit on. Added a
+  HOLDOUT FRACTION field. See the calib-dt repo's own `CLAUDE.md` for the
+  matching entry on that side of this same investigation.
