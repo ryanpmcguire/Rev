@@ -612,6 +612,11 @@ export namespace LithoControl {
             return std::filesystem::current_path() / "scale_reference";
         }
 
+        // Actual pixel dimensions of the last frame SAVE SCALE REF wrote,
+        // 0 until one has been saved. See runCalibrationWithGrid().
+        int scaleReferenceFrameW = 0;
+        int scaleReferenceFrameH = 0;
+
         // Same idea as saveCameraFrame(), writing into scaleReferenceDir()
         // instead. Point the known-diameter calibration circle target at the
         // camera and save one (or a few -- run-calibration medians repeats)
@@ -650,6 +655,13 @@ export namespace LithoControl {
 
             if (encodeRGBAToPng(outPath.string(), rgba.data(), w, h)) {
                 logQ.push("[CAM] Saved scale reference " + outPath.string());
+                // Remembered so RUN CALIBRATION can force calib-dt's own,
+                // separate camera capture to the SAME resolution -- see the
+                // comment at the call site for why "both sides negotiate
+                // native and hope it matches" isn't reliable enough on its
+                // own.
+                scaleReferenceFrameW = w;
+                scaleReferenceFrameH = h;
             } else {
                 logQ.push("[CAM] Failed to save scale reference frame");
             }
@@ -3115,12 +3127,30 @@ export namespace LithoControl {
                 return;
             }
 
+            // run_calibration.py hard-requires the scale-reference image(s)
+            // and the grid captures to share pixel dimensions ("calibration-
+            // circle and grid images must use the same camera resolution").
+            // calib-dt opens the camera itself here, in a SEPARATE process
+            // from LithoRev's own live-preview capture that SAVE SCALE REF
+            // used -- both defaulting to "native" and hoping the driver
+            // negotiates the same resolution twice isn't reliable (this
+            // camera has shown real negotiation flakiness -- see the
+            // repeated "[CAM] Neither RGB24 nor YUYV supported" log lines).
+            // Force calib-dt's capture to the scale-reference frame's actual
+            // saved dimensions instead of leaving it to chance.
+            std::string resArgs;
+            if (scaleReferenceFrameW > 0 && scaleReferenceFrameH > 0) {
+                resArgs = " --width " + std::to_string(scaleReferenceFrameW) +
+                          " --height " + std::to_string(scaleReferenceFrameH);
+            }
+
             hdmiCalibGridActive.store(true);
             requestHdmiRepaint();
             logQ.push("[CALIB] Projecting calibration grid...");
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             runCalibDtSubprocess(
-                "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "' --out calibration_output",
+                "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "'" +
+                    resArgs + " --out calibration_output",
                 "RUN CALIBRATION",
                 "Check calibration_output/summary_report.txt for the fit RMS error.");
             hdmiCalibGridActive.store(false);
