@@ -574,6 +574,24 @@ export namespace LithoControl {
         // <cwd>/camera_captures/capture_YYYYMMDD_HHMMSS.png -- a quick grab
         // from the GUI, distinct from calib-dt's capture-frames script
         // (which drives the camera directly for batch calibration capture).
+        // Base directory for camera_captures/ and scale_reference/. Used to
+        // just be std::filesystem::current_path(), on the theory that cwd
+        // would naturally be the USB drive when launched that way and
+        // ~/dev/Rev when desktop-deployed -- WRONG in practice:
+        // deploy-and-run.sh always copies to ~/dev/Rev and runs from there
+        // before exec-ing the binary, whether you invoked the script from
+        // the drive or clicked the desktop shortcut -- cwd is identically
+        // ~/dev/Rev either way, so that never actually distinguished the
+        // two launch styles calibDtRoot's detection does. deploy-and-run.sh
+        // now exports LITHOREV_DATA_DIR pointing at the drive itself
+        // (unset for the desktop shortcut, which doesn't go through that
+        // script) -- an explicit signal instead of an unreliable cwd guess.
+        static std::filesystem::path dataRootDir() {
+            const char* explicitDir = std::getenv("LITHOREV_DATA_DIR");
+            if (explicitDir && *explicitDir) return std::filesystem::path(explicitDir);
+            return std::filesystem::current_path();
+        }
+
         void saveCameraFrame() {
             std::vector<uint8_t> rgba;
             int w = 0, h = 0;
@@ -587,7 +605,7 @@ export namespace LithoControl {
                 w = cameraFrameW; h = cameraFrameH;
             }
 
-            std::filesystem::path dir = std::filesystem::current_path() / "camera_captures";
+            std::filesystem::path dir = dataRootDir() / "camera_captures";
             std::error_code ec;
             std::filesystem::create_directories(dir, ec);
             if (ec) {
@@ -619,7 +637,7 @@ export namespace LithoControl {
         // calib-dt subprocess's cwd is calibDtRoot, not this process's own,
         // so a relative path would resolve in the wrong repo entirely.
         static std::filesystem::path scaleReferenceDir() {
-            return std::filesystem::current_path() / "scale_reference";
+            return dataRootDir() / "scale_reference";
         }
 
         // Actual pixel dimensions of the last frame SAVE SCALE REF wrote,
