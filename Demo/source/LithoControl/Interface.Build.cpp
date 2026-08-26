@@ -575,6 +575,11 @@ namespace LithoControl {
     // Live-preview adjustments + Save Frame -- lives on the Calibration page.
     void Interface::buildCameraSettingsPanel(Box* body) {
         makeBtn(body, "SAVE FRAME", [this]() { saveCameraFrame(); });
+        // Point the known-diameter calibration circle target at the camera
+        // and save one before RUN CALIBRATION -- calib-dt's --scale-reference
+        // is a required argument (measures um-per-pixel), and RUN CALIBRATION
+        // fails outright without at least one frame saved here.
+        makeBtn(body, "SAVE SCALE REF", [this]() { saveScaleReferenceFrame(); })->style->margin.top = 4_px;
 
         // -- Adjustments (flip/rotate/brightness/contrast/FPS/resolution) --
         // Applied to every captured frame in software, identically across

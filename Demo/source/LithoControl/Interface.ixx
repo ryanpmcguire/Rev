@@ -601,6 +601,60 @@ export namespace LithoControl {
             }
         }
 
+        // Absolute path to the folder RUN CALIBRATION passes to calib-dt as
+        // --scale-reference: <cwd>/scale_reference, a dedicated folder
+        // (separate from camera_captures/, which SAVE FRAME writes general
+        // snapshots into) so calib-dt never tries to measure a calibration
+        // circle out of an unrelated frame. Must be an absolute path -- the
+        // calib-dt subprocess's cwd is calibDtRoot, not this process's own,
+        // so a relative path would resolve in the wrong repo entirely.
+        static std::filesystem::path scaleReferenceDir() {
+            return std::filesystem::current_path() / "scale_reference";
+        }
+
+        // Same idea as saveCameraFrame(), writing into scaleReferenceDir()
+        // instead. Point the known-diameter calibration circle target at the
+        // camera and save one (or a few -- run-calibration medians repeats)
+        // frame of it before RUN CALIBRATION; that's calib-dt's only source
+        // for the projector's um-per-pixel scale (config's
+        // scale_reference.diameter_um supplies the known physical size).
+        void saveScaleReferenceFrame() {
+            std::vector<uint8_t> rgba;
+            int w = 0, h = 0;
+            {
+                std::lock_guard<std::mutex> lk(cameraFrameMtx);
+                if (cameraFrameW <= 0 || cameraFrameH <= 0) {
+                    logQ.push("[CAM] No frame to save yet");
+                    return;
+                }
+                rgba = cameraFrameRGBA;
+                w = cameraFrameW; h = cameraFrameH;
+            }
+
+            std::filesystem::path dir = scaleReferenceDir();
+            std::error_code ec;
+            std::filesystem::create_directories(dir, ec);
+            if (ec) {
+                logQ.push("[CAM] Could not create " + dir.string() + ": " + ec.message());
+                return;
+            }
+
+            std::time_t nowT = std::time(nullptr);
+            std::tm lt = *std::localtime(&nowT);
+            char ts[48];
+            std::snprintf(ts, sizeof(ts), "scale_ref_%04d%02d%02d_%02d%02d%02d.png",
+                          lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+                          lt.tm_hour, lt.tm_min, lt.tm_sec);
+
+            std::filesystem::path outPath = dir / ts;
+
+            if (encodeRGBAToPng(outPath.string(), rgba.data(), w, h)) {
+                logQ.push("[CAM] Saved scale reference " + outPath.string());
+            } else {
+                logQ.push("[CAM] Failed to save scale reference frame");
+            }
+        }
+
         bool hdmiPassthrough() const {
             return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
                 && hdmiHwnd != nullptr;
@@ -3002,11 +3056,33 @@ export namespace LithoControl {
         // thread) -- this blocks on the subprocess.
         void runCalibrationWithGrid() {
             if (!hdmiPassthrough()) { logQ.push("[CALIB] Open projector window first"); return; }
+
+            // calib-dt's --scale-reference is a required CLI argument (it's
+            // how um-per-pixel gets measured) -- this was never being passed
+            // at all, so RUN CALIBRATION could never succeed regardless of
+            // anything else being set up correctly. Must be an absolute path:
+            // the calib-dt subprocess's cwd is calibDtRoot, not this
+            // process's, so a bare "scale_reference" would resolve inside
+            // the calib-dt repo instead of where SAVE SCALE REF writes it.
+            std::error_code ec;
+            std::filesystem::path scaleRefDir = scaleReferenceDir();
+            bool haveScaleRef = std::filesystem::exists(scaleRefDir, ec) && !ec &&
+                                 !std::filesystem::is_empty(scaleRefDir, ec) && !ec;
+            if (!haveScaleRef) {
+                logQ.push("[CALIB] No scale-reference frame saved yet");
+                setCalibStatus(CalibStatus::Failed,
+                    "RUN CALIBRATION: no scale-reference frame saved. Point the calibration circle "
+                    "target at the camera, press SAVE SCALE REF, then retry.");
+                return;
+            }
+
             hdmiCalibGridActive.store(true);
             requestHdmiRepaint();
             logQ.push("[CALIB] Projecting calibration grid...");
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            runCalibDtSubprocess("run-calibration --camera --out calibration_output", "RUN CALIBRATION",
+            runCalibDtSubprocess(
+                "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "' --out calibration_output",
+                "RUN CALIBRATION",
                 "Check calibration_output/summary_report.txt for the fit RMS error.");
             hdmiCalibGridActive.store(false);
             requestHdmiRepaint();
