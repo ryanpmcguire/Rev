@@ -2,6 +2,7 @@ module;
 
 #include <spawn.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <atomic>
 #include <chrono>
@@ -147,6 +148,19 @@ namespace LithoControl {
             state->running.store(false);
             if (state->senderThread.joinable()) state->senderThread.join();
             close(state->sock);
+
+            // Reap LithoRevProjector here rather than globally SIG_IGN-ing
+            // SIGCHLD in main() (the previous approach): that blanket setting
+            // makes the kernel auto-reap ALL children process-wide, which
+            // silently breaks waitpid()/pclose()'s ability to retrieve an
+            // exit status for every OTHER subprocess in the app too --
+            // including std::system()-based command-existence checks like
+            // Clipboard::commandExists("xclip"), which always reported false
+            // (via a spurious -1 from system()) regardless of whether xclip
+            // was actually installed. Waiting on this specific pid, exactly
+            // once we know it's gone (socket closed), avoids a zombie without
+            // touching SIGCHLD disposition for the rest of the process.
+            waitpid(state->pid, nullptr, 0);
 
             hdmiHwnd = nullptr;
             hdmiWinRunning = false;

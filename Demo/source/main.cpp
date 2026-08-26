@@ -2,10 +2,6 @@
 #include <exception>
 #include <string>
 
-#if defined(__linux__)
-#include <csignal>
-#endif
-
 import Rev.Application;
 import Rev.Window;
 import Rev.Serial;
@@ -19,14 +15,6 @@ using namespace Rev;
 using namespace LithoControl;
 
 int main() {
-
-#if defined(__linux__)
-    // The projector-window process (LithoRevProjector, launched via
-    // posix_spawn() from Interface::openHdmiWindow()) is never explicitly
-    // waited on -- its lifecycle is entirely IPC-socket-driven -- so reap it
-    // automatically instead of leaving a zombie behind when it exits.
-    std::signal(SIGCHLD, SIG_IGN);
-#endif
 
     try {
         Application* application = new Application();

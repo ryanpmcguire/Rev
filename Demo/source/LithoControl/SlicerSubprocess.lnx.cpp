@@ -17,9 +17,17 @@ namespace LithoControl {
         // `cd <cwd> &&` sets the subprocess working directory -- popen() always
         // inherits this process's cwd otherwise, with no separate parameter for it
         // the way CreateProcessA has.
+        //
+        // The whole `cd ... && cmd` list is wrapped in `{ ...; }` so `2>&1`
+        // applies to the group as a whole, not just to `cmd` -- shell grammar
+        // binds a trailing redirection only to the last simple command in an
+        // `&&` chain, so plain `cd '<cwd>' && cmd 2>&1` left `cd`'s own stderr
+        // (e.g. "can't cd to <dir>" for a stale/missing folder) going to this
+        // process's inherited stderr -- the real terminal -- instead of into
+        // this pipe, invisible in the GUI's own runner log the whole time.
         std::string fullCmd = cwd.empty()
             ? (cmd + " 2>&1")
-            : ("cd '" + cwd + "' && " + cmd + " 2>&1");
+            : ("{ cd '" + cwd + "' && " + cmd + "; } 2>&1");
 
         FILE* pipe = popen(fullCmd.c_str(), "r");
         if (!pipe) return -1;
