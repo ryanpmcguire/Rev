@@ -77,8 +77,22 @@ namespace LithoControl {
                     std::string name(reinterpret_cast<const char*>(cap.card));
                     if (name.empty()) name = path;
 
-                    cameraDevices.push_back({ name });
-                    opts.push_back({ name + " (" + path + ")", std::to_string(i) });
+                    // Safety net: each /dev/videoN is only ever visited once
+                    // by this loop, so an exact name+path repeat shouldn't be
+                    // structurally possible here -- but a marginal USB
+                    // connection re-enumerating the same physical camera
+                    // under a second node with an identical cap.card name
+                    // (seen with other flaky peripherals on this machine) can
+                    // still make it LOOK like an exact duplicate at a glance.
+                    // Skip outright rather than list something that opens
+                    // the same hardware twice under two different indices.
+                    std::string label = name + " (" + path + ")";
+                    bool alreadyListed = false;
+                    for (auto& o : opts) if (o.name == label) { alreadyListed = true; break; }
+                    if (!alreadyListed) {
+                        cameraDevices.push_back({ name });
+                        opts.push_back({ label, std::to_string(i) });
+                    }
                 }
             }
             close(fd);
