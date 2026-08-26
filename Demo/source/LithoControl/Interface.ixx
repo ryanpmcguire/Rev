@@ -698,6 +698,39 @@ export namespace LithoControl {
             }
         }
 
+        // The calibration slide's known-diameter test circle isn't self-
+        // luminous -- it's an etched/printed feature that reflects whatever
+        // light is hitting the slide back to the camera. Under the
+        // calibration GRID pattern, the circle only shows up as a confusing
+        // mix of reflected grid lines and background, not a single clean
+        // shape -- measure_calibration_circle() needs one uniform bright
+        // (or dark) disc to threshold, which is what a plain white flood
+        // gives instead (the circle's different reflectivity than the
+        // surrounding glass makes it visibly lighter/darker against a flat
+        // background). This shows solid white, waits for a fresh camera
+        // frame to actually reflect it (the live preview otherwise still
+        // holds whatever was illuminated a moment ago), saves, then
+        // restores whatever was on the projector before (typically the
+        // calibration grid, left untouched -- solid color simply takes
+        // display priority over it in composeHdmiFrame(), so nothing about
+        // hdmiCalibGridActive itself needs to change here). Runs off the
+        // main thread since it has to wait -- call via
+        // startCaptureScaleReferenceUnderWhite().
+        void captureScaleReferenceUnderWhite() {
+            if (!hdmiPassthrough()) { logQ.push("[CAM] Open projector window first"); return; }
+            uint32_t prevSolid = hdmiSolidColor.load();
+            logQ.push("[CAM] Showing solid white for scale-reference capture...");
+            showSolid(0xFFFFFFFFu);
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            saveScaleReferenceFrame();
+            hdmiSolidColor.store(prevSolid);
+            requestHdmiRepaint();
+        }
+
+        void startCaptureScaleReferenceUnderWhite() {
+            std::thread([this]() { captureScaleReferenceUnderWhite(); }).detach();
+        }
+
         bool hdmiPassthrough() const {
             return hdmiPassthroughChk && hdmiPassthroughChk->value.get()
                 && hdmiHwnd != nullptr;

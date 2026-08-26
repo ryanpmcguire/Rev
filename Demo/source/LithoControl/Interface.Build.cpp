@@ -578,8 +578,13 @@ namespace LithoControl {
         // Point the known-diameter calibration circle target at the camera
         // and save one before RUN CALIBRATION -- calib-dt's --scale-reference
         // is a required argument (measures um-per-pixel), and RUN CALIBRATION
-        // fails outright without at least one frame saved here.
-        makeBtn(body, "SAVE SCALE REF", [this]() { saveScaleReferenceFrame(); })->style->margin.top = 4_px;
+        // fails outright without at least one frame saved here. Flashes solid
+        // white on the projector first (see captureScaleReferenceUnderWhite())
+        // -- the slide's calibration circle isn't self-luminous, it reflects
+        // whatever's illuminating it, and under the calibration grid pattern
+        // that's a confusing mix of reflected lines rather than the one clean
+        // disc the detector needs.
+        makeBtn(body, "SAVE SCALE REF", [this]() { startCaptureScaleReferenceUnderWhite(); })->style->margin.top = 4_px;
 
         // -- Adjustments (flip/rotate/brightness/contrast/FPS/resolution) --
         // Applied to every captured frame in software, identically across
