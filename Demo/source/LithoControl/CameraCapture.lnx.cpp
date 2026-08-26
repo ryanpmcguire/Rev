@@ -77,19 +77,25 @@ namespace LithoControl {
                     std::string name(reinterpret_cast<const char*>(cap.card));
                     if (name.empty()) name = path;
 
-                    // Safety net: each /dev/videoN is only ever visited once
-                    // by this loop, so an exact name+path repeat shouldn't be
-                    // structurally possible here -- but a marginal USB
-                    // connection re-enumerating the same physical camera
-                    // under a second node with an identical cap.card name
-                    // (seen with other flaky peripherals on this machine) can
-                    // still make it LOOK like an exact duplicate at a glance.
-                    // Skip outright rather than list something that opens
-                    // the same hardware twice under two different indices.
-                    std::string label = name + " (" + path + ")";
+                    // Some cameras legitimately expose MORE THAN ONE node
+                    // that both correctly report VIDEO_CAPTURE in their own
+                    // device_caps (not the union-capabilities false-positive
+                    // the check above already handles) -- e.g. separate
+                    // nodes for different format/resolution sets on the same
+                    // physical sensor. Comparing full label+path (previous
+                    // attempt) can never catch this: every /dev/videoN path
+                    // is unique by construction, so that check only ever
+                    // fired for a literal re-scan, never for a real second
+                    // node of the same camera -- confirmed still showing a
+                    // single USB camera twice on the target. Dedup by NAME
+                    // alone instead: same cap.card string reported twice
+                    // means the same physical camera, keep only the first
+                    // (lowest-index) node -- it's the one that actually
+                    // opens correctly for every camera tested so far.
                     bool alreadyListed = false;
-                    for (auto& o : opts) if (o.name == label) { alreadyListed = true; break; }
+                    for (auto& d : cameraDevices) if (d.name == name) { alreadyListed = true; break; }
                     if (!alreadyListed) {
+                        std::string label = name + " (" + path + ")";
                         cameraDevices.push_back({ name });
                         opts.push_back({ label, std::to_string(i) });
                     }
