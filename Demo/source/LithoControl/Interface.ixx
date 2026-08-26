@@ -3145,8 +3145,20 @@ export namespace LithoControl {
         // the symptom reported on the target. Stop our own preview first
         // (blocks until the capture thread has actually released the
         // device) and restart it after, so the two never overlap.
+        // `outputDirName`: the script's own --out folder name (e.g.
+        // "calibration_output"), relative to calibDtRoot -- that's where it
+        // actually lands, NOT LITHOREV_DATA_DIR/dataRootDir(), since the
+        // subprocess's cwd is calibDtRoot (always ~/dev/calib-dt when
+        // launched via deploy-and-run.sh, whether that script was invoked
+        // from the drive or the desktop shortcut -- see dataRootDir()'s own
+        // comment for why cwd can't tell those apart). On success, if
+        // LITHOREV_DATA_DIR is set (USB-launched), mirror that folder onto
+        // the drive too -- otherwise calibration_output/captures/
+        // sensitivity_output only ever exist on the machine's own disk, easy
+        // to lose track of if the drive gets pulled without realizing.
         void runCalibDtSubprocess(const std::string& scriptArgs, const std::string& actionLabel,
-                                   const std::string& successHint = "", bool usesCamera = false) {
+                                   const std::string& successHint = "", bool usesCamera = false,
+                                   const std::string& outputDirName = "") {
             if (calibDtRoot.empty()) {
                 logQ.push("[CALIB] Set the calib-dt folder first");
                 setCalibStatus(CalibStatus::Failed, actionLabel + ": set the calib-dt folder first (above)");
@@ -3169,6 +3181,7 @@ export namespace LithoControl {
                 logQ.push("[CALIB] Done");
                 setCalibStatus(CalibStatus::Success, actionLabel + ": succeeded." +
                     (successHint.empty() ? "" : (" " + successHint)));
+                if (!outputDirName.empty()) mirrorCalibDtOutputToDrive(outputDirName);
             } else {
                 logQ.push("[CALIB] Exit code " + std::to_string(exitCode));
                 setCalibStatus(CalibStatus::Failed, actionLabel + ": FAILED (exit " +
@@ -3181,10 +3194,40 @@ export namespace LithoControl {
             }
         }
 
+        // Copies calibDtRoot/<outputDirName> to LITHOREV_DATA_DIR/<outputDirName>_<timestamp>
+        // (timestamped so repeat runs never clobber each other -- same
+        // convention as run_calibration.py's own --backup-to). No-op if
+        // LITHOREV_DATA_DIR isn't set (desktop-launched -- calibDtRoot is
+        // already the right, permanent place in that case).
+        void mirrorCalibDtOutputToDrive(const std::string& outputDirName) {
+            const char* dataDir = std::getenv("LITHOREV_DATA_DIR");
+            if (!dataDir || !*dataDir) return;
+
+            std::filesystem::path src = std::filesystem::path(calibDtRoot) / outputDirName;
+            std::error_code ec;
+            if (!std::filesystem::exists(src, ec) || ec) return;
+
+            std::time_t nowT = std::time(nullptr);
+            std::tm lt = *std::localtime(&nowT);
+            char ts[32];
+            std::snprintf(ts, sizeof(ts), "_%04d%02d%02d_%02d%02d%02d",
+                          lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday,
+                          lt.tm_hour, lt.tm_min, lt.tm_sec);
+            std::filesystem::path dst = std::filesystem::path(dataDir) / (outputDirName + ts);
+
+            std::filesystem::copy(src, dst, std::filesystem::copy_options::recursive, ec);
+            if (ec) {
+                logQ.push("[CALIB] Could not copy " + outputDirName + " to drive: " + ec.message());
+            } else {
+                logQ.push("[CALIB] Copied " + outputDirName + " -> " + dst.string());
+            }
+        }
+
         void startCalibDtAction(const std::string& scriptArgs, const std::string& actionLabel,
-                                 const std::string& successHint = "", bool usesCamera = false) {
-            std::thread([this, scriptArgs, actionLabel, successHint, usesCamera]() {
-                runCalibDtSubprocess(scriptArgs, actionLabel, successHint, usesCamera);
+                                 const std::string& successHint = "", bool usesCamera = false,
+                                 const std::string& outputDirName = "") {
+            std::thread([this, scriptArgs, actionLabel, successHint, usesCamera, outputDirName]() {
+                runCalibDtSubprocess(scriptArgs, actionLabel, successHint, usesCamera, outputDirName);
             }).detach();
         }
 
@@ -3273,7 +3316,7 @@ export namespace LithoControl {
                     resArgs + diameterArgs + " --out calibration_output",
                 "RUN CALIBRATION",
                 "Check calibration_output/summary_report.txt for the fit RMS error.",
-                /*usesCamera=*/true);
+                /*usesCamera=*/true, /*outputDirName=*/"calibration_output");
             hdmiCalibGridActive.store(false);
             requestHdmiRepaint();
         }
