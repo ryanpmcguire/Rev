@@ -979,6 +979,39 @@ namespace LithoControl {
             if (circleDiameterInput) circleDiameterInput->text->content = "70";
         })->style->margin.left = 4_px;
 
+        // Fraction of grid points held out from fitting and scored
+        // separately (calib-dt's --holdout-fraction). Default/empty means
+        // 0 -- calib-dt's own default -- which reports RMS measured on the
+        // SAME points the model was fit on. A flexible distortion model
+        // (TPS) can interpolate those to ~0.0000 px regardless of how good
+        // the calibration actually is (confirmed on a real run) -- that's
+        // not a bug, but it isn't a trustworthy quality signal either. A
+        // nonzero holdout is what actually shows how well this generalizes
+        // to a point it wasn't fit on.
+        Text* holdoutLbl = new Text(body, "HOLDOUT FRACTION (0-1, blank=0)");
+        holdoutLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+        holdoutLbl->style->text.size     = 9_px;
+        holdoutLbl->style->margin.top    = 8_px;
+        holdoutLbl->style->margin.bottom = 4_px;
+
+        Box* holdoutRow = new Box(body, { &Theme::RowH });
+        holdoutRow->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+
+        holdoutFractionInput = makeInput(holdoutRow, "",
+            settings.holdoutFraction > 0 ? fmtFloat(settings.holdoutFraction) : "", 8);
+        holdoutFractionInput->container->style->size.width = 90_px;
+        holdoutFractionInput->container->style->margin.right = 6_px;
+
+        makeBtn(holdoutRow, "0.3", [this]() {
+            settings.holdoutFraction = 0.3f;
+            if (holdoutFractionInput) holdoutFractionInput->text->content = "0.3";
+        })->style->size.width = 60_px;
+
+        makeBtn(holdoutRow, "None", [this]() {
+            settings.holdoutFraction = 0.0f;
+            if (holdoutFractionInput) holdoutFractionInput->text->content = "";
+        })->style->margin.left = 4_px;
+
         // Status banner: the ONE thing that should be glanceable without
         // scrolling the runner log below -- idle/running/succeeded/failed,
         // plus a next-step hint, color-coded (see calibStatusLbl handling in

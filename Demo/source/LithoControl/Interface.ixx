@@ -167,6 +167,16 @@ export namespace LithoControl {
             // Default matches calib-dt's own config/system_config.yaml
             // (scale_reference.diameter_um: 70.0, i.e. the slide's 0.07mm circle).
             int circleDiameterUm = 70;
+            // Fraction of grid correspondences held out from fitting and
+            // scored separately (calib-dt's --holdout-fraction). Default 0
+            // matches calib-dt's own CLI default -- but 0 means the reported
+            // RMS is measured on the SAME points used to fit the model, which
+            // a flexible-enough distortion model (TPS) can interpolate to
+            // ~0.0000 px regardless of how good the calibration actually is.
+            // That's not a bug, but it also isn't a trustworthy quality
+            // signal -- a nonzero holdout is what actually tells you how
+            // well this generalizes to a point it wasn't fit on.
+            float holdoutFraction = 0.0f;
         } settings;
 
         // -- Pages --------------------------------------------------------------
@@ -196,6 +206,7 @@ export namespace LithoControl {
         Text* runnerLogLbl         = nullptr;
         Text*      calibDtPathLabel  = nullptr;
         TextInput* circleDiameterInput = nullptr;  // test-circle diameter in um, see runCalibrationWithGrid()
+        TextInput* holdoutFractionInput = nullptr; // 0..1, see runCalibrationWithGrid()
 
         // Calibration run status -- set by runCalibDtSubprocess() on its worker
         // thread, drained into calibStatusLbl on the main thread in computeStyle()
@@ -2940,6 +2951,7 @@ export namespace LithoControl {
             settings.dlpRoot   = gs("dlpRoot",  "");
             settings.calibDtRoot = gs("calibDtRoot", "");
             settings.circleDiameterUm = gi("circleDiameterUm", 70);
+            settings.holdoutFraction = (float)gi("holdoutFractionX1000", 0) / 1000.0f;
         }
 
         void saveSettings() {
@@ -2962,6 +2974,7 @@ export namespace LithoControl {
             ws("dlpRoot",      dlpRoot);
             ws("calibDtRoot",  calibDtRoot);
             wi("circleDiameterUm", settings.circleDiameterUm);
+            wi("holdoutFractionX1000", (int)(settings.holdoutFraction * 1000));
             writeIniSection(ini, "LithoControl", kv);
         }
 
@@ -3307,13 +3320,32 @@ export namespace LithoControl {
                 }
             }
 
+            // See HOLDOUT FRACTION's comment in buildCalibrationPanel() --
+            // without this, the reported RMS is measured on the same points
+            // the model was fit on, which a flexible distortion model can
+            // trivially interpolate to ~0 regardless of actual fit quality.
+            std::string holdoutArgs;
+            std::string holdoutText = holdoutFractionInput ? holdoutFractionInput->text->strContent : "";
+            if (!holdoutText.empty()) {
+                try {
+                    double holdout = std::stod(holdoutText);
+                    if (holdout > 0.0 && holdout < 1.0) {
+                        holdoutArgs = " --holdout-fraction " + std::to_string(holdout);
+                    } else {
+                        logQ.push("[CALIB] Ignoring out-of-range holdout fraction '" + holdoutText + "' (must be 0-1)");
+                    }
+                } catch (...) {
+                    logQ.push("[CALIB] Ignoring invalid holdout fraction '" + holdoutText + "'");
+                }
+            }
+
             hdmiCalibGridActive.store(true);
             requestHdmiRepaint();
             logQ.push("[CALIB] Projecting calibration grid...");
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             runCalibDtSubprocess(
                 "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "'" +
-                    resArgs + diameterArgs + " --out calibration_output",
+                    resArgs + diameterArgs + holdoutArgs + " --out calibration_output",
                 "RUN CALIBRATION",
                 "Check calibration_output/summary_report.txt for the fit RMS error.",
                 /*usesCamera=*/true, /*outputDirName=*/"calibration_output");
