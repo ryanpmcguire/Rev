@@ -199,10 +199,23 @@ namespace LithoControl {
             return;
         }
 
-        // Read the driver's default format (keeps its default resolution,
-        // mirroring how the Windows path only forces the pixel format and
-        // leaves frame size alone), then try RGB24 first and fall back to
-        // YUYV if the driver doesn't support RGB24 directly.
+        // Start from the driver's current format (gets type/field defaults
+        // populated), then request the RESOLUTION selected in the UI
+        // (cameraResW/H -- 0x0 "Native" leaves the driver's own default
+        // frame size alone, matching the previous behavior) in the SAME
+        // VIDIOC_S_FMT call as the pixel format below -- V4L2 negotiates
+        // format and frame size together as one atomic request, not two
+        // separate ioctls. Without this, the requested resolution was ONLY
+        // ever applied as a post-capture software resize
+        // (applyCameraAdjustments()) on top of whatever size the driver
+        // defaulted to on its own (seen drifting between 848x480, 800x600,
+        // etc. on this hardware) -- never a real request to the sensor, so
+        // "1920x1080" in the UI didn't mean the camera was actually
+        // capturing at 1080p, just upscaling whatever lower-res default
+        // frame it already had. The driver may still negotiate a different
+        // ACTUAL size than requested (nearest supported mode) -- V4L2
+        // always writes the real negotiated width/height back into `fmt`
+        // after a successful S_FMT, which is what `w`/`h` below read.
         v4l2_format fmt{};
         fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         if (ioctl(fd, VIDIOC_G_FMT, &fmt) < 0) {
@@ -212,12 +225,22 @@ namespace LithoControl {
             return;
         }
 
+        int reqW = cameraResW.load(), reqH = cameraResH.load();
+        if (reqW > 0 && reqH > 0) {
+            fmt.fmt.pix.width  = (uint32_t)reqW;
+            fmt.fmt.pix.height = (uint32_t)reqH;
+        }
+
         fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
         fmt.fmt.pix.field = V4L2_FIELD_NONE;
         bool isRgb24 = (ioctl(fd, VIDIOC_S_FMT, &fmt) == 0 &&
                         fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24);
 
         if (!isRgb24) {
+            if (reqW > 0 && reqH > 0) {
+                fmt.fmt.pix.width  = (uint32_t)reqW;
+                fmt.fmt.pix.height = (uint32_t)reqH;
+            }
             fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
             if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0 ||
                 fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
@@ -229,6 +252,10 @@ namespace LithoControl {
         }
 
         int w = (int)fmt.fmt.pix.width, h = (int)fmt.fmt.pix.height;
+        if (reqW > 0 && reqH > 0 && (w != reqW || h != reqH)) {
+            logQ.push("[CAM] Requested " + std::to_string(reqW) + "x" + std::to_string(reqH) +
+                       ", driver negotiated " + std::to_string(w) + "x" + std::to_string(h));
+        }
 
         v4l2_requestbuffers req{};
         req.count = 4;

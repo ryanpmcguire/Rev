@@ -427,8 +427,12 @@ export namespace LithoControl {
         std::atomic<int>      cameraBrightness   { 0 };    // -100..100
         std::atomic<int>      cameraContrastPct  { 100 };  // 0..300 (%)
         std::atomic<int>      cameraTargetFps    { 0 };    // 0 = unlimited
-        std::atomic<int>      cameraResW         { 0 };    // 0 = native (no rescale)
-        std::atomic<int>      cameraResH         { 0 };
+        // Default matches the actual 1080p USB camera on the bench, not the
+        // old AmScope MU130 (1280x1024) this preset set used to target --
+        // see the RESOLUTION preset buttons in buildCameraSettingsPanel().
+        // 0/0 == native (driver's own default, no explicit request).
+        std::atomic<int>      cameraResW         { 1920 };
+        std::atomic<int>      cameraResH         { 1080 };
         std::chrono::steady_clock::time_point cameraLastFrameTime{};
 
         // -- Extended UVC controls (exposure / gain-ISO) ---------------------

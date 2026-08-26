@@ -668,15 +668,25 @@ namespace LithoControl {
         auto selectRes = [this](const std::string& v) {
             int rw = 0, rh = 0;
             std::sscanf(v.c_str(), "%dx%d", &rw, &rh);
-            cameraResW = rw; cameraResH = rh; // 0x0 == native, no rescale
+            cameraResW = rw; cameraResH = rh; // 0x0 == native, no explicit request
         };
+        // Presets for the actual 1080p USB camera on the bench -- this used
+        // to be the AmScope MU130's native 1280x1024/1024x768 (Windows-only
+        // vendor SDK path, not used on the Linux target at all). 1920x1080
+        // is now the default (see cameraResW/H's initializer) instead of
+        // Native, since Native was landing on an arbitrary low-res driver
+        // default (848x480, 800x600, ...) rather than the sensor's real
+        // 1080p mode -- see runCameraCapture()'s VIDIOC_S_FMT call, which
+        // now actually requests this resolution instead of only doing a
+        // post-capture software resize on top of whatever the driver
+        // defaulted to.
         auto resGroup = std::make_shared<ToggleGroup>();
         addToggleRow(resRow1, resGroup, 76.0f,
-            { {"Native", "0x0"}, {"1280x1024", "1280x1024"}, {"1024x768", "1024x768"} }, selectRes);
+            { {"1920x1080", "1920x1080"}, {"1280x720", "1280x720"}, {"800x600", "800x600"} }, selectRes);
         addToggleRow(resRow2, resGroup, 76.0f,
-            { {"800x600", "800x600"}, {"640x480", "640x480"}, {"320x240", "320x240"} }, selectRes);
+            { {"640x480", "640x480"}, {"320x240", "320x240"}, {"Native", "0x0"} }, selectRes);
         for (auto& [btn, v] : *resGroup)
-            if (v == "0x0") { btn->style->background.color = rgba(0, 87, 255, 1); btn->style->border.color = rgba(0, 87, 255, 1); }
+            if (v == "1920x1080") { btn->style->background.color = rgba(0, 87, 255, 1); btn->style->border.color = rgba(0, 87, 255, 1); }
 
         sectionLbl(body, "TARGET FPS");
         Box* fpsRow1 = new Box(body, { &Theme::RowH });
