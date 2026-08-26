@@ -710,14 +710,31 @@ export namespace LithoControl {
                 }
             }
 
+            // Re-derive the expected calib-dt location from wherever this
+            // process is running RIGHT NOW, and use it to auto-heal a stale
+            // persisted value -- not just fill in an empty one. This is what
+            // makes "USB-launched LithoRev uses the drive's calib-dt, the
+            // desktop-deployed copy uses ~/dev/calib-dt" actually hold across
+            // restarts: without this, a settings.ini written while running
+            // one way (e.g. off the drive) would otherwise keep pointing
+            // there forever even after later launching the other way (e.g.
+            // the desktop shortcut, home directory, no drive mounted) --
+            // exactly the "can't cd to /media/.../calib-dt" bug hit on the
+            // target machine after switching between the two.  A persisted
+            // value that's still valid (pyproject.toml exists there) is left
+            // alone even if it doesn't match the "expected" location for
+            // this launch context -- only override when it's empty or the
+            // path no longer resolves to a real calib-dt checkout.
             calibDtRoot = settings.calibDtRoot;
-            if (calibDtRoot.empty() && !dlpRoot.empty()) {
-                std::string guess = findCalibDtRoot(dlpRoot);
-                if (!guess.empty()) { calibDtRoot = guess; settings.calibDtRoot = guess; }
-            }
-            if (calibDtRoot.empty()) {
-                std::string guess = findCalibDtRootNearCwd();
-                if (!guess.empty()) { calibDtRoot = guess; settings.calibDtRoot = guess; }
+            {
+                namespace fs = std::filesystem;
+                bool persistedValid = !calibDtRoot.empty() &&
+                    fs::exists(fs::path(calibDtRoot) / "pyproject.toml");
+                if (!persistedValid) {
+                    std::string guess = !dlpRoot.empty() ? findCalibDtRoot(dlpRoot) : "";
+                    if (guess.empty()) guess = findCalibDtRootNearCwd();
+                    if (!guess.empty()) { calibDtRoot = guess; settings.calibDtRoot = guess; }
+                }
             }
 
             buildSidebar();
@@ -2966,22 +2983,44 @@ export namespace LithoControl {
             return "";
         }
 
+        // True if `path` sits under a typical Linux removable-media mount
+        // point -- i.e. this process is very likely running straight off a
+        // USB drive rather than a deployed desktop copy.
+        static bool isPathUnderRemovableMedia(const std::string& path) {
+            static const char* prefixes[] = { "/media/", "/mnt/", "/run/media/" };
+            for (auto* p : prefixes) if (path.rfind(p, 0) == 0) return true;
+            return false;
+        }
+
         // Second guess, tried only if findCalibDtRoot() above came up empty
         // (i.e. dlpRoot was never set -- nobody's opened a job file from
-        // inside DLP-photolithography yet). On the Linux target,
-        // deploy-and-run.sh deploys calib-dt as a sibling of wherever it put
-        // Rev (e.g. ~/dev/calib-dt next to ~/dev/Rev), and that's also this
-        // process's own working directory at startup (see main.cpp's
-        // "Working Directory" raylib log line) -- so the same sibling-of-cwd
-        // guess deploy-and-run.sh itself uses works here too, with no
-        // platform-specific "resolve my own executable path" code needed.
+        // inside DLP-photolithography yet). Two possible layouts depending on
+        // how this process is currently running, tried in whichever order
+        // matches the current working directory:
+        //   - Desktop-deployed (deploy-and-run.sh's ~/dev/Rev): calib-dt is
+        //     deployed as a direct SIBLING (~/dev/calib-dt), and this
+        //     process's cwd at startup is ~/dev/Rev itself (see main.cpp's
+        //     "Working Directory" raylib log line).
+        //   - Run straight off the USB drive in place (no deploy step):
+        //     calib-dt lives at the DRIVE ROOT, e.g.
+        //     .../LithoRev-linux-build/Rev running with calib-dt at
+        //     .../calib-dt -- two levels up from Rev, not a direct sibling.
+        // No platform-specific "resolve my own executable path" code needed
+        // either way, just std::filesystem::current_path().
         static std::string findCalibDtRootNearCwd() {
             namespace fs = std::filesystem;
             std::error_code ec;
             fs::path cwd = fs::current_path(ec);
             if (ec || cwd.empty()) return "";
-            fs::path candidate = cwd.parent_path() / "calib-dt";
-            if (fs::exists(candidate / "pyproject.toml")) return candidate.string();
+
+            fs::path siblingCandidate     = cwd.parent_path() / "calib-dt";
+            fs::path grandparentCandidate = cwd.parent_path().parent_path() / "calib-dt";
+            bool onRemovableMedia = isPathUnderRemovableMedia(cwd.string());
+            fs::path first  = onRemovableMedia ? grandparentCandidate : siblingCandidate;
+            fs::path second = onRemovableMedia ? siblingCandidate : grandparentCandidate;
+
+            if (fs::exists(first / "pyproject.toml")) return first.string();
+            if (fs::exists(second / "pyproject.toml")) return second.string();
             return "";
         }
 
