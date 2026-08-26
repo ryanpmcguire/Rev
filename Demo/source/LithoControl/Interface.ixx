@@ -162,6 +162,11 @@ export namespace LithoControl {
             std::string platform = "stm32";
             std::string dlpRoot  = "";   // persisted repo root for resolving ./jobs
             std::string calibDtRoot = ""; // persisted calib-dt repo root
+            // Known diameter of the calibration-slide test circle SAVE SCALE
+            // REF's frame is measured against (calib-dt's --circle-diameter-um).
+            // Default matches calib-dt's own config/system_config.yaml
+            // (scale_reference.diameter_um: 70.0, i.e. the slide's 0.07mm circle).
+            int circleDiameterUm = 70;
         } settings;
 
         // -- Pages --------------------------------------------------------------
@@ -190,6 +195,7 @@ export namespace LithoControl {
         Box* gcodeColBox           = nullptr;
         Text* runnerLogLbl         = nullptr;
         Text*      calibDtPathLabel  = nullptr;
+        TextInput* circleDiameterInput = nullptr;  // test-circle diameter in um, see runCalibrationWithGrid()
 
         // Calibration run status -- set by runCalibDtSubprocess() on its worker
         // thread, drained into calibStatusLbl on the main thread in computeStyle()
@@ -2862,6 +2868,7 @@ export namespace LithoControl {
             settings.platform  = gs("platform", "stm32");
             settings.dlpRoot   = gs("dlpRoot",  "");
             settings.calibDtRoot = gs("calibDtRoot", "");
+            settings.circleDiameterUm = gi("circleDiameterUm", 70);
         }
 
         void saveSettings() {
@@ -2883,6 +2890,7 @@ export namespace LithoControl {
             ws("platform",     platform == Platform::Pi ? "pi" : "stm32");
             ws("dlpRoot",      dlpRoot);
             ws("calibDtRoot",  calibDtRoot);
+            wi("circleDiameterUm", settings.circleDiameterUm);
             writeIniSection(ini, "LithoControl", kv);
         }
 
@@ -3144,13 +3152,31 @@ export namespace LithoControl {
                           " --height " + std::to_string(scaleReferenceFrameH);
             }
 
+            // Known diameter of whichever test circle on the calibration
+            // slide SAVE SCALE REF actually captured (0.15mm/0.07mm presets,
+            // or free entry -- see TEST CIRCLE DIAMETER in the panel above).
+            // Falls back to calib-dt's own config default (system_config.yaml
+            // scale_reference.diameter_um) if the field is empty/unparseable
+            // rather than passing a bad value through.
+            std::string diameterArgs;
+            std::string diameterText = circleDiameterInput ? circleDiameterInput->text->strContent : "";
+            if (!diameterText.empty()) {
+                try {
+                    double diameterUm = std::stod(diameterText);
+                    if (diameterUm > 0) diameterArgs = " --circle-diameter-um " + std::to_string(diameterUm);
+                } catch (...) {
+                    logQ.push("[CALIB] Ignoring invalid test circle diameter '" + diameterText +
+                               "' -- using calib-dt's config default");
+                }
+            }
+
             hdmiCalibGridActive.store(true);
             requestHdmiRepaint();
             logQ.push("[CALIB] Projecting calibration grid...");
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             runCalibDtSubprocess(
                 "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "'" +
-                    resArgs + " --out calibration_output",
+                    resArgs + diameterArgs + " --out calibration_output",
                 "RUN CALIBRATION",
                 "Check calibration_output/summary_report.txt for the fit RMS error.");
             hdmiCalibGridActive.store(false);

@@ -933,6 +933,38 @@ namespace LithoControl {
         browseBtn->style->size     = { 40_px, Grow() };
         browseBtn->style->size.max.width = 40_px;
 
+        // Test-circle diameter -- the calibration slide has two known-size
+        // circles (0.15mm and 0.07mm); calib-dt measures um-per-pixel off
+        // whichever one SAVE SCALE REF captured, so this has to match
+        // whatever's actually under the camera. Two presets fill the box;
+        // it stays a free-text field for any other size too (e.g. a
+        // different slide). Value is in micrometers, matching calib-dt's
+        // own --circle-diameter-um CLI argument directly -- no unit
+        // conversion between here and the command built in
+        // runCalibrationWithGrid().
+        Text* circleLbl = new Text(body, "TEST CIRCLE DIAMETER (um)");
+        circleLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+        circleLbl->style->text.size     = 9_px;
+        circleLbl->style->margin.top    = 8_px;
+        circleLbl->style->margin.bottom = 4_px;
+
+        Box* circleRow = new Box(body, { &Theme::RowH });
+        circleRow->style->layout = { Axis::Horizontal, Align::Start, Align::Center };
+
+        circleDiameterInput = makeInput(circleRow, "", std::to_string(settings.circleDiameterUm), 8);
+        circleDiameterInput->container->style->size.width = 90_px;
+        circleDiameterInput->container->style->margin.right = 6_px;
+
+        makeBtn(circleRow, "0.15mm", [this]() {
+            settings.circleDiameterUm = 150;
+            if (circleDiameterInput) circleDiameterInput->text->content = "150";
+        })->style->size.width = 60_px;
+
+        makeBtn(circleRow, "0.07mm", [this]() {
+            settings.circleDiameterUm = 70;
+            if (circleDiameterInput) circleDiameterInput->text->content = "70";
+        })->style->margin.left = 4_px;
+
         // Status banner: the ONE thing that should be glanceable without
         // scrolling the runner log below -- idle/running/succeeded/failed,
         // plus a next-step hint, color-coded (see calibStatusLbl handling in
