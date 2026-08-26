@@ -670,25 +670,22 @@ namespace LithoControl {
             std::sscanf(v.c_str(), "%dx%d", &rw, &rh);
             cameraResW = rw; cameraResH = rh; // 0x0 == native, no explicit request
         };
-        // Presets matching this camera's actual RAW capture modes -- this
-        // used to be the AmScope MU130's native 1280x1024/1024x768
-        // (Windows-only vendor SDK path, unused on Linux), then briefly
-        // 1920x1080/1280x720, which this camera (Arducam IMX323,
-        // B0CGLW3Z1N) doesn't support outside MJPG/H.264 -- runCameraCapture()
-        // only ever requests RGB24/YUYV, and this camera's own spec sheet
-        // caps YUYV at 800x600@15fps or 640x480/640x360/352x288/320x240@30fps.
-        // Requesting 1920x1080 forced a driver clamp to some other aspect
-        // ratio, then the resize block stretched it to fill 1920x1080 --
-        // the reported "stretched image" bug. 800x600 (this camera's real
-        // highest YUYV mode, confirmed matching what "Native" already
-        // settled on) is the default instead.
+        // Presets for this camera (Arducam IMX323, B0CGLW3Z1N)'s full mode
+        // range -- runCameraCapture() now requests MJPEG first (falling
+        // back to RGB24/YUYV only if a camera doesn't offer it), which per
+        // this camera's own spec sheet covers the whole list here at
+        // 30fps, including 1080p. Was briefly capped at 800x600 while this
+        // path only spoke RGB24/YUYV (USB2.0-bandwidth-limited to well
+        // under 1080p uncompressed); before that, the AmScope MU130's
+        // native 1280x1024/1024x768 (Windows-only vendor SDK path, unused
+        // on Linux).
         auto resGroup = std::make_shared<ToggleGroup>();
         addToggleRow(resRow1, resGroup, 76.0f,
-            { {"800x600", "800x600"}, {"640x480", "640x480"}, {"640x360", "640x360"} }, selectRes);
+            { {"1920x1080", "1920x1080"}, {"1280x720", "1280x720"}, {"800x600", "800x600"} }, selectRes);
         addToggleRow(resRow2, resGroup, 76.0f,
-            { {"352x288", "352x288"}, {"320x240", "320x240"}, {"Native", "0x0"} }, selectRes);
+            { {"640x480", "640x480"}, {"320x240", "320x240"}, {"Native", "0x0"} }, selectRes);
         for (auto& [btn, v] : *resGroup)
-            if (v == "800x600") { btn->style->background.color = rgba(0, 87, 255, 1); btn->style->border.color = rgba(0, 87, 255, 1); }
+            if (v == "1920x1080") { btn->style->background.color = rgba(0, 87, 255, 1); btn->style->border.color = rgba(0, 87, 255, 1); }
 
         sectionLbl(body, "TARGET FPS");
         Box* fpsRow1 = new Box(body, { &Theme::RowH });

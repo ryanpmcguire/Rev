@@ -19,9 +19,13 @@ module;
 
 module LithoControl.Interface;   // implementation unit -- no 'export'
 
+import LithoControl.ImageDecode;
+
 namespace LithoControl {
 
     struct V4L2MappedBuffer { void* start; size_t length; };
+
+    enum class CamFmt { MJPEG, RGB24, YUYV };
 
     static inline uint8_t clampByte(int v) { return (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v)); }
 
@@ -226,28 +230,45 @@ namespace LithoControl {
         }
 
         int reqW = cameraResW.load(), reqH = cameraResH.load();
-        if (reqW > 0 && reqH > 0) {
-            fmt.fmt.pix.width  = (uint32_t)reqW;
-            fmt.fmt.pix.height = (uint32_t)reqH;
-        }
-
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
-        fmt.fmt.pix.field = V4L2_FIELD_NONE;
-        bool isRgb24 = (ioctl(fd, VIDIOC_S_FMT, &fmt) == 0 &&
-                        fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_RGB24);
-
-        if (!isRgb24) {
+        auto setSize = [&]() {
             if (reqW > 0 && reqH > 0) {
                 fmt.fmt.pix.width  = (uint32_t)reqW;
                 fmt.fmt.pix.height = (uint32_t)reqH;
             }
-            fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-            if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0 ||
-                fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
-                logQ.push("[CAM] Neither RGB24 nor YUYV supported by this camera");
-                close(fd);
-                cameraRunning = false;
-                return;
+        };
+
+        // MJPEG first: this class of USB2.0 UVC camera only offers its full
+        // resolution range (up to 1920x1080@30fps on the bench hardware) as
+        // MJPEG or H.264 -- raw RGB24/YUYV are bandwidth-capped to far
+        // smaller/slower modes (this camera's own spec: YUYV tops out at
+        // 800x600@15fps). MJPEG over H.264 because it's all-intra (no
+        // interframe prediction), which for the same visual quality means a
+        // HIGHER bitrate than H.264 -- the requested tradeoff -- and,
+        // practically, decoding one JPEG per frame (stb_image, already
+        // vendored -- see ImageDecode.ixx) needs no persistent decoder
+        // state/GOP handling the way H.264 would. RGB24/YUYV stay as
+        // fallbacks for cameras that don't offer MJPEG at all.
+        setSize();
+        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+        fmt.fmt.pix.field = V4L2_FIELD_NONE;
+        CamFmt camFmt = (ioctl(fd, VIDIOC_S_FMT, &fmt) == 0 &&
+                         fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_MJPEG)
+                        ? CamFmt::MJPEG : CamFmt::RGB24;
+
+        if (camFmt == CamFmt::RGB24) {
+            setSize();
+            fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
+            if (ioctl(fd, VIDIOC_S_FMT, &fmt) != 0 || fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_RGB24) {
+                setSize();
+                fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+                if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0 ||
+                    fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
+                    logQ.push("[CAM] Neither MJPEG, RGB24, nor YUYV supported by this camera");
+                    close(fd);
+                    cameraRunning = false;
+                    return;
+                }
+                camFmt = CamFmt::YUYV;
             }
         }
 
@@ -307,10 +328,11 @@ namespace LithoControl {
         // supports these (see queryCameraExtendedRange()).
         queryCameraExtendedRange(this, fd);
 
-        logQ.push("[CAM] Live: " + std::to_string(w) + "x" + std::to_string(h) +
-                   (isRgb24 ? " RGB24" : " YUYV"));
+        const char* fmtName = camFmt == CamFmt::MJPEG ? " MJPEG" : camFmt == CamFmt::RGB24 ? " RGB24" : " YUYV";
+        logQ.push("[CAM] Live: " + std::to_string(w) + "x" + std::to_string(h) + fmtName);
 
         std::vector<uint8_t> rgba;
+        int badJpegStreak = 0;
 
         while (cameraRunning) {
 
@@ -327,7 +349,27 @@ namespace LithoControl {
             }
 
             const uint8_t* src = static_cast<const uint8_t*>(buffers[buf.index].start);
-            if (isRgb24) {
+
+            // MJPEG frames are compressed and self-describing (JPEG headers
+            // carry their own width/height) -- unlike RGB24/YUYV, decode
+            // output size is NOT tied to the outer loop's w/h at all, so
+            // there's no equivalent of the resize-aliasing bug fixed above.
+            // buf.bytesused (not buf.length, the max buffer capacity) is the
+            // actual compressed size for this specific frame.
+            if (camFmt == CamFmt::MJPEG) {
+                int jw = 0, jh = 0;
+                if (!decodeToRGBAFromMemory(src, buf.bytesused, rgba, jw, jh)) {
+                    // An occasional corrupt/truncated JPEG (a dropped USB
+                    // packet mid-frame) is normal on UVC MJPEG streams --
+                    // skip it and keep going. Only warn if it's persistent,
+                    // which would mean something structurally wrong instead.
+                    ioctl(fd, VIDIOC_QBUF, &buf);
+                    if (++badJpegStreak == 30) logQ.push("[CAM] Repeated MJPEG decode failures");
+                    continue;
+                }
+                badJpegStreak = 0;
+                w = jw; h = jh;
+            } else if (camFmt == CamFmt::RGB24) {
                 rgba.resize((size_t)w * h * 4);
                 for (int i = 0; i < w * h; i++) {
                     rgba[i*4+0] = src[i*3+0];

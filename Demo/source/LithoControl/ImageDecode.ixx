@@ -28,6 +28,24 @@ export namespace LithoControl {
         return true;
     }
 
+    // Decode an in-memory PNG/JPEG/BMP buffer into a tightly-packed RGBA
+    // buffer -- for a V4L2 MJPEG capture buffer's bytes directly, no temp
+    // file needed. stb_image's baseline JPEG decoder handles UVC MJPG
+    // frames fine (no MJPG-specific quirks beyond standard JFIF/EXIF, which
+    // it already supports).
+    inline bool decodeToRGBAFromMemory(const uint8_t* data, size_t len, std::vector<uint8_t>& out, int& w, int& h) {
+        int channels = 0;
+        stbi_uc* px = stbi_load_from_memory(data, (int)len, &w, &h, &channels, 4);
+        if (!px || w <= 0 || h <= 0) {
+            if (px) stbi_image_free(px);
+            return false;
+        }
+
+        out.assign(px, px + (size_t)w * h * 4);
+        stbi_image_free(px);
+        return true;
+    }
+
     // Decode and resize (bilinear) to exactly dstW x dstH RGBA.
     inline bool decodeToRGBAResized(const std::string& path, std::vector<uint8_t>& out,
                                      int dstW, int dstH) {

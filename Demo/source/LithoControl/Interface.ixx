@@ -427,21 +427,15 @@ export namespace LithoControl {
         std::atomic<int>      cameraBrightness   { 0 };    // -100..100
         std::atomic<int>      cameraContrastPct  { 100 };  // 0..300 (%)
         std::atomic<int>      cameraTargetFps    { 0 };    // 0 = unlimited
-        // 1920x1080 was wrong here: this camera (Arducam IMX323, B0CGLW3Z1N)
-        // only offers 1080p/720p over MJPG or H.264 -- its RAW YUYV modes
-        // (all this capture path speaks -- see runCameraCapture(), only
-        // RGB24/YUYV are ever requested) top out at 800x600@15fps or
-        // 640x480/640x360/352x288/320x240@30fps per its own spec sheet.
-        // Requesting 1920x1080 forced the driver to clamp to some other
-        // YUYV mode, then the resize block stretched that (different aspect
-        // ratio) frame up to fill 1920x1080 -- the reported "stretched
-        // image" bug. 800x600 is this camera's actual highest real YUYV
-        // resolution (confirmed matching what "Native" already settled on)
-        // -- see the RESOLUTION preset buttons in buildCameraSettingsPanel().
-        // True 1080p/720p would need MJPG/H.264 decoding added to this
-        // capture path, which doesn't exist yet.
-        std::atomic<int>      cameraResW         { 800 };
-        std::atomic<int>      cameraResH         { 600 };
+        // 1920x1080 is correct again now that runCameraCapture() actually
+        // requests and decodes MJPEG (this camera -- Arducam IMX323,
+        // B0CGLW3Z1N -- offers full 1920x1080@30fps there; its raw RGB24/
+        // YUYV modes are USB2.0-bandwidth-capped to far less, 800x600@15fps
+        // at best). Briefly dropped to 800x600 when this path only spoke
+        // RGB24/YUYV -- see the RESOLUTION preset buttons in
+        // buildCameraSettingsPanel() for the full mode list.
+        std::atomic<int>      cameraResW         { 1920 };
+        std::atomic<int>      cameraResH         { 1080 };
         std::chrono::steady_clock::time_point cameraLastFrameTime{};
 
         // -- Extended UVC controls (exposure / gain-ISO) ---------------------
