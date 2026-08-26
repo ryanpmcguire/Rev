@@ -427,12 +427,21 @@ export namespace LithoControl {
         std::atomic<int>      cameraBrightness   { 0 };    // -100..100
         std::atomic<int>      cameraContrastPct  { 100 };  // 0..300 (%)
         std::atomic<int>      cameraTargetFps    { 0 };    // 0 = unlimited
-        // Default matches the actual 1080p USB camera on the bench, not the
-        // old AmScope MU130 (1280x1024) this preset set used to target --
-        // see the RESOLUTION preset buttons in buildCameraSettingsPanel().
-        // 0/0 == native (driver's own default, no explicit request).
-        std::atomic<int>      cameraResW         { 1920 };
-        std::atomic<int>      cameraResH         { 1080 };
+        // 1920x1080 was wrong here: this camera (Arducam IMX323, B0CGLW3Z1N)
+        // only offers 1080p/720p over MJPG or H.264 -- its RAW YUYV modes
+        // (all this capture path speaks -- see runCameraCapture(), only
+        // RGB24/YUYV are ever requested) top out at 800x600@15fps or
+        // 640x480/640x360/352x288/320x240@30fps per its own spec sheet.
+        // Requesting 1920x1080 forced the driver to clamp to some other
+        // YUYV mode, then the resize block stretched that (different aspect
+        // ratio) frame up to fill 1920x1080 -- the reported "stretched
+        // image" bug. 800x600 is this camera's actual highest real YUYV
+        // resolution (confirmed matching what "Native" already settled on)
+        // -- see the RESOLUTION preset buttons in buildCameraSettingsPanel().
+        // True 1080p/720p would need MJPG/H.264 decoding added to this
+        // capture path, which doesn't exist yet.
+        std::atomic<int>      cameraResW         { 800 };
+        std::atomic<int>      cameraResH         { 600 };
         std::chrono::steady_clock::time_point cameraLastFrameTime{};
 
         // -- Extended UVC controls (exposure / gain-ISO) ---------------------
