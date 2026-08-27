@@ -228,6 +228,20 @@ export namespace LithoControl {
         std::string       pendingCalibStatusMsg;
         Text*             calibStatusLbl = nullptr;
 
+        // Each calib-dt action (CAPTURE FRAMES, RUN CALIBRATION, ANALYZE
+        // SENSITIVITY) runs on its OWN independent detached thread with no
+        // coordination between them -- pressing a second action while the
+        // first is still finishing its tail end (mirroring output to the
+        // drive, resuming the camera preview) races that resume against the
+        // new action's own stopCamera()/subprocess launch. Confirmed on
+        // target: RUN CALIBRATION's own subprocess failed to open the
+        // camera ("could not open camera index 2") because CAPTURE FRAMES's
+        // still-in-flight startCamera() reopened the SAME device out from
+        // under it moments later. runCalibDtSubprocess() checks-and-sets
+        // this at entry and refuses to start a second action rather than
+        // letting them overlap.
+        std::atomic<bool> calibActionRunning { false };
+
         // -- Sidebar scroll ----------------------------------------------------
 
         float sidebarScrollY   = 0.0f;
@@ -3234,9 +3248,17 @@ export namespace LithoControl {
         void runCalibDtSubprocess(const std::string& scriptArgs, const std::string& actionLabel,
                                    const std::string& successHint = "", bool usesCamera = false,
                                    const std::string& outputDirName = "") {
+            if (calibActionRunning.exchange(true)) {
+                logQ.push("[CALIB] Another calib-dt action is still running -- wait for it to finish, then retry");
+                setCalibStatus(CalibStatus::Failed, actionLabel +
+                    ": another calib-dt action is still running. Wait for it to finish, then retry.");
+                return;  // did NOT acquire -- some other call holds it, don't touch the flag
+            }
+
             if (calibDtRoot.empty()) {
                 logQ.push("[CALIB] Set the calib-dt folder first");
                 setCalibStatus(CalibStatus::Failed, actionLabel + ": set the calib-dt folder first (above)");
+                calibActionRunning.store(false);
                 return;
             }
 
@@ -3267,6 +3289,8 @@ export namespace LithoControl {
                 logQ.push("[CALIB] Resuming camera preview...");
                 startCamera();
             }
+
+            calibActionRunning.store(false);
         }
 
         // Copies calibDtRoot/<outputDirName> to LITHOREV_DATA_DIR/<outputDirName>_<timestamp>
