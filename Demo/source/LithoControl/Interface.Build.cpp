@@ -1035,7 +1035,7 @@ namespace LithoControl {
         // into the runner log via startCalibDtAction()/runCalibDtSubprocess(),
         // and the pass/fail summary + next step goes to calibStatusLbl above.
         makeBtn(body, "CAPTURE FRAMES", [this]() {
-            startCalibDtAction("capture-frames --frames 20 --out captures", "CAPTURE FRAMES",
+            startCalibDtAction("capture-frames" + calibDtCameraIndexArg() + " --frames 20 --out captures", "CAPTURE FRAMES",
                 "Saved to captures/ -- ready for RUN CALIBRATION.", /*usesCamera=*/true, /*outputDirName=*/"captures");
         })->style->margin.bottom = 4_px;
 

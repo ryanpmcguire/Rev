@@ -3158,6 +3158,33 @@ export namespace LithoControl {
         // the symptom reported on the target. Stop our own preview first
         // (blocks until the capture thread has actually released the
         // device) and restart it after, so the two never overlap.
+        // calib-dt opens the camera itself for --camera actions, in a
+        // SEPARATE process from LithoRev's own live preview -- and until
+        // this existed, nothing ever told it WHICH camera to use, so it
+        // always fell back to its own default index 0. On a machine with
+        // more than one camera (this laptop's built-in webcam plus the USB
+        // microscope camera), that silently captured the WRONG one --
+        // confirmed independently: a teammate reported captures were "all
+        // just your face," which is exactly what index-0-defaulting-to-the-
+        // built-in-webcam looks like, regardless of which camera the live
+        // preview (correctly) showed in the GUI. Returns " --camera-index
+        // <N>" for whatever's selected in the UI dropdown -- the SAME
+        // device the live preview uses -- or empty (with a log warning) if
+        // nothing's selected there.
+        std::string calibDtCameraIndexArg() {
+            if (!cameraDrop || cameraDrop->params.value.empty()) {
+                logQ.push("[CALIB] No camera selected in the UI -- calib-dt will fall back to "
+                          "its own default camera index (0), which may not be the intended device");
+                return "";
+            }
+            try {
+                int idx = std::stoi(cameraDrop->params.value);
+                return " --camera-index " + std::to_string(idx);
+            } catch (...) {
+                return "";
+            }
+        }
+
         // `outputDirName`: the script's own --out folder name (e.g.
         // "calibration_output"), relative to calibDtRoot -- that's where it
         // actually lands, NOT LITHOREV_DATA_DIR/dataRootDir(), since the
@@ -3345,7 +3372,7 @@ export namespace LithoControl {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             runCalibDtSubprocess(
                 "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "'" +
-                    resArgs + diameterArgs + holdoutArgs + " --out calibration_output",
+                    calibDtCameraIndexArg() + resArgs + diameterArgs + holdoutArgs + " --out calibration_output",
                 "RUN CALIBRATION",
                 "Check calibration_output/summary_report.txt for the fit RMS error.",
                 /*usesCamera=*/true, /*outputDirName=*/"calibration_output");
