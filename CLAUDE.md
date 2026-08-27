@@ -403,3 +403,18 @@ off the target Linux machine rather than guessed blind. In rough order:
   microscope stage and let vibrations from touching it settle before a
   capture happens. Replaces the fixed 500ms waits `RUN CALIBRATION` and
   `SAVE SCALE REF` had been using.
+- **`RUN CALIBRATION` failed with `"could not open camera index 2"`**
+  moments after `CAPTURE FRAMES` had just used that same index
+  successfully. Root cause: each calib-dt action (`CAPTURE FRAMES`,
+  `RUN CALIBRATION`, `ANALYZE SENSITIVITY`) runs on its own independent
+  detached thread with zero coordination between them. `outputs.txt`
+  showed `CAPTURE FRAMES`'s tail end (mirroring output to the drive, then
+  resuming the live camera preview) still executing several seconds
+  *after* `RUN CALIBRATION` had already released the camera and launched
+  its own calib-dt subprocess — the delayed `startCamera()` from the
+  first action reopened the same device out from under the second one's
+  `cv2.VideoCapture`, which then failed to open it at all. Fixed with a
+  `calibActionRunning` guard in `runCalibDtSubprocess()`: a second action
+  now refuses to start (clear status-banner message) while one is still
+  in flight, rather than letting their camera-release/subprocess/camera-
+  resume sequences interleave.

@@ -34,6 +34,12 @@ reading whichever camera is currently selected in the live-preview dropdown
 silently uses its own default (camera 0), independent of whatever the GUI's
 preview shows. Logs a warning instead of guessing if nothing's selected.
 
+Only one calib-dt action runs at a time — `runCalibDtSubprocess()` guards on
+`calibActionRunning` and refuses to start a second action while one is still
+finishing (including its tail-end camera-preview resume), rather than
+letting two actions' camera release/subprocess/resume sequences race each
+other for the same device.
+
 ### SAVE FRAME / SAVE SCALE REF
 
 Both live in the camera settings panel (`buildCameraSettingsPanel()`),
