@@ -1012,6 +1012,20 @@ namespace LithoControl {
             if (holdoutFractionInput) holdoutFractionInput->text->content = "";
         })->style->margin.left = 4_px;
 
+        // Time between projecting the grid/white flash and actually
+        // capturing -- gives the user a moment to step away from the
+        // microscope stage and let vibrations from touching it settle out.
+        // countdownDelay() prints a visible per-second countdown into the
+        // runner log while it waits.
+        Text* delayLbl = new Text(body, "CAPTURE DELAY (s)");
+        delayLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+        delayLbl->style->text.size     = 9_px;
+        delayLbl->style->margin.top    = 8_px;
+        delayLbl->style->margin.bottom = 4_px;
+
+        captureDelayInput = makeInput(body, "", std::to_string(settings.captureDelaySeconds), 4);
+        captureDelayInput->container->style->size.width = 90_px;
+
         // Status banner: the ONE thing that should be glanceable without
         // scrolling the runner log below -- idle/running/succeeded/failed,
         // plus a next-step hint, color-coded (see calibStatusLbl handling in
@@ -1034,11 +1048,7 @@ namespace LithoControl {
         // script prints (progress, warnings, output paths) stream straight
         // into the runner log via startCalibDtAction()/runCalibDtSubprocess(),
         // and the pass/fail summary + next step goes to calibStatusLbl above.
-        makeBtn(body, "CAPTURE FRAMES", [this]() {
-            startCalibDtAction("capture-frames" + calibDtCameraIndexArg() + " --frames 20 --out captures", "CAPTURE FRAMES",
-                "Saved to captures/ -- ready for RUN CALIBRATION.", /*usesCamera=*/true, /*outputDirName=*/"captures");
-        })->style->margin.bottom = 4_px;
-
+        //
         // PROJECT PATTERN and RUN CALIBRATION deliberately do NOT call
         // calib-dt's own project-pattern script or pass it --project-pattern/
         // --projector-monitor -- that opens calib-dt's own fullscreen OpenCV
@@ -1047,9 +1057,19 @@ namespace LithoControl {
         // grid is generated and displayed by LithoRev itself (see
         // toggleCalibGrid()/runCalibrationWithGrid(), hdmiCalibGridActive),
         // so it shares the one HDMI window and picks up Flip H/V like every
-        // other projector output mode.
+        // other projector output mode. Listed first since CAPTURE FRAMES/
+        // RUN CALIBRATION both need it (or project it themselves) to have
+        // anything but a dark frame to capture.
         makeBtn(body, "PROJECT PATTERN", [this]() {
             toggleCalibGrid();
+        })->style->margin.bottom = 4_px;
+
+        // CAPTURE FRAMES projects the grid itself if it isn't already on
+        // (captureFramesWithGrid()) -- it used to just grab whatever was
+        // currently displayed, which timed out waiting for stable exposure
+        // if pressed with the projector idle/dark.
+        makeBtn(body, "CAPTURE FRAMES", [this]() {
+            startCaptureFramesWithGrid();
         })->style->margin.bottom = 4_px;
 
         makeBtn(body, "RUN CALIBRATION", [this]() {

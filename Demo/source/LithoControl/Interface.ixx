@@ -177,6 +177,13 @@ export namespace LithoControl {
             // signal -- a nonzero holdout is what actually tells you how
             // well this generalizes to a point it wasn't fit on.
             float holdoutFraction = 0.0f;
+            // Seconds to wait (with a visible countdown in the runner log)
+            // after projecting the grid/white flash but before actually
+            // capturing -- gives the user time to step away from the
+            // microscope stage and let vibrations from touching it settle
+            // out. Applies to SAVE SCALE REF, CAPTURE FRAMES, and RUN
+            // CALIBRATION's grid capture.
+            int captureDelaySeconds = 3;
         } settings;
 
         // -- Pages --------------------------------------------------------------
@@ -207,6 +214,7 @@ export namespace LithoControl {
         Text*      calibDtPathLabel  = nullptr;
         TextInput* circleDiameterInput = nullptr;  // test-circle diameter in um, see runCalibrationWithGrid()
         TextInput* holdoutFractionInput = nullptr; // 0..1, see runCalibrationWithGrid()
+        TextInput* captureDelayInput = nullptr;    // seconds, see countdownDelay()
 
         // Calibration run status -- set by runCalibDtSubprocess() on its worker
         // thread, drained into calibStatusLbl on the main thread in computeStyle()
@@ -722,6 +730,31 @@ export namespace LithoControl {
             }
         }
 
+        // Waits CAPTURE DELAY (s) (read live from captureDelayInput, same
+        // pattern as circleDiameterInput/holdoutFractionInput -- falls back
+        // to the persisted settings.captureDelaySeconds if the field is
+        // empty/unparseable), pushing a visible one-line-per-second
+        // countdown into the runner log -- time for the user to step away
+        // from the microscope stage and let vibrations from touching it
+        // settle out before a capture actually happens. Call only from a
+        // background thread (blocks).
+        void countdownDelay(const std::string& reasonPrefix) {
+            int seconds = settings.captureDelaySeconds;
+            std::string delayText = captureDelayInput ? captureDelayInput->text->strContent : "";
+            if (!delayText.empty()) {
+                try {
+                    int parsed = std::stoi(delayText);
+                    if (parsed >= 0) seconds = parsed;
+                } catch (...) {
+                    logQ.push("[CALIB] Ignoring invalid capture delay '" + delayText + "'");
+                }
+            }
+            for (int remaining = seconds; remaining > 0; remaining--) {
+                logQ.push(reasonPrefix + std::to_string(remaining) + "s...");
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
+
         // The calibration slide's known-diameter test circle isn't self-
         // luminous -- it's an etched/printed feature that reflects whatever
         // light is hitting the slide back to the camera. Under the
@@ -745,7 +778,7 @@ export namespace LithoControl {
             uint32_t prevSolid = hdmiSolidColor.load();
             logQ.push("[CAM] Showing solid white for scale-reference capture...");
             showSolid(0xFFFFFFFFu);
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            countdownDelay("[CAM] Capturing scale reference in ");
             saveScaleReferenceFrame();
             hdmiSolidColor.store(prevSolid);
             requestHdmiRepaint();
@@ -2952,6 +2985,7 @@ export namespace LithoControl {
             settings.calibDtRoot = gs("calibDtRoot", "");
             settings.circleDiameterUm = gi("circleDiameterUm", 70);
             settings.holdoutFraction = (float)gi("holdoutFractionX1000", 0) / 1000.0f;
+            settings.captureDelaySeconds = gi("captureDelaySeconds", 3);
         }
 
         void saveSettings() {
@@ -2975,6 +3009,7 @@ export namespace LithoControl {
             ws("calibDtRoot",  calibDtRoot);
             wi("circleDiameterUm", settings.circleDiameterUm);
             wi("holdoutFractionX1000", (int)(settings.holdoutFraction * 1000));
+            wi("captureDelaySeconds", settings.captureDelaySeconds);
             writeIniSection(ini, "LithoControl", kv);
         }
 
@@ -3369,7 +3404,7 @@ export namespace LithoControl {
             hdmiCalibGridActive.store(true);
             requestHdmiRepaint();
             logQ.push("[CALIB] Projecting calibration grid...");
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            countdownDelay("[CALIB] Capturing in ");
             runCalibDtSubprocess(
                 "run-calibration --camera --scale-reference '" + scaleRefDir.string() + "'" +
                     calibDtCameraIndexArg() + resArgs + diameterArgs + holdoutArgs + " --out calibration_output",
@@ -3382,6 +3417,37 @@ export namespace LithoControl {
 
         void startCalibrationWithGrid() {
             std::thread([this]() { runCalibrationWithGrid(); }).detach();
+        }
+
+        // Same idea as RUN CALIBRATION's own grid capture (and for the same
+        // reason CAPTURE FRAMES timed out waiting for stable exposure when
+        // pressed with the projector idle/dark) -- CAPTURE FRAMES doesn't
+        // project anything on its own, it just grabs whatever's currently
+        // displayed. Projects the grid itself first, gives the countdown
+        // delay for vibrations to settle, runs capture-frames, then restores
+        // whatever was showing before.
+        void captureFramesWithGrid() {
+            if (!hdmiPassthrough()) { logQ.push("[CALIB] Open projector window first"); return; }
+            bool wasGridActive = hdmiCalibGridActive.load();
+            if (!wasGridActive) {
+                hdmiCalibGridActive.store(true);
+                requestHdmiRepaint();
+                logQ.push("[CALIB] Projecting calibration grid...");
+            }
+            countdownDelay("[CALIB] Capturing in ");
+            runCalibDtSubprocess(
+                "capture-frames" + calibDtCameraIndexArg() + " --frames 20 --out captures",
+                "CAPTURE FRAMES",
+                "Saved to captures/ -- ready for RUN CALIBRATION.",
+                /*usesCamera=*/true, /*outputDirName=*/"captures");
+            if (!wasGridActive) {
+                hdmiCalibGridActive.store(false);
+                requestHdmiRepaint();
+            }
+        }
+
+        void startCaptureFramesWithGrid() {
+            std::thread([this]() { captureFramesWithGrid(); }).detach();
         }
 
         static std::string fmtFloat(float v) {
