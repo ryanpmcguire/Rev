@@ -20,11 +20,18 @@ or optimization math in C++.
 | **CALIB-DT FOLDER** | `findCalibDtRoot()` / `findCalibDtRootNearCwd()` | Auto-detects on startup: first tries a sibling of `dlpRoot` (the DLP-photolithography checkout), then a sibling *or* grandparent of the process's own working directory (covers both the desktop-deployed layout, `~/dev/calib-dt` next to `~/dev/Rev`, and running straight off a USB drive, where calib-dt sits at the drive root). Only overrides an already-persisted value if that value no longer resolves to a real calib-dt checkout (heals a stale path automatically) — a still-valid manual override is left alone. |
 | **TEST CIRCLE DIAMETER (um)** | feeds `--circle-diameter-um` | Free-text field (µm, matching calib-dt's own units) with 0.15mm/0.07mm preset buttons. Must match whatever test circle is physically under the camera when `SAVE SCALE REF` is pressed. |
 | **HOLDOUT FRACTION (0-1)** | feeds `--holdout-fraction` | Blank/0 = calib-dt's default (no held-out validation points) — the reported RMS is then measured on the same points the model was fit on, which a flexible distortion model can trivially interpolate to ~0 regardless of actual fit quality. A nonzero holdout is what actually shows generalization. |
-| **CAPTURE FRAMES** | `capture-frames --frames 20 --out captures` | Raw camera grab, no fitting. Stops the live preview first (see below), resumes after. |
+| **CAPTURE FRAMES** | `capture-frames --camera-index <N> --frames 20 --out captures` | Raw camera grab, no fitting. Stops the live preview first (see below), resumes after. |
 | **PROJECT PATTERN** | `toggleCalibGrid()` | Toggles the calibration grid on LithoRev's *own* HDMI passthrough window (`generateCalibGrid()`/`composeHdmiFrame()`) — deliberately does **not** call calib-dt's own `--project-pattern`, which would open a second, uncoordinated fullscreen window fighting for the same monitor. |
-| **RUN CALIBRATION** | `runCalibrationWithGrid()` | Projects the grid, then `run-calibration --camera --scale-reference <dir> --width <w> --height <h> --circle-diameter-um <um> [--holdout-fraction <f>] --out calibration_output`. Refuses to start if no scale-reference frame has been saved yet. `--width`/`--height` are the *actual* saved scale-reference frame's dimensions (`scaleReferenceFrameW/H`), forcing calib-dt's separate camera-open to match rather than hoping both sides negotiate the same resolution independently. |
+| **RUN CALIBRATION** | `runCalibrationWithGrid()` | Projects the grid, then `run-calibration --camera --camera-index <N> --scale-reference <dir> --width <w> --height <h> --circle-diameter-um <um> [--holdout-fraction <f>] --out calibration_output`. Refuses to start if no scale-reference frame has been saved yet. `--width`/`--height` are the *actual* saved scale-reference frame's dimensions (`scaleReferenceFrameW/H`), forcing calib-dt's separate camera-open to match rather than hoping both sides negotiate the same resolution independently. |
 | **ANALYZE SENSITIVITY** | `analyze-sensitivity --out sensitivity_output` | Physics-twin diagnostic report; unrelated to the empirical calibration path above. |
 | Status banner | `setCalibStatus()` / `calibStatusLbl` | Idle/Running/Succeeded/Failed, color-coded, with a next-step hint — the one thing meant to be glanceable without scrolling the runner log. |
+
+`calibDtCameraIndexArg()` supplies `--camera-index` to every calib-dt action
+that opens the camera itself (`capture-frames`, `run-calibration --camera`),
+reading whichever camera is currently selected in the live-preview dropdown
+(`cameraDrop`) — calib-dt runs as a *separate process*, so without this it
+silently uses its own default (camera 0), independent of whatever the GUI's
+preview shows. Logs a warning instead of guessing if nothing's selected.
 
 ### SAVE FRAME / SAVE SCALE REF
 

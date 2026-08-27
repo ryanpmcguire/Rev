@@ -366,3 +366,19 @@ off the target Linux machine rather than guessed blind. In rough order:
   the number was measured on the same points the model was fit on. Added a
   HOLDOUT FRACTION field. See the calib-dt repo's own `CLAUDE.md` for the
   matching entry on that side of this same investigation.
+- **calib-dt's own captures were silently coming from the wrong camera** —
+  reported independently, from outside this debugging session, by a
+  teammate reviewing capture images ("your captures are all just your
+  face! wrong camera"). Root cause: `capture-frames`/`run-calibration
+  --camera` both open the camera in their own separate process from
+  LithoRev's live preview, and neither call ever passed `--camera-index` —
+  both default to camera 0 in calib-dt. On this machine (built-in webcam +
+  USB microscope camera) that meant calib-dt's own captures could be from
+  a completely different device than whatever the live preview correctly
+  showed selected in the GUI, with nothing in the UI indicating a mismatch.
+  Also a plausible contributor to the garbage grid-spacing/RMS numbers from
+  the `0.0000 px` investigation above, independent of the holdout issue —
+  fitting a projected-grid detector against a picture of someone's face
+  isn't going to produce sane correspondences. Fixed by threading the live
+  preview's selected camera index through to every calib-dt `--camera`
+  call (`calibDtCameraIndexArg()`).
