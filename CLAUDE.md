@@ -382,3 +382,24 @@ off the target Linux machine rather than guessed blind. In rough order:
   isn't going to produce sane correspondences. Fixed by threading the live
   preview's selected camera index through to every calib-dt `--camera`
   call (`calibDtCameraIndexArg()`).
+- **First real (`--camera-index` fixed) calibration run**: 24 genuine grid
+  detections, no resolution-mismatch resample warning, and a real holdout
+  score (16.79px) instead of a meaningless in-sample 0.0000 — a working
+  baseline, though the measured grid spacing is still notably non-square
+  (2x, down from ~3.4x on the wrong-camera run) and base RMS is still high
+  (57.7px). Camera images shared during this run show visible tilt relative
+  to the grid, which lines up with `diagnostic_report.txt`'s own
+  "possible decenter, tilt" flag — not confirmed as the cause, but worth
+  trying to straighten before assuming this asymmetry is unfixable/optical.
+- **`CAPTURE FRAMES` timed out ("waiting for stable exposure")** when
+  pressed with the projector idle — it never projected anything itself,
+  just grabbed whatever was currently displayed (dark, in that case).
+  Fixed the same way `RUN CALIBRATION` already handled its own grid
+  capture: `captureFramesWithGrid()` projects the grid itself if it isn't
+  already on, restoring prior state after.
+- **Added `CAPTURE DELAY (s)`** (default 3s) — time between projecting
+  the grid/white flash and actually capturing, with a per-second countdown
+  in the runner log, so there's a deliberate window to step away from the
+  microscope stage and let vibrations from touching it settle before a
+  capture happens. Replaces the fixed 500ms waits `RUN CALIBRATION` and
+  `SAVE SCALE REF` had been using.
