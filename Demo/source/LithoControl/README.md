@@ -23,7 +23,9 @@ or optimization math in C++.
 | **CAPTURE DELAY (s)** | `countdownDelay()` | Default 3s, persisted. Waited (with a visible per-second countdown in the runner log) after projecting the grid/white flash but before actually capturing — time to step away from the microscope stage and let vibrations settle. Used by `SAVE SCALE REF`, `CAPTURE FRAMES`, and `RUN CALIBRATION`. |
 | **PROJECT PATTERN** | `toggleCalibGrid()` | Toggles the calibration grid on LithoRev's *own* HDMI passthrough window (`generateCalibGrid()`/`composeHdmiFrame()`) — deliberately does **not** call calib-dt's own `--project-pattern`, which would open a second, uncoordinated fullscreen window fighting for the same monitor. |
 | **CAPTURE FRAMES** | `captureFramesWithGrid()` → `capture-frames --camera-index <N> --frames 20 --out captures` | Raw camera grab, no fitting. Projects the grid itself first if it isn't already on (restores prior state after) — it doesn't otherwise illuminate anything, so pressing it with the projector idle just times out waiting for stable exposure. Stops the live preview first (see below), resumes after. |
-| **RUN CALIBRATION** | `runCalibrationWithGrid()` | Projects the grid, then `run-calibration --camera --camera-index <N> --scale-reference <dir> --width <w> --height <h> --circle-diameter-um <um> [--holdout-fraction <f>] --out calibration_output`. Refuses to start if no scale-reference frame has been saved yet. `--width`/`--height` are the *actual* saved scale-reference frame's dimensions (`scaleReferenceFrameW/H`), forcing calib-dt's separate camera-open to match rather than hoping both sides negotiate the same resolution independently. |
+| **RUN CALIBRATION** | `runCalibrationWithGrid()` | Projects the grid, then `run-calibration --camera --camera-index <N> --scale-reference <dir> --width <w> --height <h> --circle-diameter-um <um> [--holdout-fraction <f>] --out calibration_output`. Refuses to start if no scale-reference frame has been saved yet. `--width`/`--height` are the *actual* saved scale-reference frame's dimensions (`scaleReferenceFrameW/H`), forcing calib-dt's separate camera-open to match rather than hoping both sides negotiate the same resolution independently. Produces a **physical um -> camera pixel** calibration — alignment/inspection evidence, but see the next row for why it alone can't produce exposure masks. |
+| **CALIB-DT PROJECTOR MONITOR** | feeds `--projector-monitor` (RUN PROJECTOR CALIBRATION only) | calib-dt's *own* monitor numbering (its `ProjectorWindow`/`list_monitors()`), unrelated to this app's PROJECTOR DISPLAY dropdown / `Rev::OS::Display` list — the two enumerations can order/number monitors differently. Check the right value with `uv run project-pattern --list-monitors` in the calib-dt folder before changing this from the default (1). |
+| **RUN PROJECTOR CALIBRATION** | `runProjectorCalibration()` | `run-projector-calibration --correspondences <calibration_output/correspondences.csv> --camera-index <N> --width <w> --height <h> --projector-monitor <M> [--holdout-fraction <f>] --out projector_calibration_output --emit-transim-spec --spec-id <auto> --spec-setup-state <auto>`. Produces the **physical um -> DMD pixel** calibration transim actually needs to render exposure masks (`export_frame` hard-rejects a camera-pixel calibration as "alignment evidence only"). Requires a prior successful RUN CALIBRATION and reuses its `correspondences.csv` directly rather than re-detecting anything — see "Full calibration workflow order" below. |
 | **ANALYZE SENSITIVITY** | `analyze-sensitivity --out sensitivity_output` | Physics-twin diagnostic report; unrelated to the empirical calibration path above. |
 | Status banner | `setCalibStatus()` / `calibStatusLbl` | Idle/Running/Succeeded/Failed, color-coded, with a next-step hint — the one thing meant to be glanceable without scrolling the runner log. |
 
@@ -39,6 +41,67 @@ Only one calib-dt action runs at a time — `runCalibDtSubprocess()` guards on
 finishing (including its tail-end camera-preview resume), rather than
 letting two actions' camera release/subprocess/resume sequences race each
 other for the same device.
+
+### Full calibration workflow order
+
+The panel's buttons are listed top to bottom in the order they're meant to be
+pressed, but the dependency between the two *calibration-fitting* steps
+(RUN CALIBRATION and RUN PROJECTOR CALIBRATION — everything else is either a
+one-off setup action or independent of them) is easy to miss, so it's spelled
+out here. Skipping a step, or doing physical setup out of order, fails loudly
+with a status-banner message telling you which prior step to go back to — it
+doesn't silently produce a wrong calibration.
+
+1. **Physically place the calibration slide** under the camera, focused, with
+   its known-diameter test circle in frame. *(User: mechanical setup —
+   nothing in the GUI does this for you.)*
+2. **SET CALIB-DT FOLDER** if the auto-detected path (shown above the
+   buttons) isn't right. *(User: only if auto-detect guessed wrong or hasn't
+   run yet — normally a no-op.)*
+3. **Set TEST CIRCLE DIAMETER** to whichever circle is physically under the
+   camera (0.15mm/0.07mm presets, or type a different value). *(User: must
+   match the physical slide — wrong value silently produces a wrong
+   um-per-pixel scale, not an error.)*
+4. **Press SAVE SCALE REF.** Flashes solid white, waits, saves. *(User: none
+   beyond having the slide in frame from step 1 — the countdown/flash is
+   automatic.)*
+5. **Set HOLDOUT FRACTION** (e.g. `0.3`) if you want a trustworthy fit-quality
+   number back; leave blank if you don't care and just want the calibration
+   itself. *(User: a judgment call, not a hardware step.)*
+6. **Press RUN CALIBRATION.** Projects the grid, counts down (CAPTURE DELAY)
+   so vibrations settle, captures, fits. *(User: step away from the
+   microscope stage during the countdown — that's what it's for — then wait;
+   check the status banner and `calibration_output/summary_report.txt` for
+   the fit RMS when it finishes.)* This is the **physical <-> camera pixel**
+   calibration — sufficient on its own for camera-side alignment/inspection,
+   but not for rendering exposure masks.
+7. **Do not move the camera, microscope, or stage after step 6.** The next
+   step reuses step 6's recorded camera-pixel locations as-is; if the optics
+   have moved, those locations no longer mean what they used to. *(User: the
+   one hard constraint in this whole sequence — if you need to touch
+   anything physical, go back to step 6 and redo it first.)*
+8. **Set CALIB-DT PROJECTOR MONITOR** if the default (1) isn't right for this
+   machine's monitor layout (see the table above for how to check). *(User:
+   usually a one-time setup per machine, not per run.)*
+9. **Press RUN PROJECTOR CALIBRATION.** LithoRev's own projector window is
+   closed automatically first (calib-dt needs the display for this step —
+   see the button's row above); a Gray-code stripe sequence is projected and
+   captured, decoded, and fit. *(User: same as step 6 — stay clear during the
+   countdown and capture sequence, which runs unattended once started; when
+   it finishes, check `projector_calibration_output/summary_report.txt`, and
+   manually reopen LithoRev's projector window with PROJECT PATTERN /
+   whatever normal projector control you were using before, since step 9
+   doesn't restore it for you.)* This produces the **physical <-> DMD pixel**
+   calibration transim needs.
+10. **Hand `projector_calibration_output/calibration_results.json` +
+    `import-spec.json` to transim's `import-twin-calibration`.** *(User: not
+    yet wired into this GUI — run that command by hand, or ask for it to be
+    added here too if this becomes routine.)*
+
+Steps 1-6 can be redone independently any time (e.g. to refresh the camera
+calibration after nudging focus) — just remember step 7's constraint means
+step 9 then needs to be redone too, since its input (`correspondences.csv`)
+just changed under it.
 
 ### SAVE FRAME / SAVE SCALE REF
 

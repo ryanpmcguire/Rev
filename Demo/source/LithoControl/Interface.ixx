@@ -184,6 +184,15 @@ export namespace LithoControl {
             // out. Applies to SAVE SCALE REF, CAPTURE FRAMES, and RUN
             // CALIBRATION's grid capture.
             int captureDelaySeconds = 3;
+            // Monitor index calib-dt's OWN fullscreen window should target
+            // for RUN PROJECTOR CALIBRATION's Gray-code sequence -- this is
+            // calib-dt's own enumeration (its ProjectorWindow/list_monitors,
+            // NOT this app's PROJECTOR DISPLAY dropdown/Rev::OS::Display
+            // list, which can order/number monitors differently). Run
+            // `uv run project-pattern --list-monitors` in the calib-dt
+            // folder to check before changing this. Default 1 matches
+            // calib-dt's own script defaults and README examples.
+            int projectorMonitorIndex = 1;
         } settings;
 
         // -- Pages --------------------------------------------------------------
@@ -215,6 +224,7 @@ export namespace LithoControl {
         TextInput* circleDiameterInput = nullptr;  // test-circle diameter in um, see runCalibrationWithGrid()
         TextInput* holdoutFractionInput = nullptr; // 0..1, see runCalibrationWithGrid()
         TextInput* captureDelayInput = nullptr;    // seconds, see countdownDelay()
+        TextInput* projectorMonitorInput = nullptr; // calib-dt's own monitor index, see runProjectorCalibration()
 
         // Calibration run status -- set by runCalibDtSubprocess() on its worker
         // thread, drained into calibStatusLbl on the main thread in computeStyle()
@@ -3000,6 +3010,7 @@ export namespace LithoControl {
             settings.circleDiameterUm = gi("circleDiameterUm", 70);
             settings.holdoutFraction = (float)gi("holdoutFractionX1000", 0) / 1000.0f;
             settings.captureDelaySeconds = gi("captureDelaySeconds", 3);
+            settings.projectorMonitorIndex = gi("projectorMonitorIndex", 1);
         }
 
         void saveSettings() {
@@ -3024,6 +3035,7 @@ export namespace LithoControl {
             wi("circleDiameterUm", settings.circleDiameterUm);
             wi("holdoutFractionX1000", (int)(settings.holdoutFraction * 1000));
             wi("captureDelaySeconds", settings.captureDelaySeconds);
+            wi("projectorMonitorIndex", settings.projectorMonitorIndex);
             writeIniSection(ini, "LithoControl", kv);
         }
 
@@ -3472,6 +3484,118 @@ export namespace LithoControl {
 
         void startCaptureFramesWithGrid() {
             std::thread([this]() { captureFramesWithGrid(); }).detach();
+        }
+
+        // Fits a SECOND, independent calibration: physical um -> DMD pixel,
+        // instead of RUN CALIBRATION's physical um -> camera pixel. Needed
+        // because transim's mask exporter refuses to render an exposure mask
+        // from a camera-pixel calibration at all (it's alignment evidence
+        // only, not a DMD-pixel mapping) -- see calib-dt's
+        // run_projector_calibration.py module docstring for the full "why".
+        //
+        // Requires RUN CALIBRATION to have already succeeded: it reuses that
+        // run's calibration_output/correspondences.csv (the physical target's
+        // known camera-pixel locations) rather than re-detecting anything, so
+        // the camera and stage must not have moved since that run -- those
+        // reused pixel locations only mean anything at the exact optics they
+        // were recorded at.
+        //
+        // Unlike RUN CALIBRATION/CAPTURE FRAMES (which project through
+        // LithoRev's own HDMI window so Flip H/V etc. apply), this action's
+        // pattern sequence is dozens of Gray-code stripe frames that calib-dt
+        // itself must display and step through in lockstep with each camera
+        // capture -- there's no per-frame IPC between this app and the
+        // subprocess to drive that from LithoRev's own window instead, so
+        // calib-dt opens its own fullscreen window for the duration (target
+        // monitor: projectorMonitorInput / settings.projectorMonitorIndex --
+        // calib-dt's own numbering, check with `uv run project-pattern
+        // --list-monitors` in the calib-dt folder, NOT this app's PROJECTOR
+        // DISPLAY dropdown). If LithoRev's own projector window is open it's
+        // closed first (it would just be hidden behind calib-dt's window,
+        // fighting for the same monitor) -- reopen it manually afterward.
+        void runProjectorCalibration() {
+            if (calibDtRoot.empty()) {
+                logQ.push("[CALIB] Set the calib-dt folder first");
+                setCalibStatus(CalibStatus::Failed,
+                    "RUN PROJECTOR CALIBRATION: set the calib-dt folder first (above)");
+                return;
+            }
+
+            std::filesystem::path corrPath =
+                std::filesystem::path(calibDtRoot) / "calibration_output" / "correspondences.csv";
+            std::error_code ec;
+            if (!std::filesystem::exists(corrPath, ec) || ec) {
+                logQ.push("[CALIB] No calibration_output/correspondences.csv found");
+                setCalibStatus(CalibStatus::Failed,
+                    "RUN PROJECTOR CALIBRATION: run RUN CALIBRATION first (this reuses its "
+                    "correspondences.csv) -- and don't move the camera/stage in between.");
+                return;
+            }
+
+            bool hadHdmiOpen = hdmiPassthrough();
+            if (hadHdmiOpen) {
+                logQ.push("[CALIB] Closing projector window -- calib-dt needs the display for the "
+                          "Gray-code sequence. Reopen it manually when this finishes.");
+                closeHdmiWindow();
+            }
+
+            // Same resolution-matching reasoning as RUN CALIBRATION: the
+            // reused camera-pixel locations were measured at
+            // scaleReferenceFrameW/H, so the camera must be reopened at that
+            // exact resolution for them to still mean the same pixel.
+            std::string resArgs;
+            if (scaleReferenceFrameW > 0 && scaleReferenceFrameH > 0) {
+                resArgs = " --width " + std::to_string(scaleReferenceFrameW) +
+                          " --height " + std::to_string(scaleReferenceFrameH);
+            }
+
+            std::string holdoutArgs;
+            std::string holdoutText = holdoutFractionInput ? holdoutFractionInput->text->strContent : "";
+            if (!holdoutText.empty()) {
+                try {
+                    double holdout = std::stod(holdoutText);
+                    if (holdout > 0.0 && holdout < 1.0)
+                        holdoutArgs = " --holdout-fraction " + std::to_string(holdout);
+                } catch (...) {
+                    logQ.push("[CALIB] Ignoring invalid holdout fraction '" + holdoutText + "'");
+                }
+            }
+
+            int monitorIdx = settings.projectorMonitorIndex;
+            std::string monitorText = projectorMonitorInput ? projectorMonitorInput->text->strContent : "";
+            if (!monitorText.empty()) {
+                try { monitorIdx = std::stoi(monitorText); } catch (...) {
+                    logQ.push("[CALIB] Ignoring invalid projector monitor index '" + monitorText + "'");
+                }
+            }
+
+            std::time_t nowT = std::time(nullptr);
+            std::tm lt = *std::localtime(&nowT);
+            char specId[64];
+            std::snprintf(specId, sizeof(specId), "litho-projector-%04d%02d%02d-%02d%02d%02d",
+                          lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec);
+
+            logQ.push("[CALIB] Starting Gray-code projector calibration -- do not touch the camera "
+                      "or stage, this must match the optics RUN CALIBRATION used.");
+            countdownDelay("[CALIB] Starting in ");
+
+            runCalibDtSubprocess(
+                "run-projector-calibration --correspondences '" + corrPath.string() + "'" +
+                    calibDtCameraIndexArg() + resArgs +
+                    " --projector-monitor " + std::to_string(monitorIdx) +
+                    holdoutArgs +
+                    " --out projector_calibration_output"
+                    " --emit-transim-spec --spec-id " + specId +
+                    " --spec-setup-state 'LithoRev RUN PROJECTOR CALIBRATION'",
+                "RUN PROJECTOR CALIBRATION",
+                "Check projector_calibration_output/summary_report.txt, then feed its "
+                "calibration_results.json + import-spec.json into transim's "
+                "import-twin-calibration.",
+                /*usesCamera=*/true, /*outputDirName=*/"projector_calibration_output");
+        }
+
+        void startRunProjectorCalibration() {
+            std::thread([this]() { runProjectorCalibration(); }).detach();
         }
 
         static std::string fmtFloat(float v) {

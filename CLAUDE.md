@@ -418,3 +418,53 @@ off the target Linux machine rather than guessed blind. In rough order:
   now refuses to start (clear status-banner message) while one is still
   in flight, rather than letting their camera-release/subprocess/camera-
   resume sequences interleave.
+
+### 2026-08-28: RUN PROJECTOR CALIBRATION — the mask-export gap closed
+
+Downstream, `transim`'s mask exporter (`export_frame`) turned out to
+hard-reject RUN CALIBRATION's output entirely — it requires a calibration
+whose "pixel" side is a DMD pixel address (`pixel_domain ==
+"projector-native"`), and RUN CALIBRATION only ever produces physical <->
+**camera** pixel (transim's own error: "camera-pixel calibrations are
+alignment evidence only"). Not a resolution mismatch fixable by passing a
+different `--width`/`--height` — a genuinely different pair of unknowns,
+since the camera and projector are two separate optical legs off the
+beamsplitter with their own magnification/distortion, sharing no pixel
+grid.
+
+Closed on the calib-dt side with a new `run-projector-calibration` script +
+`digital_twin/src/projector/graycode.py` (structured light: Gray-coded
+stripe sequence decodes which DMD pixel illuminates each of RUN
+CALIBRATION's already-known camera-pixel locations, reused straight from
+its `correspondences.csv` — no new physical target needed). Full design
+reasoning and its own synthetic-data verification (round-trip decode exact,
+transim's `release_eligible` confirmed flipping `false` -> `true` once fed
+projector-native output) are in that repo's own `CLAUDE.md`, not repeated
+here.
+
+Wired into this GUI as a second action, **RUN PROJECTOR CALIBRATION**,
+following RUN CALIBRATION in the panel (`runProjectorCalibration()` /
+`startRunProjectorCalibration()` in `Interface.ixx`, button + CALIB-DT
+PROJECTOR MONITOR field in `Interface.Build.cpp`). Full step-by-step
+ordering and what the user needs to do at each step is in
+`Demo/source/LithoControl/README.md` under "Full calibration workflow
+order" — not duplicating that here. One design point worth recording: this
+action's Gray-code sequence (dozens of stripe frames) has to be displayed
+and stepped through by calib-dt itself in lockstep with each capture, so
+unlike every other calib-dt action in this panel it does **not** share
+LithoRev's own HDMI passthrough window — there's no per-frame IPC between
+this app and the subprocess to drive that instead. `runProjectorCalibration()`
+closes LithoRev's projector window first if it's open (would otherwise just
+be hidden behind calib-dt's own window, fighting for the same monitor) and
+leaves reopening it to the user — an accepted, documented UX cost for what's
+an occasional calibration step, not routine operation. Needed a new
+setting, `projectorMonitorIndex` (persisted, default 1), since calib-dt's
+own monitor enumeration doesn't necessarily match this app's PROJECTOR
+DISPLAY dropdown / `Rev::OS::Display` ordering.
+
+Not yet build-verified on this machine (no cmake on PATH in the sandboxed
+dev environment this was written in) — written to match every existing
+sibling function's patterns exactly (`runCalibrationWithGrid()`,
+`calibDtCameraIndexArg()`, the `holdoutFractionInput`/`circleDiameterInput`
+parsing style) and reviewed line by line, but build on the actual Linux
+target before trusting it, same as every other LithoRev change.

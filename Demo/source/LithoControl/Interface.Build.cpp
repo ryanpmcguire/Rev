@@ -1026,6 +1026,22 @@ namespace LithoControl {
         captureDelayInput = makeInput(body, "", std::to_string(settings.captureDelaySeconds), 4);
         captureDelayInput->container->style->size.width = 90_px;
 
+        // Only used by RUN PROJECTOR CALIBRATION -- calib-dt opens its OWN
+        // fullscreen window for that action's Gray-code sequence (see that
+        // function's comment for why it can't share LithoRev's HDMI window
+        // like PROJECT PATTERN/CAPTURE FRAMES/RUN CALIBRATION do), so it
+        // needs calib-dt's own monitor index, not this app's PROJECTOR
+        // DISPLAY dropdown. Check the right number with
+        // `uv run project-pattern --list-monitors` in the calib-dt folder.
+        Text* projMonLbl = new Text(body, "CALIB-DT PROJECTOR MONITOR (RUN PROJECTOR CALIBRATION only)");
+        projMonLbl->style->text.color    = rgba(232, 232, 232, 0.4f);
+        projMonLbl->style->text.size     = 9_px;
+        projMonLbl->style->margin.top    = 8_px;
+        projMonLbl->style->margin.bottom = 4_px;
+
+        projectorMonitorInput = makeInput(body, "", std::to_string(settings.projectorMonitorIndex), 4);
+        projectorMonitorInput->container->style->size.width = 90_px;
+
         // Status banner: the ONE thing that should be glanceable without
         // scrolling the runner log below -- idle/running/succeeded/failed,
         // plus a next-step hint, color-coded (see calibStatusLbl handling in
@@ -1074,6 +1090,19 @@ namespace LithoControl {
 
         makeBtn(body, "RUN CALIBRATION", [this]() {
             startCalibrationWithGrid();
+        })->style->margin.bottom = 4_px;
+
+        // Second, independent calibration: physical um -> DMD pixel instead
+        // of RUN CALIBRATION's physical um -> camera pixel. Required before
+        // transim can render an actual exposure mask (it refuses to export
+        // one from a camera-pixel calibration -- see
+        // runProjectorCalibration()'s comment). Must be run AFTER a
+        // successful RUN CALIBRATION and with the camera/stage untouched
+        // since then; it reuses that run's correspondences.csv rather than
+        // re-detecting anything, and takes over the display itself for its
+        // Gray-code sequence (see CALIB-DT PROJECTOR MONITOR above).
+        makeBtn(body, "RUN PROJECTOR CALIBRATION", [this]() {
+            startRunProjectorCalibration();
         })->style->margin.bottom = 4_px;
 
         makeBtn(body, "ANALYZE SENSITIVITY", [this]() {
