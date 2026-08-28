@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug current clever project",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "cleverManifest": "auto",
+      "cleverJobs": 8,
+      "cleverConfig": "debug",
+      "args": [],
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "internalConsoleOptions": "openOnSessionStart"
+    }
+  ]
+}

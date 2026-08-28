@@ -1,2 +1,10 @@
-build/
+build*/
 resources/.modules
+.sccache/
+.ccache/
+tools/ccache/
+tools/ccache.zip
+tools/sccache/
+tools/sccache.zip.clever/
+clever/_clever/__pycache__/
+.clever/
