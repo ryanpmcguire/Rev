@@ -235,8 +235,10 @@ The sidebar uses a manually-driven scroll (no Rev scrollbar widget) because the 
 | `PATTERN\n` | `READY\n` | Begin 28800-byte bitmap + 1-byte XOR checksum transfer |
 | `[bitmap][checksum]` | `OK\n` | Bitmap received and checksummed |
 | `EXPOSE <ms>\n` | `EXPOSING\n` → `DONE\n` / `ABORTED\n` | Expose loaded pattern |
-| `BLANK\n` | (immediate) | Clear DMD |
-| `FILL\n` | (immediate) | All pixels on |
+| `BLANK\n` | `OK\n` | Clear DMD |
+| `FILL\n` | `OK\n` | All pixels on |
+| `UV_ON\n` | `OK\n` | PG4 HIGH — enable UV laser driver |
+| `UV_OFF\n` | `OK\n` | PG4 LOW — disable UV laser driver |
 | `GANTRY <gcode>\n` | `OK\n` | Passthrough G-code to FluidNC |
 
 ### Pi TCP protocol (port 9876)
