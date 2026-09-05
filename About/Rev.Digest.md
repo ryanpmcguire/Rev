@@ -89,5 +89,5 @@ mistakes). Start with the README.
 ## Runtime seam (frame loop, event dispatch, native window)
 
 @../../Rev/src/Window.ixx
-@../../Rev/src/Native/Windows/Application.win.ixx
-@../../Rev/src/Native/Windows/NativeWindow.win.ixx
+@../../Rev/source/OS/Application/Application.win.ixx
+@../../Rev/source/OS/Window/NativeWindow.win.ixx

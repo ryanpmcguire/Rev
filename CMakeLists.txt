@@ -176,6 +176,9 @@ if (WIN32)
       Ole32
       Shell32
       Uuid
+      Mfplat
+      Mfreadwrite
+      Mfuuid
   )
 elseif (APPLE)
     target_link_libraries(Rev PUBLIC

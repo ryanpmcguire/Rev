@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../WinEvent.hpp"
+#include "WinEvent.hpp"
 
 #ifdef __cplusplus
 extern "C" {

@@ -21,6 +21,7 @@ void metal_present(MetalContext*c, void* framebuffer);
 // Texture
 void* metal_create_texture(MetalContext* ctx, const unsigned char* data, size_t width, size_t height, size_t channels);
 void metal_destroy_texture(void* texture);
+void metal_update_texture(void* texture, const unsigned char* data);
 void metal_bind_texture(MetalContext* ctx, void* texture, int unit);
 void metal_unbind_texture(MetalContext* ctx, int unit);
 

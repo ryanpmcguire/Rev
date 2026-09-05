@@ -8,7 +8,7 @@ module;
 #include <locale>
 #include <dbg.hpp>
 
-#include "./Native/WinEvent.hpp"
+#include "WinEvent.hpp"
 
 export module Rev.Window;
 

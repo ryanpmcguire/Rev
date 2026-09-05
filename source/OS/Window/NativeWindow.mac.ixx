@@ -3,7 +3,7 @@ module;
 #include <functional>
 #include <unordered_map>
 #include <dbg.hpp>
-#include "../WinEvent.hpp"
+#include "WinEvent.hpp"
 #include "NativeWindow.mac.h"
 
 export module Rev.NativeWindow;

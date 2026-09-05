@@ -133,5 +133,40 @@ export namespace Rev::Graphics {
             glActiveTexture(GL_TEXTURE0 + unit);
             glBindTexture(GL_TEXTURE_2D, 0);
         }
+
+        // Replace the pixels without replacing the texture object. Camera/video
+        // sources use this once per frame; preserving the object keeps sampler
+        // bindings and driver allocation churn out of the hot path.
+        void update(const unsigned char* pixels) {
+
+            if (!pixels || !id || width == 0 || height == 0) { return; }
+
+            GLenum format = GL_RED;
+            if (channels == 3) { format = GL_RGB; }
+            else if (channels == 4) { format = GL_RGBA; }
+
+            GLint previousUnpackAlignment = 4;
+            GLint previousActiveTexture = 0;
+            GLint previousTextureBinding = 0;
+            glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTextureBinding);
+
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, id);
+            glTexSubImage2D(
+                GL_TEXTURE_2D, 0, 0, 0,
+                static_cast<GLsizei>(width),
+                static_cast<GLsizei>(height),
+                format, GL_UNSIGNED_BYTE, pixels
+            );
+
+            if (usesMipmaps(filter)) { glGenerateMipmap(GL_TEXTURE_2D); }
+
+            glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTextureBinding));
+            glActiveTexture(static_cast<GLenum>(previousActiveTexture));
+        }
     };
 };

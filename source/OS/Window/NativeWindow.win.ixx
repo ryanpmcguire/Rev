@@ -24,7 +24,7 @@ module;
 #include <glew/glew.h>
 #include <dbg.hpp>
 
-#include "../WinEvent.hpp"
+#include "WinEvent.hpp"
 
 export module Rev.NativeWindow;
 

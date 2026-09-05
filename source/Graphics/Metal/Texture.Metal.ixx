@@ -64,5 +64,9 @@ export namespace Rev::Graphics {
             // We could set a nil texture/sampler at this slot if desired.
             // For now, no-op to keep API symmetry.
         }
+
+        void update(const unsigned char* pixels) {
+            if (handle && pixels) { metal_update_texture(handle, pixels); }
+        }
     };
 };

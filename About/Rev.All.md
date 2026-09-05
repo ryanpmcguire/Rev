@@ -100,6 +100,7 @@ mistakes). Start with the README.
 ## Built-in elements — display & 3D
 
 @../source/Elements/Display/Chart.ixx
+@../source/Elements/Display/Camera.ixx
 @../source/Elements/Display/View3D/View3D.ixx
 @../source/Elements/Display/View3D/Actor3d.ixx
 @../source/Elements/Display/View3D/Camera3d.ixx
@@ -115,6 +116,13 @@ mistakes). Start with the README.
 @../source/Graphics/Primitives/Lines3d/Lines3d.ixx
 @../source/Graphics/Primitives/Triangles/Triangles.ixx
 @../source/Graphics/Primitives/Mesh3d/Mesh3d.ixx
+@../source/Graphics/Primitives/Video/Video.ixx
+
+## Media capture
+
+@../source/OS/Media/Camera/Camera.win.ixx
+@../source/OS/Media/Camera/Camera.lnx.ixx
+@../source/OS/Media/Camera/Camera.mac.ixx
 
 ## Graphics — OpenGL backend
 
@@ -153,21 +161,14 @@ mistakes). Start with the README.
 
 @../source/Window.ixx
 
-## Native — Windows
+## OS — application and window backends
 
-@../source/Native/Windows/Application.win.ixx
-@../source/Native/Windows/NativeWindow.win.ixx
-@../source/Native/Windows/NativeWindow.linux.ixx
-
-## Native — Linux
-
-@../source/Native/Linux/Application.lnx.ixx
-@../source/Native/Linux/NativeWindow.lnx.ixx
-
-## Native — macOS
-
-@../source/Native/MacOS/Application.mac.ixx
-@../source/Native/MacOS/NativeWindow.mac.ixx
+@../source/OS/Application/Application.win.ixx
+@../source/OS/Application/Application.lnx.ixx
+@../source/OS/Application/Application.mac.ixx
+@../source/OS/Window/NativeWindow.win.ixx
+@../source/OS/Window/NativeWindow.lnx.ixx
+@../source/OS/Window/NativeWindow.mac.ixx
 
 ## OS — Windows (dialogs, files, serial, sockets)
 
