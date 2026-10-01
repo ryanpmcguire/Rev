@@ -79,6 +79,11 @@ export namespace Rev {
             port_ = std::move(port);
             baud_ = baud;
 
+            {
+                std::lock_guard<std::mutex> lock(outgoingMutex_);
+                outgoing_.clear();
+            }
+
             running     = true;
             isConnected = false;
 
@@ -90,30 +95,19 @@ export namespace Rev {
         // -- API ---------------------------------------------------------
 
         void send(const std::string& msg) override {
-            HANDLE h = handle_.load();
-            if (h == INVALID_HANDLE_VALUE) {
+            if (!running) {
                 dbg("[SerialClient] send() on closed port");
                 return;
             }
-            // One owner thread owns the port, but posted commands arrive on the
-            // main thread; serialize the raw WriteFile so two writes can't
-            // interleave on the wire.
-            std::lock_guard<std::mutex> lock(sendMutex_);
-            std::size_t sent = 0;
-            while (sent < msg.size()) {
-                DWORD written = 0;
-                const DWORD remaining = static_cast<DWORD>(msg.size() - sent);
-                const BOOL ok = WriteFile(h, msg.data() + sent, remaining, &written, nullptr);
-                if (!ok) {
-                    dbg("[SerialClient] Write failed after %zu/%zu bytes (%lu)", sent, msg.size(), GetLastError());
-                    return;
-                }
-                if (written == 0) {
-                    dbg("[SerialClient] Write made no progress after %zu/%zu bytes", sent, msg.size());
-                    return;
-                }
-                sent += static_cast<std::size_t>(written);
-            }
+
+            // WriteFile must never run on Rev's main thread. Queue complete
+            // messages and let the port-owning worker drain them in order.
+            std::lock_guard<std::mutex> lock(outgoingMutex_);
+            outgoing_.push_back(msg);
+        }
+
+        void setResetOnConnect(bool enabled) {
+            resetOnConnect_ = enabled;
         }
 
         void disconnect() override {
@@ -134,6 +128,11 @@ export namespace Rev {
 
             if (worker_.joinable() && std::this_thread::get_id() != worker_.get_id()) {
                 worker_.join();
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(outgoingMutex_);
+                outgoing_.clear();
             }
 
             // The read loop exits silently on our own close; announce a
@@ -191,7 +190,9 @@ export namespace Rev {
         int                  baud_       = 115200;
         std::atomic<HANDLE>  handle_     { INVALID_HANDLE_VALUE };
         std::thread          worker_;
-        std::mutex           sendMutex_;   // serializes the raw WriteFile across threads
+        std::mutex           outgoingMutex_;
+        std::vector<std::string> outgoing_;
+        bool                 resetOnConnect_ = false;
 
         // -- Worker ------------------------------------------------------
 
@@ -270,14 +271,16 @@ export namespace Rev {
 
             handle_.store(h);
 
-            // DTR reset pulse: reboots the Smoothie/MCU board (intended). Drop
-            // DTR, settle 500ms, flush RX/TX, raise DTR, settle 500ms — then the
-            // board is freshly booted and ready to stream.
-            EscapeCommFunction(h, CLRDTR);
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
             PurgeComm(h, PURGE_RXCLEAR | PURGE_TXCLEAR);
-            EscapeCommFunction(h, SETDTR);
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if (resetOnConnect_) {
+                EscapeCommFunction(h, CLRDTR);
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                EscapeCommFunction(h, SETDTR);
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+            else {
+                EscapeCommFunction(h, SETDTR);
+            }
 
             if (!running) {   // disconnected during the ~1s settle
                 isConnected = false;
@@ -306,6 +309,8 @@ export namespace Rev {
 
             while (running) {
 
+                if (!drainOutgoing(h)) { break; }
+
                 // Heartbeat: pulse the status-poll byte at the configured cadence.
                 // The ~50ms read timeout below is our timer.
                 const int interval = heartbeatIntervalMs_.load();
@@ -316,6 +321,8 @@ export namespace Rev {
                         lastBeat = now;
                     }
                 }
+
+                if (!drainOutgoing(h)) { break; }
 
                 DWORD bytes = 0;
                 BOOL  ok    = ReadFile(h, buffer, sizeof(buffer), &bytes, nullptr);
@@ -336,6 +343,48 @@ export namespace Rev {
                 }
                 // bytes == 0 is a normal read timeout with no data — loop again.
             }
+        }
+
+        bool drainOutgoing(HANDLE h) {
+
+            std::vector<std::string> batch;
+            {
+                std::lock_guard<std::mutex> lock(outgoingMutex_);
+                batch.swap(outgoing_);
+            }
+
+            for (const std::string& message : batch) {
+                std::size_t sent = 0;
+
+                while (sent < message.size() && running) {
+                    DWORD written = 0;
+                    const DWORD remaining = static_cast<DWORD>(message.size() - sent);
+                    const BOOL ok = WriteFile(
+                        h,
+                        message.data() + sent,
+                        remaining,
+                        &written,
+                        nullptr
+                    );
+
+                    if (!ok || written == 0) {
+                        const DWORD error = GetLastError();
+                        dbg(
+                            "[SerialClient] Write failed after %zu/%zu bytes (%lu)",
+                            sent,
+                            message.size(),
+                            error
+                        );
+                        fireError("Serial write failed (" + std::to_string(error) + ")");
+                        running = false;
+                        return false;
+                    }
+
+                    sent += static_cast<std::size_t>(written);
+                }
+            }
+
+            return running;
         }
     };
 }
