@@ -3,6 +3,7 @@ module;
 #include <atomic>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -41,6 +42,10 @@ export namespace Rev::Media {
         size_t height = 0;
         uint64_t timestamp100ns = 0;
         std::vector<unsigned char> pixels;
+        // Host steady_clock milliseconds, compatible with Rev.GlobalTime::now.
+        // timestamp100ns above is stream-relative and must NOT be compared with host time.
+        double receivedAtMs = 0;
+        std::optional<double> capturedAtMs;
     };
 
     enum class CameraControl {
@@ -411,6 +416,19 @@ export namespace Rev::Media {
             }
             if (!sample || width == 0 || height == 0) { return; }
 
+            const double receivedAtMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            const LONGLONG clock100ns = MFGetSystemTime();
+            UINT64 device100ns = 0;
+            std::optional<double> capturedAtMs;
+            // DeviceTimestamp shares MFGetSystemTime's QPC epoch, unlike sample time.
+            // Missing, future or implausibly old driver timestamps stay explicitly unknown.
+            if (SUCCEEDED(sample->GetUINT64(MFSampleExtension_DeviceTimestamp, &device100ns)) &&
+                device100ns > 0 && clock100ns > 0 && device100ns <= UINT64(clock100ns) &&
+                UINT64(clock100ns) - device100ns <= 50000000ULL) {
+                capturedAtMs = receivedAtMs - double(UINT64(clock100ns) - device100ns) / 10000.0;
+            }
+
             IMFMediaBuffer* buffer = nullptr;
             if (FAILED(sample->ConvertToContiguousBuffer(&buffer))) { return; }
 
@@ -445,6 +463,8 @@ export namespace Rev::Media {
             latest.width = width;
             latest.height = height;
             latest.timestamp100ns = static_cast<uint64_t>(timestamp);
+            latest.receivedAtMs = receivedAtMs;
+            latest.capturedAtMs = capturedAtMs;
             latest.pixels = std::move(rgba);
             frameRevision += 1;
         }

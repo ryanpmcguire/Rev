@@ -17,6 +17,8 @@ export namespace Rev::Media {
         size_t width = 0, height = 0;
         uint64_t timestamp100ns = 0;
         std::vector<unsigned char> pixels;
+        double receivedAtMs = 0;
+        std::optional<double> capturedAtMs;
     };
     enum class CameraControl {
         Exposure, Focus, Iris, Zoom, Gain, Gamma, Brightness, Contrast,

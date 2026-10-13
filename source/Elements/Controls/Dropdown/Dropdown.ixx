@@ -457,7 +457,9 @@ export namespace Rev::Element {
                     option->styles.remove(&OptionMenuHighlight);
                 }
 
-                option->dirty.style = true;
+                // StyleList add/remove already dirties changed membership.
+                // Forcing dirty here makes every draw request another frame,
+                // including closed menus with unchanged selected options.
             }
         }
 
