@@ -763,6 +763,10 @@ export namespace Rev {
         // block pointer hits on elements painted underneath.
         void setTargets(Event& e) {
 
+            // Process callbacks can replace a subtree between input and paint.
+            // Rebuild before dereferencing any cached element pointers.
+            calculateQueues();
+
             for (Element* element : topDown) {
                 element->targetFlags.hit = false;
             }
