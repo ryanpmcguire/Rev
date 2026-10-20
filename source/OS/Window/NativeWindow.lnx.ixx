@@ -414,6 +414,8 @@ export namespace Rev {
             XFlush(xDisplay);
         }
 
+        void requestFrameFromWorker() { requestFrame(); }
+
         WinEvent notifyEvent(WinEvent event) {
             event.subject = this;
 

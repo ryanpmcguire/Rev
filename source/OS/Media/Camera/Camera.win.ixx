@@ -300,17 +300,38 @@ export namespace Rev::Media {
             }
 
             IMFMediaBuffer* buffer = nullptr;
-            if (FAILED(sample->ConvertToContiguousBuffer(&buffer))) { return; }
+            DWORD bufferCount = 0;
+            sample->GetBufferCount(&bufferCount);
+            HRESULT bufferResult = bufferCount == 1
+                ? sample->GetBufferByIndex(0, &buffer)
+                : sample->ConvertToContiguousBuffer(&buffer);
+            if (FAILED(bufferResult) || !buffer) { return; }
 
-            writeFrame->data.resize(width * height * 4);
-            bool converted = false;
+            auto publish = [this, receivedAtMs, capturedAtMs, timestamp]() {
+                CameraTypes::Frame* submitted = writeFrame;
+                submitted->size = { width, height, 4 };
+                submitted->format = frameFormat;
+                submitted->timestamp = {
+                    .capturedAtMs = capturedAtMs,
+                    .receivedAtMs = receivedAtMs,
+                    .timestamp100ns = static_cast<uint64_t>(timestamp)
+                };
+                if (onFrame) { writeFrame = onFrame(submitted); }
+                submitted->pixels = nullptr;
+                submitted->pitch = 0;
+            };
+
             IMF2DBuffer* buffer2d = nullptr;
 
             if (SUCCEEDED(buffer->QueryInterface(IID_PPV_ARGS(&buffer2d)))) {
                 BYTE* scanline = nullptr;
                 LONG pitch = 0;
                 if (SUCCEEDED(buffer2d->Lock2D(&scanline, &pitch))) {
-                    converted = copyPixels(writeFrame->data, scanline, pitch);
+                    if (pitch > 0) {
+                        writeFrame->pixels = scanline;
+                        writeFrame->pitch = static_cast<size_t>(pitch);
+                        publish();
+                    }
                     buffer2d->Unlock2D();
                 }
                 buffer2d->Release();
@@ -321,27 +342,15 @@ export namespace Rev::Media {
                 DWORD currentLength = 0;
                 if (SUCCEEDED(buffer->Lock(&bytes, &maxLength, &currentLength))) {
                     if (currentLength >= width * height * 4) {
-                        converted = copyPixels(
-                            writeFrame->data,
-                            bytes,
-                            static_cast<LONG>(width * 4)
-                        );
+                        writeFrame->pixels = bytes;
+                        writeFrame->pitch = width * 4;
+                        publish();
                     }
                     buffer->Unlock();
                 }
             }
 
             buffer->Release();
-            if (!converted) { return; }
-
-            writeFrame->size = { width, height, 4 };
-            writeFrame->format = frameFormat;
-            writeFrame->timestamp = {
-                .capturedAtMs = capturedAtMs,
-                .receivedAtMs = receivedAtMs,
-                .timestamp100ns = static_cast<uint64_t>(timestamp)
-            };
-            if (onFrame) { writeFrame = onFrame(writeFrame); }
         }
 
         friend class CameraReaderCallback;

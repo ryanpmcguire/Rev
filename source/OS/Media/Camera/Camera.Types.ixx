@@ -45,6 +45,10 @@ export namespace Rev::Media::CameraTypes {
         std::mutex* mutex = nullptr;
         uint64_t revision = 0;
 
+        // Valid only while an onFrame listener is running. Native capture owns
+        // this buffer; callers that need CPU pixels must explicitly call copy().
+        const unsigned char* pixels = nullptr;
+        size_t pitch = 0;
         std::vector<unsigned char> data;
 
         Frame copy() {

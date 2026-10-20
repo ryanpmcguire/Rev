@@ -557,6 +557,95 @@ export namespace Rev {
             );
         }
 
+        // A shared context belongs to a worker, never to a window frame.  It lets
+        // capture and decode threads create textures that the window context can
+        // bind without taking ownership of either thread's current context.
+        struct SharedContext {
+            HWND handle = nullptr;
+            HDC hdc = nullptr;
+            HGLRC hglrc = nullptr;
+
+            bool makeCurrent() {
+                return hdc && hglrc && wglMakeCurrent(hdc, hglrc);
+            }
+
+            void release() {
+                if (wglGetCurrentContext() == hglrc) { wglMakeCurrent(nullptr, nullptr); }
+            }
+
+            void destroy() {
+                release();
+                if (hglrc) { wglDeleteContext(hglrc); }
+                if (handle && hdc) { ReleaseDC(handle, hdc); }
+                if (handle) { DestroyWindow(handle); }
+                handle = nullptr;
+                hdc = nullptr;
+                hglrc = nullptr;
+            }
+        };
+
+        static SharedContext* createSharedContext(NativeWindow* owner) {
+
+            if (!owner || !owner->hdc || !owner->hglrc) { return nullptr; }
+
+            HINSTANCE instance = GetModuleHandleW(nullptr);
+            const wchar_t* className = L"RevSharedGL";
+            static bool registered = false;
+            if (!registered) {
+                if (!registerDummyClass(instance, className, DummyWndProc)) { return nullptr; }
+                registered = true;
+            }
+
+            SharedContext* result = new SharedContext;
+            result->handle = CreateWindowW(
+                className, L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, instance, nullptr
+            );
+            if (!result->handle) { delete result; return nullptr; }
+
+            result->hdc = GetDC(result->handle);
+            const int pixelFormat = GetPixelFormat(owner->hdc);
+            PIXELFORMATDESCRIPTOR descriptor;
+            if (!result->hdc || !pixelFormat ||
+                !DescribePixelFormat(result->hdc, pixelFormat, sizeof(descriptor), &descriptor) ||
+                !SetPixelFormat(result->hdc, pixelFormat, &descriptor)) {
+                result->destroy();
+                delete result;
+                return nullptr;
+            }
+
+            HGLRC share = sharedRoot ? sharedRoot : owner->hglrc;
+            using CreateContextAttribs = HGLRC (WINAPI *)(HDC, HGLRC, const int*);
+            auto createContextAttribs = reinterpret_cast<CreateContextAttribs>(
+                wglGetProcAddress("wglCreateContextAttribsARB")
+            );
+            if (!share || !createContextAttribs) {
+                result->destroy();
+                delete result;
+                return nullptr;
+            }
+
+            // Use exactly the same root-sharing mechanism as Rev's regular
+            // windows. A legacy WGL context cannot reliably join the modern
+            // core-profile resource group on all drivers.
+            const int versions[][2] = { {4,6}, {4,5}, {4,4}, {4,3}, {4,2}, {4,1}, {4,0}, {3,3} };
+            for (const auto& version : versions) {
+                const int attributes[] = {
+                    0x2091 /* WGL_CONTEXT_MAJOR_VERSION_ARB */, version[0],
+                    0x2092 /* WGL_CONTEXT_MINOR_VERSION_ARB */, version[1],
+                    0x9126 /* WGL_CONTEXT_PROFILE_MASK_ARB */, 0x00000001 /* WGL_CONTEXT_CORE_PROFILE_BIT_ARB */,
+                    0
+                };
+                result->hglrc = createContextAttribs(result->hdc, share, attributes);
+                if (result->hglrc) { break; }
+            }
+            if (!result->hglrc) {
+                result->destroy();
+                delete result;
+                return nullptr;
+            }
+            return result;
+        }
+
         NativeWindow(
             void* ownerOrParent,
             Details details,
@@ -993,6 +1082,12 @@ export namespace Rev {
             InvalidateRect(handle, nullptr, FALSE);
         }
 
+        // Worker threads ask the window thread to invalidate.  They never touch
+        // the window's paint state directly.
+        void requestFrameFromWorker() {
+            if (handle) { PostMessageW(handle, WM_APP + 73, 0, 0); }
+        }
+
         void flushPendingInvalidate() {
 
             if (!invalidatePending) { return; }
@@ -1349,6 +1444,11 @@ export namespace Rev {
                         WinEvent::Type::Clear
                     });
 
+                    return 0;
+                }
+
+                case (WM_APP + 73): {
+                    self->requestFrame();
                     return 0;
                 }
 

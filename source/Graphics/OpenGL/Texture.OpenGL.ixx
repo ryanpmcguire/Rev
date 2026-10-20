@@ -32,6 +32,8 @@ export namespace Rev::Graphics {
         GLuint id = 0;
         void* context = nullptr;
 
+        Texture() = default;
+
         struct Params {
             
             unsigned char* data = nullptr;
@@ -105,11 +107,55 @@ export namespace Rev::Graphics {
             glActiveTexture(static_cast<GLenum>(previousActiveTexture));
         }
 
+        // The caller has made a compatible shared context current.  This is for
+        // producer-owned textures (camera/video decode); ordinary UI resources
+        // continue to use the constructor above.
+        static Texture* createInCurrentContext(void* context, Params params) {
+
+            Texture* texture = new Texture;
+            texture->context = context;
+            texture->data = params.data;
+            texture->width = params.width;
+            texture->height = params.height;
+            texture->channels = params.channels;
+            texture->filter = params.filter;
+
+            GLenum format = GL_RED;
+            GLenum internalFormat = GL_R8;
+            if (params.channels == 3) { format = GL_RGB; internalFormat = GL_RGB8; }
+            else if (params.channels == 4) { format = GL_RGBA; internalFormat = GL_RGBA8; }
+            else if (params.channels != 1) {
+                delete texture;
+                throw std::runtime_error("[Texture] Unsupported channel count");
+            }
+
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glGenTextures(1, &texture->id);
+            glBindTexture(GL_TEXTURE_2D, texture->id);
+            glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(internalFormat),
+                static_cast<GLsizei>(params.width), static_cast<GLsizei>(params.height),
+                0, format, GL_UNSIGNED_BYTE, params.data);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(params.filter));
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(params.filter));
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            return texture;
+        }
+
         // Destroy
         ~Texture() {
+            if (id) {
+                NativeWindow::requireContext(context, "Texture destroy");
+                glDeleteTextures(1, &id);
+            }
+        }
 
-            NativeWindow::requireContext(context, "Texture destroy");
-            if (id) { glDeleteTextures(1, &id); }
+        static void destroyInCurrentContext(Texture* texture) {
+            if (!texture) { return; }
+            if (texture->id) { glDeleteTextures(1, &texture->id); }
+            texture->id = 0;
+            delete texture;
         }
 
         static bool usesMipmaps(Filter filter) {

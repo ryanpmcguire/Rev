@@ -1,6 +1,5 @@
 module;
 
-#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -10,10 +9,10 @@ module;
 export module Rev.Element.Camera;
 
 import Rev.Appearance;
-import Rev.Core.Process;
 import Rev.Element.Box;
 import Rev.Element.Event;
 import Rev.Media.Camera;
+import Rev.Graphics.CameraTexture;
 import Rev.Primitive.Video;
 
 export namespace Rev::Element {
@@ -33,7 +32,6 @@ export namespace Rev::Element {
         struct Params {
             size_t device = 0;
             Fit fit = Fit::Cover;
-            unsigned frameRate = 30;
             bool autoStart = true;
             Primitives::Video::Settings display;
         };
@@ -46,20 +44,39 @@ export namespace Rev::Element {
 
             this->styles.prepend(&CameraStyles::Default);
             video = new Primitives::Video(shared->canvas);
+            textures = new Graphics::CameraTexture(shared->canvas->context);
+            textureError = textures->error();
             video->settings = params.display;
             media.onFrame(this, [this](Media::Camera::Frame::Event& event, Media::Camera::Frame* received) {
+                if (!textures->upload(received->pixels, received->size.width, received->size.height, received->format)) {
+                    {
+                        std::scoped_lock lock(statusMutex);
+                        textureError = textures->error();
+                    }
+                    if (shared && shared->canvas && shared->canvas->window) {
+                        shared->canvas->window->requestFrameFromWorker();
+                    }
+                    return;
+                }
+                {
+                    std::scoped_lock lock(statusMutex);
+                    textureError.clear();
+                }
                 std::scoped_lock lock(frameMutex);
                 frame = received;
                 frameRevision = event.revision;
+                if (shared && shared->canvas && shared->canvas->window) {
+                    shared->canvas->window->requestFrameFromWorker();
+                }
             });
             if (params.autoStart) { start(); }
         }
 
         ~Camera() {
-            Core::Process::instance().unschedule(this);
             media.close();
             media.unsubscribeFrames(this);
             delete video;
+            delete textures;
         }
 
         static std::vector<Media::Camera::DeviceInfo> devices() {
@@ -67,36 +84,16 @@ export namespace Rev::Element {
         }
 
         bool start() {
-            Core::Process::instance().unschedule(this);
             bool opened = media.open(params.device);
             if (!opened) { return false; }
-
-            const uint64_t interval = std::max<uint64_t>(1, 1000 / std::max(1u, params.frameRate));
-            Core::Process::instance().schedule(this, interval, [this](uint64_t) {
-                if (!media.info.open) {
-                    Core::Process::instance().unschedule(this);
-                    return;
-                }
-
-                bool hasNewFrame = false;
-                {
-                    std::scoped_lock lock(frameMutex);
-                    hasNewFrame = frameRevision != uploadedRevision;
-                }
-                if (hasNewFrame && shared && shared->event) { refresh(*shared->event); }
-            });
             return true;
         }
 
         void stop() {
-            Core::Process::instance().unschedule(this);
             media.close();
         }
 
         bool refreshControls() { return media.refreshControls(); }
-        virtual const unsigned char* displayPixels(Media::Camera::Frame& source) {
-            return source.data.data();
-        }
         void refreshFrame() {
             std::scoped_lock lock(frameMutex);
             uploadedRevision = 0;
@@ -117,10 +114,12 @@ export namespace Rev::Element {
                 if (frame) {
                     frameWidth = frame->size.width;
                     frameHeight = frame->size.height;
-                    if (frameRevision != uploadedRevision && !frame->data.empty()) {
-                        const unsigned char* pixels = displayPixels(*frame);
-                        if (!pixels) { return; }
-                        video->upload(pixels, frameWidth, frameHeight, frame->format);
+                    if (frameRevision != uploadedRevision) {
+                        Core::PixelFormat format;
+                        Graphics::Texture* texture = textures->latest(format);
+                        if (!texture) { return; }
+                        video->setTexture(texture, format);
+                        textures->display(texture);
                         uploadedRevision = frameRevision;
                     }
                 }
@@ -168,9 +167,12 @@ export namespace Rev::Element {
         // published image buffer long enough to upload it to its video primitive.
         Media::Camera media;
         std::mutex frameMutex;
+        std::mutex statusMutex;
         Media::Camera::Frame* frame = nullptr;
         uint64_t frameRevision = 0;
         uint64_t uploadedRevision = 0;
         Primitives::Video* video = nullptr;
+        Graphics::CameraTexture* textures = nullptr;
+        std::string textureError;
     };
 }

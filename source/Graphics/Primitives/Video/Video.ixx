@@ -69,6 +69,7 @@ export namespace Rev::Primitives {
         UniformBuffer* databuff = nullptr;
         Data* data = nullptr;
         Texture* texture = nullptr;
+        bool ownsTexture = false;
         Settings settings;
 
         void createShared() {
@@ -94,7 +95,7 @@ export namespace Rev::Primitives {
         }
 
         ~Video() {
-            delete texture;
+            if (ownsTexture) { delete texture; }
             delete databuff;
             shared.destroy([this]() { destroyShared(); });
         }
@@ -111,6 +112,11 @@ export namespace Rev::Primitives {
         ) {
             if (!pixels || width == 0 || height == 0) { return; }
 
+            if (!ownsTexture) {
+                texture = nullptr;
+                ownsTexture = true;
+            }
+
             data->pixelFormat = static_cast<uint32_t>(format);
 
             if (!texture || texture->width != width || texture->height != height || texture->channels != 4) {
@@ -125,6 +131,15 @@ export namespace Rev::Primitives {
             }
 
             texture->update(pixels);
+        }
+
+        // A producer owns this texture.  Drawing only binds it; it never uploads
+        // pixels or destroys the producer's allocation.
+        void setTexture(Texture* source, Core::PixelFormat format) {
+            if (texture != source && ownsTexture) { delete texture; }
+            texture = source;
+            ownsTexture = false;
+            data->pixelFormat = static_cast<uint32_t>(format);
         }
 
         void draw() override {
