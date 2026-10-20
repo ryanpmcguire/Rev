@@ -11,6 +11,8 @@ module;
 #include <stdexcept>
 #include <functional>
 #include <unordered_map>
+#include <vector>
+#include <string>
 
 // Win32
 #include <windowsx.h>
@@ -1086,6 +1088,24 @@ export namespace Rev {
         // the window's paint state directly.
         void requestFrameFromWorker() {
             if (handle) { PostMessageW(handle, WM_APP + 73, 0, 0); }
+        }
+
+        // Returns a one-based item index, or zero when dismissed.
+        unsigned contextMenu(const std::vector<std::wstring>& labels) {
+            HMENU menu = CreatePopupMenu();
+            if (!menu) { return 0; }
+            for (size_t i = 0; i < labels.size(); ++i) {
+                AppendMenuW(menu, MF_STRING, i + 1, labels[i].c_str());
+            }
+            POINT position{};
+            GetCursorPos(&position);
+            ReleaseCapture();
+            buttonsDown = 0;
+            const unsigned selected = TrackPopupMenuEx(menu,
+                TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                position.x, position.y, handle, nullptr);
+            DestroyMenu(menu);
+            return selected;
         }
 
         void flushPendingInvalidate() {

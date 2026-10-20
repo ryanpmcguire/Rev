@@ -56,7 +56,9 @@ export namespace Rev::Primitives {
                 .attribs = {},
                 .openGlVert = File("./Shaders/FastLines3d.vert"),
                 .openGlFrag = File("./Shaders/FastLines3d.frag"),
-                .metalUniversal = File("./Shaders/FastLines3d.metal")
+                .metalUniversal = File("./Shaders/FastLines3d.metal"),
+                .directXVert = File("./Shaders/FastLines3d.vert.hlsl"),
+                .directXFrag = File("./Shaders/FastLines3d.frag.hlsl")
             });
 
             dummyVao = new VertexBuffer(canvas->context, { .num = 0, .divisor = 0, .attribs = {} });

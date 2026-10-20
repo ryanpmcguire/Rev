@@ -77,7 +77,9 @@ export namespace Rev::Primitives {
                 .attribs = Vertex::attribs,
                 .openGlVert = File("./Shaders/Video.vert"),
                 .openGlFrag = File("./Shaders/Video.frag"),
-                .metalUniversal = File("./Shaders/Video.metal")
+                .metalUniversal = File("./Shaders/Video.metal"),
+                .directXVert = File("./Shaders/Video.vert.hlsl"),
+                .directXFrag = File("./Shaders/Video.frag.hlsl")
             });
             vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });
         }

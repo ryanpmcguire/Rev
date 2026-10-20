@@ -39,6 +39,9 @@ export namespace Rev::Graphics {
 
             Resource vulkanVert;
             Resource vulkanFrag;
+
+            Resource directXVert;
+            Resource directXFrag;
         };
 
         // Create

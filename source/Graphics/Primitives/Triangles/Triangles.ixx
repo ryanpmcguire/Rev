@@ -35,7 +35,9 @@ export namespace Rev::Primitives {
 
                 .openGlVert = File("./Shaders/Triangles.vert"),
                 .openGlFrag = File("./Shaders/Triangles.frag"),
-                .metalUniversal = File("./Shaders/Triangles.metal")
+                .metalUniversal = File("./Shaders/Triangles.metal"),
+                .directXVert = File("./Shaders/Triangles.vert.hlsl"),
+                .directXFrag = File("./Shaders/Triangles.frag.hlsl")
             });
         }
 
