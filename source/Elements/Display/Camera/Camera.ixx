@@ -3,7 +3,7 @@ module;
 #include <algorithm>
 #include <cstdint>
 #include <functional>
-#include <optional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -35,6 +35,7 @@ export namespace Rev::Element {
             Fit fit = Fit::Cover;
             unsigned frameRate = 30;
             bool autoStart = true;
+            Primitives::Video::Settings display;
         };
 
         explicit Camera(Element* parent, StyleList styles = {})
@@ -45,72 +46,61 @@ export namespace Rev::Element {
 
             this->styles.prepend(&CameraStyles::Default);
             video = new Primitives::Video(shared->canvas);
+            video->settings = params.display;
+            media.onFrame(this, [this](Media::Camera::Frame::Event& event, Media::Camera::Frame* received) {
+                std::scoped_lock lock(frameMutex);
+                frame = received;
+                frameRevision = event.revision;
+            });
             if (params.autoStart) { start(); }
         }
 
         ~Camera() {
             Core::Process::instance().unschedule(this);
-            capture.close();
+            media.close();
+            media.unsubscribeFrames(this);
             delete video;
         }
 
-        static std::vector<Media::CameraDeviceInfo> devices() {
-            return Media::CameraCapture::devices();
+        static std::vector<Media::Camera::DeviceInfo> devices() {
+            return Media::Camera::devices();
         }
 
         bool start() {
             Core::Process::instance().unschedule(this);
-            bool opened = capture.open(params.device);
+            bool opened = media.open(params.device);
             if (!opened) { return false; }
 
             const uint64_t interval = std::max<uint64_t>(1, 1000 / std::max(1u, params.frameRate));
             Core::Process::instance().schedule(this, interval, [this](uint64_t) {
-                if (!capture.isOpen()) {
+                if (!media.info.open) {
                     Core::Process::instance().unschedule(this);
                     return;
                 }
-                if (shared && shared->event) { refresh(*shared->event); }
+
+                bool hasNewFrame = false;
+                {
+                    std::scoped_lock lock(frameMutex);
+                    hasNewFrame = frameRevision != uploadedRevision;
+                }
+                if (hasNewFrame && shared && shared->event) { refresh(*shared->event); }
             });
             return true;
         }
 
         void stop() {
             Core::Process::instance().unschedule(this);
-            capture.close();
+            media.close();
         }
 
-        bool isOpen() const { return capture.isOpen(); }
-        std::string error() const { return capture.error(); }
-
-        const std::vector<Media::CameraControlInfo>& controls() const {
-            return capture.controls();
+        bool refreshControls() { return media.refreshControls(); }
+        virtual const unsigned char* displayPixels(Media::Camera::Frame& source) {
+            return source.data.data();
         }
-
-        std::optional<Media::CameraControlInfo> control(Media::CameraControl requested) const {
-            return capture.control(requested);
+        void refreshFrame() {
+            std::scoped_lock lock(frameMutex);
+            uploadedRevision = 0;
         }
-
-        bool setControl(
-            Media::CameraControl requested,
-            double value,
-            Media::CameraControlMode mode = Media::CameraControlMode::Manual
-        ) {
-            return capture.setControl(requested, value, mode);
-        }
-
-        bool refreshControls() { return capture.refreshControls(); }
-        bool resetControls() { return capture.resetControls(); }
-
-        template<typename Owner>
-        void onControlChanged(
-            Owner* owner,
-            const std::function<void(Media::CameraControlEvent&)>& listener
-        ) {
-            capture.onControlChanged(owner, listener);
-        }
-
-        void unsubscribeControls(void* owner) { capture.unsubscribeControls(owner); }
-
         void setFit(Fit fit) {
             params.fit = fit;
             if (shared && shared->event) { refresh(*shared->event); }
@@ -120,8 +110,20 @@ export namespace Rev::Element {
 
             Box::computePrimitives(event);
 
-            if (capture.takeFrame(frameRevision, frame)) {
-                video->upload(frame.pixels.data(), frame.width, frame.height);
+            size_t frameWidth = 0;
+            size_t frameHeight = 0;
+            {
+                std::scoped_lock lock(frameMutex);
+                if (frame) {
+                    frameWidth = frame->size.width;
+                    frameHeight = frame->size.height;
+                    if (frameRevision != uploadedRevision && !frame->data.empty()) {
+                        const unsigned char* pixels = displayPixels(*frame);
+                        if (!pixels) { return; }
+                        video->upload(pixels, frameWidth, frameHeight, frame->format);
+                        uploadedRevision = frameRevision;
+                    }
+                }
             }
 
             auto& data = *video->data;
@@ -129,9 +131,9 @@ export namespace Rev::Element {
             data.uv = { 0, 0, 1, 1 };
             data.opacity = resolved.opacity;
 
-            if (frame.width == 0 || frame.height == 0 || rect.w <= 0 || rect.h <= 0) { return; }
+            if (frameWidth == 0 || frameHeight == 0 || rect.w <= 0 || rect.h <= 0) { return; }
 
-            const float sourceAspect = static_cast<float>(frame.width) / static_cast<float>(frame.height);
+            const float sourceAspect = static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
             const float targetAspect = rect.w / rect.h;
 
             if (params.fit == Fit::Contain) {
@@ -161,11 +163,14 @@ export namespace Rev::Element {
             video->draw();
         }
 
-    private:
         Params params;
-        Media::CameraCapture capture;
-        Media::CameraFrame frame;
+        // Media owns capture and publication. This element only holds the currently
+        // published image buffer long enough to upload it to its video primitive.
+        Media::Camera media;
+        std::mutex frameMutex;
+        Media::Camera::Frame* frame = nullptr;
         uint64_t frameRevision = 0;
+        uint64_t uploadedRevision = 0;
         Primitives::Video* video = nullptr;
     };
 }

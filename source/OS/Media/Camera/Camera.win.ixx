@@ -6,12 +6,13 @@ module;
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <mutex>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <utility>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -25,69 +26,17 @@ module;
 #include <mfidl.h>
 #include <mfreadwrite.h>
 
-export module Rev.Media.Camera;
+export module Rev.Media.NativeCamera;
 
-import Rev.Core.Dispatcher;
+import Rev.Media.Camera.Types;
+import Rev.Core.PixelFormat;
 
 export namespace Rev::Media {
 
-    struct CameraDeviceInfo {
-        size_t index = 0;
-        std::string name;
-        std::string id;
-    };
+    struct NativeCamera;
 
-    struct CameraFrame {
-        size_t width = 0;
-        size_t height = 0;
-        uint64_t timestamp100ns = 0;
-        std::vector<unsigned char> pixels;
-        // Host steady_clock milliseconds, compatible with Rev.GlobalTime::now.
-        // timestamp100ns above is stream-relative and must NOT be compared with host time.
-        double receivedAtMs = 0;
-        std::optional<double> capturedAtMs;
-    };
-
-    enum class CameraControl {
-        Exposure,
-        Focus,
-        Iris,
-        Zoom,
-        Gain,
-        Gamma,
-        Brightness,
-        Contrast,
-        Hue,
-        Saturation,
-        Sharpness,
-        WhiteBalance,
-        BacklightCompensation
-    };
-
-    enum class CameraControlMode { Manual, Automatic };
-
-    struct CameraControlInfo {
-        CameraControl control = CameraControl::Exposure;
-        std::string name;
-        long minimum = 0;
-        long maximum = 0;
-        long step = 1;
-        long defaultValue = 0;
-        long value = 0;
-        bool supportsManual = false;
-        bool supportsAutomatic = false;
-        CameraControlMode mode = CameraControlMode::Manual;
-    };
-
-    struct CameraControlEvent {
-        CameraControlInfo info;
-    };
-
-    struct CameraCapture;
-
-    class CameraReaderCallback final : public IMFSourceReaderCallback {
-    public:
-        explicit CameraReaderCallback(CameraCapture* owner) : owner(owner) {}
+    struct CameraReaderCallback final : public IMFSourceReaderCallback {
+        explicit CameraReaderCallback(NativeCamera* owner) : owner(owner) {}
 
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** object) override;
         ULONG STDMETHODCALLTYPE AddRef() override { return ++references; }
@@ -98,18 +47,24 @@ export namespace Rev::Media {
 
         void detach();
 
-    private:
         std::atomic<ULONG> references = 1;
         std::mutex ownerMutex;
-        CameraCapture* owner = nullptr;
+        NativeCamera* owner = nullptr;
     };
 
-    struct CameraCapture {
+    struct NativeCamera {
 
-        CameraCapture() = default;
-        CameraCapture(const CameraCapture&) = delete;
-        CameraCapture& operator=(const CameraCapture&) = delete;
-        ~CameraCapture() { close(); }
+        explicit NativeCamera(std::function<CameraTypes::Frame*(CameraTypes::Frame*)> callback) {
+            onFrame = callback;
+            writeFrame = new CameraTypes::Frame;
+        }
+        NativeCamera(const NativeCamera&) = delete;
+        NativeCamera& operator=(const NativeCamera&) = delete;
+        ~NativeCamera() {
+            close();
+            delete writeFrame;
+            writeFrame = nullptr;
+        }
 
         static std::string narrow(const wchar_t* value) {
             if (!value) { return {}; }
@@ -127,9 +82,9 @@ export namespace Rev::Media {
             return message.str();
         }
 
-        static std::vector<CameraDeviceInfo> devices() {
+        static std::vector<CameraTypes::DeviceInfo> devices() {
 
-            std::vector<CameraDeviceInfo> result;
+            std::vector<CameraTypes::DeviceInfo> result;
             HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             bool uninitializeCom = SUCCEEDED(com);
             if (FAILED(com) && com != RPC_E_CHANGED_MODE) { return result; }
@@ -235,6 +190,7 @@ export namespace Rev::Media {
 
             width = frameWidth;
             height = frameHeight;
+            frameFormat = Core::PixelFormat::BGRX8;
 
             if (actualType) { actualType->Release(); }
             if (outputType) { outputType->Release(); }
@@ -248,8 +204,6 @@ export namespace Rev::Media {
                 close();
                 return false;
             }
-
-            refreshControls(false);
 
             running = true;
             result = requestNextSample();
@@ -286,115 +240,31 @@ export namespace Rev::Media {
 
             width = 0;
             height = 0;
-            controlCache.clear();
             releaseRuntime();
         }
 
         bool isOpen() const { return running && reader; }
 
         std::string error() const {
-            std::scoped_lock lock(frameMutex);
+            std::scoped_lock lock(errorMutex);
             return errorText;
         }
 
-        bool takeFrame(uint64_t& knownRevision, CameraFrame& destination) {
-            std::scoped_lock lock(frameMutex);
-            if (frameRevision == knownRevision || latest.pixels.empty()) { return false; }
-            destination = latest;
-            knownRevision = frameRevision;
-            return true;
-        }
-
-        const std::vector<CameraControlInfo>& controls() const { return controlCache; }
-
-        std::optional<CameraControlInfo> control(CameraControl requested) const {
-            auto found = std::find_if(
-                controlCache.begin(),
-                controlCache.end(),
-                [requested](const CameraControlInfo& info) { return info.control == requested; }
-            );
-            if (found == controlCache.end()) { return std::nullopt; }
-            return *found;
-        }
-
-        template<typename Owner>
-        void onControlChanged(
-            Owner* owner,
-            const std::function<void(CameraControlEvent&)>& listener
-        ) {
-            controlDispatcher.listen(&CameraCapture::controlChanged, owner, listener);
-        }
-
-        void unsubscribeControls(void* owner) { controlDispatcher.unsubscribe(owner); }
-
-        bool refreshControls(bool dispatchChanges = true) {
-            if (!ksControl) { return false; }
-
-            std::vector<CameraControlInfo> refreshed;
-            for (const ControlDescriptor& descriptor : controlDescriptors()) {
-                CameraControlInfo info;
-                if (queryControl(descriptor, info)) { refreshed.push_back(std::move(info)); }
+        std::vector<CameraTypes::Setting> readControls() {
+            std::vector<CameraTypes::Setting> result;
+            if (!ksControl) { return result; }
+            for (const auto& descriptor : controlDescriptors()) {
+                CameraTypes::Setting info;
+                if (queryControl(descriptor, info)) { result.push_back(std::move(info)); }
             }
-
-            bool any = !refreshed.empty();
-            controlCache = std::move(refreshed);
-
-            if (dispatchChanges) {
-                for (const CameraControlInfo& info : controlCache) {
-                    CameraControlEvent event{ info };
-                    controlChanged(event);
-                }
-            }
-            return any;
+            return result;
         }
 
-        bool setControl(
-            CameraControl requested,
-            double requestedValue,
-            CameraControlMode requestedMode = CameraControlMode::Manual
-        ) {
-            auto cached = std::find_if(
-                controlCache.begin(),
-                controlCache.end(),
-                [requested](const CameraControlInfo& info) { return info.control == requested; }
-            );
-            if (!ksControl || cached == controlCache.end()) { return false; }
-            if (requestedMode == CameraControlMode::Manual && !cached->supportsManual) { return false; }
-            if (requestedMode == CameraControlMode::Automatic && !cached->supportsAutomatic) { return false; }
-
-            long value = static_cast<long>(std::llround(requestedValue));
-            value = std::clamp(value, cached->minimum, cached->maximum);
-            if (cached->step > 1) {
-                value = cached->minimum + static_cast<long>(std::llround(
-                    static_cast<double>(value - cached->minimum) / cached->step
-                )) * cached->step;
-                value = std::clamp(value, cached->minimum, cached->maximum);
-            }
-
-            const ControlDescriptor* descriptor = descriptorFor(requested);
-            if (!descriptor || !writeControl(*descriptor, value, requestedMode)) { return false; }
-
-            CameraControlInfo actual;
-            if (!queryControl(*descriptor, actual)) { return false; }
-            *cached = actual;
-
-            CameraControlEvent event{ actual };
-            controlChanged(event);
-            return true;
-        }
-
-        bool resetControls() {
-            // Work from a snapshot because each successful write updates the cache
-            // and dispatches its confirmed value to interested UI elements.
-            const std::vector<CameraControlInfo> defaults = controlCache;
-            bool resetAny = false;
-            for (const CameraControlInfo& info : defaults) {
-                CameraControlMode mode = info.supportsManual
-                    ? CameraControlMode::Manual
-                    : CameraControlMode::Automatic;
-                resetAny = setControl(info.control, info.defaultValue, mode) || resetAny;
-            }
-            return resetAny;
+        bool writeControl(CameraTypes::Setting::Type control, long value, CameraTypes::Setting::Mode mode,
+                          CameraTypes::Setting& actual) {
+            const auto* descriptor = descriptorFor(control);
+            return ksControl && descriptor && writeControl(*descriptor, value, mode)
+                && queryControl(*descriptor, actual);
         }
 
         HRESULT requestNextSample() {
@@ -420,9 +290,9 @@ export namespace Rev::Media {
                 std::chrono::steady_clock::now().time_since_epoch()).count();
             const LONGLONG clock100ns = MFGetSystemTime();
             UINT64 device100ns = 0;
-            std::optional<double> capturedAtMs;
+            double capturedAtMs = 0;
             // DeviceTimestamp shares MFGetSystemTime's QPC epoch, unlike sample time.
-            // Missing, future or implausibly old driver timestamps stay explicitly unknown.
+            // Missing, future or implausibly old driver timestamps remain zero.
             if (SUCCEEDED(sample->GetUINT64(MFSampleExtension_DeviceTimestamp, &device100ns)) &&
                 device100ns > 0 && clock100ns > 0 && device100ns <= UINT64(clock100ns) &&
                 UINT64(clock100ns) - device100ns <= 50000000ULL) {
@@ -432,14 +302,15 @@ export namespace Rev::Media {
             IMFMediaBuffer* buffer = nullptr;
             if (FAILED(sample->ConvertToContiguousBuffer(&buffer))) { return; }
 
-            std::vector<unsigned char> rgba(width * height * 4);
+            writeFrame->data.resize(width * height * 4);
+            bool converted = false;
             IMF2DBuffer* buffer2d = nullptr;
 
             if (SUCCEEDED(buffer->QueryInterface(IID_PPV_ARGS(&buffer2d)))) {
                 BYTE* scanline = nullptr;
                 LONG pitch = 0;
                 if (SUCCEEDED(buffer2d->Lock2D(&scanline, &pitch))) {
-                    convertBgra(rgba, scanline, pitch);
+                    converted = copyPixels(writeFrame->data, scanline, pitch);
                     buffer2d->Unlock2D();
                 }
                 buffer2d->Release();
@@ -450,26 +321,29 @@ export namespace Rev::Media {
                 DWORD currentLength = 0;
                 if (SUCCEEDED(buffer->Lock(&bytes, &maxLength, &currentLength))) {
                     if (currentLength >= width * height * 4) {
-                        convertBgra(rgba, bytes, static_cast<LONG>(width * 4));
+                        converted = copyPixels(
+                            writeFrame->data,
+                            bytes,
+                            static_cast<LONG>(width * 4)
+                        );
                     }
                     buffer->Unlock();
                 }
             }
 
             buffer->Release();
-            if (rgba.empty()) { return; }
+            if (!converted) { return; }
 
-            std::scoped_lock lock(frameMutex);
-            latest.width = width;
-            latest.height = height;
-            latest.timestamp100ns = static_cast<uint64_t>(timestamp);
-            latest.receivedAtMs = receivedAtMs;
-            latest.capturedAtMs = capturedAtMs;
-            latest.pixels = std::move(rgba);
-            frameRevision += 1;
+            writeFrame->size = { width, height, 4 };
+            writeFrame->format = frameFormat;
+            writeFrame->timestamp = {
+                .capturedAtMs = capturedAtMs,
+                .receivedAtMs = receivedAtMs,
+                .timestamp100ns = static_cast<uint64_t>(timestamp)
+            };
+            if (onFrame) { writeFrame = onFrame(writeFrame); }
         }
 
-    private:
         friend class CameraReaderCallback;
 
         IMFSourceReader* reader = nullptr;
@@ -481,16 +355,15 @@ export namespace Rev::Media {
         bool ownsMediaFoundation = false;
         size_t width = 0;
         size_t height = 0;
+        Core::PixelFormat frameFormat = Core::PixelFormat::Null;
 
-        mutable std::mutex frameMutex;
-        CameraFrame latest;
-        uint64_t frameRevision = 0;
+        mutable std::mutex errorMutex;
         std::string errorText;
-        std::vector<CameraControlInfo> controlCache;
-        Core::Dispatcher<CameraControlEvent> controlDispatcher;
+        CameraTypes::Frame* writeFrame = nullptr;
+        std::function<CameraTypes::Frame*(CameraTypes::Frame*)> onFrame;
 
         struct ControlDescriptor {
-            CameraControl control;
+            CameraTypes::Setting::Type control;
             const char* name;
             const GUID* propertySet;
             ULONG propertyId;
@@ -499,24 +372,24 @@ export namespace Rev::Media {
 
         static const std::vector<ControlDescriptor>& controlDescriptors() {
             static const std::vector<ControlDescriptor> descriptors = {
-                { CameraControl::Exposure, "Exposure", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_EXPOSURE, true },
-                { CameraControl::Focus, "Focus", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_FOCUS, true },
-                { CameraControl::Iris, "Iris", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_IRIS, true },
-                { CameraControl::Zoom, "Zoom", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_ZOOM, true },
-                { CameraControl::Gain, "Gain", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_GAIN, false },
-                { CameraControl::Gamma, "Gamma", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_GAMMA, false },
-                { CameraControl::Brightness, "Brightness", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_BRIGHTNESS, false },
-                { CameraControl::Contrast, "Contrast", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_CONTRAST, false },
-                { CameraControl::Hue, "Hue", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_HUE, false },
-                { CameraControl::Saturation, "Saturation", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_SATURATION, false },
-                { CameraControl::Sharpness, "Sharpness", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_SHARPNESS, false },
-                { CameraControl::WhiteBalance, "White balance", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_WHITEBALANCE, false },
-                { CameraControl::BacklightCompensation, "Backlight compensation", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_BACKLIGHT_COMPENSATION, false }
+                { CameraTypes::Setting::Type::Exposure, "Exposure", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_EXPOSURE, true },
+                { CameraTypes::Setting::Type::Focus, "Focus", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_FOCUS, true },
+                { CameraTypes::Setting::Type::Iris, "Iris", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_IRIS, true },
+                { CameraTypes::Setting::Type::Zoom, "Zoom", &PROPSETID_VIDCAP_CAMERACONTROL, KSPROPERTY_CAMERACONTROL_ZOOM, true },
+                { CameraTypes::Setting::Type::Gain, "Gain", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_GAIN, false },
+                { CameraTypes::Setting::Type::Gamma, "Gamma", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_GAMMA, false },
+                { CameraTypes::Setting::Type::Brightness, "Brightness", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_BRIGHTNESS, false },
+                { CameraTypes::Setting::Type::Contrast, "Contrast", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_CONTRAST, false },
+                { CameraTypes::Setting::Type::Hue, "Hue", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_HUE, false },
+                { CameraTypes::Setting::Type::Saturation, "Saturation", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_SATURATION, false },
+                { CameraTypes::Setting::Type::Sharpness, "Sharpness", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_SHARPNESS, false },
+                { CameraTypes::Setting::Type::WhiteBalance, "White balance", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_WHITEBALANCE, false },
+                { CameraTypes::Setting::Type::BacklightCompensation, "Backlight compensation", &PROPSETID_VIDCAP_VIDEOPROCAMP, KSPROPERTY_VIDEOPROCAMP_BACKLIGHT_COMPENSATION, false }
             };
             return descriptors;
         }
 
-        static const ControlDescriptor* descriptorFor(CameraControl control) {
+        static const ControlDescriptor* descriptorFor(CameraTypes::Setting::Type control) {
             const auto& descriptors = controlDescriptors();
             auto found = std::find_if(
                 descriptors.begin(), descriptors.end(),
@@ -525,7 +398,7 @@ export namespace Rev::Media {
             return found == descriptors.end() ? nullptr : &*found;
         }
 
-        bool queryRange(const ControlDescriptor& descriptor, CameraControlInfo& info) {
+        bool queryRange(const ControlDescriptor& descriptor, CameraTypes::Setting& info) {
             KSPROPERTY property = { *descriptor.propertySet, descriptor.propertyId, KSPROPERTY_TYPE_BASICSUPPORT };
             std::vector<unsigned char> data(512);
             ULONG returned = 0;
@@ -542,7 +415,7 @@ export namespace Rev::Media {
 
             auto* description = reinterpret_cast<const KSPROPERTY_DESCRIPTION*>(data.data());
             size_t offset = sizeof(KSPROPERTY_DESCRIPTION);
-            long defaultValue = info.value;
+            long defaultValue = info.val;
             bool foundRange = false;
 
             for (ULONG i = 0; i < description->MembersListCount; i++) {
@@ -557,9 +430,9 @@ export namespace Rev::Media {
                     header->MembersSize >= sizeof(KSPROPERTY_STEPPING_LONG) &&
                     header->MembersCount > 0) {
                     auto* range = reinterpret_cast<const KSPROPERTY_STEPPING_LONG*>(data.data() + offset);
-                    info.minimum = range->Bounds.SignedMinimum;
-                    info.maximum = range->Bounds.SignedMaximum;
-                    info.step = std::max<long>(1, static_cast<long>(range->SteppingDelta));
+                    info.min = range->Bounds.SignedMinimum;
+                    info.max = range->Bounds.SignedMaximum;
+                    info.step = static_cast<long>(range->SteppingDelta);
                     foundRange = true;
                 }
                 if ((header->Flags & KSPROPERTY_MEMBER_FLAG_DEFAULT) &&
@@ -569,11 +442,11 @@ export namespace Rev::Media {
                 offset += memberBytes;
             }
 
-            info.defaultValue = defaultValue;
+            info.def = defaultValue;
             return foundRange;
         }
 
-        bool queryControl(const ControlDescriptor& descriptor, CameraControlInfo& info) {
+        bool queryControl(const ControlDescriptor& descriptor, CameraTypes::Setting& info) {
             if (!ksControl) { return false; }
             info.control = descriptor.control;
             info.name = descriptor.name;
@@ -586,9 +459,12 @@ export namespace Rev::Media {
                     &request.Property, sizeof(request), &request, sizeof(request), &returned
                 );
                 if (status < 0) { return false; }
-                info.value = request.Value;
+                info.val = request.Value;
                 info.mode = (request.Flags & KSPROPERTY_CAMERACONTROL_FLAGS_AUTO)
-                    ? CameraControlMode::Automatic : CameraControlMode::Manual;
+                    ? CameraTypes::Setting::Mode::Automatic
+                    : (request.Flags & KSPROPERTY_CAMERACONTROL_FLAGS_MANUAL)
+                        ? CameraTypes::Setting::Mode::Manual
+                        : CameraTypes::Setting::Mode::Disabled;
                 info.supportsManual = (request.Capabilities & KSPROPERTY_CAMERACONTROL_FLAGS_MANUAL) != 0;
                 info.supportsAutomatic = (request.Capabilities & KSPROPERTY_CAMERACONTROL_FLAGS_AUTO) != 0;
             }
@@ -599,9 +475,12 @@ export namespace Rev::Media {
                     &request.Property, sizeof(request), &request, sizeof(request), &returned
                 );
                 if (status < 0) { return false; }
-                info.value = request.Value;
+                info.val = request.Value;
                 info.mode = (request.Flags & KSPROPERTY_VIDEOPROCAMP_FLAGS_AUTO)
-                    ? CameraControlMode::Automatic : CameraControlMode::Manual;
+                    ? CameraTypes::Setting::Mode::Automatic
+                    : (request.Flags & KSPROPERTY_VIDEOPROCAMP_FLAGS_MANUAL)
+                        ? CameraTypes::Setting::Mode::Manual
+                        : CameraTypes::Setting::Mode::Disabled;
                 info.supportsManual = (request.Capabilities & KSPROPERTY_VIDEOPROCAMP_FLAGS_MANUAL) != 0;
                 info.supportsAutomatic = (request.Capabilities & KSPROPERTY_VIDEOPROCAMP_FLAGS_AUTO) != 0;
             }
@@ -612,14 +491,14 @@ export namespace Rev::Media {
         bool writeControl(
             const ControlDescriptor& descriptor,
             long value,
-            CameraControlMode mode
+            CameraTypes::Setting::Mode mode
         ) {
             ULONG returned = 0;
             if (descriptor.cameraControl) {
                 KSPROPERTY_CAMERACONTROL_S request = {};
                 request.Property = { *descriptor.propertySet, descriptor.propertyId, KSPROPERTY_TYPE_SET };
                 request.Value = value;
-                request.Flags = mode == CameraControlMode::Automatic
+                request.Flags = mode == CameraTypes::Setting::Mode::Automatic
                     ? KSPROPERTY_CAMERACONTROL_FLAGS_AUTO
                     : KSPROPERTY_CAMERACONTROL_FLAGS_MANUAL;
                 return ksControl->KsProperty(
@@ -630,7 +509,7 @@ export namespace Rev::Media {
             KSPROPERTY_VIDEOPROCAMP_S request = {};
             request.Property = { *descriptor.propertySet, descriptor.propertyId, KSPROPERTY_TYPE_SET };
             request.Value = value;
-            request.Flags = mode == CameraControlMode::Automatic
+            request.Flags = mode == CameraTypes::Setting::Mode::Automatic
                 ? KSPROPERTY_VIDEOPROCAMP_FLAGS_AUTO
                 : KSPROPERTY_VIDEOPROCAMP_FLAGS_MANUAL;
             return ksControl->KsProperty(
@@ -638,34 +517,24 @@ export namespace Rev::Media {
             ) >= 0;
         }
 
-        void controlChanged(CameraControlEvent& event) {
-            controlDispatcher.tell(&CameraCapture::controlChanged, event);
-        }
-
-        void convertBgra(std::vector<unsigned char>& rgba, const BYTE* firstRow, LONG pitch) {
-            if (!firstRow || pitch == 0) { rgba.clear(); return; }
+        bool copyPixels(std::vector<unsigned char>& target, const BYTE* firstRow, LONG pitch) {
+            if (!firstRow || pitch == 0) { return false; }
             for (size_t y = 0; y < height; y++) {
                 const BYTE* source = firstRow + static_cast<ptrdiff_t>(y) * pitch;
-                unsigned char* target = rgba.data() + y * width * 4;
-                for (size_t x = 0; x < width; x++) {
-                    target[x * 4 + 0] = source[x * 4 + 2];
-                    target[x * 4 + 1] = source[x * 4 + 1];
-                    target[x * 4 + 2] = source[x * 4 + 0];
-                    target[x * 4 + 3] = 255;
-                }
+                unsigned char* row = target.data() + y * width * 4;
+                std::memcpy(row, source, width * 4);
             }
+            return true;
         }
 
         void setError(std::string value) {
-            std::scoped_lock lock(frameMutex);
+            std::scoped_lock lock(errorMutex);
             errorText = std::move(value);
         }
 
         void clearError() {
-            std::scoped_lock lock(frameMutex);
+            std::scoped_lock lock(errorMutex);
             errorText.clear();
-            latest = {};
-            frameRevision = 0;
         }
 
         void releaseRuntime() {

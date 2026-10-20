@@ -120,6 +120,8 @@ mistakes). Start with the README.
 
 ## Media capture
 
+@../source/OS/Media/Camera/Camera.Types.ixx
+@../source/OS/Media/Camera/Camera.ixx
 @../source/OS/Media/Camera/Camera.win.ixx
 @../source/OS/Media/Camera/Camera.lnx.ixx
 @../source/OS/Media/Camera/Camera.mac.ixx

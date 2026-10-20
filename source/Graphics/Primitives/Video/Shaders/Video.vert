@@ -6,7 +6,14 @@ layout(std140, binding = 0) uniform Transform { mat4 uProjection; };
 layout(std140, binding = 1) uniform Data {
     float x, y, w, h;
     float u, v, uw, vh;
-    float opacity;
+    float opacity, exposure, contrast, saturation;
+    vec4 gamma;
+    vec4 inputBlack;
+    vec4 inputWhite;
+    vec4 outputBlack;
+    vec4 outputWhite;
+    uint pixelFormat;
+    float padding0, padding1, padding2;
 };
 
 out vec2 fragUV;

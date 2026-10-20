@@ -8,7 +8,14 @@ struct Transform { float4x4 uProjection; };
 struct Data {
     float x, y, w, h;
     float u, v, uw, vh;
-    float opacity;
+    float opacity, exposure, contrast, saturation;
+    float4 gamma;
+    float4 inputBlack;
+    float4 inputWhite;
+    float4 outputBlack;
+    float4 outputWhite;
+    uint pixelFormat;
+    float padding0, padding1, padding2;
 };
 struct VertexOut {
     float4 position [[position]];
@@ -39,6 +46,19 @@ fragment float4 fragment_main(
     sampler videoSampler [[sampler(0)]]) {
 
     float4 color = videoTexture.sample(videoSampler, in.uv);
+    if (data.pixelFormat == 5u || data.pixelFormat == 7u) {
+        color.rgb = color.bgr;
+    }
+    if (data.pixelFormat == 6u || data.pixelFormat == 7u) {
+        color.a = 1.0;
+    }
+    color.rgb = clamp((color.rgb - data.inputBlack.rgb) / max(data.inputWhite.rgb - data.inputBlack.rgb, float3(0.00001)), 0.0, 1.0);
+    color.rgb = pow(color.rgb, 1.0 / max(data.gamma.rgb, float3(0.00001)));
+    color.rgb = (color.rgb - float3(0.5)) * data.contrast + float3(0.5);
+    color.rgb *= exp2(data.exposure);
+    float luminance = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+    color.rgb = mix(float3(luminance), color.rgb, data.saturation);
+    color.rgb = clamp(data.outputBlack.rgb + color.rgb * (data.outputWhite.rgb - data.outputBlack.rgb), 0.0, 1.0);
     color.a *= data.opacity;
     return color;
 }

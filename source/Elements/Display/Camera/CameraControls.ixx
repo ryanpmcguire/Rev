@@ -78,14 +78,14 @@ export namespace Rev::Element {
     struct CameraControlRow : public Box {
 
         Camera* camera = nullptr;
-        Media::CameraControlInfo info;
+        Media::Camera::Setting info;
         NumberInput* number = nullptr;
         Slider* slider = nullptr;
 
         CameraControlRow(
             Element* parent,
             Camera* camera,
-            const Media::CameraControlInfo& info
+            const Media::Camera::Setting& info
         ) : Box(parent, { &CameraControlStyles::Row }, "CameraControlRow"),
             camera(camera), info(info) {
 
@@ -96,20 +96,20 @@ export namespace Rev::Element {
             numberParams.label = "";
             numberParams.placeholder = "";
             numberParams.allowEmpty = false;
-            numberParams.allowNegative = info.minimum < 0;
+            numberParams.allowNegative = info.min < 0;
             numberParams.allowDecimal = false;
             numberParams.maxDecimalPlaces = 0;
-            numberParams.min = static_cast<double>(info.minimum);
-            numberParams.max = static_cast<double>(info.maximum);
+            numberParams.min = static_cast<double>(info.min);
+            numberParams.max = static_cast<double>(info.max);
 
             number = new NumberInput(editors, numberParams, { &CameraControlStyles::Number });
-            number->setValue(static_cast<double>(info.value));
+            number->setValue(static_cast<double>(info.val));
 
             Slider::SliderData sliderData;
-            sliderData.min = static_cast<float>(info.minimum);
-            sliderData.max = static_cast<float>(info.maximum);
-            sliderData.def = static_cast<float>(info.defaultValue);
-            sliderData.val = static_cast<float>(info.value);
+            sliderData.min = static_cast<float>(info.min);
+            sliderData.max = static_cast<float>(info.max);
+            sliderData.def = static_cast<float>(info.def);
+            sliderData.val = static_cast<float>(info.val);
             slider = new Slider(editors, sliderData, { &CameraControlStyles::Slider });
 
             // The row provides its own label and paired numeric display.
@@ -118,41 +118,43 @@ export namespace Rev::Element {
 
             number->onValueChange = [this](Event&, std::optional<double> value) {
                 if (!value || !this->camera) { return; }
-                this->camera->setControl(
-                    this->info.control,
-                    *value,
-                    Media::CameraControlMode::Manual
-                );
+                auto control = this->camera->media.control(this->info.control);
+                if (control) control->set(*value, Media::Camera::SettingMode::Manual);
             };
 
             slider->onValueChange = [this](Event&, float value) {
                 if (!this->camera) { return; }
-                this->camera->setControl(
-                    this->info.control,
-                    value,
-                    Media::CameraControlMode::Manual
-                );
+                auto control = this->camera->media.control(this->info.control);
+                if (control) control->set(value, Media::Camera::SettingMode::Manual);
             };
 
-            camera->onControlChanged(this, [this](Media::CameraControlEvent& event) {
-                if (event.info.control != this->info.control) { return; }
-                this->info = event.info;
+            auto control = camera->media.control(info.control);
+            if (control) control->onChange(this, [this](Media::Camera::SettingType& changedControl) {
+                auto current = this->camera->media.control(changedControl);
+                if (!current) return;
+                this->info = *current;
                 reflect();
             });
         }
 
         ~CameraControlRow() {
-            if (camera) { camera->unsubscribeControls(this); }
+            if (camera) {
+                auto control = camera->media.control(info.control);
+                if (control) control->unsubscribe(this);
+            }
         }
 
         void detachCamera() {
-            if (camera) { camera->unsubscribeControls(this); }
+            if (camera) {
+                auto control = camera->media.control(info.control);
+                if (control) control->unsubscribe(this);
+            }
             camera = nullptr;
         }
 
         void reflect() {
-            number->setValue(static_cast<double>(info.value));
-            slider->setVal(static_cast<float>(info.value));
+            number->setValue(static_cast<double>(info.val));
+            slider->setVal(static_cast<float>(info.val));
             if (shared && shared->event) { refresh(*shared->event); }
         }
     };
@@ -182,19 +184,19 @@ export namespace Rev::Element {
                 Button::Params::Secondary("Reset to defaults"),
                 { &CameraControlStyles::Reset }
             );
-            reset->setDisabled(!camera || camera->controls().empty());
+            reset->setDisabled(!camera || camera->media.info.controls.empty());
             reset->onClick([this](Event& event) {
                 if (!this->camera) { return; }
-                this->camera->resetControls();
+                for (auto& control : this->camera->media.info.controls) control.reset();
                 refresh(event);
             });
 
-            if (!camera || camera->controls().empty()) {
+            if (!camera || camera->media.info.controls.empty()) {
                 new Text(root, "This camera does not expose standard controls.", { &CameraControlStyles::Empty });
                 return;
             }
 
-            for (const Media::CameraControlInfo& info : camera->controls()) {
+            for (const Media::Camera::Setting& info : camera->media.info.controls) {
                 rows.push_back(new CameraControlRow(root, camera, info));
             }
         }
