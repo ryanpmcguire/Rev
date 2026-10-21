@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -126,7 +127,7 @@ export namespace Rev::Primitives {
         ~Triangles() {
 
             // Destroy shared pipeline
-            shared.destroy([this]() { this->createShared(); });
+            shared.destroy([this]() { this->destroyShared(); });
 
             delete vertices;
             delete databuff;
@@ -212,6 +213,14 @@ export namespace Rev::Primitives {
             }
         }
 
+        void doList() {
+            std::vector<Vertex>& source = *pPoints;
+            numVerts = source.size() - source.size() % 3;
+            numFaces = numVerts / 3;
+            vertices->resize(numVerts);
+            std::copy_n(source.begin(), numVerts, vertices->verts());
+        }
+
         void compute() override {
 
             data->color = color;
@@ -219,7 +228,7 @@ export namespace Rev::Primitives {
             switch (topology) {
                 case (Topology::Fan): { this->doFan(); break; }
                 case (Topology::Strip): { this->doStrip(); break; }
-                case (Topology::List): { break; }
+                case (Topology::List): { this->doList(); break; }
             }
         }
 
