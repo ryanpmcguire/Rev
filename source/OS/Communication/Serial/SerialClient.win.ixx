@@ -22,7 +22,7 @@ export namespace Rev {
     // ------------------------------------------------------------------
     // SerialClient  — the Win32 serial (USB-CDC virtual COM) implementation of
     // the Rev::Transport byte-pipe. It mirrors Rev::Client's threading contract
-    // EXACTLY: a worker thread owns the port, reads bytes and enqueues them via
+    // at the event boundary: a worker owns the port and enqueues bytes via
     // the inherited fire* helpers, and the main-thread pump() (from Transport)
     // drains the queue so every listener runs single-threaded. Only the winsock
     // calls are swapped for CreateFile / ReadFile / WriteFile.
@@ -49,47 +49,28 @@ export namespace Rev {
 
             stopPump();
 
-            running     = false;
-            isConnected = false;
-
-            // Atomic exchange: exactly one thread ever closes the handle.
-            HANDLE h = handle_.exchange(INVALID_HANDLE_VALUE);
-            if (h != INVALID_HANDLE_VALUE) { CloseHandle(h); }
-
-            if (worker_.joinable()) worker_.join();
-        }
-
-        // -- Connection --------------------------------------------------
-
-        // endpoint = COM port (e.g. "COM3"); param = baud (default 115200).
-        void connect(std::string port, int baud) override {
-
-            if (running) {
-                dbg("[SerialClient] connect() called while already running");
-                return;
-            }
-
-            // Never assign over a joinable std::thread (std::terminate). A prior
-            // worker may have exited on its own (open failure) leaving the thread
-            // joinable — join it first. Same invariant Rev::Client rests on.
+            stopRequested_ = true;
             if (worker_.joinable()) {
+                CancelSynchronousIo(worker_.native_handle());
                 worker_.join();
             }
+        }
 
-            port_ = std::move(port);
-            baud_ = baud;
-
+        // Main-thread facade. Opening, configuring and closing remain worker-owned.
+        void connect(std::string port, int baud) override {
+            if (running) return;
             {
                 std::lock_guard<std::mutex> lock(outgoingMutex_);
                 outgoing_.clear();
             }
-
-            running     = true;
+            pendingPort_ = std::move(port);
+            pendingBaud_ = baud;
+            pendingConnect_ = true;
+            running = true;
             isConnected = false;
-
-            worker_ = std::thread([this]() { workerMain(); });
-
-            startPump();
+            Core::Process::instance().schedule(this, PumpIntervalMs,
+                [this](uint64_t) { service(); });
+            service();
         }
 
         // -- API ---------------------------------------------------------
@@ -111,38 +92,22 @@ export namespace Rev {
         }
 
         void disconnect() override {
-
-            if (!running && !worker_.joinable()) { return; }
-
-            const bool wasActive = running;
-
-            running     = false;
+            const bool wasActive = running.exchange(false);
             isConnected = false;
-
-            // Reads are bounded to ~50ms (see COMMTIMEOUTS in workerMain), so the
-            // worker observes running == false within one timeout; closing the
-            // handle here just releases the port. Atomic exchange guarantees a
-            // single CloseHandle even if the worker's cleanup races us.
-            HANDLE h = handle_.exchange(INVALID_HANDLE_VALUE);
-            if (h != INVALID_HANDLE_VALUE) { CloseHandle(h); }
-
-            if (worker_.joinable() && std::this_thread::get_id() != worker_.get_id()) {
-                worker_.join();
-            }
-
+            pendingConnect_ = false;
+            stopRequested_ = true;
+            discardEvents_ = true;
+            // Cancellation does not wait for the driver or close its handle.
+            if (worker_.joinable()) CancelSynchronousIo(worker_.native_handle());
             {
                 std::lock_guard<std::mutex> lock(outgoingMutex_);
                 outgoing_.clear();
             }
-
-            // The read loop exits silently on our own close; announce a
-            // user-initiated disconnect of a live link here (only if it was live).
+            // Keep the pump alive until worker cleanup has completed.
             if (wasActive) {
-                fireDisconnect();
+                DisconnectEvent event{};
+                disconnectDispatcher_.tell(&SerialClient::disconnectEvent, event);
             }
-
-            pump();
-            stopPump();
         }
 
         // -- Enumeration -------------------------------------------------
@@ -192,7 +157,43 @@ export namespace Rev {
         std::thread          worker_;
         std::mutex           outgoingMutex_;
         std::vector<std::string> outgoing_;
-        bool                 resetOnConnect_ = false;
+        std::atomic<bool> resetOnConnect_ = false;
+        std::atomic<bool> stopRequested_ = false;
+        std::atomic<bool> finished_ = true;
+        bool pendingConnect_ = false, discardEvents_ = false;
+        std::string pendingPort_;
+        int pendingBaud_ = 115200;
+
+        void service() {
+            if (discardEvents_) {
+                std::lock_guard<std::mutex> lock(queueMutex_);
+                queue_.clear();
+            }
+            if (finished_) {
+                // finished_ is published only after all driver operations end.
+                if (worker_.joinable()) worker_.join();
+                if (pendingConnect_) {
+                    {
+                        std::lock_guard<std::mutex> lock(queueMutex_);
+                        queue_.clear();
+                    }
+                    port_ = std::move(pendingPort_);
+                    baud_ = pendingBaud_;
+                    pendingConnect_ = false;
+                    discardEvents_ = false;
+                    stopRequested_ = false;
+                    finished_ = false;
+                    worker_ = std::thread([this]() {
+                        workerMain();
+                        finished_ = true;
+                    });
+                } else {
+                    running = false;
+                }
+            }
+            if (!discardEvents_) pump();
+            if (finished_ && !pendingConnect_ && !running) stopPump();
+        }
 
         // -- Worker ------------------------------------------------------
 
@@ -216,7 +217,7 @@ export namespace Rev {
             if (h == INVALID_HANDLE_VALUE) {
                 dbg("[SerialClient] Failed to open %s (%lu)", port_.c_str(), GetLastError());
                 fireError("Failed to open " + port_);
-                running = false;
+                stopRequested_ = true;
                 return;
             }
 
@@ -227,7 +228,7 @@ export namespace Rev {
                 dbg("[SerialClient] GetCommState failed");
                 fireError("GetCommState failed");
                 CloseHandle(h);
-                running = false;
+                stopRequested_ = true;
                 return;
             }
 
@@ -248,7 +249,7 @@ export namespace Rev {
                 dbg("[SerialClient] SetCommState failed");
                 fireError("SetCommState failed");
                 CloseHandle(h);
-                running = false;
+                stopRequested_ = true;
                 return;
             }
 
@@ -265,9 +266,14 @@ export namespace Rev {
             timeouts.ReadIntervalTimeout         = MAXDWORD;
             timeouts.ReadTotalTimeoutConstant    = 50;
             timeouts.ReadTotalTimeoutMultiplier  = MAXDWORD;
-            timeouts.WriteTotalTimeoutConstant   = 50;
-            timeouts.WriteTotalTimeoutMultiplier = 10;
-            SetCommTimeouts(h, &timeouts);
+            timeouts.WriteTotalTimeoutConstant   = 100;
+            timeouts.WriteTotalTimeoutMultiplier = 0;
+            if (!SetCommTimeouts(h, &timeouts)) {
+                fireError("SetCommTimeouts failed");
+                CloseHandle(h);
+                stopRequested_ = true;
+                return;
+            }
 
             handle_.store(h);
 
@@ -282,7 +288,7 @@ export namespace Rev {
                 EscapeCommFunction(h, SETDTR);
             }
 
-            if (!running) {   // disconnected during the ~1s settle
+            if (stopRequested_) {   // disconnected during the ~1s settle
                 isConnected = false;
                 HANDLE cur = handle_.exchange(INVALID_HANDLE_VALUE);
                 if (cur != INVALID_HANDLE_VALUE) { CloseHandle(cur); }
@@ -299,7 +305,7 @@ export namespace Rev {
             isConnected = false;
             HANDLE cur = handle_.exchange(INVALID_HANDLE_VALUE);
             if (cur != INVALID_HANDLE_VALUE) { CloseHandle(cur); }
-            running = false;
+            stopRequested_ = true;
         }
 
         void readLoop(HANDLE h) {
@@ -307,7 +313,7 @@ export namespace Rev {
             char buffer[4096];
             auto lastBeat = std::chrono::steady_clock::now();
 
-            while (running) {
+            while (!stopRequested_) {
 
                 if (!drainOutgoing(h)) { break; }
 
@@ -327,7 +333,7 @@ export namespace Rev {
                 DWORD bytes = 0;
                 BOOL  ok    = ReadFile(h, buffer, sizeof(buffer), &bytes, nullptr);
 
-                if (!running) { break; }
+                if (stopRequested_) { break; }
 
                 if (!ok) {
                     // Read failed — a closed handle (our disconnect) or a lost
@@ -356,7 +362,7 @@ export namespace Rev {
             for (const std::string& message : batch) {
                 std::size_t sent = 0;
 
-                while (sent < message.size() && running) {
+                while (sent < message.size() && !stopRequested_) {
                     DWORD written = 0;
                     const DWORD remaining = static_cast<DWORD>(message.size() - sent);
                     const BOOL ok = WriteFile(
@@ -376,7 +382,7 @@ export namespace Rev {
                             error
                         );
                         fireError("Serial write failed (" + std::to_string(error) + ")");
-                        running = false;
+                        stopRequested_ = true;
                         return false;
                     }
 
@@ -384,7 +390,7 @@ export namespace Rev {
                 }
             }
 
-            return running;
+            return !stopRequested_;
         }
     };
 }
