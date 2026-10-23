@@ -315,8 +315,6 @@ export namespace Rev {
 
             while (!stopRequested_) {
 
-                if (!drainOutgoing(h)) { break; }
-
                 // Heartbeat: pulse the status-poll byte at the configured cadence.
                 // The ~50ms read timeout below is our timer.
                 const int interval = heartbeatIntervalMs_.load();
@@ -356,7 +354,13 @@ export namespace Rev {
             std::vector<std::string> batch;
             {
                 std::lock_guard<std::mutex> lock(outgoingMutex_);
-                batch.swap(outgoing_);
+                // Bound each write batch so incoming replies are serviced under load.
+                std::size_t count = 0, bytes = 0;
+                while (count < outgoing_.size() && bytes < 256U) {
+                    bytes += outgoing_[count].size();
+                    batch.push_back(std::move(outgoing_[count++]));
+                }
+                outgoing_.erase(outgoing_.begin(), outgoing_.begin() + count);
             }
 
             for (const std::string& message : batch) {
@@ -381,7 +385,11 @@ export namespace Rev {
                             message.size(),
                             error
                         );
-                        fireError("Serial write failed (" + std::to_string(error) + ")");
+                        if (!stopRequested_) {
+                            isConnected = false;
+                            fireError("Serial write failed (" + std::to_string(error) + ")");
+                            fireDisconnect();
+                        }
                         stopRequested_ = true;
                         return false;
                     }
