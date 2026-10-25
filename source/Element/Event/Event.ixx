@@ -103,6 +103,9 @@ export namespace Rev::Element {
 
             Button enter;
             Button space;
+            Button num0, num1, num2, num3, num4;
+            Button num5, num6, num7, num8, num9;
+            Button a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z;
 
             Arrows arrows;
 
@@ -132,7 +135,34 @@ export namespace Rev::Element {
                 if (shift) { add("shift"); }
                 if (alt)   { add("alt"); }
 
-                if (!key.empty() && key != "ctrl" && key != "shift" && key != "alt") {
+                auto addCharacter = [&add](Button& button, char character) {
+                    if (button) { add(std::string(1, character)); }
+                };
+
+                addCharacter(a, 'a'); addCharacter(b, 'b'); addCharacter(c, 'c');
+                addCharacter(d, 'd'); addCharacter(e, 'e'); addCharacter(f, 'f');
+                addCharacter(g, 'g'); addCharacter(h, 'h'); addCharacter(i, 'i');
+                addCharacter(j, 'j'); addCharacter(k, 'k'); addCharacter(l, 'l');
+                addCharacter(m, 'm'); addCharacter(n, 'n'); addCharacter(o, 'o');
+                addCharacter(p, 'p'); addCharacter(q, 'q'); addCharacter(r, 'r');
+                addCharacter(s, 's'); addCharacter(t, 't'); addCharacter(u, 'u');
+                addCharacter(v, 'v'); addCharacter(w, 'w'); addCharacter(x, 'x');
+                addCharacter(y, 'y'); addCharacter(z, 'z');
+                addCharacter(num0, '0'); addCharacter(num1, '1');
+                addCharacter(num2, '2'); addCharacter(num3, '3');
+                addCharacter(num4, '4'); addCharacter(num5, '5');
+                addCharacter(num6, '6'); addCharacter(num7, '7');
+                addCharacter(num8, '8'); addCharacter(num9, '9');
+
+                const bool keyIsCharacter =
+                    key.size() == 1 && (
+                        (key.front() >= 'a' && key.front() <= 'z') ||
+                        (key.front() >= '0' && key.front() <= '9')
+                    );
+                if (
+                    !keyIsCharacter && !key.empty() &&
+                    key != "ctrl" && key != "shift" && key != "alt"
+                ) {
                     add(key);
                 }
             }

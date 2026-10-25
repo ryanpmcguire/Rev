@@ -245,7 +245,12 @@ export namespace Rev::Element {
 
             for (char c : line.content) {
 
-                float right = left + font->glyphs[c].advance;
+                const unsigned char code = static_cast<unsigned char>(c);
+                float right = left + (
+                    code >= 32 && code < 127
+                        ? font->glyphs[code].advance
+                        : 0.0f
+                );
 
                 if (x <= right) {
 
@@ -587,7 +592,10 @@ export namespace Rev::Element {
             for (char c : strContent) {
 
                 // Track current
-                letter.current = fontRef.glyphs[c].advance;
+                const unsigned char code = static_cast<unsigned char>(c);
+                letter.current = code >= 32 && code < 127
+                    ? fontRef.glyphs[code].advance
+                    : 0.0f;
                 word.current += letter.current;
                 line.current += letter.current;
 
@@ -735,7 +743,10 @@ export namespace Rev::Element {
 
                     // Add char to chunk
                     chunk += c;
-                    chunkWidth += fontRef.glyphs[c].advance;
+                    const unsigned char code = static_cast<unsigned char>(c);
+                    if (code >= 32 && code < 127) {
+                        chunkWidth += fontRef.glyphs[code].advance;
+                    }
 
                     // If current chunk would not fit, start a new line
                     if (line.rect.w + chunkWidth > maxWidth && chunkStart != 0) {
@@ -758,7 +769,10 @@ export namespace Rev::Element {
 
                     // Add char to chunk
                     chunk += c;
-                    chunkWidth += fontRef.glyphs[c].advance;
+                    const unsigned char code = static_cast<unsigned char>(c);
+                    if (code >= 32 && code < 127) {
+                        chunkWidth += fontRef.glyphs[code].advance;
+                    }
                 }
 
                 idx += 1;
@@ -843,7 +857,10 @@ export namespace Rev::Element {
                         break;
                     }
 
-                    cursor_x += font->glyphs[c].advance;
+                    const unsigned char code = static_cast<unsigned char>(c);
+                    if (code >= 32 && code < 127) {
+                        cursor_x += font->glyphs[code].advance;
+                    }
                     idx += 1;
                 }
                 
@@ -877,8 +894,12 @@ export namespace Rev::Element {
 
                     for (char c : line.content) {
 
-                        if (idx < leftMost) { left_x += font->glyphs[c].advance; }
-                        if (idx < rightMost) { right_x += font->glyphs[c].advance; }
+                        const unsigned char code = static_cast<unsigned char>(c);
+                        const float advance = code >= 32 && code < 127
+                            ? font->glyphs[code].advance
+                            : 0.0f;
+                        if (idx < leftMost) { left_x += advance; }
+                        if (idx < rightMost) { right_x += advance; }
 
                         idx += 1;
                     }

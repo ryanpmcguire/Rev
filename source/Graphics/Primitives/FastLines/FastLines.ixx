@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <cstddef>
 #include <vector>
 
@@ -101,6 +102,10 @@ export namespace Rev::Primitives {
         };
 
         std::vector<Line> lines;
+        // Only the populated prefix is uploaded and drawn. Keeping a larger
+        // lines vector and resource pool lets callers reuse fixed-capacity
+        // storage without shrinking or reallocating it as visibility changes.
+        size_t activeLineCount = static_cast<size_t>(-1);
 
         // Per-line GPU resources, pooled and reused across frames. Each line owns
         // its own points TBO and uniform block so draw() can bind stable buffers
@@ -152,10 +157,11 @@ export namespace Rev::Primitives {
         // Upload: pack each line's points into its TBO and uniform block.
         void compute() override {
 
-            reservePool(lines.size());
-            instanceCounts.assign(lines.size(), 0);
+            const size_t count = std::min(lines.size(), activeLineCount);
+            reservePool(count);
+            instanceCounts.assign(count, 0);
 
-            for (size_t i = 0; i < lines.size(); i++) {
+            for (size_t i = 0; i < count; i++) {
 
                 std::vector<Vertex>& pts = lines[i].getPoints();
 
