@@ -36,7 +36,9 @@ export namespace Rev::Primitives {
 
                 .openGlVert = File("./Shaders/Lines3d.vert"),
                 .openGlFrag = File("./Shaders/Lines3d.frag"),
-                .metalUniversal = File("./Shaders/Lines3d.metal")
+                .metalUniversal = File("./Shaders/Lines3d.metal"),
+                .directXVert = File("./Shaders/Lines3d.vert.hlsl"),
+                .directXFrag = File("./Shaders/Lines3d.frag.hlsl")
             });
         }
 

@@ -58,6 +58,19 @@ export namespace Rev::Element {
         float width, height;
         float minWidth, minHeight;
         float maxWidth, maxHeight;
+        // Retain wrapping and glyph geometry across unrelated redraws (video,
+        // telemetry, hover elsewhere). Each cache has independent input keys.
+        bool layoutCached = false, glyphsCached = false;
+        std::string layoutContent;
+        Font* layoutFont = nullptr;
+        float layoutWidth = 0, glyphScale = 0, glyphFontSize = 0;
+        float glyphPadLeft = 0, glyphPadTop = 0;
+        Wrap layoutWrap = Wrap::False;
+        uint64_t layoutRevision = 0, glyphLayoutRevision = 0;
+        Core::RevisionObserver glyphStyleObserver;
+        Rect glyphRect;
+        int glyphCursor = 0, glyphSelectStart = 0, glyphSelectEnd = 0;
+        bool glyphEditable = false;
 
         // Create
         Text(Element* parent, std::string content = "Hello World", StyleList styles = {}) : Box(parent, styles, "Text") {
@@ -517,9 +530,14 @@ export namespace Rev::Element {
         void computeStyle(Event& e) override {
 
             // Recompute style only if either of these changed
-            if (content.changed() || editable.changed() || selectable.changed()) {
+            bool contentChanged = content.changed();
+            bool editableChanged = editable.changed(), selectableChanged = selectable.changed();
+            if (contentChanged || editableChanged || selectableChanged) {
                 this->dirty.style = true;
             }
+            // Equal-width substitutions still require new line contents, even
+            // when measured minima and resolved geometry do not change.
+            if (contentChanged) shared->layoutDirty = true;
             
             Box::computeStyle(e);
         }
@@ -532,6 +550,11 @@ export namespace Rev::Element {
             Box::resolveStyle(e);
 
             strContent = content;
+            for (char& character : strContent) {
+                if (static_cast<unsigned char>(character) >= 128U) {
+                    character = ' ';
+                }
+            }
             fontSize = resolved.style.text.size.val;
             if (!fontSize) { fontSize = 12.0f; }
 
@@ -798,7 +821,12 @@ export namespace Rev::Element {
             layout = Layout();
 
             this->maxWidth = resolved.max.innerWidth;
-            this->layoutText();
+            if (!layoutCached || layoutContent != strContent || layoutFont != font ||
+                layoutWidth != maxWidth || layoutWrap != resolved.style.text.wrap) {
+                this->layoutText();
+                layoutCached = true; layoutContent = strContent; layoutFont = font;
+                layoutWidth = maxWidth; layoutWrap = resolved.style.text.wrap; ++layoutRevision;
+            }
 
             layout.size.w = { .val = width, .min = width };
             layout.size.h = { .val = height, .min = height };
@@ -806,18 +834,30 @@ export namespace Rev::Element {
 
         void computePrimitives(Event& e) override {
 
-            // Set font size
-            text->fontSize = resolved.style.text.size.val;
-            if (!text->fontSize) { text->fontSize = 12.0f; }
-
-            // Set font color
+            // Opacity cascades independently of style revision and geometry.
+            text->data->opacity = resolved.opacity;
+            line->data->opacity = resolved.opacity;
+            // Paint transitions can advance without a new style revision.
             text->data->color = {
                 resolved.style.text.color.r, resolved.style.text.color.g,
                 resolved.style.text.color.b, resolved.style.text.color.a
             };
+            float size = resolved.style.text.size.val;
+            if (!size) size = 12.0f;
+            bool styleChanged = glyphStyleObserver.changed(styleRev);
+            bool changed = !glyphsCached || styleChanged || !rect.compare(glyphRect) ||
+                glyphScale != shared->canvas->details.scale || glyphLayoutRevision != layoutRevision ||
+                glyphFontSize != size || glyphPadLeft != resolved.pad.l.val || glyphPadTop != resolved.pad.t.val ||
+                glyphEditable != bool(editable) || (editable && (glyphCursor != cursor ||
+                    glyphSelectStart != selectAnchor || glyphSelectEnd != selectEnd));
+            if (!changed) { Box::computePrimitives(e); return; }
+            glyphsCached = true; glyphRect = rect; glyphScale = shared->canvas->details.scale;
+            glyphFontSize = size; glyphPadLeft = resolved.pad.l.val; glyphPadTop = resolved.pad.t.val;
+            glyphLayoutRevision = layoutRevision; glyphEditable = editable;
+            glyphCursor = cursor; glyphSelectStart = selectAnchor; glyphSelectEnd = selectEnd;
 
-            // Cascaded opacity
-            text->data->opacity = resolved.opacity;
+            // Set font size
+            text->fontSize = size;
 
             text->xPos = rect.x + resolved.pad.l.val;
             text->yPos = rect.y + resolved.pad.t.val;

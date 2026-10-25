@@ -40,7 +40,9 @@ export namespace Rev::Primitives {
 
                 .openGlVert = File("./Shaders/Mesh3d.vert"),
                 .openGlFrag = File("./Shaders/Mesh3d.frag"),
-                .metalUniversal = File("./Shaders/Mesh3d.metal")
+                .metalUniversal = File("./Shaders/Mesh3d.metal"),
+                .directXVert = File("./Shaders/Mesh3d.vert.hlsl"),
+                .directXFrag = File("./Shaders/Mesh3d.frag.hlsl")
             });
         }
 

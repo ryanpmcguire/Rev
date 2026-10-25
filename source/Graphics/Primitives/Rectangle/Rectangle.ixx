@@ -41,7 +41,9 @@ export namespace Rev::Primitives {
 
                 .openGlVert = File("./Shaders/Rectangle.vert"),
                 .openGlFrag = File("./Shaders/Rectangle.frag"),
-                .metalUniversal = File("./Shaders/Rectangle.metal")
+                .metalUniversal = File("./Shaders/Rectangle.metal"),
+                .directXVert = File("./Shaders/Rectangle.vert.hlsl"),
+                .directXFrag = File("./Shaders/Rectangle.frag.hlsl")
             });
 
             stencilPipeline = new Pipeline(canvas->context, {
@@ -52,7 +54,9 @@ export namespace Rev::Primitives {
 
                 .openGlVert = File("./Shaders/Rectangle.vert"),
                 .openGlFrag = File("./Shaders/Rectangle.frag"),
-                .metalUniversal = File("./Shaders/Rectangle.metal")
+                .metalUniversal = File("./Shaders/Rectangle.metal"),
+                .directXVert = File("./Shaders/Rectangle.vert.hlsl"),
+                .directXFrag = File("./Shaders/Rectangle.frag.hlsl")
             });
 
             vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });

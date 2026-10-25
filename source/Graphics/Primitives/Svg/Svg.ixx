@@ -41,7 +41,9 @@ export namespace Rev::Primitives {
 
                 .openGlVert = File("./Shaders/Svg.vert"),
                 .openGlFrag = File("./Shaders/Svg.frag"),
-                .metalUniversal = File("./Shaders/Svg.metal")
+                .metalUniversal = File("./Shaders/Svg.metal"),
+                .directXVert = File("./Shaders/Svg.vert.hlsl"),
+                .directXFrag = File("./Shaders/Svg.frag.hlsl")
             });
 
             vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });

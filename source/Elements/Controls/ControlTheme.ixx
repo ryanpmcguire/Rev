@@ -279,9 +279,19 @@ export namespace Rev::Element::ControlTheme {
     };
 
     Style SliderTrack = {
-        .layout = { Axis::Horizontal, Align::Start, Align::Center },
+        .overflow = Overflow::Hide,
+        .layout = { .direction = Axis::Horizontal, .horizontal = Align::Start,
+                    .vertical = Align::Center, .wrap = Wrap::False,
+                    .position = Position::Relative },
         .size = { .width = 100_pct, .height = 2_px },
         .background = { .color = rgba(203, 213, 225, 1.0) }
+    };
+
+    Style SliderFill = {
+        .layout = { .position = Position::Absolute },
+        .position = { .left = 0_px, .top = 0_px },
+        .size = { .width = 0_pct, .height = 100_pct },
+        .background = { .color = rgba(79, 99, 255, 1.0) }
     };
 
     Style SliderThumb = {

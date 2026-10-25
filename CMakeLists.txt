@@ -37,6 +37,7 @@ file(GLOB_RECURSE CPP_SOURCES CONFIGURE_DEPENDS
     ${EXT_DIR}/*.cpp
     ${RCS_DIR}/.modules/*.cpp
 )
+list(FILTER CPP_SOURCES EXCLUDE REGEX "/Graphics/DirectX/Tests/")
 
 # Collect sources
 file(GLOB_RECURSE OBJCPP_SOURCES CONFIGURE_DEPENDS
@@ -98,7 +99,7 @@ function(filter_sources out_var)
 endfunction()
 
 set(VALID_OS_MARKERS win mac osx ios lnx linux unix android)
-set(VALID_PLATFORM_MARKERS vulkan metal opengl)
+set(VALID_PLATFORM_MARKERS vulkan metal opengl directx)
 
 filter_sources(CPP_SOURCES_FILTERED ${CPP_SOURCES})
 filter_sources(OBJCPP_SOURCES_FILTERED ${OBJCPP_SOURCES})
@@ -176,6 +177,9 @@ if (WIN32)
       Ole32
       Shell32
       Uuid
+      Mfplat
+      Mfreadwrite
+      Mfuuid
   )
 elseif (APPLE)
     target_link_libraries(Rev PUBLIC

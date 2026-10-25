@@ -3,6 +3,7 @@ module;
 #include <cmath>
 #include <string>
 #include <algorithm>
+#include <functional>
 
 export module Rev.Element.Slider;
 
@@ -43,6 +44,7 @@ export namespace Rev::Element {
 
         Box* sliderContainer = nullptr;
             Box* track = nullptr;
+            Box* fill = nullptr;
             Element* thumbContainer = nullptr;
                 Box* thumb = nullptr;
 
@@ -57,6 +59,7 @@ export namespace Rev::Element {
         };
 
         SliderData data;
+        std::function<void(Event&, float)> onValueChange;
 
         Slider(
             Element* parent,
@@ -81,6 +84,7 @@ export namespace Rev::Element {
             );
 
             track = new Box(sliderContainer, { &SliderTrack }, "Track");
+                fill = new Box(track, { &SliderFill }, "Fill");
                 thumbContainer = new Element(track, { &FieldInner }, "Container");
                     thumb = new Box(
                         thumbContainer,
@@ -90,12 +94,18 @@ export namespace Rev::Element {
 
             sliderContainer->onMouseDown([this] (Event& e) {
                 float newVal = posToVal(e.mouse.pos);
-                if (setVal(newVal)) { refresh(e); }
+                if (setVal(newVal)) {
+                    if (onValueChange) { onValueChange(e, data.val); }
+                    refresh(e);
+                }
             });
 
             sliderContainer->onDrag([this] (Event& e) {
                 float newVal = posToVal(e.mouse.pos);
-                if (setVal(newVal)) { refresh(e); }
+                if (setVal(newVal)) {
+                    if (onValueChange) { onValueChange(e, data.val); }
+                    refresh(e);
+                }
             });
         }
 
@@ -107,12 +117,14 @@ export namespace Rev::Element {
         }
 
         float posToVal(Pos& pos) {
-            return (data.max - data.min) * track->rect.posWithin(pos).x;
+            return data.min + (data.max - data.min) * track->rect.posWithin(pos).x;
         }
 
         void computeStyle(Event& e) override {
 
-            float pctVal = (data.val - data.min) / (data.max - data.min);
+            float range = data.max - data.min;
+            float pctVal = range == 0.0f ? 0.0f : (data.val - data.min) / range;
+            fill->style->size.width = Pct(100.0f * pctVal);
             thumbContainer->style->position.left = Pct(100.0f * pctVal);
         
             Element::computeStyle(e);

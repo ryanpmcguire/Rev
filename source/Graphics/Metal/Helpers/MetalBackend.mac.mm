@@ -572,6 +572,30 @@ void metal_destroy_texture(void* texture) {
     delete t;
 }
 
+void metal_update_texture(void* texture, const unsigned char* data) {
+    if (!texture || !data) return;
+
+    MetalTexture* t = static_cast<MetalTexture*>(texture);
+    MTLRegion region = { {0,0,0}, { (NSUInteger)t->width, (NSUInteger)t->height, 1 } };
+
+    if (t->channels == 1) {
+        [t->tex replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:t->width];
+    }
+    else if (t->channels == 3) {
+        std::vector<unsigned char> rgba(t->width * t->height * 4);
+        for (size_t i = 0; i < t->width * t->height; i++) {
+            rgba[i * 4 + 0] = data[i * 3 + 0];
+            rgba[i * 4 + 1] = data[i * 3 + 1];
+            rgba[i * 4 + 2] = data[i * 3 + 2];
+            rgba[i * 4 + 3] = 255;
+        }
+        [t->tex replaceRegion:region mipmapLevel:0 withBytes:rgba.data() bytesPerRow:t->width * 4];
+    }
+    else if (t->channels == 4) {
+        [t->tex replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:t->width * 4];
+    }
+}
+
 void metal_bind_texture(MetalContext* ctx, void* texture, int unit) {
     if (!ctx || !ctx->enc || !texture) return;
     MetalTexture* t = static_cast<MetalTexture*>(texture);

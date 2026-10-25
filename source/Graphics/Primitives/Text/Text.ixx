@@ -46,7 +46,9 @@ export namespace Rev::Primitives {
                 .openGlVert = File("./Shaders/Text.vert"),
                 .openGlFrag = File("./Shaders/Text.frag"),
 
-                .metalUniversal = File("./Shaders/Text.metal")
+                .metalUniversal = File("./Shaders/Text.metal"),
+                .directXVert = File("./Shaders/Text.vert.hlsl"),
+                .directXFrag = File("./Shaders/Text.frag.hlsl")
             });
         }
 

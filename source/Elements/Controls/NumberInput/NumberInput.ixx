@@ -13,6 +13,7 @@ export module Rev.Element.NumberInput;
 
 import Rev.Element;
 import Rev.Element.Event;
+import Rev.Core.Dispatcher;
 import Rev.Appearance;
 
 import Rev.Element.ControlTheme;
@@ -62,6 +63,22 @@ export namespace Rev::Element {
         Text* suffixText = nullptr;
 
         std::function<void(Event&, std::optional<double>)> onValueChange;
+
+        struct ValueEvent {
+            Event& event;
+            std::optional<double> value;
+        };
+        Rev::Core::Dispatcher<ValueEvent> valueDispatcher;
+        void valueChanged(ValueEvent&) {} // Dispatcher event key.
+        void onValueChanged(void* owner, const std::function<void(ValueEvent&)>& listener) {
+            valueDispatcher.listen(&NumberInput::valueChanged, owner, listener);
+        }
+        void unsubscribeValueChanged(void* owner) { valueDispatcher.unsubscribe(owner); }
+        void notifyValueChanged(Event& event, std::optional<double> value) {
+            ValueEvent change{event, value};
+            valueDispatcher.tell(&NumberInput::valueChanged, change);
+            if (onValueChange) onValueChange(event, value);
+        }
 
         NumberInput(
             Element* parent,
@@ -402,9 +419,7 @@ export namespace Rev::Element {
 
                     applyDisplay("", std::nullopt, e);
 
-                    if (changed && onValueChange) {
-                        onValueChange(e, std::nullopt);
-                    }
+                    if (changed) notifyValueChanged(e, std::nullopt);
                 }
 
                 else {
@@ -427,14 +442,12 @@ export namespace Rev::Element {
             bool changed = true;
 
             if (committedValue) {
-                changed = std::fabs(*committedValue - interpreted) > 1e-9;
+                changed = *committedValue != interpreted;
             }
 
             applyDisplay(display, interpreted, e);
 
-            if (changed && onValueChange) {
-                onValueChange(e, interpreted);
-            }
+            if (changed) notifyValueChanged(e, interpreted);
         }
 
         void commit(Event& e) {
@@ -521,9 +534,7 @@ export namespace Rev::Element {
             committedValue = interpreted;
             syncPlaceholderText();
 
-            if (changed && onValueChange && event) {
-                onValueChange(*event, interpreted);
-            }
+            if (changed && event) notifyValueChanged(*event, interpreted);
         }
 
         void clearValue(Event* event = nullptr) {
@@ -535,9 +546,7 @@ export namespace Rev::Element {
             committedValue = std::nullopt;
             syncPlaceholderText();
 
-            if (changed && onValueChange && event) {
-                onValueChange(*event, std::nullopt);
-            }
+            if (changed && event) notifyValueChanged(*event, std::nullopt);
         }
 
         void setValue(std::optional<double> value, Event* event = nullptr) {
