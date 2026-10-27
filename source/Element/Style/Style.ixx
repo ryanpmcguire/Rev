@@ -849,6 +849,8 @@ export namespace Rev::Appearance {
         Caret,
         Crosshair,
         Hand,
+        Grab,
+        Grabbing,
         NotAllowed,
         ArrowsHorizontal,
         ArrowsVertical,

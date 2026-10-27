@@ -1031,6 +1031,14 @@ export namespace Rev {
                 case Appearance::Cursor::Hand:
                     cursorId = IDC_HAND;
                     break;
+
+                case Appearance::Cursor::Grab:
+                    cursorId = IDC_HAND;
+                    break;
+
+                case Appearance::Cursor::Grabbing:
+                    cursorId = IDC_SIZEALL;
+                    break;
         
                 case Appearance::Cursor::NotAllowed:
                     cursorId = IDC_NO;
