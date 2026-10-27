@@ -9,6 +9,7 @@ export module Rev.Application;
 
 import Rev.Window;
 import Rev.Core.Process;
+import Rev.Core.Promise;
 
 export namespace Rev {
 
@@ -20,6 +21,7 @@ export namespace Rev {
         Application() {
             // Win32 needs an HINSTANCE, but window creation
             // will handle RegisterClass etc. at that layer.
+            Rev::Core::PromiseManager::instance().attachMainThread();
         }
 
         // Destroy

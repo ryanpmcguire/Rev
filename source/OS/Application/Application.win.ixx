@@ -9,6 +9,7 @@ export module Rev.Application;
 
 import Rev.Window;
 import Rev.Core.Process;
+import Rev.Core.Promise;
 
 export namespace Rev {
 
@@ -16,7 +17,7 @@ export namespace Rev {
 
         std::vector<void*> windows;
 
-        Application() {}
+        Application() { Rev::Core::PromiseManager::instance().attachMainThread(); }
 
         ~Application() {}
 

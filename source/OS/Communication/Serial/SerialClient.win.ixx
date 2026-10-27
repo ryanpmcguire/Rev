@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <thread>
@@ -7,6 +8,9 @@ module;
 #include <chrono>
 #include <mutex>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <optional>
 
 #include <windows.h>
 
@@ -87,9 +91,10 @@ export namespace Rev {
             outgoing_.push_back(msg);
         }
 
-        void setResetOnConnect(bool enabled) {
-            resetOnConnect_ = enabled;
-        }
+        // Hold a modem-control line at a stable level for devices whose USB
+        // CDC implementation requires carrier assertion. This is configured
+        // once with the DCB; it never performs a reset pulse.
+        void setDtrEnabled(bool enabled) { dtrEnabled_ = enabled; }
 
         void disconnect() override {
             const bool wasActive = running.exchange(false);
@@ -147,6 +152,56 @@ export namespace Rev {
             return ports;
         }
 
+        // Enumerate only USB serial ports matching a device family. Protocol
+        // clients must not probe unrelated peripherals at arbitrary baud rates.
+        static std::vector<std::string> enumerateUsbPorts(uint16_t vid, uint16_t pid) {
+            std::vector<std::string> ports;
+            char wanted[32];
+            std::snprintf(wanted, sizeof(wanted), "VID_%04X&PID_%04X", vid, pid);
+            HKEY usb;
+            if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+                    "SYSTEM\\CurrentControlSet\\Enum\\USB", 0, KEY_READ, &usb) != ERROR_SUCCESS)
+                return ports;
+            char device[256]; DWORD deviceIndex = 0;
+            while (true) {
+                DWORD deviceLength = sizeof(device);
+                const LONG deviceResult = RegEnumKeyExA(usb, deviceIndex++, device,
+                    &deviceLength, nullptr, nullptr, nullptr, nullptr);
+                if (deviceResult == ERROR_NO_MORE_ITEMS) break;
+                if (deviceResult != ERROR_SUCCESS ||
+                    _strnicmp(device, wanted, std::strlen(wanted)) != 0) continue;
+                HKEY deviceKey;
+                if (RegOpenKeyExA(usb, device, 0, KEY_READ, &deviceKey) != ERROR_SUCCESS) continue;
+                char instance[256]; DWORD instanceIndex = 0;
+                while (true) {
+                    DWORD instanceLength = sizeof(instance);
+                    const LONG instanceResult = RegEnumKeyExA(deviceKey, instanceIndex++, instance,
+                        &instanceLength, nullptr, nullptr, nullptr, nullptr);
+                    if (instanceResult == ERROR_NO_MORE_ITEMS) break;
+                    if (instanceResult != ERROR_SUCCESS) continue;
+                    const std::string parameters = std::string(instance) + "\\Device Parameters";
+                    HKEY parameterKey;
+                    if (RegOpenKeyExA(deviceKey, parameters.c_str(), 0, KEY_READ,
+                            &parameterKey) != ERROR_SUCCESS) continue;
+                    char port[64]; DWORD portLength = sizeof(port), type = 0;
+                    if (RegQueryValueExA(parameterKey, "PortName", nullptr, &type,
+                            reinterpret_cast<BYTE*>(port), &portLength) == ERROR_SUCCESS &&
+                        type == REG_SZ && portLength > 1)
+                        ports.emplace_back(port);
+                    RegCloseKey(parameterKey);
+                }
+                RegCloseKey(deviceKey);
+            }
+            RegCloseKey(usb);
+            const auto active = enumeratePorts();
+            std::erase_if(ports, [&](const std::string& port) {
+                return std::find(active.begin(), active.end(), port) == active.end();
+            });
+            std::sort(ports.begin(), ports.end());
+            ports.erase(std::unique(ports.begin(), ports.end()), ports.end());
+            return ports;
+        }
+
     private:
 
         // -- Worker state ------------------------------------------------
@@ -157,7 +212,7 @@ export namespace Rev {
         std::thread          worker_;
         std::mutex           outgoingMutex_;
         std::vector<std::string> outgoing_;
-        std::atomic<bool> resetOnConnect_ = false;
+        std::optional<bool> dtrEnabled_;
         std::atomic<bool> stopRequested_ = false;
         std::atomic<bool> finished_ = true;
         bool pendingConnect_ = false, discardEvents_ = false;
@@ -239,8 +294,10 @@ export namespace Rev {
             dcb.fBinary         = TRUE;
             dcb.fOutxCtsFlow    = FALSE;
             dcb.fOutxDsrFlow    = FALSE;
-            dcb.fDtrControl     = DTR_CONTROL_DISABLE;
-            dcb.fRtsControl     = RTS_CONTROL_DISABLE;
+            // Preserve DTR unless this specific client requires a stable CDC
+            // carrier assertion. Never pulse DTR/RTS during discovery.
+            if (dtrEnabled_)
+                dcb.fDtrControl = *dtrEnabled_ ? DTR_CONTROL_ENABLE : DTR_CONTROL_DISABLE;
             dcb.fDsrSensitivity = FALSE;
             dcb.fOutX           = FALSE;
             dcb.fInX            = FALSE;
@@ -278,17 +335,7 @@ export namespace Rev {
             handle_.store(h);
 
             PurgeComm(h, PURGE_RXCLEAR | PURGE_TXCLEAR);
-            if (resetOnConnect_) {
-                EscapeCommFunction(h, CLRDTR);
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                EscapeCommFunction(h, SETDTR);
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            }
-            else {
-                EscapeCommFunction(h, SETDTR);
-            }
-
-            if (stopRequested_) {   // disconnected during the ~1s settle
+            if (stopRequested_) {
                 isConnected = false;
                 HANDLE cur = handle_.exchange(INVALID_HANDLE_VALUE);
                 if (cur != INVALID_HANDLE_VALUE) { CloseHandle(cur); }
