@@ -512,6 +512,10 @@ export namespace Rev {
             if (window) { window->requestFrame(); }
         }
 
+        // Non-style animation clients (transports, meters, playheads) may opt
+        // into a frame pump without manufacturing a CSS transition.
+        bool continuousFrames = false;
+
         void computeStyleTopDown(Event& e, Element* element) {
 
             element->computeStyle(e);
@@ -665,6 +669,9 @@ export namespace Rev {
             //--------------------------------------------------
 
             shared->canvas->endFrame();
+            if (continuousFrames) {
+                requestNextFrame();
+            }
             if (this->dirty.draw) {
                 refresh(e);
             }
@@ -1053,6 +1060,52 @@ export namespace Rev {
                 case (NativeWindow::Key::Escape): { event.keyboard.escape.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Tab): { event.keyboard.tab.set(action, event.mouse.pos); break; }
                 case (NativeWindow::Key::Space): { event.keyboard.space.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num0):
+                case (NativeWindow::Key::Numpad0): { event.keyboard.num0.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num1):
+                case (NativeWindow::Key::Numpad1): { event.keyboard.num1.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num2):
+                case (NativeWindow::Key::Numpad2): { event.keyboard.num2.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num3):
+                case (NativeWindow::Key::Numpad3): { event.keyboard.num3.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num4):
+                case (NativeWindow::Key::Numpad4): { event.keyboard.num4.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num5):
+                case (NativeWindow::Key::Numpad5): { event.keyboard.num5.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num6):
+                case (NativeWindow::Key::Numpad6): { event.keyboard.num6.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num7):
+                case (NativeWindow::Key::Numpad7): { event.keyboard.num7.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num8):
+                case (NativeWindow::Key::Numpad8): { event.keyboard.num8.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Num9):
+                case (NativeWindow::Key::Numpad9): { event.keyboard.num9.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::A): { event.keyboard.a.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::B): { event.keyboard.b.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::C): { event.keyboard.c.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::D): { event.keyboard.d.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::E): { event.keyboard.e.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::F): { event.keyboard.f.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::G): { event.keyboard.g.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::H): { event.keyboard.h.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::I): { event.keyboard.i.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::J): { event.keyboard.j.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::K): { event.keyboard.k.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::L): { event.keyboard.l.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::M): { event.keyboard.m.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::N): { event.keyboard.n.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::O): { event.keyboard.o.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::P): { event.keyboard.p.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Q): { event.keyboard.q.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::R): { event.keyboard.r.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::S): { event.keyboard.s.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::T): { event.keyboard.t.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::U): { event.keyboard.u.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::V): { event.keyboard.v.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::W): { event.keyboard.w.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::X): { event.keyboard.x.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Y): { event.keyboard.y.set(action, event.mouse.pos); break; }
+                case (NativeWindow::Key::Z): { event.keyboard.z.set(action, event.mouse.pos); break; }
 
                 case (NativeWindow::Key::Enter):
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.enter.set(action, event.mouse.pos); break; }
@@ -1083,6 +1136,27 @@ export namespace Rev {
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.key = "enter"; break; }
 
                 case (NativeWindow::Key::Space): { event.keyboard.key = " "; break; }
+
+                case (NativeWindow::Key::Num0):
+                case (NativeWindow::Key::Numpad0): { event.keyboard.key = "0"; break; }
+                case (NativeWindow::Key::Num1):
+                case (NativeWindow::Key::Numpad1): { event.keyboard.key = "1"; break; }
+                case (NativeWindow::Key::Num2):
+                case (NativeWindow::Key::Numpad2): { event.keyboard.key = "2"; break; }
+                case (NativeWindow::Key::Num3):
+                case (NativeWindow::Key::Numpad3): { event.keyboard.key = "3"; break; }
+                case (NativeWindow::Key::Num4):
+                case (NativeWindow::Key::Numpad4): { event.keyboard.key = "4"; break; }
+                case (NativeWindow::Key::Num5):
+                case (NativeWindow::Key::Numpad5): { event.keyboard.key = "5"; break; }
+                case (NativeWindow::Key::Num6):
+                case (NativeWindow::Key::Numpad6): { event.keyboard.key = "6"; break; }
+                case (NativeWindow::Key::Num7):
+                case (NativeWindow::Key::Numpad7): { event.keyboard.key = "7"; break; }
+                case (NativeWindow::Key::Num8):
+                case (NativeWindow::Key::Numpad8): { event.keyboard.key = "8"; break; }
+                case (NativeWindow::Key::Num9):
+                case (NativeWindow::Key::Numpad9): { event.keyboard.key = "9"; break; }
 
                 case (NativeWindow::Key::A): { event.keyboard.key = "a"; break; }
                 case (NativeWindow::Key::B): { event.keyboard.key = "b"; break; }
