@@ -124,6 +124,16 @@ template<> struct PromiseState<void> {
     mutable std::mutex mutex; std::condition_variable settled; bool complete = false;
     std::exception_ptr error; std::vector<Continuation> continuations;
 };
+template<typename T> struct PromiseResult {
+    std::shared_ptr<PromiseState<T>> state = std::make_shared<PromiseState<T>>();
+    template<typename U> void return_value(U&& value) {
+        std::lock_guard lock(state->mutex); state->value.emplace(std::forward<U>(value));
+    }
+};
+template<> struct PromiseResult<void> {
+    std::shared_ptr<PromiseState<void>> state = std::make_shared<PromiseState<void>>();
+    template<typename Dummy = void> void return_void() const noexcept {}
+};
 template<typename State> void finish(const std::shared_ptr<State>& state) {
     std::vector<Continuation> continuations;
     { std::lock_guard lock(state->mutex); state->complete = true; continuations.swap(state->continuations); }
@@ -148,15 +158,13 @@ template<typename T = void>
 class Promise {
 public:
     using State = Detail::PromiseState<T>;
-    struct promise_type {
-        std::shared_ptr<State> state = std::make_shared<State>();
-        Promise get_return_object() { return Promise(state); }
+    struct promise_type : Detail::PromiseResult<T> {
+        Promise get_return_object() { return Promise(this->state); }
         Detail::InitialSchedule initial_suspend() const noexcept { return {}; }
-        Detail::FinalSchedule<State> final_suspend() const noexcept { return {state}; }
-        void unhandled_exception() noexcept { std::lock_guard lock(state->mutex); state->error = std::current_exception(); }
-        template<typename U> requires (!std::is_void_v<T>)
-        void return_value(U&& value) { std::lock_guard lock(state->mutex); state->value.emplace(std::forward<U>(value)); }
-        void return_void() requires std::is_void_v<T> {}
+        Detail::FinalSchedule<State> final_suspend() const noexcept { return {this->state}; }
+        void unhandled_exception() noexcept {
+            std::lock_guard lock(this->state->mutex); this->state->error = std::current_exception();
+        }
     };
 
     Promise() = default;
@@ -198,6 +206,24 @@ private:
     explicit Promise(std::shared_ptr<State> value) : state(std::move(value)) {}
     void requireState() const { if (!state) throw std::logic_error("Operation requires a valid Promise."); }
     std::shared_ptr<State> state;
+};
+
+// A heterogeneous completion group is represented internally by void adapters;
+// the original typed promises continue to own and expose their results.
+class PromiseGroup {
+public:
+    template<typename T> void add(Promise<T> promise) { members.push_back(asVoid(std::move(promise))); }
+    bool empty() const noexcept { return members.empty(); }
+    std::size_t size() const noexcept { return members.size(); }
+    void wait() const { for (const auto& member : members) member.wait(); }
+    Promise<void> all() const {
+        for (const auto& member : members) co_await member;
+    }
+private:
+    template<typename T> static Promise<void> asVoid(Promise<T> promise) {
+        co_await promise;
+    }
+    std::vector<Promise<void>> members;
 };
 
 namespace Async {
