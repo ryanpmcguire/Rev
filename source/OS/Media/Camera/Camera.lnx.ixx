@@ -10,7 +10,11 @@ import Rev.Media.Camera.Types;
 
 export namespace Rev::Media {
     struct NativeCamera {
-        explicit NativeCamera(std::function<CameraTypes::Frame*(CameraTypes::Frame*)>) {}
+        NativeCamera(
+            std::function<CameraTypes::Frame*(CameraTypes::Frame*)>,
+            std::function<void(std::string)>,
+            std::function<void()>
+        ) {}
         NativeCamera(const NativeCamera&) = delete;
         NativeCamera& operator=(const NativeCamera&) = delete;
         static std::vector<CameraTypes::DeviceInfo> devices() { return {}; }

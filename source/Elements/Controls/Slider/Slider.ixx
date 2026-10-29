@@ -4,6 +4,8 @@ module;
 #include <string>
 #include <algorithm>
 #include <functional>
+#include <utility>
+#include <vector>
 
 export module Rev.Element.Slider;
 
@@ -38,6 +40,32 @@ export namespace Rev::Element {
 
     struct Slider : public Element {
 
+        struct Theme {
+            StyleList root;
+            StyleList textRow;
+            StyleList label;
+            StyleList value;
+            StyleList field;
+            StyleList track;
+            StyleList fill;
+            StyleList thumbContainer;
+            StyleList thumb;
+        };
+
+        static Theme DefaultTheme() {
+            return {
+                .root = {&SliderStyle::Self},
+                .textRow = {&SliderStyle::TextRow},
+                .label = {&Label},
+                .value = {&SliderValueText},
+                .field = {&Field, &FieldFocus, &SliderFieldHover},
+                .track = {&SliderTrack},
+                .fill = {&SliderFill},
+                .thumbContainer = {&FieldInner},
+                .thumb = {&SliderThumb, &SliderThumbHover}
+            };
+        }
+
         Element* textContainer = nullptr;
             Text* labelText = nullptr;
             Text* valueText = nullptr;
@@ -52,6 +80,7 @@ export namespace Rev::Element {
 
             float min = 0;
             float max = 1000;
+            float step = 0;
             float def = 0.5;
             float val = 1.0;
 
@@ -59,42 +88,55 @@ export namespace Rev::Element {
         };
 
         SliderData data;
+        std::vector<Theme> themes;
         std::function<void(Event&, float)> onValueChange;
+        std::function<void(Event&, float)> onValueCommit;
+        bool interactionChanged = false;
 
         Slider(
             Element* parent,
-            SliderData sliderData = SliderData(),
+            SliderData sliderData,
+            std::vector<Theme> requestedThemes,
             StyleList styles = {},
             std::string name = "Slider"
-        ) : Element(parent, styles, name) {
+        ) : Element(parent) {
 
+            this->name = std::move(name);
             this->data = sliderData;
-            this->styles.prepend(&SliderStyle::Self);
+            themes.push_back(DefaultTheme());
 
-            textContainer = new Element(this, { &SliderStyle::TextRow });
+            for (Theme& requestedTheme : requestedThemes) {
+                themes.push_back(std::move(requestedTheme));
+            }
+
+            append(this, &Theme::root);
+            append(this, styles);
+
+            textContainer = new Element(this);
+            append(textContainer, &Theme::textRow);
                 
-                labelText = new Text(textContainer, "Value: ", { &Label });
-                valueText = new Text(textContainer, "", { &SliderValueText });
+                labelText = new Text(textContainer, "Value: ");
+                append(labelText, &Theme::label);
+                valueText = new Text(textContainer, "");
+                append(valueText, &Theme::value);
                 valueText->setContent(data.val);
                     
-            sliderContainer = new Box(
-                this,
-                { &Field, &FieldFocus, &SliderFieldHover },
-                "SliderContainer"
-            );
+            sliderContainer = new Box(this, {}, "SliderContainer");
+            append(sliderContainer, &Theme::field);
 
-            track = new Box(sliderContainer, { &SliderTrack }, "Track");
-                fill = new Box(track, { &SliderFill }, "Fill");
-                thumbContainer = new Element(track, { &FieldInner }, "Container");
-                    thumb = new Box(
-                        thumbContainer,
-                        { &SliderThumb, &SliderThumbHover },
-                        "Thumb"
-                    );
+            track = new Box(sliderContainer, {}, "Track");
+            append(track, &Theme::track);
+                fill = new Box(track, {}, "Fill");
+                append(fill, &Theme::fill);
+                thumbContainer = new Element(track, {}, "Container");
+                append(thumbContainer, &Theme::thumbContainer);
+                    thumb = new Box(thumbContainer, {}, "Thumb");
+                    append(thumb, &Theme::thumb);
 
             sliderContainer->onMouseDown([this] (Event& e) {
                 float newVal = posToVal(e.mouse.pos);
                 if (setVal(newVal)) {
+                    interactionChanged = true;
                     if (onValueChange) { onValueChange(e, data.val); }
                     refresh(e);
                 }
@@ -103,15 +145,75 @@ export namespace Rev::Element {
             sliderContainer->onDrag([this] (Event& e) {
                 float newVal = posToVal(e.mouse.pos);
                 if (setVal(newVal)) {
+                    interactionChanged = true;
                     if (onValueChange) { onValueChange(e, data.val); }
                     refresh(e);
                 }
             });
+
+            sliderContainer->onMouseUp([this] (Event& e) {
+                if (!interactionChanged) {
+                    return;
+                }
+
+                interactionChanged = false;
+
+                if (onValueCommit) {
+                    onValueCommit(e, data.val);
+                }
+            });
+        }
+
+        Slider(
+            Element* parent,
+            SliderData sliderData,
+            Theme requestedTheme,
+            StyleList styles = {},
+            std::string name = "Slider"
+        ) : Slider(
+            parent,
+            sliderData,
+            std::vector<Theme>{std::move(requestedTheme)},
+            std::move(styles),
+            std::move(name)
+        ) {}
+
+        Slider(
+            Element* parent,
+            SliderData sliderData = SliderData(),
+            StyleList styles = {},
+            std::string name = "Slider"
+        ) : Slider(
+            parent,
+            sliderData,
+            std::vector<Theme>{},
+            std::move(styles),
+            std::move(name)
+        ) {}
+
+        static void append(Element* element, const StyleList& styles) {
+            for (Style* style : styles.styles) {
+                element->styles.add(style);
+            }
+        }
+
+        void append(Element* element, StyleList Theme::* member) {
+            for (Theme& theme : themes) {
+                append(element, theme.*member);
+            }
         }
 
         bool setVal(float newVal) {
 
             float clamped = std::clamp(newVal, data.min, data.max);
+
+            if (data.step > 0) {
+                clamped = data.min + std::round(
+                    (clamped - data.min) / data.step
+                ) * data.step;
+                clamped = std::clamp(clamped, data.min, data.max);
+            }
+
             if (clamped == data.val) { return false; }
             else { data.val = clamped; valueText->setContent(data.val); return true; }
         }

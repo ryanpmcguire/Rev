@@ -105,13 +105,15 @@ private:
 
     static inline thread_local AsyncExecutor executingOn = AsyncExecutor::Promise;
     static constexpr uint64_t MainPumpIntervalMs = 8;
-    std::jthread worker;
     std::mutex mutex, mainMutex;
     std::condition_variable wake;
     std::deque<std::coroutine_handle<>> ready, mainReady;
     std::vector<Timer> timers;
     std::atomic<bool> mainAttached = false;
     std::thread::id mainThread;
+    // Construct synchronization state before starting the worker. Declaring
+    // the thread last also makes it join before that state is destroyed.
+    std::jthread worker;
 };
 
 namespace Detail {
@@ -124,22 +126,33 @@ template<> struct PromiseState<void> {
     mutable std::mutex mutex; std::condition_variable settled; bool complete = false;
     std::exception_ptr error; std::vector<Continuation> continuations;
 };
-template<typename T> struct PromiseResult {
+template<typename T> struct CoroutineResult {
     std::shared_ptr<PromiseState<T>> state = std::make_shared<PromiseState<T>>();
     template<typename U> void return_value(U&& value) {
         std::lock_guard lock(state->mutex); state->value.emplace(std::forward<U>(value));
     }
 };
-template<> struct PromiseResult<void> {
+template<> struct CoroutineResult<void> {
     std::shared_ptr<PromiseState<void>> state = std::make_shared<PromiseState<void>>();
     template<typename Dummy = void> void return_void() const noexcept {}
 };
-template<typename State> void finish(const std::shared_ptr<State>& state) {
+template<typename State, typename Complete>
+bool settle(const std::shared_ptr<State>& state, Complete&& complete) {
     std::vector<Continuation> continuations;
-    { std::lock_guard lock(state->mutex); state->complete = true; continuations.swap(state->continuations); }
+    {
+        std::lock_guard lock(state->mutex);
+        if (state->complete) return false;
+        std::forward<Complete>(complete)();
+        state->complete = true;
+        continuations.swap(state->continuations);
+    }
     state->settled.notify_all();
     for (const auto& continuation : continuations)
         PromiseManager::instance().schedule(continuation.coroutine, continuation.executor);
+    return true;
+}
+template<typename State> void finish(const std::shared_ptr<State>& state) {
+    settle(state, [] {});
 }
 struct InitialSchedule {
     bool await_ready() const noexcept { return false; }
@@ -158,13 +171,42 @@ template<typename T = void>
 class Promise {
 public:
     using State = Detail::PromiseState<T>;
-    struct promise_type : Detail::PromiseResult<T> {
+    using Result = Detail::CoroutineResult<T>;
+    struct promise_type : Result {
         Promise get_return_object() { return Promise(this->state); }
         Detail::InitialSchedule initial_suspend() const noexcept { return {}; }
         Detail::FinalSchedule<State> final_suspend() const noexcept { return {this->state}; }
         void unhandled_exception() noexcept {
             std::lock_guard lock(this->state->mutex); this->state->error = std::current_exception();
         }
+    };
+
+    // Explicitly settles a leaf Promise from an event callback. Copies share
+    // one state, and the first resolve/reject operation wins atomically.
+    class Source {
+    public:
+        Source() : state(std::make_shared<State>()) {}
+        Promise promise() const { return Promise(state); }
+        bool complete() const {
+            std::lock_guard lock(state->mutex); return state->complete;
+        }
+        template<typename U> requires (!std::is_void_v<T>)
+        void resolve(U&& value) const {
+            Detail::settle(state, [&] {
+                state->value.emplace(std::forward<U>(value));
+            });
+        }
+        void resolve() const requires std::is_void_v<T> { Detail::finish(state); }
+        void reject(std::exception_ptr error) const {
+            Detail::settle(state, [&] {
+                state->error = std::move(error);
+            });
+        }
+        template<typename Error> void reject(Error&& error) const {
+            reject(std::make_exception_ptr(std::forward<Error>(error)));
+        }
+    private:
+        std::shared_ptr<State> state;
     };
 
     Promise() = default;
@@ -248,9 +290,21 @@ template<typename Rep, typename Period> Delay delay(std::chrono::duration<Rep, P
     return {std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration)};
 }
 
+namespace Detail {
+// A coroutine lambda's frame refers to its closure object; it does not own a
+// second copy of the captures. Keep that closure in this outer coroutine's
+// frame until the promise returned by the callable has finished.
+template<typename Function>
+Promise<void> own(Function function) {
+    co_await std::invoke(function);
+}
+}
+
 template<typename Function> void Do(Function&& function) {
     PromiseManager::instance().attachMainThread();
-    [[maybe_unused]] auto root = std::invoke(std::forward<Function>(function));
+    using OwnedFunction = std::decay_t<Function>;
+    [[maybe_unused]] auto root = Detail::own(
+        OwnedFunction(std::forward<Function>(function)));
 }
 }
 }

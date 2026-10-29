@@ -2,6 +2,7 @@ module;
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -40,14 +41,46 @@ export namespace Rev::Element {
             : Camera(parent, Params{}, styles) {}
 
         Camera(Element* parent, Params params, StyleList styles = {})
-            : Box(parent, styles, "Camera"), params(params) {
+            : Box(parent, styles, "Camera"),
+              params(params),
+              ownedMedia(std::make_unique<Media::Camera>()),
+              media(*ownedMedia) {
+
+            source = &media;
+            ownsSource = true;
+            attach();
+
+            if (params.autoStart) { start(); }
+        }
+
+        Camera(
+            Element* parent,
+            Media::Camera& attached,
+            Params params,
+            StyleList styles = {}
+        ) : Box(parent, styles, "Camera"),
+            params(params),
+            ownedMedia(),
+            media(attached) {
+
+            source = &attached;
+            attach();
+        }
+
+        Camera(
+            Element* parent,
+            Media::Camera& attached,
+            StyleList styles = {}
+        ) : Camera(parent, attached, Params{}, styles) {}
+
+        void attach() {
 
             this->styles.prepend(&CameraStyles::Default);
             video = new Primitives::Video(shared->canvas);
             textures = new Graphics::CameraTexture(shared->canvas->context);
             textureError = textures->error();
             video->settings = params.display;
-            media.onFrame(this, [this](Media::Camera::Frame::Event& event, Media::Camera::Frame* received) {
+            source->onFrame(this, [this](Media::Camera::Frame::Event& event, Media::Camera::Frame* received) {
                 if (!textures->upload(received->pixels, received->size.width, received->size.height, received->format)) {
                     {
                         std::scoped_lock lock(statusMutex);
@@ -69,12 +102,17 @@ export namespace Rev::Element {
                     shared->canvas->window->requestFrameFromWorker();
                 }
             });
-            if (params.autoStart) { start(); }
+            source->acquireFrames(this);
         }
 
         ~Camera() {
-            media.close();
-            media.unsubscribeFrames(this);
+            source->releaseFrames(this);
+            source->unsubscribeFrames(this);
+
+            if (ownsSource) {
+                media.close();
+            }
+
             delete video;
             delete textures;
         }
@@ -84,16 +122,22 @@ export namespace Rev::Element {
         }
 
         bool start() {
+            if (!ownsSource) {
+                return source->info.open;
+            }
+
             bool opened = media.open(params.device);
             if (!opened) { return false; }
             return true;
         }
 
         void stop() {
-            media.close();
+            if (ownsSource) {
+                media.close();
+            }
         }
 
-        bool refreshControls() { return media.refreshControls(); }
+        bool refreshControls() { return source->refreshControls(); }
         void refreshFrame() {
             std::scoped_lock lock(frameMutex);
             uploadedRevision = 0;
@@ -165,7 +209,10 @@ export namespace Rev::Element {
         Params params;
         // Media owns capture and publication. This element only holds the currently
         // published image buffer long enough to upload it to its video primitive.
-        Media::Camera media;
+        std::unique_ptr<Media::Camera> ownedMedia;
+        Media::Camera& media;
+        Media::Camera* source = nullptr;
+        bool ownsSource = false;
         std::mutex frameMutex;
         std::mutex statusMutex;
         Media::Camera::Frame* frame = nullptr;

@@ -28,6 +28,43 @@ export namespace Rev::Element {
 
     struct Dropdown : public Element {
 
+        struct Theme {
+            StyleList root;
+            StyleList label;
+            StyleList field;
+            StyleList fieldOpen;
+            StyleList fieldRow;
+            StyleList value;
+            StyleList arrow;
+            StyleList menu;
+            StyleList menuUpward;
+            StyleList menuFocus;
+            StyleList menuOpen;
+            StyleList option;
+            StyleList optionHover;
+            StyleList optionSelected;
+            StyleList optionHighlight;
+            StyleList optionDisabled;
+        };
+
+        static Theme DefaultTheme() {
+            return {
+                .root = {&Control},
+                .label = {&Label},
+                .field = {&Field, &DropdownSurface, &FieldFocus},
+                .fieldRow = {&FieldInner},
+                .value = {&FieldText},
+                .arrow = {&DropdownArrow},
+                .menu = {&OptionsContainer},
+                .menuUpward = {&OptionsContainerUpward},
+                .option = {&Option},
+                .optionHover = {&OptionHover},
+                .optionSelected = {&OptionSelected},
+                .optionHighlight = {&OptionMenuHighlight},
+                .optionDisabled = {&OptionDisabled}
+            };
+        }
+
         Text* label = nullptr;
 
         Box* dropdown = nullptr;
@@ -70,32 +107,48 @@ export namespace Rev::Element {
         };
 
         Params params;
+        std::vector<Theme> themes;
 
         std::function<void(Event&)> onChange;
 
-        Dropdown(Element* parent, Params p = Params::Default(), StyleList styles = {}) : Element(parent, styles) {
+        Dropdown(
+            Element* parent,
+            Params p,
+            std::vector<Theme> requestedThemes,
+            StyleList styles = {}
+        ): Element(parent) {
 
             name = "Dropdown";
             params = p;
+            themes.push_back(DefaultTheme());
 
-            this->styles.prepend(&Control);
+            for (Theme& requestedTheme : requestedThemes) {
+                themes.push_back(std::move(requestedTheme));
+            }
 
-            label = new Text(this, p.label, { &Label });
+            append(this, &Theme::root);
+            append(this, styles);
 
-            dropdown = new Box(this, { &Field, &DropdownSurface, &FieldFocus });
+            label = new Text(this, p.label);
+            append(label, &Theme::label);
 
-                fieldRow = new Box(dropdown, { &FieldInner });
-                    dropdownText = new Text(fieldRow, "", { &FieldText });
+            dropdown = new Box(this);
+            append(dropdown, &Theme::field);
+
+                fieldRow = new Box(dropdown);
+                append(fieldRow, &Theme::fieldRow);
+                    dropdownText = new Text(fieldRow, "");
+                    append(dropdownText, &Theme::value);
                     dropdownArrow = new Svg(
                         fieldRow,
-                        File("Rev/source/Elements/Controls/Dropdown/chevron-right.svg"),
-                        { &DropdownArrow }
+                        File("Rev/source/Elements/Controls/Dropdown/chevron-right.svg")
                     );
+                    append(dropdownArrow, &Theme::arrow);
 
-                optionsContainer = new Box(dropdown, {
-                    p.openUpward ? &OptionsContainerUpward : &OptionsContainer
-                });
+                optionsContainer = new Box(dropdown);
                 optionsContainer->name = "OptionsContainer";
+                appendMenu(optionsContainer, p.openUpward);
+                append(optionsContainer, &Theme::menuFocus);
 
             dropdown->onLoseFocus([this](Event& e) {
                 closeMenu(&e);
@@ -106,6 +159,45 @@ export namespace Rev::Element {
                 if (open) { closeMenu(&e); }
                 else { openMenu(); }
             });
+        }
+
+        Dropdown(
+            Element* parent,
+            Params p,
+            Theme requestedTheme,
+            StyleList styles = {}
+        ): Dropdown(
+            parent,
+            std::move(p),
+            std::vector<Theme>{std::move(requestedTheme)},
+            std::move(styles)
+        ) {}
+
+        Dropdown(
+            Element* parent,
+            Params p = Params::Default(),
+            StyleList styles = {}
+        ): Dropdown(parent, std::move(p), std::vector<Theme>{}, std::move(styles)) {}
+
+        static void append(Element* element, const StyleList& styles) {
+            for (Style* style : styles.styles) {
+                element->styles.add(style);
+            }
+        }
+
+        void append(Element* element, StyleList Theme::* member) {
+            for (Theme& theme : themes) {
+                append(element, theme.*member);
+            }
+        }
+
+        void appendMenu(Element* element, bool upward) {
+            for (Theme& theme : themes) {
+                StyleList& styles = upward && !theme.menuUpward.styles.empty()
+                    ? theme.menuUpward
+                    : theme.menu;
+                append(element, styles);
+            }
         }
 
         void click(Event& e) override {
@@ -330,6 +422,9 @@ export namespace Rev::Element {
             );
 
             optionsContainer->style->visibility = Visibility::Visible;
+            optionsContainer->targetFlags.focus = true;
+            append(dropdown, &Theme::fieldOpen);
+            append(optionsContainer, &Theme::menuOpen);
             optionsContainer->dirty.style = true;       // mirror closeMenu — without
                                                         // this the next style resolve
                                                         // never picks up the change
@@ -359,6 +454,18 @@ export namespace Rev::Element {
 
             open = false;
             menuHighlight = -1;
+            optionsContainer->targetFlags.focus = false;
+
+            for (Theme& theme : themes) {
+                for (Style* style : theme.fieldOpen.styles) {
+                    dropdown->styles.remove(style);
+                }
+
+                for (Style* style : theme.menuOpen.styles) {
+                    optionsContainer->styles.remove(style);
+                }
+            }
+
             optionsContainer->interceptHits = false;
             interceptHits = false;
 
@@ -398,8 +505,11 @@ export namespace Rev::Element {
                 options[i] = new Text(
                     optionsContainer,
                     item.name,
-                    { &Option, &OptionHover, &OptionDisabled }
+                    {}
                 );
+                append(options[i], &Theme::option);
+                append(options[i], &Theme::optionHover);
+                append(options[i], &Theme::optionDisabled);
 
                 // Capture the row INDEX, not the Item: option elements are reused when
                 // the options list is rebuilt (only content/disabled are refreshed
@@ -444,17 +554,25 @@ export namespace Rev::Element {
                     (int)i == menuHighlight;
 
                 if (showSelected) {
-                    option->styles.add(&OptionSelected);
+                    append(option, &Theme::optionSelected);
                 }
                 else {
-                    option->styles.remove(&OptionSelected);
+                    for (Theme& theme : themes) {
+                        for (Style* style : theme.optionSelected.styles) {
+                            option->styles.remove(style);
+                        }
+                    }
                 }
 
                 if (showMenuHighlight) {
-                    option->styles.add(&OptionMenuHighlight);
+                    append(option, &Theme::optionHighlight);
                 }
                 else {
-                    option->styles.remove(&OptionMenuHighlight);
+                    for (Theme& theme : themes) {
+                        for (Style* style : theme.optionHighlight.styles) {
+                            option->styles.remove(style);
+                        }
+                    }
                 }
 
                 // StyleList add/remove already dirties changed membership.

@@ -18,6 +18,7 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <cfgmgr32.h>
 #include <ks.h>
 #include <ksmedia.h>
 #include <ksproxy.h>
@@ -25,6 +26,8 @@ module;
 #include <mferror.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
+
+#pragma comment(lib, "Cfgmgr32.lib")
 
 export module Rev.Media.NativeCamera;
 
@@ -54,16 +57,85 @@ export namespace Rev::Media {
 
     struct NativeCamera {
 
-        explicit NativeCamera(std::function<CameraTypes::Frame*(CameraTypes::Frame*)> callback) {
+        NativeCamera(
+            std::function<CameraTypes::Frame*(CameraTypes::Frame*)> callback,
+            std::function<void(std::string)> offline,
+            std::function<void()> devicesChanged
+        ) {
             onFrame = callback;
+            onOffline = offline;
+            onDevicesChanged = devicesChanged;
             writeFrame = new CameraTypes::Frame;
+
+            if (onDevicesChanged) {
+                listenForDeviceChanges();
+            }
         }
         NativeCamera(const NativeCamera&) = delete;
         NativeCamera& operator=(const NativeCamera&) = delete;
         ~NativeCamera() {
+            stopListeningForDeviceChanges();
             close();
             delete writeFrame;
             writeFrame = nullptr;
+        }
+
+        static DWORD CALLBACK deviceNotification(
+            HCMNOTIFICATION,
+            PVOID context,
+            CM_NOTIFY_ACTION action,
+            PCM_NOTIFY_EVENT_DATA,
+            DWORD
+        ) {
+            if (
+                action != CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL
+                && action != CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL
+            ) {
+                return ERROR_SUCCESS;
+            }
+
+            NativeCamera* camera = static_cast<NativeCamera*>(context);
+
+            if (camera != nullptr && camera->onDevicesChanged) {
+                camera->onDevicesChanged();
+            }
+
+            return ERROR_SUCCESS;
+        }
+
+        void listenForDeviceChanges() {
+            registerDeviceNotification(KSCATEGORY_VIDEO_CAMERA, videoCameraNotification);
+            registerDeviceNotification(KSCATEGORY_CAPTURE, captureNotification);
+        }
+
+        void registerDeviceNotification(const GUID& category, HCMNOTIFICATION& notification) {
+            CM_NOTIFY_FILTER filter{};
+            filter.cbSize = sizeof(filter);
+            filter.FilterType = CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE;
+            filter.u.DeviceInterface.ClassGuid = category;
+
+            if (
+                CM_Register_Notification(
+                    &filter,
+                    this,
+                    &NativeCamera::deviceNotification,
+                    &notification
+                ) != CR_SUCCESS
+            ) {
+                notification = nullptr;
+            }
+        }
+
+        void stopListeningForDeviceChanges() {
+            if (videoCameraNotification != nullptr) {
+                CM_Unregister_Notification(videoCameraNotification);
+                videoCameraNotification = nullptr;
+            }
+
+            if (captureNotification != nullptr) {
+                CM_Unregister_Notification(captureNotification);
+                captureNotification = nullptr;
+            }
         }
 
         static std::string narrow(const wchar_t* value) {
@@ -206,16 +278,32 @@ export namespace Rev::Media {
             }
 
             running = true;
-            result = requestNextSample();
-            if (FAILED(result)) {
-                setError(hresultMessage("Could not begin reading camera frames", result));
-                close();
-                return false;
-            }
+            streaming = false;
+            samplePending = false;
             return true;
         }
 
+        bool start() {
+            if (!isOpen()) { return false; }
+            if (streaming.exchange(true)) { return true; }
+
+            HRESULT result = requestNextSample();
+
+            if (FAILED(result)) {
+                streaming = false;
+                setError(hresultMessage("Could not begin reading camera frames", result));
+                return false;
+            }
+
+            return true;
+        }
+
+        void stop() {
+            streaming = false;
+        }
+
         void close() {
+            streaming = false;
             running = false;
 
             if (callback) { callback->detach(); }
@@ -240,10 +328,12 @@ export namespace Rev::Media {
 
             width = 0;
             height = 0;
+            samplePending = false;
             releaseRuntime();
         }
 
         bool isOpen() const { return running && reader; }
+        bool isStreaming() const { return streaming; }
 
         std::string error() const {
             std::scoped_lock lock(errorMutex);
@@ -268,20 +358,33 @@ export namespace Rev::Media {
         }
 
         HRESULT requestNextSample() {
-            if (!running || !reader) { return MF_E_SHUTDOWN; }
-            return reader->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, nullptr, nullptr, nullptr, nullptr);
+            if (!running || !streaming || !reader) { return S_FALSE; }
+            if (samplePending.exchange(true)) { return S_OK; }
+
+            HRESULT result = reader->ReadSample(
+                MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                0,
+                nullptr,
+                nullptr,
+                nullptr,
+                nullptr
+            );
+
+            if (FAILED(result)) {
+                samplePending = false;
+            }
+
+            return result;
         }
 
         void receive(HRESULT status, DWORD flags, LONGLONG timestamp, IMFSample* sample) {
 
             if (FAILED(status)) {
-                setError(hresultMessage("Camera frame read failed", status));
-                running = false;
+                lost(hresultMessage("Camera frame read failed", status));
                 return;
             }
             if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
-                setError("Camera stream ended");
-                running = false;
+                lost("Camera stream ended");
                 return;
             }
             if (!sample || width == 0 || height == 0) { return; }
@@ -360,6 +463,8 @@ export namespace Rev::Media {
         IKsControl* ksControl = nullptr;
         CameraReaderCallback* callback = nullptr;
         std::atomic<bool> running = false;
+        std::atomic<bool> streaming = false;
+        std::atomic<bool> samplePending = false;
         bool ownsCom = false;
         bool ownsMediaFoundation = false;
         size_t width = 0;
@@ -370,6 +475,10 @@ export namespace Rev::Media {
         std::string errorText;
         CameraTypes::Frame* writeFrame = nullptr;
         std::function<CameraTypes::Frame*(CameraTypes::Frame*)> onFrame;
+        std::function<void(std::string)> onOffline;
+        std::function<void()> onDevicesChanged;
+        HCMNOTIFICATION videoCameraNotification = nullptr;
+        HCMNOTIFICATION captureNotification = nullptr;
 
         struct ControlDescriptor {
             CameraTypes::Setting::Type control;
@@ -546,6 +655,18 @@ export namespace Rev::Media {
             errorText.clear();
         }
 
+        void lost(std::string error) {
+            setError(error);
+
+            if (!running.exchange(false)) {
+                return;
+            }
+
+            if (onOffline) {
+                onOffline(std::move(error));
+            }
+        }
+
         void releaseRuntime() {
             if (ownsMediaFoundation) { MFShutdown(); ownsMediaFoundation = false; }
             if (ownsCom) { CoUninitialize(); ownsCom = false; }
@@ -574,8 +695,18 @@ export namespace Rev::Media {
 
         std::scoped_lock lock(ownerMutex);
         if (!owner) { return S_OK; }
+        owner->samplePending = false;
         owner->receive(status, flags, timestamp, sample);
-        if (owner->isOpen()) { owner->requestNextSample(); }
+        if (owner->isOpen() && owner->isStreaming()) {
+            HRESULT next = owner->requestNextSample();
+
+            if (FAILED(next)) {
+                owner->lost(NativeCamera::hresultMessage(
+                    "Could not continue reading camera frames",
+                    next
+                ));
+            }
+        }
         return S_OK;
     }
 
