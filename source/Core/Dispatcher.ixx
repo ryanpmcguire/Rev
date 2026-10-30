@@ -7,8 +7,13 @@ module;
 #include <cstring>
 #include <functional>
 #include <vector>
+#include <memory>
+#include <atomic>
+#include <mutex>
+#include <type_traits>
 
 export module Rev.Core.Dispatcher;
+import Rev.Core.MainDispatch;
 
 export namespace Rev::Core {
 
@@ -24,6 +29,8 @@ export namespace Rev::Core {
         struct Listener {
             void* owner = nullptr;
             std::function<void(EventType&)> fn;
+            std::shared_ptr<std::atomic<bool>> active = std::make_shared<std::atomic<bool>>(true);
+            bool main = false;
         };
 
         struct ListenerGroup {
@@ -31,7 +38,37 @@ export namespace Rev::Core {
             std::vector<Listener> listeners;
         };
 
+        mutable std::recursive_mutex mutex;
         std::vector<ListenerGroup> listenerGroups;
+        Dispatcher() = default;
+        Dispatcher(const Dispatcher& other) {
+            std::lock_guard lock(other.mutex);
+            listenerGroups = other.listenerGroups;
+            pendingUnsubscribe = other.pendingUnsubscribe;
+            for (auto& group : listenerGroups) for (auto& listener : group.listeners)
+                listener.active = std::make_shared<std::atomic<bool>>(listener.active->load());
+        }
+        Dispatcher(Dispatcher&& other) {
+            std::lock_guard lock(other.mutex);
+            listenerGroups = std::move(other.listenerGroups);
+            pendingUnsubscribe = std::move(other.pendingUnsubscribe);
+            other.listenerGroups.clear();
+        }
+        Dispatcher& operator=(const Dispatcher& other) {
+            if (this == &other) return *this;
+            Dispatcher copy(other);
+            return *this = std::move(copy);
+        }
+        Dispatcher& operator=(Dispatcher&& other) {
+            if (this == &other) return *this;
+            std::scoped_lock lock(mutex, other.mutex);
+            for (auto& group : listenerGroups) for (auto& listener : group.listeners) *listener.active = false;
+            listenerGroups = std::move(other.listenerGroups);
+            pendingUnsubscribe = std::move(other.pendingUnsubscribe);
+            other.listenerGroups.clear();
+            return *this;
+        }
+        ~Dispatcher() { for (auto& group : listenerGroups) for (auto& listener : group.listeners) *listener.active = false; }
 
         // Deferred unsubscription. tell() iterates a group's listener vector by reference,
         // so a listener that unsubscribes mid-dispatch (a common, legitimate thing — e.g. a
@@ -55,9 +92,10 @@ export namespace Rev::Core {
         void listen(
             ListenerKey listenerKey,
             void* owner,
-            const std::function<void(EventType&)>& listener
+            const std::function<void(EventType&)>& listener,
+            bool main = false
         ) {
-
+            std::lock_guard lock(mutex);
             auto it = std::find_if(
                 listenerGroups.begin(),
                 listenerGroups.end(),
@@ -67,13 +105,13 @@ export namespace Rev::Core {
             );
 
             if (it != listenerGroups.end()) {
-                it->listeners.push_back({ owner, listener });
+                it->listeners.push_back({ owner, listener, std::make_shared<std::atomic<bool>>(true), main });
                 return;
             }
 
             ListenerGroup group;
             group.key = listenerKey;
-            group.listeners.push_back({ owner, listener });
+            group.listeners.push_back({ owner, listener, std::make_shared<std::atomic<bool>>(true), main });
             listenerGroups.push_back(group);
         }
 
@@ -102,6 +140,14 @@ export namespace Rev::Core {
             listen(listenerKey(func), nullptr, listener);
         }
 
+        // GUI subscribers receive a copied event in the main-thread mailbox.
+        template<typename Owner>
+        void listenMain(void (Owner::*func)(EventType&), void* owner,
+                        const std::function<void(EventType&)>& listener) {
+            static_assert(std::is_copy_constructible_v<EventType>);
+            listen(listenerKey(func), owner, listener, true);
+        }
+
         // Unsubscribe
         //--------------------------------------------------
 
@@ -111,6 +157,9 @@ export namespace Rev::Core {
         // it walks), so it never disturbs a dispatch in flight or holds a dangling callback.
         void unsubscribe(void* owner) {
             if (!owner) { return; }
+            std::lock_guard lock(mutex);
+            for (auto& group : listenerGroups) for (auto& listener : group.listeners)
+                if (listener.owner == owner) *listener.active = false;
             pendingUnsubscribe.push_back(owner);
         }
 
@@ -132,28 +181,27 @@ export namespace Rev::Core {
         //--------------------------------------------------
 
         void tell(ListenerKey tellingKey, EventType& event) {
-
-            // Drain queued unsubscribes before walking, so the listener vector is stable for
-            // the duration of this dispatch.
-            if (!pendingUnsubscribe.empty()) {
-                for (void* owner : pendingUnsubscribe) { removeOwner(owner); }
+            std::vector<Listener> listeners;
+            {
+                std::lock_guard lock(mutex);
+                for (void* owner : pendingUnsubscribe) removeOwner(owner);
                 pendingUnsubscribe.clear();
+                auto it = std::find_if(listenerGroups.begin(), listenerGroups.end(),
+                    [&](const ListenerGroup& group) { return group.key == tellingKey; });
+                if (it == listenerGroups.end()) return;
+                listeners = it->listeners;
             }
-
-            auto it = std::find_if(
-                listenerGroups.begin(),
-                listenerGroups.end(),
-                [tellingKey](const ListenerGroup& group) {
-                    return tellingKey == group.key;
+            for (const auto& listener : listeners) {
+                if (!*listener.active) continue;
+                if (listener.main) {
+                    if constexpr (std::is_copy_constructible_v<EventType>) {
+                        MainDispatch::instance().post([listener, event]() mutable {
+                            if (*listener.active) listener.fn(event);
+                        });
+                    }
+                } else {
+                    listener.fn(event);
                 }
-            );
-
-            if (it == listenerGroups.end()) {
-                return;
-            }
-
-            for (auto& listener : it->listeners) {
-                listener.fn(event);
             }
         }
 

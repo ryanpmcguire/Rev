@@ -19,7 +19,7 @@ module;
 export module Rev.SerialClient;
 
 import Rev.Transport;
-import Rev.Core.Process;
+import Rev.Core.Promise;
 
 export namespace Rev {
 
@@ -72,9 +72,19 @@ export namespace Rev {
             pendingConnect_ = true;
             running = true;
             isConnected = false;
-            Core::Process::instance().schedule(this, PumpIntervalMs,
-                [this](uint64_t) { service(); });
-            service();
+            startPump();
+            auto state = delivery_;
+            Core::Async::Do([state]() -> Core::Promise<void> {
+                while (true) {
+                    {
+                        std::lock_guard lock(state->mutex);
+                        auto* source = static_cast<SerialClient*>(state->owner);
+                        if (!source) co_return;
+                        source->service();
+                    }
+                    co_await Core::Async::delay(std::chrono::milliseconds(16));
+                }
+            });
         }
 
         // -- API ---------------------------------------------------------

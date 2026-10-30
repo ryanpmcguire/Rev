@@ -19,11 +19,11 @@ module;
 #include <vector>
 
 export module Rev.Core.Promise;
-import Rev.Core.Process;
+import Rev.Core.MainDispatch;
 
 export namespace Rev::Core {
 
-enum class AsyncExecutor { Promise, Main };
+enum class AsyncExecutor { Promise };
 
 // One cooperative scheduler services every blue-stack root. A coroutine owns
 // this thread only while making immediate progress; an unresolved co_await
@@ -32,20 +32,11 @@ class PromiseManager {
 public:
     static PromiseManager& instance() { static PromiseManager self; return self; }
 
-    void attachMainThread() {
-        bool expected = false;
-        if (!mainAttached.compare_exchange_strong(expected, true)) return;
-        mainThread = std::this_thread::get_id();
-        Process::instance().schedule(this, MainPumpIntervalMs,
-            [this](uint64_t) { pumpMain(); });
-    }
+    void attachMainThread() { MainDispatch::instance().attach(); }
 
     void schedule(std::coroutine_handle<> coroutine,
                   AsyncExecutor executor = AsyncExecutor::Promise) {
         if (!coroutine) return;
-        if (executor == AsyncExecutor::Main) {
-            std::lock_guard lock(mainMutex); mainReady.push_back(coroutine); return;
-        }
         { std::lock_guard lock(mutex); ready.push_back(coroutine); }
         wake.notify_one();
     }
@@ -58,8 +49,11 @@ public:
     }
 
     bool isPromiseThread() const { return std::this_thread::get_id() == worker.get_id(); }
-    bool isMainThread() const { return mainAttached && std::this_thread::get_id() == mainThread; }
+    bool isMainThread() const { return MainDispatch::instance().isMainThread(); }
     static AsyncExecutor currentExecutor() { return executingOn; }
+    void setExecutionBoundary(std::function<void(const std::function<void()>&)> boundary) {
+        std::lock_guard lock(mutex); executionBoundary = std::move(boundary);
+    }
 
 private:
     struct Timer { std::chrono::steady_clock::time_point due; std::coroutine_handle<> coroutine; AsyncExecutor executor; };
@@ -77,40 +71,37 @@ private:
         while (!stop.stop_requested()) {
             std::coroutine_handle<> next;
             std::vector<Timer> due;
+            std::function<void(const std::function<void()>&)> boundary;
             {
                 std::unique_lock lock(mutex);
-                while (!stop.stop_requested() && ready.empty()) {
+                while (!stop.stop_requested()) {
+                    const auto now = std::chrono::steady_clock::now();
                     auto deadline = std::chrono::steady_clock::time_point::max();
-                    for (const auto& timer : timers) deadline = std::min(deadline, timer.due);
+                    for (auto it = timers.begin(); it != timers.end();) {
+                        if (it->due <= now) { due.push_back(*it); it = timers.erase(it); }
+                        else { deadline = std::min(deadline, it->due); ++it; }
+                    }
+                    if (!ready.empty() || !due.empty()) break;
                     if (deadline == std::chrono::steady_clock::time_point::max()) wake.wait(lock);
                     else wake.wait_until(lock, deadline);
-                    const auto now = std::chrono::steady_clock::now();
-                    for (auto it = timers.begin(); it != timers.end();)
-                        if (it->due <= now) { due.push_back(*it); it = timers.erase(it); }
-                        else ++it;
-                    if (!due.empty()) break;
                 }
                 if (!ready.empty()) { next = ready.front(); ready.pop_front(); }
+                boundary = executionBoundary;
             }
             for (const auto& timer : due) schedule(timer.coroutine, timer.executor);
-            if (next) resume(next, AsyncExecutor::Promise);
+            if (next) {
+                if (boundary) boundary([next] { resume(next, AsyncExecutor::Promise); });
+                else resume(next, AsyncExecutor::Promise);
+            }
         }
     }
 
-    void pumpMain() {
-        std::deque<std::coroutine_handle<>> local;
-        { std::lock_guard lock(mainMutex); local.swap(mainReady); }
-        while (!local.empty()) { auto item = local.front(); local.pop_front(); resume(item, AsyncExecutor::Main); }
-    }
-
     static inline thread_local AsyncExecutor executingOn = AsyncExecutor::Promise;
-    static constexpr uint64_t MainPumpIntervalMs = 8;
-    std::mutex mutex, mainMutex;
+    std::mutex mutex;
     std::condition_variable wake;
-    std::deque<std::coroutine_handle<>> ready, mainReady;
+    std::deque<std::coroutine_handle<>> ready;
     std::vector<Timer> timers;
-    std::atomic<bool> mainAttached = false;
-    std::thread::id mainThread;
+    std::function<void(const std::function<void()>&)> executionBoundary;
     // Construct synchronization state before starting the worker. Declaring
     // the thread last also makes it join before that state is destroyed.
     std::jthread worker;
@@ -153,6 +144,18 @@ bool settle(const std::shared_ptr<State>& state, Complete&& complete) {
 }
 template<typename State> void finish(const std::shared_ptr<State>& state) {
     settle(state, [] {});
+}
+// Copyable results remain reusable. Move-only results have one consumer,
+// including when multiple Promise handles share the same state.
+template<typename T> T consume(PromiseState<T>& state) {
+    if constexpr (std::is_copy_constructible_v<T>) {
+        return *state.value;
+    } else {
+        if (!state.value) throw std::logic_error("Promise result already consumed.");
+        T result = std::move(*state.value);
+        state.value.reset();
+        return result;
+    }
 }
 struct InitialSchedule {
     bool await_ready() const noexcept { return false; }
@@ -225,7 +228,7 @@ public:
         state->settled.wait(lock, [this] { return state->complete; });
         if (state->error) std::rethrow_exception(state->error);
     }
-    T get() const requires (!std::is_void_v<T>) { wait(); std::lock_guard lock(state->mutex); return *state->value; }
+    T get() const requires (!std::is_void_v<T>) { wait(); std::lock_guard lock(state->mutex); return Detail::consume(*state); }
     void get() const requires std::is_void_v<T> { wait(); }
 
     struct Awaiter {
@@ -236,7 +239,7 @@ public:
             state->continuations.push_back({coroutine, PromiseManager::currentExecutor()}); return true;
         }
         T await_resume() requires (!std::is_void_v<T>) {
-            std::lock_guard lock(state->mutex); if (state->error) std::rethrow_exception(state->error); return *state->value;
+            std::lock_guard lock(state->mutex); if (state->error) std::rethrow_exception(state->error); return Detail::consume(*state);
         }
         void await_resume() requires std::is_void_v<T> {
             std::lock_guard lock(state->mutex); if (state->error) std::rethrow_exception(state->error);
@@ -275,7 +278,10 @@ struct SwitchExecutor {
     void await_suspend(std::coroutine_handle<> coroutine) const { PromiseManager::instance().schedule(coroutine, target); }
     void await_resume() const noexcept {}
 };
-inline SwitchExecutor mainThread() { return {AsyncExecutor::Main}; }
+// GUI publication is a discrete callback, never a coroutine executor switch.
+template<typename Function> void postMain(Function&& function) {
+    MainDispatch::instance().post(std::forward<Function>(function));
+}
 inline SwitchExecutor promiseThread() { return {AsyncExecutor::Promise}; }
 
 struct Delay {
@@ -301,7 +307,6 @@ Promise<void> own(Function function) {
 }
 
 template<typename Function> void Do(Function&& function) {
-    PromiseManager::instance().attachMainThread();
     using OwnedFunction = std::decay_t<Function>;
     [[maybe_unused]] auto root = Detail::own(
         OwnedFunction(std::forward<Function>(function)));

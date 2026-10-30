@@ -6,26 +6,22 @@ module;
 #include <atomic>
 #include <mutex>
 #include <cstdint>
+#include <memory>
 
 #include <dbg.hpp>
 
 export module Rev.Transport;
 
 import Rev.Core.Dispatcher;
-import Rev.Core.Process;
+import Rev.Core.Promise;
 
 export namespace Rev {
 
     // ------------------------------------------------------------------
     // Transport  — the byte-pipe seam shared by every link (TCP, serial).
     //
-    // It owns everything that is transport-INDEPENDENT: the event types, the
-    // dispatchers, the mutex-guarded inbound queue, the main-thread pump() that
-    // drains it, and the fire* helpers a worker thread calls to enqueue. The
-    // worker NEVER dispatches; it only enqueues under the mutex, and pump()
-    // (driven by a Rev::Core::Process tick on the MAIN thread) is the sole place
-    // listeners ever run — so every listener, and everything downstream, is
-    // single-threaded.
+    // I/O workers enqueue events and wake the Promise executor immediately.
+    // Protocol listeners run on that executor; GUI observers use listenMain.
     //
     // A concrete transport implements the three transport-SPECIFIC verbs
     // (connect / send / disconnect) with its own worker thread, calling the
@@ -48,7 +44,7 @@ export namespace Rev {
         std::atomic<bool> isConnected = false;
 
         Transport() = default;
-        virtual ~Transport() = default;
+        virtual ~Transport() { stopPump(); }
 
         // -- Registration (call before connect) --------------------------
 
@@ -83,6 +79,10 @@ export namespace Rev {
         // listener until here, so all listeners run single-threaded.
 
         void pump() {
+            if (!Core::PromiseManager::instance().isPromiseThread()) {
+                scheduleDrain();
+                return;
+            }
 
             std::vector<Pending> batch;
             {
@@ -131,11 +131,30 @@ export namespace Rev {
         std::mutex           queueMutex_;
         std::vector<Pending> queue_;
 
-        static constexpr uint64_t PumpIntervalMs = 16;   // ~60 Hz drain on the main thread
+        struct Delivery {
+            std::recursive_mutex mutex;
+            Transport* owner = nullptr;
+            std::atomic<bool> queued = false;
+        };
+        std::shared_ptr<Delivery> delivery_ = std::make_shared<Delivery>();
+
+        void scheduleDrain() {
+            auto state = delivery_;
+            if (state->queued.exchange(true)) return;
+            Core::Async::Do([state]() -> Core::Promise<void> {
+                std::lock_guard lock(state->mutex);
+                state->queued = false;
+                if (state->owner) state->owner->pump();
+                co_return;
+            });
+        }
 
         void enqueue(Pending p) {
-            std::lock_guard<std::mutex> lock(queueMutex_);
-            queue_.push_back(std::move(p));
+            {
+                std::lock_guard<std::mutex> lock(queueMutex_);
+                queue_.push_back(std::move(p));
+            }
+            scheduleDrain();
         }
 
         // -- Fire helpers (called from the worker thread): enqueue, never dispatch --
@@ -151,12 +170,15 @@ export namespace Rev {
             enqueue(std::move(p));
         }
 
-        // -- Main-thread pump lifecycle (shared) -------------------------
-        // Scheduling a Process tick both drains the worker's queue and keeps the
-        // main loop awake while connected, so inbound events reflect promptly.
-
-        void startPump() { Core::Process::instance().schedule(this, PumpIntervalMs, [this](uint64_t) { pump(); }); }
-        void stopPump()  { Core::Process::instance().unschedule(this); }
+        // No GUI timer: registration only controls lifetime of queued delivery.
+        void startPump() {
+            { std::lock_guard lock(delivery_->mutex); delivery_->owner = this; }
+            scheduleDrain();
+        }
+        void stopPump() {
+            std::lock_guard lock(delivery_->mutex);
+            delivery_->owner = nullptr;
+        }
 
         // -- Heartbeat (set before connect; read on the worker thread) ---
 

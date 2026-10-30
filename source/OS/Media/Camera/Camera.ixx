@@ -155,7 +155,6 @@ export namespace Rev::Media {
 
                     co_await Core::Async::delay(100ms);
                     std::vector<DeviceInfo> current = NativeCamera::devices();
-                    co_await Core::Async::mainThread();
 
                     std::scoped_lock stateLock(state->mutex);
                     Roster* roster = state->roster;
@@ -396,7 +395,6 @@ export namespace Rev::Media {
                 this,
                 error = std::move(error)
             ]() mutable -> Core::Promise<void> {
-                co_await Core::Async::mainThread();
 
                 info.open = false;
                 info.error = error;
@@ -404,6 +402,7 @@ export namespace Rev::Media {
 
                 AvailabilityChanged event;
                 availabilityDispatcher.tell(&Camera::availabilityChanged, event);
+                co_return;
             });
         }
     };

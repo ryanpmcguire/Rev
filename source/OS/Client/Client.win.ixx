@@ -110,6 +110,7 @@ export namespace Rev {
             SOCKET s = sock_.load();
             if (s == INVALID_SOCKET) {
                 dbg("[Client] send() on closed socket");
+                fireError("Send failed: socket is closed");
                 return;
             }
             // send() is reachable from both the worker (heartbeat) and the main thread
@@ -121,10 +122,12 @@ export namespace Rev {
                 const int result = ::send(s, msg.data() + sent, (int)(msg.size() - sent), 0);
                 if (result == SOCKET_ERROR) {
                     dbg("[Client] send failed after %zu/%zu bytes (%d)", sent, msg.size(), WSAGetLastError());
+                    fireError("Socket send failed (" + std::to_string(WSAGetLastError()) + ")");
                     return;
                 }
                 if (result == 0) {
                     dbg("[Client] send made no progress after %zu/%zu bytes", sent, msg.size());
+                    fireError("Socket send failed: no progress");
                     return;
                 }
                 sent += static_cast<std::size_t>(result);
