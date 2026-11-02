@@ -7,6 +7,7 @@ module;
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <memory>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -18,8 +19,10 @@ module;
 
 export module Rev.SerialClient;
 
+import Rev.Client;
 import Rev.Transport;
 import Rev.Core.Promise;
+import Rev.UsbProxy;
 
 export namespace Rev {
 
@@ -44,14 +47,47 @@ export namespace Rev {
 
     struct SerialClient : public Transport {
 
+        struct ProxyOptions {
+            bool enabled = false;
+            std::string serviceScript;
+            std::string python = "python";
+            std::string host = "127.0.0.1";
+            int dataPort = 8765;
+            std::string logicalDevice;
+        };
+
         // -- Construction / destruction ----------------------------------
 
-        SerialClient() = default;
+        SerialClient() {
+            proxyClient_.onConnecting([this](Transport::ConnectingEvent& event) {
+                fireConnecting(event.address);
+            });
+            proxyClient_.onConnect([this](Transport::ConnectEvent& event) {
+                running = true;
+                isConnected = true;
+                fireConnect(event.address);
+            });
+            proxyClient_.onData([this](Transport::DataEvent& event) {
+                if (!event.data.empty()) fireData(event.data.data(), static_cast<int>(event.data.size()));
+            });
+            proxyClient_.onError([this](Transport::ErrorEvent& event) {
+                running = false;
+                isConnected = false;
+                fireError(event.reason);
+            });
+            proxyClient_.onDisconnect([this](Transport::DisconnectEvent&) {
+                running = false;
+                isConnected = false;
+                fireDisconnect();
+            });
+        }
 
         ~SerialClient() override {
             dbg("[SerialClient] Shutting down");
 
             stopPump();
+
+            if (proxyOptions_.enabled) proxyClient_.disconnect();
 
             stopRequested_ = true;
             if (worker_.joinable()) {
@@ -63,6 +99,24 @@ export namespace Rev {
         // Main-thread facade. Opening, configuring and closing remain worker-owned.
         void connect(std::string port, int baud) override {
             if (running) return;
+            if (proxyOptions_.enabled) {
+                startPump();
+                if (proxyOptions_.serviceScript.empty()) {
+                    fireError("Serial proxy mode requires a service script");
+                    return;
+                }
+                proxyService_ = acquireProxyService(proxyOptions_);
+                if (!proxyService_) {
+                    fireError("Serial proxy service could not be started");
+                    return;
+                }
+                if (!proxyOptions_.logicalDevice.empty() && !port.empty())
+                    UsbProxy::instance().selectPort(proxyOptions_.logicalDevice, port);
+                running = true;
+                isConnected = false;
+                proxyClient_.connect(proxyOptions_.host, proxyOptions_.dataPort);
+                return;
+            }
             {
                 std::lock_guard<std::mutex> lock(outgoingMutex_);
                 outgoing_.clear();
@@ -90,6 +144,10 @@ export namespace Rev {
         // -- API ---------------------------------------------------------
 
         void send(const std::string& msg) override {
+            if (proxyOptions_.enabled) {
+                proxyClient_.send(msg);
+                return;
+            }
             if (!running) {
                 dbg("[SerialClient] send() on closed port");
                 return;
@@ -106,7 +164,20 @@ export namespace Rev {
         // once with the DCB; it never performs a reset pulse.
         void setDtrEnabled(bool enabled) { dtrEnabled_ = enabled; }
 
+        // Configure before connect(). Proxy mode starts the idempotent manager
+        // as a separate process and never opens the physical COM handle here.
+        void setProxy(ProxyOptions options) { proxyOptions_ = std::move(options); }
+        const ProxyOptions& proxy() const noexcept { return proxyOptions_; }
+
         void disconnect() override {
+            if (proxyOptions_.enabled) {
+                const bool wasActive = running.exchange(false);
+                isConnected = false;
+                proxyClient_.disconnect();
+                proxyService_.reset();
+                if (!wasActive) stopPump();
+                return;
+            }
             const bool wasActive = running.exchange(false);
             isConnected = false;
             pendingConnect_ = false;
@@ -217,6 +288,37 @@ export namespace Rev {
         // -- Worker state ------------------------------------------------
 
         std::string          port_;
+        ProxyOptions proxyOptions_;
+        Client proxyClient_;
+
+        struct ProxyServiceRepresentative {
+            std::string serviceScript;
+            std::string python;
+
+            bool start() const {
+                return UsbProxy::ensureService(serviceScript, python);
+            }
+        };
+
+        std::shared_ptr<ProxyServiceRepresentative> proxyService_;
+
+        static std::shared_ptr<ProxyServiceRepresentative> acquireProxyService(
+            const ProxyOptions& options
+        ) {
+            static std::mutex representativeMutex;
+            static std::weak_ptr<ProxyServiceRepresentative> representative;
+            std::lock_guard lock(representativeMutex);
+            if (auto current = representative.lock()) {
+                if (current->serviceScript != options.serviceScript
+                    || current->python != options.python) return {};
+                return current;
+            }
+            auto created = std::make_shared<ProxyServiceRepresentative>(
+                options.serviceScript, options.python);
+            if (!created->start()) return {};
+            representative = created;
+            return created;
+        }
         int                  baud_       = 115200;
         std::atomic<HANDLE>  handle_     { INVALID_HANDLE_VALUE };
         std::thread          worker_;

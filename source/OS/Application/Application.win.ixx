@@ -8,6 +8,7 @@ module;
 export module Rev.Application;
 
 import Rev.Window;
+import Rev.Core.MainDispatch;
 import Rev.Core.Process;
 import Rev.Core.Promise;
 
@@ -64,6 +65,11 @@ export namespace Rev {
                 pumpProcessDue();
 
                 while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+
+                    if (msg.message == Rev::Core::MainDispatch::WakeMessage) {
+                        Rev::Core::MainDispatch::instance().drain();
+                        continue;
+                    }
 
                     if (msg.message == WM_QUIT) {
                         for (void* handle : windows) {

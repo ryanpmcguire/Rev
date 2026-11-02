@@ -93,6 +93,10 @@ export namespace Rev {
 
             host_ = std::move(host);
             port_ = port;
+            {
+                std::lock_guard lock(outgoingMutex_);
+                outgoing_.clear();
+            }
 
             running     = true;
             isConnected = false;
@@ -107,31 +111,15 @@ export namespace Rev {
         // setHeartbeat() is inherited from Transport (shared by all links).
 
         void send(const std::string& msg) override {
-            SOCKET s = sock_.load();
-            if (s == INVALID_SOCKET) {
+            if (!running || sock_.load() == INVALID_SOCKET) {
                 dbg("[Client] send() on closed socket");
                 fireError("Send failed: socket is closed");
                 return;
             }
-            // send() is reachable from both the worker (heartbeat) and the main thread
-            // (posted commands); serialize the raw socket write so a pulse and a command
-            // line can't interleave on the wire.
-            std::lock_guard<std::mutex> lock(sendMutex_);
-            std::size_t sent = 0;
-            while (sent < msg.size()) {
-                const int result = ::send(s, msg.data() + sent, (int)(msg.size() - sent), 0);
-                if (result == SOCKET_ERROR) {
-                    dbg("[Client] send failed after %zu/%zu bytes (%d)", sent, msg.size(), WSAGetLastError());
-                    fireError("Socket send failed (" + std::to_string(WSAGetLastError()) + ")");
-                    return;
-                }
-                if (result == 0) {
-                    dbg("[Client] send made no progress after %zu/%zu bytes", sent, msg.size());
-                    fireError("Socket send failed: no progress");
-                    return;
-                }
-                sent += static_cast<std::size_t>(result);
-            }
+            // Never perform socket I/O on the caller (normally Rev's promise
+            // executor).  The worker drains complete messages in FIFO order.
+            std::lock_guard lock(outgoingMutex_);
+            outgoing_.push_back(msg);
         }
 
         void disconnect() override {
@@ -152,6 +140,10 @@ export namespace Rev {
             if (s != INVALID_SOCKET) {
                 shutdown(s, SD_BOTH);
                 closesocket(s);
+            }
+            {
+                std::lock_guard lock(outgoingMutex_);
+                outgoing_.clear();
             }
 
             // Join the worker so a later connect() can safely start a fresh one
@@ -183,7 +175,8 @@ export namespace Rev {
         std::atomic<SOCKET>  sock_       { INVALID_SOCKET };
         std::thread          worker_;
         bool                 wsaStarted_ = false;
-        std::mutex           sendMutex_;   // serializes the raw ::send() across threads
+        std::mutex           outgoingMutex_;
+        std::vector<std::string> outgoing_;
 
         // -- Worker ------------------------------------------------------
 
@@ -252,6 +245,8 @@ export namespace Rev {
 
             while (running) {
 
+                if (!drainOutgoing(s)) break;
+
                 fd_set readfds;
                 FD_ZERO(&readfds);
                 FD_SET(s, &readfds);
@@ -271,6 +266,8 @@ export namespace Rev {
                         lastBeat = now;
                     }
                 }
+
+                if (!drainOutgoing(s)) break;
 
                 if (activity < 0) {
                     dbg("[Client] select error (%d)", WSAGetLastError());
@@ -293,6 +290,30 @@ export namespace Rev {
                 //dbg("[Client] Received %d bytes: %s", bytes, buffer);
                 fireData(buffer, bytes);
             }
+        }
+
+        bool drainOutgoing(SOCKET socket) {
+            std::vector<std::string> batch;
+            {
+                std::lock_guard lock(outgoingMutex_);
+                batch.swap(outgoing_);
+            }
+            for (const std::string& message : batch) {
+                std::size_t sent = 0;
+                while (sent < message.size() && running) {
+                    const int result = ::send(socket, message.data() + sent,
+                                              static_cast<int>(message.size() - sent), 0);
+                    if (result == SOCKET_ERROR || result == 0) {
+                        const int error = WSAGetLastError();
+                        dbg("[Client] send failed after %zu/%zu bytes (%d)",
+                            sent, message.size(), error);
+                        fireError("Socket send failed (" + std::to_string(error) + ")");
+                        return false;
+                    }
+                    sent += static_cast<std::size_t>(result);
+                }
+            }
+            return running;
         }
     };
 }

@@ -174,6 +174,7 @@ if (WIN32)
       ${EXT_DIR}/freetype/bin/win/x64/freetype.lib
       OpenGL::GL
       ws2_32
+      winhttp
       Ole32
       Shell32
       Uuid
