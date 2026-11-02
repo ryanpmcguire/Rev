@@ -24,7 +24,8 @@ export namespace Rev::Primitives {
 
         inline static Shared shared;
         inline static Pipeline* pipeline = nullptr;
-        inline static VertexBuffer* vertices = nullptr;
+
+        VertexBuffer* vertices = nullptr;
 
         struct Channels {
             float red = 1.0f;
@@ -81,16 +82,18 @@ export namespace Rev::Primitives {
                 .directXVert = File("./Shaders/Video.vert.hlsl"),
                 .directXFrag = File("./Shaders/Video.frag.hlsl")
             });
-            vertices = new VertexBuffer(canvas->context, { .num = 6, .divisor = 1, .attribs = Vertex::attribs });
         }
 
         void destroyShared() {
             delete pipeline;
-            delete vertices;
         }
 
         explicit Video(Canvas* canvas) : Primitive(canvas) {
             shared.create([this]() { createShared(); });
+            vertices = new VertexBuffer(
+                canvas->context,
+                { .num = 6, .divisor = 1, .attribs = Vertex::attribs }
+            );
             databuff = new UniformBuffer(canvas->context, sizeof(Data));
             data = static_cast<Data*>(databuff->data);
             *data = Data{};
@@ -99,6 +102,7 @@ export namespace Rev::Primitives {
         ~Video() {
             if (ownsTexture) { delete texture; }
             delete databuff;
+            delete vertices;
             shared.destroy([this]() { destroyShared(); });
         }
 

@@ -122,7 +122,7 @@ export namespace Rev::Graphics {
             }
         
             glBindVertexArray(vaoID);
-        
+
             glGenBuffers(1, &bufferID);
             glBindBuffer(GL_ARRAY_BUFFER, bufferID);
         
@@ -158,7 +158,7 @@ export namespace Rev::Graphics {
                 idx += 1;
                 offset += attrib;
             }
-        
+
             glBindVertexArray(0);
         }
 

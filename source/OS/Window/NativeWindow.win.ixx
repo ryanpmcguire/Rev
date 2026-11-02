@@ -817,9 +817,9 @@ export namespace Rev {
         // the desired size (e.g. via Rev::Core::Svg::rasterize) and owns its
         // pixels -- we copy into a GDI bitmap. The previous HICON of that slot is
         // destroyed here, and both are destroyed in the destructor.
-        void setIcon(const unsigned char* rgba, int w, int h, bool big) {
+        void setIcon(const unsigned char* pixels, int w, int h, bool big) {
 
-            if (!handle || !rgba || w <= 0 || h <= 0) { return; }
+            if (!handle || !pixels || w <= 0 || h <= 0) { return; }
 
             // 32-bit top-down BGRA DIB for the colour plane. nanosvg gives RGBA,
             // Windows DIBs are BGRA, so swap R<->B on copy. Negative height makes
@@ -848,10 +848,10 @@ export namespace Rev {
 
             unsigned char* dst = static_cast<unsigned char*>(dibPixels);
             for (int i = 0; i < w * h; i++) {
-                dst[i * 4 + 0] = rgba[i * 4 + 2];   // B
-                dst[i * 4 + 1] = rgba[i * 4 + 1];   // G
-                dst[i * 4 + 2] = rgba[i * 4 + 0];   // R
-                dst[i * 4 + 3] = rgba[i * 4 + 3];   // A
+                dst[i * 4 + 0] = pixels[i * 4 + 2];   // B
+                dst[i * 4 + 1] = pixels[i * 4 + 1];   // G
+                dst[i * 4 + 2] = pixels[i * 4 + 0];   // R
+                dst[i * 4 + 3] = pixels[i * 4 + 3];   // A
             }
 
             // A mask bitmap is required by ICONINFO; the alpha channel does the
@@ -1908,7 +1908,7 @@ export namespace Rev {
                 wglGetCurrentContext() == hglrc
             );
         }
-        
+
         void swapBuffers() {
             if (hdc) {
                 this->dirty = false;
