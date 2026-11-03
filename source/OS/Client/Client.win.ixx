@@ -112,8 +112,10 @@ export namespace Rev {
 
         void send(const std::string& msg) override {
             if (!running || sock_.load() == INVALID_SOCKET) {
-                dbg("[Client] send() on closed socket");
-                fireError("Send failed: socket is closed");
+                // A stale send after a local or remote close is not a new
+                // loss: the close already announced itself. Drop it quietly
+                // so it can never tear down a later connection attempt.
+                dbg("[Client] send() on closed socket (dropped)");
                 return;
             }
             // Never perform socket I/O on the caller (normally Rev's promise
