@@ -531,7 +531,8 @@ export namespace Rev {
                 if (found == sessions.end()) return;   // closed locally
                 Record& record = found->second;
                 listener = record.listener;
-                if (message.contains("id") && message["id"].is_number_unsigned()) {
+                // Events (bulk_done carries the bulk id) are not request replies.
+                if (event.empty() && message.contains("id") && message["id"].is_number_unsigned()) {
                     auto request = record.requests.find(message["id"].get<uint64_t>());
                     if (request != record.requests.end()) {
                         command = request->second;
@@ -552,7 +553,7 @@ export namespace Rev {
             }
             if (credited) { wake.notify_all(); return; }
 
-            if (message.contains("id")) {
+            if (event.empty() && message.contains("id")) {
                 const bool ok = message.value("ok", false);
                 if (command == "open" || command == "configure") {
                     if (!ok) dbg("[UsbProxy] %s failed: %s", command.c_str(), message.dump().c_str());
