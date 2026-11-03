@@ -1,6 +1,7 @@
 module;
 
 #include <glew/glew.h>
+#include <stdexcept>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -13,9 +14,9 @@ import Rev.NativeWindow;
 
 export namespace Rev::Graphics {
 
-    // This object is called by the capture callback thread.  Its textures are
-    // shared with the canvas, while the display thread only reads `latest()` and
-    // binds the returned pointer.
+    // Called only on the UI/render thread that owns the window's GL context,
+    // from the camera's latest immutable snapshot. Capture threads never touch
+    // GL (no shared worker context, no wglMakeCurrent off the UI thread).
     struct CameraTexture {
 
         struct Slot {
@@ -25,22 +26,12 @@ export namespace Rev::Graphics {
         };
 
         explicit CameraTexture(void* windowContext)
-            : window(static_cast<NativeWindow*>(windowContext)) {
-            // Construction happens with the canvas context current on the UI
-            // thread. WGL establishes the sharing relationship here; capture
-            // only claims this context before issuing an upload.
-            worker = NativeWindow::createSharedContext(window);
-            if (!worker) { errorText = "Could not create a shared OpenGL capture context"; }
-        }
+            : window(static_cast<NativeWindow*>(windowContext)) {}
 
         ~CameraTexture() {
             std::scoped_lock lock(mutex);
             for (Slot& slot : slots) { delete slot.texture; }
             slots.clear();
-            if (worker) {
-                worker->destroy();
-                delete worker;
-            }
         }
 
         bool upload(const unsigned char* pixels, size_t width, size_t height, Core::PixelFormat format) {
@@ -49,19 +40,15 @@ export namespace Rev::Graphics {
                 errorText = "Camera supplied no frame pixels";
                 return false;
             }
-            if (!worker) {
-                errorText = "Could not create a shared OpenGL capture context";
-                return false;
-            }
-            if (!worker->makeCurrent()) {
-                errorText = "Could not make the shared OpenGL capture context current";
+            try { NativeWindow::requireContext(window, "Camera texture upload"); }
+            catch (const std::exception& error) {
+                errorText = error.what();
                 return false;
             }
 
             Slot* slot = nextSlot(width, height);
             if (!slot) {
                 errorText = "No free camera texture slot";
-                worker->release();
                 return false;
             }
             if (!slot->texture) {
@@ -74,8 +61,6 @@ export namespace Rev::Graphics {
             else {
                 slot->texture->update(pixels);
             }
-            glFlush();
-            worker->release();
             published = slot->texture;
             pixelFormat = format;
             errorText.clear();
@@ -99,7 +84,6 @@ export namespace Rev::Graphics {
         }
 
         NativeWindow* window = nullptr;
-        NativeWindow::SharedContext* worker = nullptr;
         std::mutex mutex;
         std::vector<Slot> slots = { Slot{}, Slot{}, Slot{} };
         Texture* published = nullptr;

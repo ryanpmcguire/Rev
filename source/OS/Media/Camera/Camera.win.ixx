@@ -1,5 +1,6 @@
 module;
 
+#include <dbg.hpp>
 #include <atomic>
 #include <algorithm>
 #include <cmath>
@@ -696,7 +697,11 @@ export namespace Rev::Media {
         std::scoped_lock lock(ownerMutex);
         if (!owner) { return S_OK; }
         owner->samplePending = false;
-        owner->receive(status, flags, timestamp, sample);
+        // receive() only copies into a snapshot; a failure costs one frame,
+        // never the read loop, so the next ReadSample is always issued.
+        try { owner->receive(status, flags, timestamp, sample); }
+        catch (const std::exception& error) { dbg("[Camera] sample dropped: %s", error.what()); }
+        catch (...) { dbg("[Camera] sample dropped: unknown error"); }
         if (owner->isOpen() && owner->isStreaming()) {
             HRESULT next = owner->requestNextSample();
 

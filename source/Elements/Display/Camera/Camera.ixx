@@ -80,24 +80,10 @@ export namespace Rev::Element {
             textures = new Graphics::CameraTexture(shared->canvas->context);
             textureError = textures->error();
             video->settings = params.display;
-            source->onFrame(this, [this](Media::Camera::Frame::Event& event, Media::Camera::Frame* received) {
-                if (!textures->upload(received->pixels, received->size.width, received->size.height, received->format)) {
-                    {
-                        std::scoped_lock lock(statusMutex);
-                        textureError = textures->error();
-                    }
-                    if (shared && shared->canvas && shared->canvas->window) {
-                        shared->canvas->window->requestFrameFromWorker();
-                    }
-                    return;
-                }
-                {
-                    std::scoped_lock lock(statusMutex);
-                    textureError.clear();
-                }
-                std::scoped_lock lock(frameMutex);
-                frame = received;
-                frameRevision = event.revision;
+            // Main-thread signal only: note that a newer snapshot exists and ask
+            // for a repaint. The upload happens in computePrimitives, on the UI
+            // thread that owns the GL context, from Media::Camera::latestFrame().
+            source->onFrame(this, [this](Media::Camera::Frame::Event&, Media::Camera::Frame*) {
                 if (shared && shared->canvas && shared->canvas->window) {
                     shared->canvas->window->requestFrameFromWorker();
                 }
@@ -141,6 +127,7 @@ export namespace Rev::Element {
         void refreshFrame() {
             std::scoped_lock lock(frameMutex);
             uploadedRevision = 0;
+            displayedRevision = 0;
         }
         void setFit(Fit fit) {
             params.fit = fit;
@@ -154,17 +141,31 @@ export namespace Rev::Element {
             size_t frameWidth = 0;
             size_t frameHeight = 0;
             {
+                std::shared_ptr<const Media::Camera::Frame> latest = source->latestFrame();
                 std::scoped_lock lock(frameMutex);
+                if (latest && latest->revision != uploadedRevision) {
+                    bool uploaded = textures->upload(latest->pixels,
+                        latest->size.width, latest->size.height, latest->format);
+                    {
+                        std::scoped_lock statusLock(statusMutex);
+                        textureError = uploaded ? std::string() : textures->error();
+                    }
+                    if (uploaded) {
+                        frame = latest;
+                        frameRevision = latest->revision;
+                    }
+                    uploadedRevision = latest->revision;
+                }
                 if (frame) {
                     frameWidth = frame->size.width;
                     frameHeight = frame->size.height;
-                    if (frameRevision != uploadedRevision) {
+                    if (frameRevision != displayedRevision) {
                         Core::PixelFormat format;
                         Graphics::Texture* texture = textures->latest(format);
                         if (!texture) { return; }
                         video->setTexture(texture, format);
                         textures->display(texture);
-                        uploadedRevision = frameRevision;
+                        displayedRevision = frameRevision;
                     }
                 }
             }
@@ -215,9 +216,10 @@ export namespace Rev::Element {
         bool ownsSource = false;
         std::mutex frameMutex;
         std::mutex statusMutex;
-        Media::Camera::Frame* frame = nullptr;
+        std::shared_ptr<const Media::Camera::Frame> frame;
         uint64_t frameRevision = 0;
         uint64_t uploadedRevision = 0;
+        uint64_t displayedRevision = 0;
         Primitives::Video* video = nullptr;
         Graphics::CameraTexture* textures = nullptr;
         std::string textureError;

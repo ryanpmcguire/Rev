@@ -2,6 +2,7 @@ module;
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -23,6 +24,8 @@ export namespace Rev::Media::CameraTypes {
         struct Event {
             Frame* frame = nullptr;
             uint64_t revision = 0;
+            // Owns `frame` for listeners that keep it beyond the callback.
+            std::shared_ptr<const Frame> snapshot;
         };
 
         struct Size {
@@ -45,8 +48,9 @@ export namespace Rev::Media::CameraTypes {
         std::mutex* mutex = nullptr;
         uint64_t revision = 0;
 
-        // Valid only while an onFrame listener is running. Native capture owns
-        // this buffer; callers that need CPU pixels must explicitly call copy().
+        // In a published snapshot (Camera::latestFrame / FrameEvent::snapshot)
+        // `pixels` points into `data` and lives as long as the snapshot. Inside
+        // native capture it points at the driver buffer for the callback only.
         const unsigned char* pixels = nullptr;
         size_t pitch = 0;
         std::vector<unsigned char> data;

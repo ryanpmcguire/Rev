@@ -1,6 +1,8 @@
 module;
 
+#include <dbg.hpp>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -18,6 +20,7 @@ export import Rev.Media.Camera.Types;
 import Rev.Media.NativeCamera;
 import Rev.Core.Dispatcher;
 import Rev.Core.Promise;
+import Rev.Core.MainDispatch;
 
 export namespace Rev::Media {
 
@@ -180,7 +183,6 @@ export namespace Rev::Media {
         };
 
         NativeCamera* nativeCamera = nullptr;
-        Frame* frame = nullptr;
         Info info;
 
         // Create
@@ -188,32 +190,18 @@ export namespace Rev::Media {
 
             Roster::Get();
 
+            // Capture is independent of its consumers. The native callback only
+            // copies the sample into an immutable snapshot, swaps it into the
+            // latest-frame slot and posts one coalesced signal to the main thread.
+            // No consumer code, GL work or consumer lock runs on the capture thread.
             nativeCamera = new NativeCamera([this](Frame* frame) {
-
-                Frame* reusable = nullptr;
-                uint64_t revision = 0;
-
-                {
-                    std::scoped_lock lock(frameMutex);
-                    reusable = this->frame;
-                    this->frame = frame;
-                    frame->mutex = &frameMutex;
-                    frame->published = &this->frame;
-                    revision = ++frameRevision;
-                    frame->revision = revision;
-                }
-
-                FrameEvent event{ frame, revision };
-                frameReceived(event);
-
-                return reusable;
+                try { publishSnapshot(*frame); }
+                catch (const std::exception& error) { dbg("[Camera] frame dropped: %s", error.what()); }
+                catch (...) { dbg("[Camera] frame dropped: unknown error"); }
+                return frame;
             }, [this](std::string error) {
                 nativeOffline(std::move(error));
             }, {});
-            
-            frame = new Frame;
-            frame->mutex = &frameMutex;
-            frame->published = &frame;
         }
 
         Camera(const Camera&) = delete;
@@ -222,11 +210,16 @@ export namespace Rev::Media {
         // Destroy
         ~Camera() {
 
+            *alive = nullptr;
             delete nativeCamera;
-            delete frame;
-
             nativeCamera = nullptr;
-            frame = nullptr;
+        }
+
+        // Thread-safe: the newest immutable frame (nullptr before the first).
+        // Its revision increases monotonically for the life of this object.
+        std::shared_ptr<const Frame> latestFrame() const {
+            std::scoped_lock lock(frameMutex);
+            return latest;
         }
 
         static std::vector<DeviceInfo> devices() { return Roster::Get().devices(); }
@@ -354,7 +347,11 @@ export namespace Rev::Media {
             return any;
         }
 
+        // Guards only the pointer swap of `latest` and the revision counter.
         mutable std::mutex frameMutex;
+        std::shared_ptr<const Frame> latest;
+        std::atomic<bool> frameSignalPending = false;
+        std::shared_ptr<Camera*> alive = std::make_shared<Camera*>(this);
         std::mutex frameDemandMutex;
         std::unordered_set<void*> frameConsumers;
         uint64_t frameRevision = 0;
@@ -362,6 +359,48 @@ export namespace Rev::Media {
         Core::Dispatcher<AvailabilityChanged> availabilityDispatcher;
         void frameReceived(FrameEvent& event) {
             frameDispatcher.tell(&Camera::frameReceived, event);
+        }
+
+        // Capture thread. Copy, publish, signal; never run consumers here.
+        void publishSnapshot(const Frame& source) {
+            const unsigned char* pixels = source.pixels;
+            size_t pitch = source.pitch;
+            if (!pixels && !source.data.empty()) {
+                pixels = source.data.data();
+                pitch = source.size.width * (source.size.channels ? source.size.channels : 4);
+            }
+            if (!pixels || !pitch || !source.size.width || !source.size.height) { return; }
+
+            auto snapshot = std::make_shared<Frame>();
+            snapshot->size = source.size;
+            snapshot->timestamp = source.timestamp;
+            snapshot->format = source.format;
+            snapshot->pitch = pitch;
+            snapshot->data.assign(pixels, pixels + pitch * source.size.height);
+            snapshot->pixels = snapshot->data.data();
+
+            {
+                std::scoped_lock lock(frameMutex);
+                snapshot->revision = ++frameRevision;
+                latest = std::move(snapshot);
+            }
+
+            if (frameSignalPending.exchange(true)) { return; }
+            Core::MainDispatch::instance().post([token = alive]() {
+                Camera* camera = *token;
+                if (!camera) { return; }
+                camera->frameSignalPending = false;
+                camera->signalFrame();
+            });
+        }
+
+        // Main thread. Listeners receive the newest snapshot; it stays valid for
+        // as long as they hold event.snapshot.
+        void signalFrame() {
+            std::shared_ptr<const Frame> snapshot = latestFrame();
+            if (!snapshot) { return; }
+            FrameEvent event{ const_cast<Frame*>(snapshot.get()), snapshot->revision, snapshot };
+            frameReceived(event);
         }
         void controlTelemetry(SettingType&) {
             ++info.controlsRevision;
