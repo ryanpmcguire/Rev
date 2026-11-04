@@ -82,6 +82,21 @@ export namespace Rev::Core {
             return 1000.0 / static_cast<double>(tickPeriodMs);
         }
 
+        // Batched (default): ticks ride Process's shared frame clock, so all
+        // batched animators due on a frame run in one tick() call and share
+        // one redraw, and the rate is throttled to at most the frame rate
+        // (period rounded up to whole frames). false = free-running timer.
+        void setBatched(bool value) {
+            if (batched == value) { return; }
+            batched = value;
+            if (state == State::Playing) { requestTicksFromProcess(); }
+        }
+        bool isBatched() const { return batched; }
+
+        // Throttle: cap this animator's frame rate (Hz). Alias of
+        // setFrequency that also keeps it batched.
+        void setMaxFrequency(double frequencyHz) { setBatched(true); setFrequency(frequencyHz); }
+
         State getState() const { return state; }
 
         bool isPlaying() const {
@@ -174,12 +189,14 @@ export namespace Rev::Core {
     private:
 
         std::deque<QueuedFrame> queue_;
+        bool batched = true;
 
         void requestTicksFromProcess() {
             Process::instance().schedule(
                 this,
                 tickPeriodMs,
-                [this](uint64_t now) { tickFromProcess(now); }
+                [this](uint64_t now) { tickFromProcess(now); },
+                batched
             );
         }
 

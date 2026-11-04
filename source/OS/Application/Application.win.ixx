@@ -4,6 +4,9 @@ module;
 #include <algorithm>
 #include <cstdint>
 #include <windows.h>
+#include <timeapi.h>
+
+#pragma comment(lib, "winmm.lib")
 
 export module Rev.Application;
 
@@ -39,6 +42,15 @@ export namespace Rev {
         }
 
         void run() {
+
+            // 1 ms timer resolution while the loop runs: without it the
+            // MsgWaitForMultipleObjects timeout rounds to ~15.6 ms, so a
+            // 16.7 ms frame lands on 15.6 or 31.2 ms (jittery 32-64 Hz).
+            // application-owner sign-off, 2026-11-04.
+            struct TimerResolution {
+                TimerResolution() { timeBeginPeriod(1); }
+                ~TimerResolution() { timeEndPeriod(1); }
+            } timerResolution;
 
             MSG msg = { 0 };
 

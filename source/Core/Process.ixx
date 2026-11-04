@@ -23,10 +23,18 @@ export namespace Rev::Core {
 
         // Ask Process to invoke callback every intervalMs while scheduled.
         // Replaces any existing schedule for the same owner.
+        //
+        // aligned = true puts the owner on the shared frame clock: its wakes
+        // land on the global frame grid (frameRateHz, 60 by default), its
+        // interval is rounded up to whole frames (so it can never exceed the
+        // frame rate), and every aligned owner due on the same frame runs in
+        // the same tick() call, so their dirty flags coalesce into one redraw.
+        // aligned = false keeps the old free-running behaviour.
         void schedule(
             void* owner,
             uint64_t intervalMs,
-            TickCallback callback
+            TickCallback callback,
+            bool aligned = false
         ) {
 
             if (!owner || !callback || intervalMs == 0) { return; }
@@ -40,9 +48,21 @@ export namespace Rev::Core {
             schedules.push_back({
                 owner,
                 intervalMs,
-                now,
-                std::move(callback)
+                aligned ? frameAtOrAfter(now) : now,
+                std::move(callback),
+                aligned
             });
+        }
+
+        // Shared frame clock rate for aligned schedules (display rate).
+        void setFrameRate(uint64_t hz) { if (hz > 0) { frameRateHz = hz; } }
+        uint64_t getFrameRate() const { return frameRateHz; }
+
+        // First frame-grid time >= t (grid anchored at time 0, fractional
+        // period 1000/frameRateHz ms, rounded up to whole ms).
+        uint64_t frameAtOrAfter(uint64_t t) const {
+            const uint64_t index = (t * frameRateHz + 999) / 1000;
+            return (index * 1000 + frameRateHz - 1) / frameRateHz;
         }
 
         // Override the next wake time for an already-scheduled owner,
@@ -133,7 +153,17 @@ export namespace Rev::Core {
 
                 if (live == schedules.end()) { continue; }
 
-                live->nextWakeMs = now + intervalMs;
+                if (live->aligned) {
+                    // Snap to the grid. Subtract half a frame so a late wake
+                    // does not skip a frame; never schedule at or before now.
+                    const uint64_t halfFrame = 500 / frameRateHz;
+                    const uint64_t target = now + intervalMs;
+                    uint64_t wake = frameAtOrAfter(target > halfFrame ? target - halfFrame : 0);
+                    if (wake <= now) { wake = frameAtOrAfter(now + 1); }
+                    live->nextWakeMs = wake;
+                } else {
+                    live->nextWakeMs = now + intervalMs;
+                }
             }
         }
 
@@ -171,8 +201,10 @@ export namespace Rev::Core {
             uint64_t intervalMs = 0;
             uint64_t nextWakeMs = 0;
             TickCallback callback;
+            bool aligned = false;
         };
 
         std::vector<ScheduledTick> schedules;
+        uint64_t frameRateHz = 60;
     };
 }
