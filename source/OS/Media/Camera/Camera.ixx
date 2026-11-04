@@ -215,6 +215,9 @@ export namespace Rev::Media {
             nativeCamera = nullptr;
         }
 
+        // Diagnostics: negotiated native media type (subtype, size, rate).
+        std::string mediaFormat() const { return nativeCamera->mediaFormat(); }
+
         // Thread-safe: the newest immutable frame (nullptr before the first).
         // Its revision increases monotonically for the life of this object.
         std::shared_ptr<const Frame> latestFrame() const {

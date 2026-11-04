@@ -264,6 +264,7 @@ export namespace Rev::Media {
             width = frameWidth;
             height = frameHeight;
             frameFormat = Core::PixelFormat::BGRX8;
+            mediaFormatText = describeNativeType();
 
             if (actualType) { actualType->Release(); }
             if (outputType) { outputType->Release(); }
@@ -335,6 +336,42 @@ export namespace Rev::Media {
 
         bool isOpen() const { return running && reader; }
         bool isStreaming() const { return streaming; }
+
+        // Diagnostics: the source's negotiated native media type (before the
+        // reader converts to RGB32): subtype, size and frame rate.
+        std::string mediaFormat() const { return mediaFormatText; }
+
+        std::string describeNativeType() const {
+            if (!reader) return "unavailable (no reader)";
+            IMFMediaType* native = nullptr;
+            HRESULT result = reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                MF_SOURCE_READER_CURRENT_TYPE_INDEX, &native);
+            if (FAILED(result) || !native)
+                return "unavailable (GetNativeMediaType failed)";
+            GUID subtype{};
+            std::string name = "unknown";
+            if (SUCCEEDED(native->GetGUID(MF_MT_SUBTYPE, &subtype))) {
+                if (subtype == MFVideoFormat_MJPG) name = "MJPG";
+                else if (subtype == MFVideoFormat_YUY2) name = "YUY2";
+                else if (subtype == MFVideoFormat_NV12) name = "NV12";
+                else if (subtype == MFVideoFormat_RGB32) name = "RGB32";
+                else if (subtype == MFVideoFormat_RGB24) name = "RGB24";
+                else {
+                    char fourcc[5] = {
+                        char(subtype.Data1 & 0xFF), char((subtype.Data1 >> 8) & 0xFF),
+                        char((subtype.Data1 >> 16) & 0xFF), char((subtype.Data1 >> 24) & 0xFF), 0};
+                    name = std::string("fourcc ") + fourcc;
+                }
+            }
+            UINT32 w = 0, h = 0, numerator = 0, denominator = 0;
+            MFGetAttributeSize(native, MF_MT_FRAME_SIZE, &w, &h);
+            MFGetAttributeRatio(native, MF_MT_FRAME_RATE, &numerator, &denominator);
+            native->Release();
+            return name + " " + std::to_string(w) + "x" + std::to_string(h) + " @ "
+                + (denominator ? std::to_string(double(numerator) / denominator) : std::string("?"))
+                + " fps (" + std::to_string(numerator) + "/" + std::to_string(denominator)
+                + "); reader output RGB32";
+        }
 
         std::string error() const {
             std::scoped_lock lock(errorMutex);
@@ -471,6 +508,7 @@ export namespace Rev::Media {
         size_t width = 0;
         size_t height = 0;
         Core::PixelFormat frameFormat = Core::PixelFormat::Null;
+        std::string mediaFormatText = "unavailable (not open)";
 
         mutable std::mutex errorMutex;
         std::string errorText;

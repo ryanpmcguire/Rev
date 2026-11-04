@@ -23,6 +23,7 @@ export namespace Rev::Media {
         bool isOpen() const { return false; }
         std::string error() const { return "Camera capture is not implemented for macOS"; }
         std::vector<CameraTypes::Setting> readControls() { return {}; }
+        std::string mediaFormat() const { return "unavailable (platform)"; }
         bool writeControl(CameraTypes::Setting::Type, long, CameraTypes::Setting::Mode, CameraTypes::Setting&) {
             return false;
         }
