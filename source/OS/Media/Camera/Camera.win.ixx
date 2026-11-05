@@ -250,9 +250,12 @@ export namespace Rev::Media {
             if (SUCCEEDED(result)) { result = readerAttributes->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, callback); }
             if (SUCCEEDED(result)) { result = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE); }
             if (SUCCEEDED(result)) { result = MFCreateSourceReaderFromMediaSource(mediaSource, readerAttributes, &reader); }
+            reselected = false;
+            bool full = SUCCEEDED(result) && selectFullHd();
             if (SUCCEEDED(result)) { result = MFCreateMediaType(&outputType); }
             if (SUCCEEDED(result)) { result = outputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video); }
             if (SUCCEEDED(result)) { result = outputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32); }
+            if (SUCCEEDED(result) && full) { result = MFSetAttributeSize(outputType, MF_MT_FRAME_SIZE, 1920, 1080); }
             if (SUCCEEDED(result)) { result = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, outputType); }
 
             IMFMediaType* actualType = nullptr;
@@ -264,7 +267,7 @@ export namespace Rev::Media {
             width = frameWidth;
             height = frameHeight;
             frameFormat = Core::PixelFormat::BGRX8;
-            mediaFormatText = describeNativeType();
+            setMediaFormat(describeNativeType());
 
             if (actualType) { actualType->Release(); }
             if (outputType) { outputType->Release(); }
@@ -330,6 +333,10 @@ export namespace Rev::Media {
 
             width = 0;
             height = 0;
+            {
+                std::scoped_lock lock(errorMutex);
+                mediaFormatText = "unavailable (not open)";
+            }
             samplePending = false;
             releaseRuntime();
         }
@@ -339,7 +346,96 @@ export namespace Rev::Media {
 
         // Diagnostics: the source's negotiated native media type (before the
         // reader converts to RGB32): subtype, size and frame rate.
-        std::string mediaFormat() const { return mediaFormatText; }
+        std::string mediaFormat() const {
+            std::scoped_lock lock(errorMutex);
+            return mediaFormatText;
+        }
+
+        // Logs only on change (open, or a mid-stream media type change).
+        void setMediaFormat(std::string text) {
+            text += "; delivered " + std::to_string(width) + "x" + std::to_string(height);
+            {
+                std::scoped_lock lock(errorMutex);
+                if (text == mediaFormatText) { return; }
+                mediaFormatText = text;
+            }
+            dbg("[Camera] media format: %s", text.c_str());
+        }
+
+        // The source may renegotiate mid-stream; re-read the output size so
+        // width/height never go stale, and record the new native type.
+        // Picks a 1920x1080 native type: MJPG, then YUY2, then NV12; highest fps <= 30.
+        // Returns false (after a loud log listing the types) when none exists.
+        bool selectFullHd() {
+            int bestRank = -1;
+            double bestFps = 0;
+            DWORD bestIndex = 0;
+            std::string available;
+            for (DWORD i = 0;; ++i) {
+                IMFMediaType* type = nullptr;
+                if (FAILED(reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, i, &type))) { break; }
+                GUID subtype{};
+                UINT32 w = 0, h = 0, num = 0, den = 0;
+                type->GetGUID(MF_MT_SUBTYPE, &subtype);
+                MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &w, &h);
+                MFGetAttributeRatio(type, MF_MT_FRAME_RATE, &num, &den);
+                type->Release();
+                double fps = den ? double(num) / den : 0;
+                int rank = subtype == MFVideoFormat_MJPG ? 3 : subtype == MFVideoFormat_YUY2 ? 2
+                    : subtype == MFVideoFormat_NV12 ? 1 : 0;
+                char fourcc[5] = {char(subtype.Data1 & 0xFF), char((subtype.Data1 >> 8) & 0xFF),
+                    char((subtype.Data1 >> 16) & 0xFF), char((subtype.Data1 >> 24) & 0xFF), 0};
+                available += std::string(" ") + fourcc + " " + std::to_string(w) + "x" + std::to_string(h)
+                    + "@" + std::to_string(int(fps + 0.5)) + ";";
+                if (w != 1920 || h != 1080 || rank == 0 || fps > 30.5) { continue; }
+                if (rank > bestRank || (rank == bestRank && fps > bestFps)) {
+                    bestRank = rank; bestFps = fps; bestIndex = i;
+                }
+            }
+            IMFMediaType* chosen = nullptr;
+            if (bestRank > 0 && SUCCEEDED(reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, bestIndex, &chosen))) {
+                HRESULT set = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, chosen);
+                chosen->Release();
+                if (SUCCEEDED(set)) { return true; }
+            }
+            dbg("[Camera] WARNING: no usable 1920x1080 native type; keeping the device default. Available:%s",
+                available.c_str());
+            return false;
+        }
+
+        void refreshMediaType() {
+            if (!reselected && width && height) {
+                IMFMediaType* native = nullptr;
+                UINT32 nw = 0, nh = 0;
+                if (SUCCEEDED(reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                        MF_SOURCE_READER_CURRENT_TYPE_INDEX, &native))) {
+                    MFGetAttributeSize(native, MF_MT_FRAME_SIZE, &nw, &nh);
+                    native->Release();
+                }
+                if (nw != 1920 || nh != 1080) {
+                    reselected = true;  // once per open: never loop against the device
+                    IMFMediaType* output = nullptr;
+                    if (selectFullHd() && SUCCEEDED(MFCreateMediaType(&output))) {
+                        output->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+                        output->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+                        MFSetAttributeSize(output, MF_MT_FRAME_SIZE, 1920, 1080);
+                        HRESULT set = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, output);
+                        dbg("[Camera] mid-stream reselect to 1920x1080: SetCurrentMediaType hr=0x%08lX%s",
+                            static_cast<unsigned long>(set), SUCCEEDED(set) ? "" : " (FAILED; close and reopen to recover)");
+                    }
+                    if (output) { output->Release(); }
+                }
+            }
+            IMFMediaType* current = nullptr;
+            UINT32 w = 0, h = 0;
+            if (SUCCEEDED(reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &current))
+                && SUCCEEDED(MFGetAttributeSize(current, MF_MT_FRAME_SIZE, &w, &h))) {
+                width = w;
+                height = h;
+            }
+            if (current) { current->Release(); }
+            setMediaFormat(describeNativeType());
+        }
 
         std::string describeNativeType() const {
             if (!reader) return "unavailable (no reader)";
@@ -425,6 +521,11 @@ export namespace Rev::Media {
                 lost("Camera stream ended");
                 return;
             }
+            if (reader && (flags & (MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED
+                | MF_SOURCE_READERF_NATIVEMEDIATYPECHANGED))) {
+                dbg("[Camera] media type changed mid-stream (flags 0x%lx)", static_cast<unsigned long>(flags));
+                refreshMediaType();
+            }
             if (!sample || width == 0 || height == 0) { return; }
 
             const double receivedAtMs = std::chrono::duration<double, std::milli>(
@@ -503,10 +604,14 @@ export namespace Rev::Media {
         std::atomic<bool> running = false;
         std::atomic<bool> streaming = false;
         std::atomic<bool> samplePending = false;
+        // Written on the MF callback thread (refreshMediaType) and read or reset
+        // on the main thread (open, close, getters): atomic (application-owner
+        // sign-off, 2026-11-04).
+        std::atomic<bool> reselected = false;
         bool ownsCom = false;
         bool ownsMediaFoundation = false;
-        size_t width = 0;
-        size_t height = 0;
+        std::atomic<size_t> width = 0;
+        std::atomic<size_t> height = 0;
         Core::PixelFormat frameFormat = Core::PixelFormat::Null;
         std::string mediaFormatText = "unavailable (not open)";
 

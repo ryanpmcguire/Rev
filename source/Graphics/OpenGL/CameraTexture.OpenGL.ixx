@@ -34,10 +34,19 @@ export namespace Rev::Graphics {
             slots.clear();
         }
 
-        bool upload(const unsigned char* pixels, size_t width, size_t height, Core::PixelFormat format) {
+        // `pitch` = bytes per source row (0 = unknown, assumed tight). The upload
+        // assumes tightly packed 4-byte rows; a padded pitch would shear the
+        // image, so it is refused loudly instead (guard, 2026-11-04).
+        bool upload(const unsigned char* pixels, size_t width, size_t height, Core::PixelFormat format,
+                    size_t pitch = 0) {
             std::scoped_lock lock(mutex);
             if (!pixels || !width || !height || !window) {
                 errorText = "Camera supplied no frame pixels";
+                return false;
+            }
+            if (pitch && pitch != width * 4) {
+                errorText = "Camera frame pitch " + std::to_string(pitch) + " != width*4 ("
+                    + std::to_string(width * 4) + "); refusing a sheared upload";
                 return false;
             }
             try { NativeWindow::requireContext(window, "Camera texture upload"); }
@@ -53,7 +62,8 @@ export namespace Rev::Graphics {
             }
             if (!slot->texture) {
                 slot->texture = Texture::createInCurrentContext(window, {
-                    .data = const_cast<unsigned char*>(pixels), .width = width, .height = height, .channels = 4
+                    .data = const_cast<unsigned char*>(pixels), .width = width, .height = height, .channels = 4,
+                    .filter = Texture::Filter::Trilinear
                 });
                 slot->width = width;
                 slot->height = height;

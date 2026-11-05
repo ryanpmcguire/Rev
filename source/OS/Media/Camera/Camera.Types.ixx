@@ -22,7 +22,9 @@ export namespace Rev::Media::CameraTypes {
     struct Frame {
 
         struct Event {
-            Frame* frame = nullptr;
+            // Read-only: the snapshot is shared and immutable; no listener may
+            // modify the camera's frame in place (guard, 2026-11-04).
+            const Frame* frame = nullptr;
             uint64_t revision = 0;
             // Owns `frame` for listeners that keep it beyond the callback.
             std::shared_ptr<const Frame> snapshot;

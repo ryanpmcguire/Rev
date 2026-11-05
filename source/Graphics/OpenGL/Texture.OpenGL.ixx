@@ -93,7 +93,7 @@ export namespace Rev::Graphics {
 
             // Set default filtering
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)filter);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)filter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter(filter));
 
             // Set clamping to edge
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -136,9 +136,10 @@ export namespace Rev::Graphics {
                 static_cast<GLsizei>(params.width), static_cast<GLsizei>(params.height),
                 0, format, GL_UNSIGNED_BYTE, params.data);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(params.filter));
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(params.filter));
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter(params.filter));
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            if (usesMipmaps(params.filter)) { glGenerateMipmap(GL_TEXTURE_2D); }
             glBindTexture(GL_TEXTURE_2D, 0);
             return texture;
         }
@@ -156,6 +157,12 @@ export namespace Rev::Graphics {
             if (texture->id) { glDeleteTextures(1, &texture->id); }
             texture->id = 0;
             delete texture;
+        }
+
+        // GL_TEXTURE_MAG_FILTER accepts only NEAREST or LINEAR.
+        static GLint magFilter(Filter filter) {
+            return (filter == Filter::Nearest || filter == Filter::NearestMipmapNearest ||
+                    filter == Filter::NearestMipmapBilinear) ? GL_NEAREST : GL_LINEAR;
         }
 
         static bool usesMipmaps(Filter filter) {

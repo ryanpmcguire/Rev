@@ -208,6 +208,9 @@ public:
         template<typename Error> void reject(Error&& error) const {
             reject(std::make_exception_ptr(std::forward<Error>(error)));
         }
+        // Identity: two Sources are equal when they share one state (copies
+        // of the same Source), so a registry can unregister a waiter.
+        bool operator==(const Source&) const = default;
     private:
         std::shared_ptr<State> state;
     };

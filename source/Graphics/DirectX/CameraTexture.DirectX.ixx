@@ -10,8 +10,14 @@ export namespace Rev::Graphics {
         explicit CameraTexture(void* context) : context(context) {}
         CameraTexture(const CameraTexture&) = delete;
         CameraTexture& operator=(const CameraTexture&) = delete;
-        bool upload(const unsigned char* pixels, size_t width, size_t height, Core::PixelFormat format) {
+        // `pitch` = bytes per source row (0 = unknown, assumed tight); a padded
+        // pitch is refused rather than uploaded sheared (guard, 2026-11-04).
+        bool upload(const unsigned char* pixels, size_t width, size_t height, Core::PixelFormat format,
+                    size_t pitch = 0) {
             std::scoped_lock lock(mutex);
+            if (pitch && pitch != width * 4) {
+                errorText = "Camera frame pitch != width*4; refusing a sheared upload"; return false;
+            }
             if (format != Core::PixelFormat::RGBA8 && format != Core::PixelFormat::BGRA8 &&
                 format != Core::PixelFormat::RGBX8 && format != Core::PixelFormat::BGRX8) {
                 errorText = "DirectX camera upload requires packed RGBA/BGRA/RGBX/BGRX pixels"; return false;
@@ -27,7 +33,7 @@ export namespace Rev::Graphics {
             std::scoped_lock lock(mutex);
             if (dirty) {
                 if (!texture || texture->width != pendingWidth || texture->height != pendingHeight)
-                    texture = std::make_unique<Texture>(context, Texture::Params{pending.data(), pendingWidth, pendingHeight, 4});
+                    texture = std::make_unique<Texture>(context, Texture::Params{pending.data(), pendingWidth, pendingHeight, 4, Texture::Filter::Bilinear});
                 else texture->update(pending.data());
                 pixelFormat = pendingFormat; dirty = false;
             }

@@ -280,7 +280,7 @@ export namespace Rev::Media {
         template<typename Owner>
         void onFrame(
             Owner* owner,
-            const std::function<void(FrameEvent&, Frame*)>& listener
+            const std::function<void(FrameEvent&, const Frame*)>& listener
         ) {
             frameDispatcher.listen(&Camera::frameReceived, owner, [listener](FrameEvent& event) {
                 listener(event, event.frame);
@@ -402,7 +402,7 @@ export namespace Rev::Media {
         void signalFrame() {
             std::shared_ptr<const Frame> snapshot = latestFrame();
             if (!snapshot) { return; }
-            FrameEvent event{ const_cast<Frame*>(snapshot.get()), snapshot->revision, snapshot };
+            FrameEvent event{ snapshot.get(), snapshot->revision, snapshot };
             frameReceived(event);
         }
         void controlTelemetry(SettingType&) {

@@ -83,7 +83,7 @@ export namespace Rev::Element {
             // Main-thread signal only: note that a newer snapshot exists and ask
             // for a repaint. The upload happens in computePrimitives, on the UI
             // thread that owns the GL context, from Media::Camera::latestFrame().
-            source->onFrame(this, [this](Media::Camera::Frame::Event&, Media::Camera::Frame*) {
+            source->onFrame(this, [this](Media::Camera::Frame::Event&, const Media::Camera::Frame*) {
                 if (shared && shared->canvas && shared->canvas->window) {
                     shared->canvas->window->requestFrameFromWorker();
                 }
@@ -129,6 +129,20 @@ export namespace Rev::Element {
             uploadedRevision = 0;
             displayedRevision = 0;
         }
+        // Display diagnostics, updated each computePrimitives. The texture is
+        // allocated at the frame size (CameraTexture::nextSlot), so texture W x H
+        // equals frame W x H.
+        struct DisplayInfo {
+            size_t frameWidth = 0, frameHeight = 0;
+            float drawnWidth = 0, drawnHeight = 0;
+            float scale = 0;            // drawn px per frame px (logical)
+            std::string mediaFormat;    // subtype and fps from Media::Camera
+        };
+        DisplayInfo displayInfo() {
+            std::scoped_lock statusLock(statusMutex);
+            return info;
+        }
+
         void setFit(Fit fit) {
             params.fit = fit;
             if (shared && shared->event) { refresh(*shared->event); }
@@ -145,7 +159,7 @@ export namespace Rev::Element {
                 std::scoped_lock lock(frameMutex);
                 if (latest && latest->revision != uploadedRevision) {
                     bool uploaded = textures->upload(latest->pixels,
-                        latest->size.width, latest->size.height, latest->format);
+                        latest->size.width, latest->size.height, latest->format, latest->pitch);
                     {
                         std::scoped_lock statusLock(statusMutex);
                         textureError = uploaded ? std::string() : textures->error();
@@ -189,6 +203,9 @@ export namespace Rev::Element {
                     data.rect.w = rect.h * sourceAspect;
                     data.rect.x = rect.x + (rect.w - data.rect.w) * 0.5f;
                 }
+                // Whole pixels: a session-dependent sub-pixel phase changes which
+                // texels are sampled and therefore the apparent sharpness.
+                data.rect = data.rect.rounded();
             }
             else if (params.fit == Fit::Cover) {
                 if (sourceAspect > targetAspect) {
@@ -199,6 +216,15 @@ export namespace Rev::Element {
                     data.uv.h = sourceAspect / targetAspect;
                     data.uv.y = (1.0f - data.uv.h) * 0.5f;
                 }
+            }
+            {
+                std::scoped_lock statusLock(statusMutex);
+                info.frameWidth = frameWidth;
+                info.frameHeight = frameHeight;
+                info.drawnWidth = data.rect.w;
+                info.drawnHeight = data.rect.h;
+                info.scale = frameWidth ? data.rect.w / static_cast<float>(frameWidth) : 0.0f;
+                info.mediaFormat = source->mediaFormat();
             }
         }
 
@@ -223,5 +249,6 @@ export namespace Rev::Element {
         Primitives::Video* video = nullptr;
         Graphics::CameraTexture* textures = nullptr;
         std::string textureError;
+        DisplayInfo info;
     };
 }
