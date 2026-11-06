@@ -519,6 +519,22 @@ export namespace Rev::Element {
 
         Layout layout;
 
+        // The engine's unbounded max (as in the Grow fallback of resolveDims)
+        static constexpr float UnboundedWidth = 9999999.0f;
+
+        // The outer width this element can reach in its parent, as promotion carries
+        // it: its fixed min when it does not grow; its carried or intrinsic max when it
+        // grows; unbounded for a relative width, an explicit Grow container, or a
+        // grower that reports no max.
+        float maxOuterWidth() {
+            Dist::Type type = resolved.style.size.width.type;
+            if (type == Dist::Type::Rel) { return UnboundedWidth; }
+            if (!resolved.size.w.growable) { return resolved.min.outerWidth; }
+            if (!children.empty() && type == Dist::Type::Grow) { return UnboundedWidth; }
+            if (!set(layout.size.w.max)) { return UnboundedWidth; }
+            return layout.size.w.max + resolved.min.paddingWidth + resolved.min.marginWidth;
+        }
+
         // Default is to simply reset the layout
         virtual void computeLayout() {
             layout = Layout();
@@ -825,6 +841,11 @@ export namespace Rev::Element {
             bool promoteHorizontal = resolved.style.size.width.type != Dist::Type::Shrink;
             bool promoteVertical = resolved.style.size.height.type != Dist::Type::Shrink;
 
+            // Promotion carries maxima: each member's max outer width accumulates into
+            // layout.size.w.max (sum on the main axis, max on the cross axis); the
+            // parent's dims adopt it at the intrinsic-max step. An unbounded member
+            // carries UnboundedWidth, so the total stays unbounded.
+
             for (Row& row : layout.rows) {
 
                 for (Element* member : row.members) {
@@ -857,13 +878,17 @@ export namespace Rev::Element {
                             row.size.w.growable = true;
                             layout.size.w.growable = true;
                         }
+
+                        layout.size.w.max = std::max(layout.size.w.max, elem.maxOuterWidth());
                     }
 
                     else {
                         if (promoteHorizontal && elem.resolved.canGrow(Axis::Horizontal)) {
                             resolved.size.w.growable = true;
                         }
-    
+
+                        layout.size.w.max += elem.maxOuterWidth();
+
                         if (promoteVertical && elem.resolved.canGrow(Axis::Vertical)) {
                             resolved.size.h.growable = true;
                             row.size.h.growable = true;
@@ -872,6 +897,9 @@ export namespace Rev::Element {
                     }
                 }
             }
+
+            // Not growable (nothing promoted it): no carried max, as before
+            if (!resolved.size.w.growable) { layout.size.w.max = -0.0f; }
         }
 
         // Top down: Resolve flex and grow dimensions
@@ -939,6 +967,15 @@ export namespace Rev::Element {
                 // Resolve max
                 if (cSize.max.width) { child.resolved.size.w.max = cSize.max.width.resolve(compareValW); }
                 if (cSize.max.height) { child.resolved.size.h.max = cSize.max.height.resolve(compareValH); }
+
+                // Intrinsic max: a self-measured leaf's content max (computeLayout), used
+                // when no style max is set (style max above overrides it)
+                // Containers adopt a carried max only when promoted (unset width); an
+                // explicit Grow/Px/% container keeps its own sizing. Never below its min.
+                if (!set(child.resolved.size.w.max) && set(child.layout.size.w.max)
+                    && (child.children.empty() || !cSize.width)) {
+                    child.resolved.size.w.max = std::max(child.layout.size.w.max + child.resolved.min.paddingWidth, child.resolved.size.w.min);
+                }
 
                 // Override max if needed
                 if (cSize.width.type == Dist::Type::Grow && !set(child.resolved.size.w.max)) { child.resolved.size.w.max = 9999999.0f; }
@@ -1321,8 +1358,7 @@ export namespace Rev::Element {
 
                         float take = elem.resolved.grow(share, Axis::Horizontal);
                         availableElemWidth -= take;
-                    }
-                }
+                    }                }
             }
         }
 

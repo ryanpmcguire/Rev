@@ -59,7 +59,7 @@ export namespace Rev::Core {
 
             Font* font = new Font(canvas, resource, fontSize, scale);
             fonts[key] = font;
-            
+
             return font;
         }
     };

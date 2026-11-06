@@ -23,7 +23,6 @@ import Rev.Core.Font;
 
 import Rev.Primitive.Text;
 import Rev.Primitive.Lines;
-
 export namespace Rev::Element {
 
     namespace TextStyles {
@@ -86,6 +85,7 @@ export namespace Rev::Element {
         ~Text() {
 
             delete text;
+            delete line;
         }
 
         // Managing content
@@ -549,6 +549,10 @@ export namespace Rev::Element {
 
             Box::resolveStyle(e);
 
+            // Wrapping text fills the width its parent grants (capped at its unwrapped
+            // width) and wraps to it. An explicit width is kept.
+            if (!resolved.style.size.width && resolved.style.text.wrap != Wrap::False) { resolved.style.size.width = Grow(); }
+
             strContent = content;
             for (char& character : strContent) {
                 if (static_cast<unsigned char>(character) >= 128U) {
@@ -682,13 +686,15 @@ export namespace Rev::Element {
             minHeight = fontRef.lineHeight;
         }
 
-        void layoutText() {
+        // Wrap the content at wrapWidth into text->lines; sets width/height.
+        void layoutText(float wrapWidth) {
 
             // Layout text
             //--------------------------------------------------
 
             if (!font) { return; }
 
+            const float maxWidth = wrapWidth;
             text->lines.clear();
 
             size_t idx = 0;
@@ -816,19 +822,22 @@ export namespace Rev::Element {
         }
 
         // Here we compute the layout ourselves
+        // w.min = widest unbreakable run, w.max = unwrapped width, h = height
+        // wrapped at the granted inner width when set (second layout run),
+        // else at max.innerWidth (the minimum height).
         void computeLayout() override {
 
             layout = Layout();
 
-            this->maxWidth = resolved.max.innerWidth;
+            float wrapWidth = resolved.innerWidth > 0.0f ? resolved.innerWidth : resolved.max.innerWidth;
             if (!layoutCached || layoutContent != strContent || layoutFont != font ||
-                layoutWidth != maxWidth || layoutWrap != resolved.style.text.wrap) {
-                this->layoutText();
+                layoutWidth != wrapWidth || layoutWrap != resolved.style.text.wrap) {
+                this->layoutText(wrapWidth);
                 layoutCached = true; layoutContent = strContent; layoutFont = font;
-                layoutWidth = maxWidth; layoutWrap = resolved.style.text.wrap; ++layoutRevision;
+                layoutWidth = wrapWidth; layoutWrap = resolved.style.text.wrap; ++layoutRevision;
             }
 
-            layout.size.w = { .val = width, .min = width };
+            layout.size.w = { .val = minWidth, .min = minWidth, .max = maxWidth };
             layout.size.h = { .val = height, .min = height };
         }
 
