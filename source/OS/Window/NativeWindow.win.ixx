@@ -811,6 +811,14 @@ export namespace Rev {
             SetForegroundWindow(handle);
         }
 
+        // A disabled window receives no mouse or keyboard input (Rev::Modal's owner).
+        void setEnabled(bool enabled) {
+
+            if (!handle) { return; }
+
+            EnableWindow(handle, enabled ? TRUE : FALSE);
+        }
+
         // Set the window icon from raw RGBA8 pixels (top row first). `big`
         // selects the alt-tab/taskbar icon (ICON_BIG, ~32px) vs the title-bar
         // icon (ICON_SMALL, ~16px); call once per size. The caller rasterizes at

@@ -100,6 +100,9 @@ export namespace Rev {
         void makeContextCurrent() {};
         void loadGlFunctions() {};
 
+        // Not yet implemented on macOS: the owner stays interactive.
+        void setEnabled(bool enabled) { (void)enabled; }
+
         void swapBuffers() {
             this->dirty = false;
             flushPendingInvalidate();

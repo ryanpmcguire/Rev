@@ -355,6 +355,11 @@ export namespace Rev {
             XFlush(xDisplay);
         }
 
+        // Not yet implemented on X11: the owner stays interactive.
+        void setEnabled(bool enabled) {
+            (void)enabled;
+        }
+
         void setPos(int x, int y) {
             posX = x;
             posY = y;
