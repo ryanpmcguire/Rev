@@ -13,6 +13,10 @@ layout(std140, binding = 1) uniform Data {
     float uSmoothing;
     float uPointCount;
     float uOpacity;
+    float uDash;       // px on; 0 => solid
+    float uGap;        // px off
+    float uPhase;      // px
+    float uDashPad;
 };
 
 in vec2 v_pos;
@@ -22,6 +26,7 @@ flat in vec2 v_prev;
 flat in float v_half;
 flat in float v_aa;
 flat in float v_round;
+flat in float v_start;
 
 out vec4 FragColor;
 
@@ -43,6 +48,19 @@ void main() {
     // on each side and a 1px line reads as 2-3px. Now strokeWidth is the real width.
     float d = dist - v_half;
     float alpha = 1.0 - smoothstep(-0.5 * v_aa, 0.5 * v_aa, d);
+
+    // Dashing (uniform branch; solid lines skip it). Position along the line is
+    // v_start plus the projection onto this segment; fans hold the state at p0.
+    // Coverage is the nearer of this dash and the next, antialiased at its ends.
+    if (uDash > 0.0) {
+        vec2 seg = v_p1 - v_p0;
+        float along = (v_round > 0.5) ? 0.0 : dot(v_pos - v_p0, seg) / max(length(seg), 1e-6);
+        float period = uDash + max(uGap, 0.0);
+        float s = mod(v_start + along, period);
+        float out0 = max(-s, s - uDash);
+        float out1 = max(-(s - period), (s - period) - uDash);
+        alpha *= 1.0 - smoothstep(-0.5 * v_aa, 0.5 * v_aa, min(out0, out1));
+    }
 
     if (alpha <= 0.0) { discard; }
 

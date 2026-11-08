@@ -24,6 +24,10 @@ layout(std140, binding = 1) uniform Data {
     float uSmoothing;
     float uPointCount;
     float uOpacity;
+    float uDash;       // px on; 0 => solid
+    float uGap;        // px off
+    float uPhase;      // px
+    float uDashPad;
 };
 
 layout(binding = 0) uniform samplerBuffer uPoints;
@@ -41,6 +45,7 @@ flat out vec2 v_prev;    // previous point (for the corner-aware fan SDF)
 flat out float v_half;
 flat out float v_aa;
 flat out float v_round;  // 1 => corner fan, 0 => segment body
+flat out float v_start;  // pattern distance at p0, px (texel N + i0 holds it in source units)
 
 const float PI = 3.14159265358979;
 
@@ -186,6 +191,9 @@ void main() {
     v_half  = hw;
     v_aa    = aa;
     v_round = round;
+    v_start = (uDash > 0.0)
+        ? texelFetch(uPoints, N + i0).x * 0.5 * (abs(uXform.x) + abs(uXform.y)) + uPhase
+        : 0.0;
 
     gl_Position = uProjection * vec4(pos, 0.0, 1.0);
 }

@@ -10,6 +10,7 @@ struct RevVaryings {
     nointerpolation float v_half : TEXCOORD4;
     nointerpolation float v_aa : TEXCOORD5;
     nointerpolation float v_round : TEXCOORD6;
+    nointerpolation float v_start : TEXCOORD7;
 };
 
 // GPU polyline triangulation.
@@ -36,6 +37,10 @@ cbuffer Data : register(b1) {
     float uSmoothing;
     float uPointCount;
     float uOpacity;
+    float uDash;       // px on; 0 => solid
+    float uGap;        // px off
+    float uPhase;      // px
+    float uDashPad;
 };
 
 Buffer<float2> uPoints : register(t0);
@@ -199,6 +204,9 @@ RevVaryings main(uint gl_VertexID : SV_VertexID, uint gl_InstanceID : SV_Instanc
     result.v_half  = hw;
     result.v_aa    = aa;
     result.v_round = round;
+    result.v_start = (uDash > 0.0)
+        ? uPoints.Load(N + i0).x * 0.5 * (abs(uXform.x) + abs(uXform.y)) + uPhase
+        : 0.0;
 
     result.position = mul(uProjection, float4(pos, 0.0, 1.0));
     // Only the API boundary changes: GL clip Z [-W,W] -> D3D [0,W].

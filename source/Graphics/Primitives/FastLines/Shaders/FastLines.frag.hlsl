@@ -10,6 +10,7 @@ struct RevVaryings {
     nointerpolation float v_half : TEXCOORD4;
     nointerpolation float v_aa : TEXCOORD5;
     nointerpolation float v_round : TEXCOORD6;
+    nointerpolation float v_start : TEXCOORD7;
 };
 struct RevFragment {
     float4 color : SV_Target;
@@ -28,6 +29,10 @@ cbuffer Data : register(b1) {
     float uSmoothing;
     float uPointCount;
     float uOpacity;
+    float uDash;       // px on; 0 => solid
+    float uGap;        // px off
+    float uPhase;      // px
+    float uDashPad;
 };
 
 
@@ -59,6 +64,18 @@ RevFragment main(RevVaryings input) {
     // on each side and a 1px line reads as 2-3px. Now strokeWidth is the real width.
     float d = dist - input.v_half;
     float alpha = 1.0 - smoothstep(-0.5 * input.v_aa, 0.5 * input.v_aa, d);
+
+    // Dashing (uniform branch; solid lines skip it). See FastLines.frag.
+    if (uDash > 0.0) {
+        float2 seg = input.v_p1 - input.v_p0;
+        float along = (input.v_round > 0.5) ? 0.0 : dot(input.v_pos - input.v_p0, seg) / max(length(seg), 1e-6);
+        float period = uDash + max(uGap, 0.0);
+        float x = input.v_start + along;
+        float s = x - period * floor(x / period);   // GLSL mod (floor-based)
+        float out0 = max(-s, s - uDash);
+        float out1 = max(-(s - period), (s - period) - uDash);
+        alpha *= 1.0 - smoothstep(-0.5 * input.v_aa, 0.5 * input.v_aa, min(out0, out1));
+    }
 
     if (alpha <= 0.0) { discard; }
 

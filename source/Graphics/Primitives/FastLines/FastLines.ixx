@@ -1,6 +1,7 @@
 module;
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -69,7 +70,19 @@ export namespace Rev::Primitives {
             float smoothing;       // 20
             float pointCount;      // 24
             float opacity = 1.0f;  // 28
+            float dash = 0.0f;     // 32  px on; 0 => solid (shader skips dashing)
+            float gap = 0.0f;      // 36  px off
+            float phase = 0.0f;    // 40  px offset into the pattern
+            float pad = 0.0f;      // 44
         };
+
+        // Dashing. Each point's cumulative distance along its line is computed at
+        // upload in *source* units, stored in the same TBO after the points (texel
+        // N + k holds point k's distance in .x), and scaled to pixels in the shader
+        // by the mean of |sx| and |sy|. Exact under uniform scale; under unequal
+        // sx/sy the dash lengths are approximate (accepted, the user 2026-11-08).
+        // Corner fans take the pattern's state at the segment's start point.
+        // Metal has no FastLines shader yet, so Metal draws no dashes.
 
         // A world -> pixel transform applied to every point *before* the geometry
         // is generated. The whole polyline can be panned/zoomed by swapping this
@@ -87,6 +100,9 @@ export namespace Rev::Primitives {
         float strokeWidth = 1.0f;
         float smoothing = 1.0f;
         float opacity = 1.0f;
+        float dash = 0.0f;    // px; 0 => solid
+        float gap = 0.0f;     // px
+        float phase = 0.0f;   // px
 
         struct Line {
 
@@ -96,6 +112,9 @@ export namespace Rev::Primitives {
             Color color = { 1, 1, 1, 1 };
             float strokeWidth = -0.0f;
             float smoothing = -0.0f;
+            float dash = -0.0f;
+            float gap = -0.0f;
+            float phase = -0.0f;
 
             std::vector<Vertex>& getPoints() {
                 if (pPoints) { return *pPoints; }
@@ -169,13 +188,20 @@ export namespace Rev::Primitives {
 
                 if (pts.size() < 2) { instanceCounts[i] = 0; continue; }
 
-                scratch.resize(pts.size() * 2);
-                for (size_t k = 0; k < pts.size(); k++) {
+                const size_t n = pts.size();
+                scratch.resize(n * 4);
+                float along = 0.0f;
+                for (size_t k = 0; k < n; k++) {
+                    if (k > 0) {
+                        along += std::hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y);
+                    }
                     scratch[k * 2 + 0] = pts[k].x;
                     scratch[k * 2 + 1] = pts[k].y;
+                    scratch[(n + k) * 2 + 0] = along;
+                    scratch[(n + k) * 2 + 1] = 0.0f;
                 }
 
-                pointBuffers[i]->set(scratch.data(), pts.size());
+                pointBuffers[i]->set(scratch.data(), n * 2);
 
                 Data block;
                 block.color = color ? color : lines[i].color;
@@ -183,6 +209,9 @@ export namespace Rev::Primitives {
                 block.smoothing = set(lines[i].smoothing) ? lines[i].smoothing : smoothing;
                 block.pointCount = static_cast<float>(pts.size());
                 block.opacity = opacity;
+                block.dash = set(lines[i].dash) ? lines[i].dash : dash;
+                block.gap = set(lines[i].gap) ? lines[i].gap : gap;
+                block.phase = set(lines[i].phase) ? lines[i].phase : phase;
 
                 dataBuffers[i]->set(&block);
 
