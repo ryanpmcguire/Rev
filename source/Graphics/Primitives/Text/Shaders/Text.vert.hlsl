@@ -25,7 +25,7 @@ struct CharVertex {
 };
 
 cbuffer GlyphData : register(b2) {
-    CharVertex glyphs[128 * 6];
+    CharVertex glyphs[144 * 6];
 };
 
 

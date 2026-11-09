@@ -244,11 +244,15 @@ export namespace Rev::Media {
             if (SUCCEEDED(result)) {
                 mediaSource->QueryInterface(__uuidof(IKsControl), reinterpret_cast<void**>(&ksControl));
             }
-            if (SUCCEEDED(result)) { result = MFCreateAttributes(&readerAttributes, 3); }
+            if (SUCCEEDED(result)) { result = MFCreateAttributes(&readerAttributes, 4); }
 
             callback = new CameraReaderCallback(this);
             if (SUCCEEDED(result)) { result = readerAttributes->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, callback); }
+            // Basic converter: advanced processing and hardware transforms
+            // delivered empty frames on this camera (2026-11-08). Low latency
+            // stops the pipeline buffering frames ahead of us.
             if (SUCCEEDED(result)) { result = readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE); }
+            if (SUCCEEDED(result)) { result = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE); }
             if (SUCCEEDED(result)) { result = MFCreateSourceReaderFromMediaSource(mediaSource, readerAttributes, &reader); }
             reselected = false;
             bool full = SUCCEEDED(result) && selectFullHd();

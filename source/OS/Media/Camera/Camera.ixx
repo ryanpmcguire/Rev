@@ -353,6 +353,9 @@ export namespace Rev::Media {
         // Guards only the pointer swap of `latest` and the revision counter.
         mutable std::mutex frameMutex;
         std::shared_ptr<const Frame> latest;
+        // Capture thread only: the frame now in `latest`, and the one before it.
+        std::shared_ptr<Frame> publishedFrame;
+        std::shared_ptr<Frame> spareFrame;
         std::atomic<bool> frameSignalPending = false;
         std::shared_ptr<Camera*> alive = std::make_shared<Camera*>(this);
         std::mutex frameDemandMutex;
@@ -374,7 +377,11 @@ export namespace Rev::Media {
             }
             if (!pixels || !pitch || !source.size.width || !source.size.height) { return; }
 
-            auto snapshot = std::make_shared<Frame>();
+            // Reuse the frame retired two publishes ago when no consumer still
+            // holds it; it is outside `latest`, so its count cannot rise.
+            std::shared_ptr<Frame> snapshot = spareFrame && spareFrame.use_count() == 1
+                ? std::move(spareFrame) : std::make_shared<Frame>();
+            spareFrame.reset();
             snapshot->size = source.size;
             snapshot->timestamp = source.timestamp;
             snapshot->format = source.format;
@@ -385,8 +392,10 @@ export namespace Rev::Media {
             {
                 std::scoped_lock lock(frameMutex);
                 snapshot->revision = ++frameRevision;
-                latest = std::move(snapshot);
+                latest = snapshot;
             }
+            spareFrame = std::move(publishedFrame);
+            publishedFrame = std::move(snapshot);
 
             if (frameSignalPending.exchange(true)) { return; }
             Core::MainDispatch::instance().post([token = alive]() {

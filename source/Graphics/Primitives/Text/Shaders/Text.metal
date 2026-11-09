@@ -23,9 +23,9 @@ struct CharVertex {
     float2 uv;
 };
 
-// GLSL: layout(std140, binding = 2) uniform GlyphData { CharVertex glyphs[128 * 6]; };
+// GLSL: layout(std140, binding = 2) uniform GlyphData { CharVertex glyphs[144 * 6]; };
 struct GlyphData {
-    CharVertex glyphs[128 * 6];
+    CharVertex glyphs[144 * 6];
 };
 
 // Vertex input

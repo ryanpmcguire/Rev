@@ -2,6 +2,7 @@ module;
 
 #include <cmath>
 #include <vector>
+#include <iterator>
 #include <map>
 #include <stdexcept>
 #include <cstring>
@@ -64,6 +65,17 @@ export namespace Rev::Core {
 
             float u0, v0, u1, v1; // Texture coords
         };
+
+        // Glyphs by slot. Slots 0..126 are ASCII; slot 128 + i holds Codepoints[i].
+        // Text writes a non-ASCII codepoint as its slot byte; one it lacks becomes slot 128 (the box).
+        static constexpr char32_t Codepoints[] = {
+            0x25A1,                                 // box, drawn for any missing codepoint
+            0x00B0, 0x00B1, 0x00B5, 0x00B7,         // degree, plus-minus, micro, middle dot
+            0x0394, 0x03BC, 0x03C3,                 // Delta, mu, sigma
+            0x2190, 0x2191, 0x2192, 0x2193          // arrows: left, up, right, down
+        };
+        // Slot count; matches the shaders' GlyphData array (std140, 144 * 6 * 16 B < 16 KB minimum)
+        static constexpr size_t Slots = 144;
 
         std::vector<Glyph> glyphs;
 
@@ -131,14 +143,14 @@ export namespace Rev::Core {
             // Make glyph data ubo
             //--------------------------------------------------
 
-            glyphData = new UniformBuffer(canvas->context, sizeof(GlyphData) * 128);
+            glyphData = new UniformBuffer(canvas->context, sizeof(GlyphData) * Slots);
             GlyphData* glyphDataArr = static_cast<GlyphData*>(glyphData->data);
 
-            for (char c = 0; c < 127; c++) {
+            for (size_t slot = 0; slot < Slots; slot++) {
 
-                Font::Quad q = this->getRelativeQuad(c);
+                Font::Quad q = this->getRelativeQuad(static_cast<char>(slot));
 
-                glyphDataArr[c] = {
+                glyphDataArr[slot] = {
 
                     // Triangle 1
                     { q.x0, q.y0, q.s0, q.t0 },
@@ -182,6 +194,9 @@ export namespace Rev::Core {
             for (size_t i = 0; i < 127; i++) {
                 glyphs[i].index = FT_Get_Char_Index(face, static_cast<FT_ULong>(i));
             }
+            for (size_t i = 0; i < std::size(Codepoints); i++) {
+                glyphs[128 + i].index = FT_Get_Char_Index(face, static_cast<FT_ULong>(Codepoints[i]));
+            }
 
             // Kerning
             //--------------------------------------------------
@@ -189,8 +204,8 @@ export namespace Rev::Core {
             if (!FT_HAS_KERNING(face) ) { return; }
 
             // Compute for left/right combos
-            for (size_t l = 0; l < 127; l++) {
-                for (size_t r = 0; r < 127; r++) {
+            for (size_t l = 0; l < Slots; l++) {
+                for (size_t r = 0; r < Slots; r++) {
 
                     Glyph& left = glyphs[l];
                     Glyph& right = glyphs[r];
@@ -198,7 +213,7 @@ export namespace Rev::Core {
                     FT_Vector delta = { 0, 0 };
                     FT_Get_Kerning(face, left.index, right.index, FT_KERNING_DEFAULT, &delta);
                     
-                    right.kerning[left.index] = (1.0f / scale) * static_cast<float>(delta.x) / 64.0f;
+                    right.kerning[l] =(1.0f / scale) * static_cast<float>(delta.x) / 64.0f;
                 }
             }
         }
@@ -218,9 +233,13 @@ export namespace Rev::Core {
             bitmap.data = new unsigned char[bitmap.size];
             std::memset(bitmap.data, 0, bitmap.size);
 
-            for (char c = 32; c < 127; c++) {
+            for (size_t c = 32; c < 128 + std::size(Codepoints); c++) {
 
-                if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
+                // Slot 127 is DEL, unused; slots 128.. are the Codepoints
+                if (c == 127) { continue; }
+                const FT_ULong codepoint = c < 128 ? static_cast<FT_ULong>(c) : static_cast<FT_ULong>(Codepoints[c - 128]);
+
+                if (FT_Load_Char(face, codepoint, FT_LOAD_RENDER)) {
                     continue;
                 }
 
@@ -305,7 +324,7 @@ export namespace Rev::Core {
             const Glyph& g = glyphs[static_cast<unsigned char>(c)];
         
             // Optional: kerning between prev and c, not strictly needed for static glyph data
-            float kerning = glyphs[static_cast<unsigned char>(prev)].kerning[c];
+            float kerning = glyphs[static_cast<unsigned char>(prev)].kerning[static_cast<unsigned char>(c)];
         
             float penX = 0.0f;
             float penY = 0.0f;

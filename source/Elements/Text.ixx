@@ -6,6 +6,7 @@ module;
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <iterator>
 
 #include <managed.hpp>
 #include <dbg.hpp>
@@ -260,7 +261,7 @@ export namespace Rev::Element {
 
                 const unsigned char code = static_cast<unsigned char>(c);
                 float right = left + (
-                    code >= 32 && code < 127
+                    code >= 32 && code != 127 && code < Font::Slots
                         ? font->glyphs[code].advance
                         : 0.0f
                 );
@@ -553,11 +554,26 @@ export namespace Rev::Element {
             // width) and wraps to it. An explicit width is kept.
             if (!resolved.style.size.width && resolved.style.text.wrap != Wrap::False) { resolved.style.size.width = Grow(); }
 
-            strContent = content;
-            for (char& character : strContent) {
-                if (static_cast<unsigned char>(character) >= 128U) {
-                    character = ' ';
+            // Decode UTF-8 once: ASCII bytes pass through; a non-ASCII codepoint becomes its
+            // Font slot byte (128 + its place in Font::Codepoints), or slot 128 (the box) if absent.
+            const std::string& utf8 = content.get();
+            strContent.clear();
+            for (size_t i = 0; i < utf8.size(); i++) {
+                const unsigned char lead = static_cast<unsigned char>(utf8[i]);
+                if (lead < 128U) {
+                    strContent += static_cast<char>(lead);
+                    continue;
                 }
+                char32_t codepoint = lead >= 0xF0U ? (lead & 0x07U) : lead >= 0xE0U ? (lead & 0x0FU) : (lead & 0x1FU);
+                while (i + 1 < utf8.size() && (static_cast<unsigned char>(utf8[i + 1]) & 0xC0U) == 0x80U) {
+                    i++;
+                    codepoint = (codepoint << 6) | (static_cast<unsigned char>(utf8[i]) & 0x3FU);
+                }
+                size_t slot = 128;
+                for (size_t k = 0; k < std::size(Font::Codepoints); k++) {
+                    if (Font::Codepoints[k] == codepoint) { slot = 128 + k; break; }
+                }
+                strContent += static_cast<char>(slot);
             }
             fontSize = resolved.style.text.size.val;
             if (!fontSize) { fontSize = 12.0f; }
@@ -620,7 +636,7 @@ export namespace Rev::Element {
 
                 // Track current
                 const unsigned char code = static_cast<unsigned char>(c);
-                letter.current = code >= 32 && code < 127
+                letter.current = code >= 32 && code != 127 && code < Font::Slots
                     ? fontRef.glyphs[code].advance
                     : 0.0f;
                 word.current += letter.current;
@@ -773,7 +789,7 @@ export namespace Rev::Element {
                     // Add char to chunk
                     chunk += c;
                     const unsigned char code = static_cast<unsigned char>(c);
-                    if (code >= 32 && code < 127) {
+                    if (code >= 32 && code != 127 && code < Font::Slots) {
                         chunkWidth += fontRef.glyphs[code].advance;
                     }
 
@@ -799,7 +815,7 @@ export namespace Rev::Element {
                     // Add char to chunk
                     chunk += c;
                     const unsigned char code = static_cast<unsigned char>(c);
-                    if (code >= 32 && code < 127) {
+                    if (code >= 32 && code != 127 && code < Font::Slots) {
                         chunkWidth += fontRef.glyphs[code].advance;
                     }
                 }
@@ -907,7 +923,7 @@ export namespace Rev::Element {
                     }
 
                     const unsigned char code = static_cast<unsigned char>(c);
-                    if (code >= 32 && code < 127) {
+                    if (code >= 32 && code != 127 && code < Font::Slots) {
                         cursor_x += font->glyphs[code].advance;
                     }
                     idx += 1;
@@ -944,7 +960,7 @@ export namespace Rev::Element {
                     for (char c : line.content) {
 
                         const unsigned char code = static_cast<unsigned char>(c);
-                        const float advance = code >= 32 && code < 127
+                        const float advance = code >= 32 && code != 127 && code < Font::Slots
                             ? font->glyphs[code].advance
                             : 0.0f;
                         if (idx < leftMost) { left_x += advance; }

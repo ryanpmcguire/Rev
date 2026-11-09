@@ -159,13 +159,13 @@ export namespace Rev::Primitives {
                 for (unsigned char c : line.content) {
 
                     // Continue / break conditions
-                    if (c < 32 || c >= 128) { continue; }
+                    if (c < 32 || c == 127 || c >= Font::Slots) { continue; }
 
                     Font::Glyph& glyph = font->glyphs[c];
                     Font::Glyph& prevGlyph = font->glyphs[prev];
 
                     float index = float(c);
-                    x += prevGlyph.advance + glyph.kerning[prevGlyph.index];
+                    x += prevGlyph.advance + glyph.kerning[prev];
                     verts[count] = { x, y, index, index };
 
                     count += 1;

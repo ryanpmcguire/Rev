@@ -83,7 +83,10 @@ export namespace Rev::Element {
             // Main-thread signal only: note that a newer snapshot exists and ask
             // for a repaint. The upload happens in computePrimitives, on the UI
             // thread that owns the GL context, from Media::Camera::latestFrame().
+            // A hidden or empty element requests nothing; once shown, its next
+            // computePrimitives pulls latestFrame(), so it resumes cleanly.
             source->onFrame(this, [this](Media::Camera::Frame::Event&, const Media::Camera::Frame*) {
+                if (resolved.hidden || rect.w <= 0 || rect.h <= 0) { return; }
                 if (shared && shared->canvas && shared->canvas->window) {
                     shared->canvas->window->requestFrameFromWorker();
                 }

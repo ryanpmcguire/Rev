@@ -132,7 +132,7 @@ export namespace Rev::Element {
             }
 
             // Shift view and refresh
-            view.shift(shiftBy);            
+            view.shift(shiftBy);
             refresh(e);
 
             Box::mouseWheel(e);

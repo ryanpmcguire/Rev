@@ -13,6 +13,7 @@ module;
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -20,6 +21,7 @@ module;
 
 export module Rev.Core.Promise;
 import Rev.Core.MainDispatch;
+export import Rev.Core.Error;
 
 export namespace Rev::Core {
 
@@ -260,18 +262,38 @@ private:
 // the original typed promises continue to own and expose their results.
 class PromiseGroup {
 public:
-    template<typename T> void add(Promise<T> promise) { members.push_back(asVoid(std::move(promise))); }
+    // `source` names the member in the group's Error ("HomeCamera").
+    template<typename T> void add(Promise<T> promise, std::string source = {}) {
+        members.push_back(asVoid(std::move(promise)));
+        sources.push_back(std::move(source));
+    }
     bool empty() const noexcept { return members.empty(); }
     std::size_t size() const noexcept { return members.size(); }
     void wait() const { for (const auto& member : members) member.wait(); }
+    // Settles once every member has settled, resolved or rejected. If any
+    // were rejected it then throws one Error whose causes are each rejection
+    // (in add order), by its member's source. A failure never leaves the
+    // other members unawaited.
     Promise<void> all() const {
-        for (const auto& member : members) co_await member;
+        Error failed;
+        for (std::size_t i = 0; i < members.size(); ++i) {
+            try {
+                co_await members[i];
+            }
+            catch (...) {
+                failed.because(Error::From(std::current_exception()).by(sources[i]));
+            }
+        }
+        if (!failed.causes.empty()) {
+            throw failed;
+        }
     }
 private:
     template<typename T> static Promise<void> asVoid(Promise<T> promise) {
         co_await promise;
     }
     std::vector<Promise<void>> members;
+    std::vector<std::string> sources;   // one per member; may be empty
 };
 
 namespace Async {

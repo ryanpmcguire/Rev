@@ -19,7 +19,7 @@ struct CharVertex {
 };
 
 layout(std140, binding = 2) uniform GlyphData {
-    CharVertex glyphs[128 * 6];
+    CharVertex glyphs[144 * 6];
 };
 
 out vec2 fragUV;
