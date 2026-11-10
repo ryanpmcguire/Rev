@@ -72,7 +72,8 @@ export namespace Rev::Core {
             0x25A1,                                 // box, drawn for any missing codepoint
             0x00B0, 0x00B1, 0x00B5, 0x00B7,         // degree, plus-minus, micro, middle dot
             0x0394, 0x03BC, 0x03C3,                 // Delta, mu, sigma
-            0x2190, 0x2191, 0x2192, 0x2193          // arrows: left, up, right, down
+            0x2190, 0x2191, 0x2192, 0x2193,         // arrows: left, up, right, down
+            0x00B2                                  // superscript two (test - remove if problems occur; C3DL "DN²", 2026-11-09)
         };
         // Slot count; matches the shaders' GlyphData array (std140, 144 * 6 * 16 B < 16 KB minimum)
         static constexpr size_t Slots = 144;
