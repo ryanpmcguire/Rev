@@ -192,32 +192,35 @@ export namespace Rev::Element {
             data.uv = { 0, 0, 1, 1 };
             data.opacity = resolved.opacity;
 
-            if (frameWidth == 0 || frameHeight == 0 || rect.w <= 0 || rect.h <= 0) { return; }
+            // Fit only a sized frame into a sized rect; info below is filled either way,
+            // so it always describes what data.rect draws.
+            if (frameWidth > 0 && frameHeight > 0 && rect.w > 0 && rect.h > 0) {
 
-            const float sourceAspect = static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
-            const float targetAspect = rect.w / rect.h;
+                const float sourceAspect = static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
+                const float targetAspect = rect.w / rect.h;
 
-            if (params.fit == Fit::Contain) {
-                if (sourceAspect > targetAspect) {
-                    data.rect.h = rect.w / sourceAspect;
-                    data.rect.y = rect.y + (rect.h - data.rect.h) * 0.5f;
+                if (params.fit == Fit::Contain) {
+                    if (sourceAspect > targetAspect) {
+                        data.rect.h = rect.w / sourceAspect;
+                        data.rect.y = rect.y + (rect.h - data.rect.h) * 0.5f;
+                    }
+                    else {
+                        data.rect.w = rect.h * sourceAspect;
+                        data.rect.x = rect.x + (rect.w - data.rect.w) * 0.5f;
+                    }
+                    // Whole pixels: a session-dependent sub-pixel phase changes which
+                    // texels are sampled and therefore the apparent sharpness.
+                    data.rect = data.rect.rounded();
                 }
-                else {
-                    data.rect.w = rect.h * sourceAspect;
-                    data.rect.x = rect.x + (rect.w - data.rect.w) * 0.5f;
-                }
-                // Whole pixels: a session-dependent sub-pixel phase changes which
-                // texels are sampled and therefore the apparent sharpness.
-                data.rect = data.rect.rounded();
-            }
-            else if (params.fit == Fit::Cover) {
-                if (sourceAspect > targetAspect) {
-                    data.uv.w = targetAspect / sourceAspect;
-                    data.uv.x = (1.0f - data.uv.w) * 0.5f;
-                }
-                else {
-                    data.uv.h = sourceAspect / targetAspect;
-                    data.uv.y = (1.0f - data.uv.h) * 0.5f;
+                else if (params.fit == Fit::Cover) {
+                    if (sourceAspect > targetAspect) {
+                        data.uv.w = targetAspect / sourceAspect;
+                        data.uv.x = (1.0f - data.uv.w) * 0.5f;
+                    }
+                    else {
+                        data.uv.h = sourceAspect / targetAspect;
+                        data.uv.y = (1.0f - data.uv.h) * 0.5f;
+                    }
                 }
             }
             {
