@@ -36,6 +36,16 @@ export namespace Rev::Element {
             .margin = { .bottom = 6_px }
         };
 
+        // The thumb's travel: spans the track and never moves. Its right padding
+        // reserves the thumb's width, so the thumb's `left = value%` (resolved
+        // against this inner width) keeps the thumb inside the track at 0 and 1.
+        // A theme that changes the thumb's width sets the same width here.
+        Style ThumbTravel = {
+            .layout = { Axis::Horizontal, Align::Start, Align::Center, Wrap::False },
+            .size = { .width = 100_pct },
+            .padding = { .right = 4_px }
+        };
+
     }
 
     struct Slider : public Element {
@@ -61,7 +71,7 @@ export namespace Rev::Element {
                 .field = {&Field, &FieldFocus, &SliderFieldHover},
                 .track = {&SliderTrack},
                 .fill = {&SliderFill},
-                .thumbContainer = {&FieldInner},
+                .thumbContainer = {&SliderStyle::ThumbTravel},
                 .thumb = {&SliderThumb, &SliderThumbHover}
             };
         }
@@ -227,7 +237,7 @@ export namespace Rev::Element {
             float range = data.max - data.min;
             float pctVal = range == 0.0f ? 0.0f : (data.val - data.min) / range;
             fill->style->size.width = Pct(100.0f * pctVal);
-            thumbContainer->style->position.left = Pct(100.0f * pctVal);
+            thumb->style->position.left = Pct(100.0f * pctVal);
         
             Element::computeStyle(e);
         }

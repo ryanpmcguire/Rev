@@ -37,6 +37,7 @@ export namespace Rev::Graphics {
 
         CommandBuffer* commandBuffer = nullptr;
         UniformBuffer* transform = nullptr;
+        UniformBuffer* identity = nullptr;   // the root of the group transform stack (binding 4, see Group)
         FrameBuffer* frameBuffer = nullptr;
 
         // Configurable details
@@ -58,6 +59,12 @@ export namespace Rev::Graphics {
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
             transform = new UniformBuffer(context, sizeof(glm::mat4));
+
+            // Group slot rows (std140, 32 bytes): r0 = (a, b, 0, tx), r1 = (c, d, 0, ty)
+            float rows[8] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f };
+            identity = new UniformBuffer(context, sizeof(rows));
+            identity->set(rows);
+
             frameBuffer = new FrameBuffer(context, { .width = 1, .height = 1 });
         }
 
@@ -76,6 +83,7 @@ export namespace Rev::Graphics {
         // Destroy
         ~Canvas() {
             delete transform;
+            delete identity;
             delete frameBuffer;
         }
 
@@ -153,6 +161,7 @@ export namespace Rev::Graphics {
             );
 
             transform->bind(0);
+            identity->bind(4);
         }
 
         // We end the frame by blitting and swapping buffers (present)

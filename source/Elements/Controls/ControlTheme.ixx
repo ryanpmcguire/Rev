@@ -302,7 +302,7 @@ export namespace Rev::Element::ControlTheme {
 
     Style SliderThumbHover = {
         .applies = { .hover = true, .drag = true },
-        .size = { .width = 6_px, .height = 16_px }
+        .size = { .height = 16_px }
     };
 
     Style SliderValueText = {

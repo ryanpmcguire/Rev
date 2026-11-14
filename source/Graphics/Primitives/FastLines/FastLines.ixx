@@ -79,19 +79,16 @@ export namespace Rev::Primitives {
         // Dashing. Each point's cumulative distance along its line is computed at
         // upload in *source* units, stored in the same TBO after the points (texel
         // N + k holds point k's distance in .x), and scaled to pixels in the shader
-        // by the mean of |sx| and |sy|. Exact under uniform scale; under unequal
-        // sx/sy the dash lengths are approximate (accepted, the user 2026-11-08).
+        // by sqrt(|det|) of the group transform. Exact under similarity; under
+        // anisotropy the dash lengths are approximate (accepted, the user 2026-11-08).
         // Corner fans take the pattern's state at the segment's start point.
         // Metal has no FastLines shader yet, so Metal draws no dashes.
 
-        // A world -> pixel transform applied to every point *before* the geometry
-        // is generated. The whole polyline can be panned/zoomed by swapping this
-        // one value with no CPU re-computation and no re-upload of points. Because
-        // the quad/fan are built in pixel space after this, the stroke width stays
-        // constant regardless of zoom (transform the segments, not the vertices).
-        //   pixel = world * (sx, sy) + (tx, ty)
-        struct Xform { float sx = 1.0f, sy = 1.0f, tx = 0.0f, ty = 0.0f; };
-        Xform transform;
+        // Placement: the shader maps every point through the group transform at
+        // binding 4 (see Group) *before* the geometry is generated, so a Group can
+        // pan/zoom/rotate the whole polyline with no re-upload, and the stroke stays
+        // a constant pixel width. Outside any group binding 4 is the canvas identity.
+        // Metal is group-blind: it draws at identity.
 
         // Instance API (mirrors Lines)
         //--------------------------------------------------
@@ -135,9 +132,6 @@ export namespace Rev::Primitives {
         std::vector<UniformBuffer*> dataBuffers;
         std::vector<size_t> instanceCounts;   // segments per line (= points - 1)
 
-        // The world->pixel transform, bound once per draw (binding 2).
-        UniformBuffer* transformBuffer = nullptr;
-
         std::vector<float> scratch;           // xy packing scratch
 
         // Create
@@ -148,8 +142,6 @@ export namespace Rev::Primitives {
             }
 
             shared.create([this]() { this->createShared(); });
-
-            transformBuffer = new UniformBuffer(canvas->context, sizeof(Xform));
         }
 
         // Destroy
@@ -157,8 +149,6 @@ export namespace Rev::Primitives {
 
             for (TextureBuffer* buffer : pointBuffers) { delete buffer; }
             for (UniformBuffer* buffer : dataBuffers) { delete buffer; }
-
-            delete transformBuffer;
 
             shared.destroy([this]() { this->destroyShared(); });
         }
@@ -226,10 +216,6 @@ export namespace Rev::Primitives {
 
             pipeline->bind();
             dummyVao->bind();
-
-            // The world->pixel transform is the same for every line this draw.
-            transformBuffer->set(&transform);
-            transformBuffer->bind(2);
 
             for (size_t i = 0; i < instanceCounts.size(); i++) {
 

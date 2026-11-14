@@ -16,6 +16,12 @@ layout(std140, binding = 1) uniform Data {
     float padding0, padding1, padding2;
 };
 
+// The group transform (see Group.ixx). Identity outside any group.
+layout(std140, binding = 4) uniform Group { vec4 r0; vec4 r1; };
+vec2 place(vec2 p) {
+    return vec2(dot(r0.xy, p) + r0.w, dot(r1.xy, p) + r1.w);
+}
+
 out vec2 fragUV;
 
 void main() {
@@ -24,5 +30,5 @@ void main() {
     );
     vec2 corner = offsets[gl_VertexID % 4];
     fragUV = vec2(u, v) + corner * vec2(uw, vh);
-    gl_Position = uProjection * vec4(vec2(x, y) + corner * vec2(w, h), 0.0, 1.0);
+    gl_Position = uProjection * vec4(place(vec2(x, y) + corner * vec2(w, h)), 0.0, 1.0);
 }

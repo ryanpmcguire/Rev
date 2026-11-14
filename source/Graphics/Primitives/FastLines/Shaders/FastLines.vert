@@ -32,11 +32,12 @@ layout(std140, binding = 1) uniform Data {
 
 layout(binding = 0) uniform samplerBuffer uPoints;
 
-// World -> pixel transform, applied to the points before geometry generation.
-//   pixel = world * uXform.xy + uXform.zw
-layout(std140, binding = 2) uniform Xform {
-    vec4 uXform;
-};
+// The group transform (see Group.ixx), applied to the points before geometry
+// generation. Identity outside any group.
+layout(std140, binding = 4) uniform Group { vec4 r0; vec4 r1; };
+vec2 place(vec2 p) {
+    return vec2(dot(r0.xy, p) + r0.w, dot(r1.xy, p) + r1.w);
+}
 
 out vec2 v_pos;
 flat out vec2 v_p0;
@@ -53,8 +54,7 @@ const float PI = 3.14159265358979;
 // miters, fan) is therefore built in pixel space, so the stroke stays a constant
 // pixel width no matter the zoom.
 vec2 fetch(int i) {
-    vec2 w = texelFetch(uPoints, i).xy;
-    return w * uXform.xy + uXform.zw;
+    return place(texelFetch(uPoints, i).xy);
 }
 
 // Bisector miter offset, scaled so the offset edge sits `ext` from the
@@ -192,7 +192,7 @@ void main() {
     v_aa    = aa;
     v_round = round;
     v_start = (uDash > 0.0)
-        ? texelFetch(uPoints, N + i0).x * 0.5 * (abs(uXform.x) + abs(uXform.y)) + uPhase
+        ? texelFetch(uPoints, N + i0).x * sqrt(abs(r0.x * r1.y - r0.y * r1.x)) + uPhase
         : 0.0;
 
     gl_Position = uProjection * vec4(pos, 0.0, 1.0);
