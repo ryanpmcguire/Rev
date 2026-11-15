@@ -195,10 +195,11 @@ export namespace Rev::Media {
             return result;
         }
 
-        bool open(size_t deviceIndex = 0) {
+        bool open(size_t deviceIndex = 0, CameraTypes::Stream requested = {}) {
 
             close();
             clearError();
+            stream = requested;
 
             HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             ownsCom = SUCCEEDED(result);
@@ -238,7 +239,6 @@ export namespace Rev::Media {
             }
 
             IMFAttributes* readerAttributes = nullptr;
-            IMFMediaType* outputType = nullptr;
 
             result = activations[deviceIndex]->ActivateObject(IID_PPV_ARGS(&mediaSource));
             if (SUCCEEDED(result)) {
@@ -255,12 +255,8 @@ export namespace Rev::Media {
             if (SUCCEEDED(result)) { result = readerAttributes->SetUINT32(MF_LOW_LATENCY, TRUE); }
             if (SUCCEEDED(result)) { result = MFCreateSourceReaderFromMediaSource(mediaSource, readerAttributes, &reader); }
             reselected = false;
-            bool full = SUCCEEDED(result) && selectFullHd();
-            if (SUCCEEDED(result)) { result = MFCreateMediaType(&outputType); }
-            if (SUCCEEDED(result)) { result = outputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video); }
-            if (SUCCEEDED(result)) { result = outputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32); }
-            if (SUCCEEDED(result) && full) { result = MFSetAttributeSize(outputType, MF_MT_FRAME_SIZE, 1920, 1080); }
-            if (SUCCEEDED(result)) { result = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, outputType); }
+            bool selected = SUCCEEDED(result) && selectNative();
+            if (SUCCEEDED(result)) { result = setOutputType(selected); }
 
             IMFMediaType* actualType = nullptr;
             UINT32 frameWidth = 0;
@@ -274,7 +270,6 @@ export namespace Rev::Media {
             setMediaFormat(describeNativeType());
 
             if (actualType) { actualType->Release(); }
-            if (outputType) { outputType->Release(); }
             if (readerAttributes) { readerAttributes->Release(); }
             if (deviceAttributes) { deviceAttributes->Release(); }
             for (UINT32 i = 0; i < count; i++) { if (activations[i]) { activations[i]->Release(); } }
@@ -368,12 +363,16 @@ export namespace Rev::Media {
 
         // The source may renegotiate mid-stream; re-read the output size so
         // width/height never go stale, and record the new native type.
-        // Picks a 1920x1080 native type: MJPG, then YUY2, then NV12; highest fps <= 30.
-        // Returns false (after a loud log listing the types) when none exists.
-        bool selectFullHd() {
-            int bestRank = -1;
+        // Picks the native type the stream asks for: the largest frame of its
+        // subtype (MJPG for Compressed, YUY2 for Uncompressed), then the highest
+        // fps <= 30. Returns false (after a loud log listing the types) when none exists.
+        bool selectNative() {
+            const GUID wanted = stream.transport == CameraTypes::Stream::Transport::Uncompressed
+                ? MFVideoFormat_YUY2 : MFVideoFormat_MJPG;
+            UINT64 bestArea = 0;
             double bestFps = 0;
             DWORD bestIndex = 0;
+            UINT32 bestWidth = 0, bestHeight = 0;
             std::string available;
             for (DWORD i = 0;; ++i) {
                 IMFMediaType* type = nullptr;
@@ -385,30 +384,52 @@ export namespace Rev::Media {
                 MFGetAttributeRatio(type, MF_MT_FRAME_RATE, &num, &den);
                 type->Release();
                 double fps = den ? double(num) / den : 0;
-                int rank = subtype == MFVideoFormat_MJPG ? 3 : subtype == MFVideoFormat_YUY2 ? 2
-                    : subtype == MFVideoFormat_NV12 ? 1 : 0;
                 char fourcc[5] = {char(subtype.Data1 & 0xFF), char((subtype.Data1 >> 8) & 0xFF),
                     char((subtype.Data1 >> 16) & 0xFF), char((subtype.Data1 >> 24) & 0xFF), 0};
                 available += std::string(" ") + fourcc + " " + std::to_string(w) + "x" + std::to_string(h)
                     + "@" + std::to_string(int(fps + 0.5)) + ";";
-                if (w != 1920 || h != 1080 || rank == 0 || fps > 30.5) { continue; }
-                if (rank > bestRank || (rank == bestRank && fps > bestFps)) {
-                    bestRank = rank; bestFps = fps; bestIndex = i;
+                if (subtype != wanted || fps > 30.5) { continue; }
+                UINT64 area = UINT64(w) * h;
+                if (area > bestArea || (area == bestArea && fps > bestFps)) {
+                    bestArea = area; bestFps = fps; bestIndex = i; bestWidth = w; bestHeight = h;
                 }
             }
             IMFMediaType* chosen = nullptr;
-            if (bestRank > 0 && SUCCEEDED(reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, bestIndex, &chosen))) {
+            if (bestArea > 0 && SUCCEEDED(reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, bestIndex, &chosen))) {
                 HRESULT set = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, chosen);
                 chosen->Release();
-                if (SUCCEEDED(set)) { return true; }
+                if (SUCCEEDED(set)) {
+                    selectedWidth = bestWidth;
+                    selectedHeight = bestHeight;
+                    return true;
+                }
             }
-            dbg("[Camera] WARNING: no usable 1920x1080 native type; keeping the device default. Available:%s",
+            selectedWidth = 0;
+            selectedHeight = 0;
+            dbg("[Camera] WARNING: no usable native type for the requested stream; keeping the device default. Available:%s",
                 available.c_str());
             return false;
         }
 
+        // The reader's output: RGB32 for Colour, YUY2 for Luma (for a YUY2
+        // source that is the native type itself, so nothing converts). The
+        // frame size is pinned to the selected native size when there is one.
+        HRESULT setOutputType(bool sized) {
+            IMFMediaType* output = nullptr;
+            HRESULT result = MFCreateMediaType(&output);
+            if (SUCCEEDED(result)) { result = output->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video); }
+            if (SUCCEEDED(result)) { result = output->SetGUID(MF_MT_SUBTYPE, luma() ? MFVideoFormat_YUY2 : MFVideoFormat_RGB32); }
+            if (SUCCEEDED(result) && sized) { result = MFSetAttributeSize(output, MF_MT_FRAME_SIZE, selectedWidth, selectedHeight); }
+            if (SUCCEEDED(result)) { result = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, output); }
+            if (output) { output->Release(); }
+            return result;
+        }
+
+        bool luma() const { return stream.pixels == CameraTypes::Stream::Pixels::Luma; }
+        bool green() const { return stream.pixels == CameraTypes::Stream::Pixels::Green; }
+
         void refreshMediaType() {
-            if (!reselected && width && height) {
+            if (!reselected && width && height && selectedWidth && selectedHeight) {
                 IMFMediaType* native = nullptr;
                 UINT32 nw = 0, nh = 0;
                 if (SUCCEEDED(reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM,
@@ -416,18 +437,14 @@ export namespace Rev::Media {
                     MFGetAttributeSize(native, MF_MT_FRAME_SIZE, &nw, &nh);
                     native->Release();
                 }
-                if (nw != 1920 || nh != 1080) {
+                if (nw != selectedWidth || nh != selectedHeight) {
                     reselected = true;  // once per open: never loop against the device
-                    IMFMediaType* output = nullptr;
-                    if (selectFullHd() && SUCCEEDED(MFCreateMediaType(&output))) {
-                        output->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-                        output->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
-                        MFSetAttributeSize(output, MF_MT_FRAME_SIZE, 1920, 1080);
-                        HRESULT set = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, output);
-                        dbg("[Camera] mid-stream reselect to 1920x1080: SetCurrentMediaType hr=0x%08lX%s",
+                    if (selectNative()) {
+                        HRESULT set = setOutputType(true);
+                        dbg("[Camera] mid-stream reselect to %ux%u: SetCurrentMediaType hr=0x%08lX%s",
+                            unsigned(selectedWidth), unsigned(selectedHeight),
                             static_cast<unsigned long>(set), SUCCEEDED(set) ? "" : " (FAILED; close and reopen to recover)");
                     }
-                    if (output) { output->Release(); }
                 }
             }
             IMFMediaType* current = nullptr;
@@ -470,7 +487,7 @@ export namespace Rev::Media {
             return name + " " + std::to_string(w) + "x" + std::to_string(h) + " @ "
                 + (denominator ? std::to_string(double(numerator) / denominator) : std::string("?"))
                 + " fps (" + std::to_string(numerator) + "/" + std::to_string(denominator)
-                + "); reader output RGB32";
+                + (luma() ? "); reader output YUY2, Y only" : "); reader output RGB32");
         }
 
         std::string error() const {
@@ -573,7 +590,15 @@ export namespace Rev::Media {
                 BYTE* scanline = nullptr;
                 LONG pitch = 0;
                 if (SUCCEEDED(buffer2d->Lock2D(&scanline, &pitch))) {
-                    if (pitch > 0) {
+                    if (pitch > 0 && luma()) {
+                        expandLuma(scanline, static_cast<size_t>(pitch));
+                        publish();
+                    }
+                    else if (pitch > 0 && green()) {
+                        expandGreen(scanline, static_cast<size_t>(pitch));
+                        publish();
+                    }
+                    else if (pitch > 0) {
                         writeFrame->pixels = scanline;
                         writeFrame->pitch = static_cast<size_t>(pitch);
                         publish();
@@ -587,7 +612,15 @@ export namespace Rev::Media {
                 DWORD maxLength = 0;
                 DWORD currentLength = 0;
                 if (SUCCEEDED(buffer->Lock(&bytes, &maxLength, &currentLength))) {
-                    if (currentLength >= width * height * 4) {
+                    if (luma() && currentLength >= width * height * 2) {
+                        expandLuma(bytes, width * 2);
+                        publish();
+                    }
+                    else if (green() && currentLength >= width * height * 4) {
+                        expandGreen(bytes, width * 4);
+                        publish();
+                    }
+                    else if (!luma() && currentLength >= width * height * 4) {
                         writeFrame->pixels = bytes;
                         writeFrame->pitch = width * 4;
                         publish();
@@ -597,6 +630,48 @@ export namespace Rev::Media {
             }
 
             buffer->Release();
+        }
+
+        // Y of a YUY2 frame (Y0 U Y1 V) into BGRX with B = G = R = Y. Chroma is
+        // never read, so nothing about colour is inferred. Points writeFrame at it.
+        void expandLuma(const BYTE* yuy2, size_t pitch) {
+            const size_t w = width;
+            const size_t h = height;
+            lumaPixels.resize(w * h * 4);
+            for (size_t y = 0; y < h; ++y) {
+                const BYTE* from = yuy2 + y * pitch;
+                BYTE* to = lumaPixels.data() + y * w * 4;
+                for (size_t x = 0; x < w; ++x) {
+                    const BYTE value = from[x * 2];
+                    to[x * 4 + 0] = value;
+                    to[x * 4 + 1] = value;
+                    to[x * 4 + 2] = value;
+                    to[x * 4 + 3] = 255;
+                }
+            }
+            writeFrame->pixels = lumaPixels.data();
+            writeFrame->pitch = w * 4;
+        }
+
+        // G of a decoded BGRX frame into BGRX with B = G = R = G. B and R are
+        // never read. Points writeFrame at it.
+        void expandGreen(const BYTE* bgrx, size_t pitch) {
+            const size_t w = width;
+            const size_t h = height;
+            lumaPixels.resize(w * h * 4);
+            for (size_t y = 0; y < h; ++y) {
+                const BYTE* from = bgrx + y * pitch;
+                BYTE* to = lumaPixels.data() + y * w * 4;
+                for (size_t x = 0; x < w; ++x) {
+                    const BYTE value = from[x * 4 + 1];
+                    to[x * 4 + 0] = value;
+                    to[x * 4 + 1] = value;
+                    to[x * 4 + 2] = value;
+                    to[x * 4 + 3] = 255;
+                }
+            }
+            writeFrame->pixels = lumaPixels.data();
+            writeFrame->pitch = w * 4;
         }
 
         friend class CameraReaderCallback;
@@ -617,6 +692,10 @@ export namespace Rev::Media {
         std::atomic<size_t> width = 0;
         std::atomic<size_t> height = 0;
         Core::PixelFormat frameFormat = Core::PixelFormat::Null;
+        CameraTypes::Stream stream;                 // set at open, read on the MF thread
+        std::atomic<UINT32> selectedWidth = 0;      // the selected native size (0 = device default)
+        std::atomic<UINT32> selectedHeight = 0;
+        std::vector<BYTE> lumaPixels;               // MF thread only: the Y- or G-expanded frame
         std::string mediaFormatText = "unavailable (not open)";
 
         mutable std::mutex errorMutex;

@@ -33,6 +33,7 @@ export namespace Rev::Media {
 
         using DeviceInfo = CameraTypes::DeviceInfo;
         using Frame = CameraTypes::Frame;
+        using Stream = CameraTypes::Stream;
         using FrameEvent = Frame::Event;
         using Setting = CameraTypes::Setting;
         using SettingType = Setting::Type;
@@ -227,9 +228,9 @@ export namespace Rev::Media {
 
         static std::vector<DeviceInfo> devices() { return Roster::Get().devices(); }
 
-        bool open(size_t deviceIndex = 0) {
+        bool open(size_t deviceIndex = 0, Stream stream = {}) {
             close();
-            info.open = nativeCamera->open(deviceIndex);
+            info.open = nativeCamera->open(deviceIndex, stream);
             info.error = nativeCamera->error();
             if (!info.open) { return false; }
             refreshControls(false);

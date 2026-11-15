@@ -18,7 +18,7 @@ export namespace Rev::Media {
         NativeCamera(const NativeCamera&) = delete;
         NativeCamera& operator=(const NativeCamera&) = delete;
         static std::vector<CameraTypes::DeviceInfo> devices() { return {}; }
-        bool open(size_t = 0) { return false; }
+        bool open(size_t = 0, CameraTypes::Stream = {}) { return false; }
         void close() {}
         bool isOpen() const { return false; }
         std::string error() const { return "Camera capture is not implemented for Linux"; }

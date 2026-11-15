@@ -19,6 +19,21 @@ export namespace Rev::Media::CameraTypes {
         std::string id;
     };
 
+    // What the camera is asked to stream, chosen at open.
+    struct Stream {
+        enum class Transport {
+            Compressed,     // the largest MJPEG type (<= 30 fps): lossy, Y included
+            Uncompressed    // the largest YUY2 type (<= 30 fps): Y exactly as the device sent it
+        };
+        enum class Pixels {
+            Colour,         // decoded and converted to BGRX
+            Luma,           // Y alone, never converted: delivered as BGRX with B = G = R = Y
+            Green           // G of the decoded BGRX alone: delivered with B = G = R = G
+        };
+        Transport transport = Transport::Compressed;
+        Pixels pixels = Pixels::Colour;
+    };
+
     struct Frame {
 
         struct Event {
