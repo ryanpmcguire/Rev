@@ -9,6 +9,7 @@ module;
 
 // Cpp
 #include <stdexcept>
+#include <cstdio>
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -1495,9 +1496,23 @@ export namespace Rev {
                     PAINTSTRUCT ps;
                     HDC dc = BeginPaint(h, &ps);
 
-                    self->notifyEvent({
-                        WinEvent::Type::Paint
-                    });
+                    // A throw must not unwind out of the window procedure (Windows may
+                    // swallow it there) and must not skip the dirty reset below: that
+                    // latches dirty and every later frame request is lost. Say it, go on.
+                    // (the user approved this boundary, 2026-11-16)
+                    try {
+                        self->notifyEvent({
+                            WinEvent::Type::Paint
+                        });
+                    }
+                    catch (const std::exception& error) {
+                        std::fprintf(stderr, "Rev: paint threw: %s\n", error.what());
+                        std::fflush(stderr);
+                    }
+                    catch (...) {
+                        std::fprintf(stderr, "Rev: paint threw a non-std exception\n");
+                        std::fflush(stderr);
+                    }
 
                     EndPaint(h, &ps);
 
@@ -1627,6 +1642,36 @@ export namespace Rev {
         typedef HGLRC (WINAPI *PFNWGLCREATECONTEXTATTRIBSARBPROC)(HDC, HGLRC, const int*);
         typedef BOOL  (WINAPI *PFNWGLCHOOSEPIXELFORMATARBPROC)(HDC, const int*, const FLOAT*, UINT, int*, UINT*);
         typedef BOOL  (WINAPI *PFNWGLSWAPINTERVALEXTPROC)(int);
+        typedef const char* (WINAPI *PFNWGLGETEXTENSIONSSTRINGEXTPROC)(void);
+
+        // Swap interval: 0 = off (default), 1 = vsync, -1 = adaptive (tears only when late)
+        int swapInterval = 0;
+
+        void setSwapInterval(int interval) {
+
+            swapInterval = interval;
+
+            if (!hglrc || wglGetCurrentContext() != hglrc) {
+                return;
+            }
+
+            auto wglSwapIntervalEXT = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
+            if (!wglSwapIntervalEXT) {
+                return;
+            }
+
+            int applied = swapInterval;
+            if (applied < 0) {
+                // Adaptive needs WGL_EXT_swap_control_tear; otherwise plain vsync
+                auto wglGetExtensionsStringEXT = (PFNWGLGETEXTENSIONSSTRINGEXTPROC)wglGetProcAddress("wglGetExtensionsStringEXT");
+                const char* extensions = wglGetExtensionsStringEXT ? wglGetExtensionsStringEXT() : nullptr;
+                if (!extensions || std::string(extensions).find("WGL_EXT_swap_control_tear") == std::string::npos) {
+                    applied = 1;
+                }
+            }
+
+            wglSwapIntervalEXT(applied);
+        }
 
         static ATOM registerDummyClass(HINSTANCE inst, LPCWSTR name, WNDPROC wndproc) {
 
@@ -1734,7 +1779,6 @@ export namespace Rev {
             // 2) Load ARB entry points
             auto wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
             auto wglChoosePixelFormatARB = (PFNWGLCHOOSEPIXELFORMATARBPROC)wglGetProcAddress("wglChoosePixelFormatARB");
-            auto wglSwapIntervalEXT = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
 
             // Extensions not available – leave the dummy current so GLEW can still load,
             // OR fall back to legacy for the real window (but you'll stay on 2.1).
@@ -1853,10 +1897,8 @@ export namespace Rev {
 
             hglrc = realRC;
 
-            // Optional: enable vsync if extension is present
-            if (wglSwapIntervalEXT) {
-                wglSwapIntervalEXT(0); // 1 = vsync on, 0 = off
-            }
+            // Apply the configured swap interval (0 = off unless set)
+            setSwapInterval(swapInterval);
         }
 
         void makeContextCurrent() {
