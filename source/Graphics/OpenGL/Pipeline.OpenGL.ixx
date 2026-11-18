@@ -83,7 +83,15 @@ export namespace Rev::Graphics {
         // Destroy
         ~Pipeline() {
 
-            NativeWindow::requireContext(context, "Pipeline destroy");
+            // A destructor never throws. A context that can no longer be made
+            // current is gone, and its deletion freed this program and its
+            // shaders (whose destructors would call GL, so they are not run).
+            try { NativeWindow::requireContext(context, "Pipeline destroy"); }
+            catch (const std::exception& error) {
+                static bool told = false;
+                if (!told) { dbg("%s; skipped (freed with its context)\n", error.what()); told = true; }
+                return;
+            }
 
             delete vert;
             delete frag;

@@ -1,6 +1,7 @@
 module;
 
 #include <glew/glew.h>
+#include <dbg.hpp>
 #include <stdexcept>
 #include <string>
 
@@ -147,7 +148,14 @@ export namespace Rev::Graphics {
         // Destroy
         ~Texture() {
             if (id) {
-                NativeWindow::requireContext(context, "Texture destroy");
+                // A destructor never throws. A context that can no longer be
+                // made current is gone, and its deletion freed this texture.
+                try { NativeWindow::requireContext(context, "Texture destroy"); }
+                catch (const std::exception& error) {
+                    static bool told = false;
+                    if (!told) { dbg("%s; skipped (freed with its context)\n", error.what()); told = true; }
+                    return;
+                }
                 glDeleteTextures(1, &id);
             }
         }

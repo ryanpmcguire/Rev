@@ -4,6 +4,7 @@ module;
 #include <string>
 
 #include <glew/glew.h>
+#include <dbg.hpp>
 
 export module Rev.Graphics.FrameBuffer;
 
@@ -45,7 +46,15 @@ export namespace Rev::Graphics {
         // Destroy
         ~FrameBuffer() {
 
-            NativeWindow::requireContext(context, "FrameBuffer destroy");
+            // A destructor never throws. A context that can no longer be made
+            // current is gone, and its deletion freed these objects with it.
+            try { NativeWindow::requireContext(context, "FrameBuffer destroy"); }
+            catch (const std::exception& error) {
+                static bool told = false;
+                if (!told) { dbg("%s; skipped (freed with its context)\n", error.what()); told = true; }
+                delete texture;
+                return;
+            }
 
             if (stencil) { glDeleteRenderbuffers(1, &stencil); }
             if (buffer) { glDeleteFramebuffers(1, &buffer); }

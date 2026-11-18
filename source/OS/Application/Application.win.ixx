@@ -84,8 +84,10 @@ export namespace Rev {
                     }
 
                     if (msg.message == WM_QUIT) {
-                        for (void* handle : windows) {
-                            delete static_cast<Window*>(handle);
+                        // Newest first: an owned window is created after its
+                        // owner, and must be deleted while its HWND still lives.
+                        for (auto rit = windows.rbegin(); rit != windows.rend(); ++rit) {
+                            delete static_cast<Window*>(*rit);
                         }
                         windows.clear();
                         return;
@@ -100,7 +102,25 @@ export namespace Rev {
                         Window* w = static_cast<Window*>(*it);
 
                         if (w->shouldClose) {
-                            it = windows.erase(it);
+
+                            // Destroying an owner's HWND destroys its owned
+                            // HWNDs, killing their GL contexts. Delete the owned
+                            // Rev windows first, while their contexts live.
+                            HWND closing = w->window ? w->window->handle : nullptr;
+
+                            for (auto o = windows.begin(); o != windows.end();) {
+                                Window* other = static_cast<Window*>(*o);
+                                HWND native = other->window ? other->window->handle : nullptr;
+
+                                if (other != w && closing && native && GetWindow(native, GW_OWNER) == closing) {
+                                    o = windows.erase(o);
+                                    delete other;
+                                }
+
+                                else { ++o; }
+                            }
+
+                            it = windows.erase(std::find(windows.begin(), windows.end(), static_cast<void*>(w)));
                             delete w;
                         }
 

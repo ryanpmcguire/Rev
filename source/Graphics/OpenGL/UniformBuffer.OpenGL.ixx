@@ -52,7 +52,14 @@ export namespace Rev::Graphics {
         ~UniformBuffer() {
 
             //dbg("[UniformBuffer] destroying");
-            NativeWindow::requireContext(context, "UniformBuffer destroy");
+            // A destructor never throws. A context that can no longer be made
+            // current is gone, and its deletion freed this buffer with it.
+            try { NativeWindow::requireContext(context, "UniformBuffer destroy"); }
+            catch (const std::exception& error) {
+                static bool told = false;
+                if (!told) { dbg("%s; skipped (freed with its context)\n", error.what()); told = true; }
+                return;
+            }
 
             if (data) {
                 glBindBuffer(GL_UNIFORM_BUFFER, bufferID);

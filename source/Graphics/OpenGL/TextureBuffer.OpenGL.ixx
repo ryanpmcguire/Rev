@@ -3,6 +3,7 @@ module;
 #include <cstring>
 #include <stdexcept>
 #include <glew/glew.h>
+#include <dbg.hpp>
 
 export module Rev.Graphics.TextureBuffer;
 
@@ -38,7 +39,14 @@ export namespace Rev::Graphics {
 
         ~TextureBuffer() {
 
-            NativeWindow::requireContext(context, "TextureBuffer destroy");
+            // A destructor never throws. A context that can no longer be made
+            // current is gone, and its deletion freed these objects with it.
+            try { NativeWindow::requireContext(context, "TextureBuffer destroy"); }
+            catch (const std::exception& error) {
+                static bool told = false;
+                if (!told) { dbg("%s; skipped (freed with its context)\n", error.what()); told = true; }
+                return;
+            }
 
             if (data) {
                 GLint previousBuffer = 0;

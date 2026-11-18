@@ -7,6 +7,7 @@ module;
 #include <stdexcept>
 #include <string>
 #include <glew/glew.h>
+#include <dbg.hpp>
 
 export module Rev.Graphics.VertexBuffer;
 
@@ -52,7 +53,14 @@ export namespace Rev::Graphics {
 
         ~VertexBuffer() {
 
-            NativeWindow::requireContext(context, "VertexBuffer destroy");
+            // A destructor never throws. A context that can no longer be made
+            // current is gone, and its deletion freed this buffer with it.
+            try { NativeWindow::requireContext(context, "VertexBuffer destroy"); }
+            catch (const std::exception& error) {
+                static bool told = false;
+                if (!told) { dbg("%s; skipped (freed with its context)\n", error.what()); told = true; }
+                return;
+            }
 
             if (data) {
                 glBindBuffer(GL_ARRAY_BUFFER, bufferID);
