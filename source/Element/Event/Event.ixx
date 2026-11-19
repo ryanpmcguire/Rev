@@ -166,6 +166,22 @@ export namespace Rev::Element {
                     add(key);
                 }
             }
+
+            // Release every held button (press history is kept), then rebuild
+            // the combo. The window calls this when it loses focus, since the
+            // pending key releases then go to another window.
+            void releaseAll() {
+
+                for (Button* button : {
+                    &ctrl, &alt, &shift, &escape, &tab, &del, &backspace, &enter, &space,
+                    &num0, &num1, &num2, &num3, &num4, &num5, &num6, &num7, &num8, &num9,
+                    &a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                    &n, &o, &p, &q, &r, &s, &t, &u, &v, &w, &x, &y, &z,
+                    &arrows.left, &arrows.right, &arrows.up, &arrows.down
+                }) { button->release(); }
+
+                buildCombo();
+            }
         };
 
         Mouse mouse;

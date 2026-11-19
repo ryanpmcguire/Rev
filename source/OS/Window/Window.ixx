@@ -843,7 +843,16 @@ export namespace Rev {
                 }
 
                 case (WinEvent::Focus): { this->onFocus(); break; }
-                case (WinEvent::Defocus): { this->onDefocus(); break; }
+                case (WinEvent::Defocus): {
+                    // Releases now go to another window, so drop held buttons here
+                    // (not in the overridable onDefocus) before the callback runs.
+                    this->event.keyboard.releaseAll();
+                    this->event.mouse.lb.release();
+                    this->event.mouse.mb.release();
+                    this->event.mouse.rb.release();
+                    this->onDefocus();
+                    break;
+                }
 
                 case (WinEvent::Move): { this->onMove(event.c, event.d); break; }
                 case (WinEvent::Resize): { this->onResize(event.c, event.d); break; }
