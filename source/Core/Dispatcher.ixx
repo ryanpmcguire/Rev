@@ -11,21 +11,56 @@ module;
 #include <atomic>
 #include <mutex>
 #include <type_traits>
+#include <unordered_set>
 
 export module Rev.Core.Dispatcher;
 import Rev.Core.MainDispatch;
 
 export namespace Rev::Core {
 
+    // Tickets: owner keys that are not an object's address. The Dispatcher only
+    // ever compares an owner (never dereferences it), so any unique value works.
+    // `this` is the usual owner; use a ticket instead when a subscriber may be
+    // destroyed and a new one built at the same address before the next tell()
+    // (unsubscribe is drained lazily, by owner, at that tell, so it would also
+    // remove the newcomer's listener). A ticket is odd, so it never equals an
+    // aligned object address. One non-template base, so the state is shared by
+    // every Dispatcher<E>: a ticket is unique across all of them. The counter
+    // only rises, so a released ticket is never issued again (a late drain of
+    // it can never hit a newer subscriber); the set records the live ones.
+    // Thread-safe. Usage: `void* const ticket = Dispatcher<E>::newTicket();`,
+    // listen/unsubscribe with it, then `releaseTicket(ticket)` when done.
+    struct DispatcherTickets {
+        static void* newTicket() {
+            std::lock_guard lock(ticketMutex);
+            void* ticket = reinterpret_cast<void*>(static_cast<std::uintptr_t>((++ticketsIssued << 1) | 1u));
+            liveTickets.insert(ticket);
+            return ticket;
+        }
+        static void releaseTicket(void* ticket) {
+            std::lock_guard lock(ticketMutex);
+            liveTickets.erase(ticket);
+        }
+        static bool isTicket(void* owner) {
+            std::lock_guard lock(ticketMutex);
+            return liveTickets.contains(owner);
+        }
+    private:
+        static inline std::mutex ticketMutex;
+        static inline std::uint64_t ticketsIssued = 0;
+        static inline std::unordered_set<void*> liveTickets;
+    };
+
     template<typename EventType>
-    struct Dispatcher {
+    struct Dispatcher : DispatcherTickets {
 
         static constexpr size_t ListenerKeySize = 32;
         using ListenerKey = std::array<std::byte, ListenerKeySize>;
 
         // One subscription: the callback plus the address of whoever registered
-        // it (its `this`). The owner is how a subscriber later unsubscribes -- a
-        // single pointer per listener, no extra allocation.
+        // it (its `this`, or a ticket from newTicket()). The owner is how a
+        // subscriber later unsubscribes -- a single pointer per listener, no
+        // extra allocation. It is only compared, never dereferenced.
         struct Listener {
             void* owner = nullptr;
             std::function<void(EventType&)> fn;
@@ -152,7 +187,7 @@ export namespace Rev::Core {
         //--------------------------------------------------
 
         // Queue removal of every listener registered by `owner`. A subscriber calls this
-        // with its own `this` as it is destroyed; a listener may even call it from inside
+        // with its own `this` (or its ticket) as it is destroyed; a listener may even call it from inside
         // its own callback. Removal is always deferred (drained at the next tell(), before
         // it walks), so it never disturbs a dispatch in flight or holds a dangling callback.
         void unsubscribe(void* owner) {

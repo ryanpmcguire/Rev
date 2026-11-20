@@ -702,6 +702,13 @@ export namespace Rev {
             this->window->setSize(width, height);
         }
 
+        // Cap this window's paint rate (0 = unlimited, the default). Requests
+        // sooner than 1/hz after the last paint coalesce into one deferred frame.
+        // Windows only; Linux and macOS store the value and do not cap.
+        void setMaxFrameRate(int hz) {
+            if (window) { window->setMaxFrameRate(hz); }
+        }
+
         void setPos(int x, int y) {
 
             details.x = x;
@@ -863,16 +870,77 @@ export namespace Rev {
 
                 case (WinEvent::Paint): { this->draw(this->event); break; }
 
-                case (WinEvent::MouseMove): { this->onCursorPos(event.c, event.d); break; }
-                case (WinEvent::MouseButton): { this->onMouseButton(event.a, event.b, event.c, event.d); break; }
-                case (WinEvent::MouseWheel): { this->onMouseWheel(event.c, event.d); break; }
+                case (WinEvent::MouseMove): { this->event.inputUs = event.inputUs; this->onCursorPos(event.c, event.d); break; }
+                case (WinEvent::MouseButton): { this->event.inputUs = event.inputUs; this->onMouseButton(event.a, event.b, event.c, event.d); break; }
+                case (WinEvent::MouseWheel): { this->event.inputUs = event.inputUs; this->onMouseWheel(event.c, event.d); break; }
                 case (WinEvent::CaptureLost): { this->onCaptureLost(); break; }
 
-                case (WinEvent::Keyboard): { this->onKeyboard(event.a, event.b); break; }
+                case (WinEvent::Keyboard): { this->event.inputUs = event.inputUs; this->onKeyboard(event.a, event.b); break; }
                 case (WinEvent::Character): { this->onCharacter(event.a); break; }
+                case (WinEvent::FileDrop): { this->onFileDropped(event); break; }
                 case (WinEvent::Null):
                 case (WinEvent::Clear): { break; }
             }
+        }
+
+        // File drop (self-contained: own hit test, own Event copy; touches no
+        // targetFlags and no input state of this->event)
+        //--------------------------------------------------
+
+        // The topmost visible element under pos, then its ancestors; deepest
+        // first. Same sources as setTargets (drawList, else bottomUp), hidden
+        // skipped. Rebuilt from the live tree on every drop, never cached.
+        std::vector<Element*> fileHitChain(Pos pos) {
+
+            std::vector<Element*> chain;
+
+            calculateQueues();
+            if (!topDown.empty()) { calcDrawList(); }
+
+            Element* top = nullptr;
+
+            if (drawList.empty()) {
+                for (Element* element : bottomUp) {
+                    if (element->resolved.hidden) { continue; }
+                    if (element->contains(pos)) { top = element; break; }
+                }
+            }
+
+            for (Element* element : drawList) {
+
+                Element& elem = *element;
+
+                if (elem.resolved.hidden) { continue; }
+                if (!elem.contains(pos)) { continue; }
+
+                top = element; // later in drawList = painted above
+            }
+
+            for (Element* e = top; e; e = e->parent) {
+                chain.push_back(e);
+                if (e->parent == e) { break; }
+            }
+
+            if (chain.empty() || chain.back() != this) { chain.push_back(this); }
+
+            return chain;
+        }
+
+        void onFileDropped(WinEvent& winEvent) {
+
+            if (!winEvent.data) { return; }
+
+            Event drop = this->event;
+            drop.file.paths = *static_cast<const std::vector<std::wstring>*>(winEvent.data);
+            drop.file.pos = screenToLocal((float)winEvent.c, (float)winEvent.d);
+            drop.propagate = true;
+
+            for (Element* element : fileHitChain(drop.file.pos)) {
+                element->fileDrop(drop);
+                if (!drop.propagate) { break; }
+            }
+
+            refresh(this->event);
         }
 
         // Overridable callbacks
@@ -970,6 +1038,7 @@ export namespace Rev {
             switch (button) {
                 case (NativeWindow::MouseButton::Left): { event.mouse.lb.set(action, event.mouse.pos); break; }
                 case (NativeWindow::MouseButton::Right): { event.mouse.rb.set(action, event.mouse.pos); break; }
+                case (NativeWindow::MouseButton::Middle): { event.mouse.mb.set(action, event.mouse.pos); break; }
             }
 
             switch (action) {
@@ -1140,6 +1209,42 @@ export namespace Rev {
                 case (NativeWindow::Key::Delete): { event.keyboard.key = "delete"; break; }
                 case (NativeWindow::Key::Escape): { event.keyboard.key = "escape"; break; }
                 case (NativeWindow::Key::Tab): { event.keyboard.key = "tab"; break; }
+
+                case (NativeWindow::Key::Home): { event.keyboard.key = "home"; break; }
+                case (NativeWindow::Key::End): { event.keyboard.key = "end"; break; }
+                case (NativeWindow::Key::PageUp): { event.keyboard.key = "pageup"; break; }
+                case (NativeWindow::Key::PageDown): { event.keyboard.key = "pagedown"; break; }
+                case (NativeWindow::Key::Insert): { event.keyboard.key = "insert"; break; }
+
+                case (NativeWindow::Key::F1): { event.keyboard.key = "f1"; break; }
+                case (NativeWindow::Key::F2): { event.keyboard.key = "f2"; break; }
+                case (NativeWindow::Key::F3): { event.keyboard.key = "f3"; break; }
+                case (NativeWindow::Key::F4): { event.keyboard.key = "f4"; break; }
+                case (NativeWindow::Key::F5): { event.keyboard.key = "f5"; break; }
+                case (NativeWindow::Key::F6): { event.keyboard.key = "f6"; break; }
+                case (NativeWindow::Key::F7): { event.keyboard.key = "f7"; break; }
+                case (NativeWindow::Key::F8): { event.keyboard.key = "f8"; break; }
+                case (NativeWindow::Key::F9): { event.keyboard.key = "f9"; break; }
+                case (NativeWindow::Key::F10): { event.keyboard.key = "f10"; break; }
+                case (NativeWindow::Key::F11): { event.keyboard.key = "f11"; break; }
+                case (NativeWindow::Key::F12): { event.keyboard.key = "f12"; break; }
+
+                case (NativeWindow::Key::Minus):
+                case (NativeWindow::Key::NumpadSub): { event.keyboard.key = "-"; break; }
+                case (NativeWindow::Key::Equals): { event.keyboard.key = "="; break; }
+                case (NativeWindow::Key::NumpadAdd): { event.keyboard.key = "+"; break; }
+                case (NativeWindow::Key::NumpadMul): { event.keyboard.key = "*"; break; }
+                case (NativeWindow::Key::Slash):
+                case (NativeWindow::Key::NumpadDiv): { event.keyboard.key = "/"; break; }
+                case (NativeWindow::Key::Period):
+                case (NativeWindow::Key::NumpadDecimal): { event.keyboard.key = "."; break; }
+                case (NativeWindow::Key::Comma): { event.keyboard.key = ","; break; }
+                case (NativeWindow::Key::Semicolon): { event.keyboard.key = ";"; break; }
+                case (NativeWindow::Key::Apostrophe): { event.keyboard.key = "'"; break; }
+                case (NativeWindow::Key::Grave): { event.keyboard.key = "`"; break; }
+                case (NativeWindow::Key::Backslash): { event.keyboard.key = "\\"; break; }
+                case (NativeWindow::Key::LeftBracket): { event.keyboard.key = "["; break; }
+                case (NativeWindow::Key::RightBracket): { event.keyboard.key = "]"; break; }
 
                 case (NativeWindow::Key::Enter):
                 case (NativeWindow::Key::NumpadEnter): { event.keyboard.key = "enter"; break; }

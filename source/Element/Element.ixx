@@ -1658,6 +1658,7 @@ export namespace Rev::Element {
         void onKeyDown(const std::function<void(Event&)>& listener) { listen(&Element::keyDown, listener); }
         void onKeyUp(const std::function<void(Event&)>& listener) { listen(&Element::keyUp, listener); }
         void onTextInput(const std::function<void(Event&)>& listener) { listen(&Element::textInput, listener); }
+        void onFileDrop(const std::function<void(Event&)>& listener) { listen(&Element::fileDrop, listener); }
 
         // Event propagation
         //--------------------------------------------------
@@ -2024,6 +2025,13 @@ export namespace Rev::Element {
                 if (child.targetFlags.focus) { child.textInput(e); }
                 if (!e.propagate) { return; }
             }
+        }
+
+        // When files are dropped on this element. The window calls it on the
+        // dropped-on element, then each ancestor, until e.propagate is false;
+        // it does not recurse into children.
+        virtual void fileDrop(Event& e) {
+            tell(&Element::fileDrop, e);
         }
     };
 }

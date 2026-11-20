@@ -35,6 +35,9 @@ export namespace Rev {
             Escape, Space, Tab, Enter, Backspace,
             CapsLock, NumLock, ScrollLock,
             PrintScreen, Pause,
+            Minus, Equals, Comma, Period, Slash,
+            Semicolon, Apostrophe, Grave, Backslash,
+            LeftBracket, RightBracket,
         };
 
         const char* keyToString(int key) { return keyToString(Key(key)); }
@@ -99,6 +102,10 @@ export namespace Rev {
         void createContext();
         void makeContextCurrent() {};
         void loadGlFunctions() {};
+
+        // Frame rate cap: stored only; not yet enforced on macOS (no-op cap).
+        int maxFrameRate = 0;
+        void setMaxFrameRate(int hz) { maxFrameRate = hz > 0 ? hz : 0; }
 
         // Not yet implemented on macOS: the owner stays interactive.
         void setEnabled(bool enabled) { (void)enabled; }

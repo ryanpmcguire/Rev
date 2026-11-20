@@ -25,6 +25,12 @@ escalation.**
   keyed subscribers. Use it when the information is **not retrievable** from a source the
   listener already has: decoded bytes at a boundary, a transient edge that leaves no state,
   a death notice, an addressed command ("go fix truck #7"). The payload is the point.
+  The owner key is only compared, never dereferenced: pass `this`, or a ticket from the static
+  `Dispatcher<E>::newTicket()` (odd, never reused, shared across all dispatchers, kept in a
+  static live set; `releaseTicket(t)` when done). `unsubscribe(owner)`
+  is drained lazily at the next `tell`, removing *every* listener with that owner, so use a
+  ticket when a subscriber may be destroyed and a new one built at the same address before
+  the next `tell`: `void* const ticket = Dispatcher<E>::newTicket();`.
 
 - **`Observable<T>`** — a *value that announces itself*. Store the truth in one place; let
   views reflect it. A convenience layer over the same idea (a value plus a change signal).

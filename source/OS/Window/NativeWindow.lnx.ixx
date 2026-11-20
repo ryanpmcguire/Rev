@@ -61,6 +61,9 @@ export namespace Rev {
             Escape, Space, Tab, Enter, Backspace,
             CapsLock, NumLock, ScrollLock,
             PrintScreen, Pause,
+            Minus, Equals, Comma, Period, Slash,
+            Semicolon, Apostrophe, Grave, Backslash,
+            LeftBracket, RightBracket,
         };
 
         struct Display {
@@ -354,6 +357,10 @@ export namespace Rev {
             XMapRaised(xDisplay, xWindow);
             XFlush(xDisplay);
         }
+
+        // Frame rate cap: stored only; not yet enforced on X11 (no-op cap).
+        int maxFrameRate = 0;
+        void setMaxFrameRate(int hz) { maxFrameRate = hz > 0 ? hz : 0; }
 
         // Not yet implemented on X11: the owner stays interactive.
         void setEnabled(bool enabled) {
@@ -881,6 +888,20 @@ export namespace Rev {
                 case XK_u: case XK_U: return Key::U; case XK_v: case XK_V: return Key::V;
                 case XK_w: case XK_W: return Key::W; case XK_x: case XK_X: return Key::X;
                 case XK_y: case XK_Y: return Key::Y; case XK_z: case XK_Z: return Key::Z;
+                case XK_KP_0: return Key::Numpad0; case XK_KP_1: return Key::Numpad1;
+                case XK_KP_2: return Key::Numpad2; case XK_KP_3: return Key::Numpad3;
+                case XK_KP_4: return Key::Numpad4; case XK_KP_5: return Key::Numpad5;
+                case XK_KP_6: return Key::Numpad6; case XK_KP_7: return Key::Numpad7;
+                case XK_KP_8: return Key::Numpad8; case XK_KP_9: return Key::Numpad9;
+                case XK_KP_Add: return Key::NumpadAdd; case XK_KP_Subtract: return Key::NumpadSub;
+                case XK_KP_Multiply: return Key::NumpadMul; case XK_KP_Divide: return Key::NumpadDiv;
+                case XK_KP_Enter: return Key::NumpadEnter; case XK_KP_Decimal: return Key::NumpadDecimal;
+                case XK_minus: return Key::Minus; case XK_equal: return Key::Equals;
+                case XK_comma: return Key::Comma; case XK_period: return Key::Period;
+                case XK_slash: return Key::Slash; case XK_semicolon: return Key::Semicolon;
+                case XK_apostrophe: return Key::Apostrophe; case XK_grave: return Key::Grave;
+                case XK_backslash: return Key::Backslash;
+                case XK_bracketleft: return Key::LeftBracket; case XK_bracketright: return Key::RightBracket;
                 default: return Key::Unknown;
             }
         }

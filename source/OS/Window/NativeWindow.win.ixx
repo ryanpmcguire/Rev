@@ -10,6 +10,7 @@ module;
 // Cpp
 #include <stdexcept>
 #include <cstdio>
+#include <cstdint>
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -19,6 +20,7 @@ module;
 #include <windowsx.h>
 #include <windows.h>
 #include <shellscalingapi.h>
+#include <shellapi.h>
 #include <setupapi.h>
 #include <devguid.h>
 #include <regstr.h>
@@ -32,6 +34,7 @@ module;
 export module Rev.NativeWindow;
 
 import Rev.Appearance;
+import Rev.Core.Process;
 
 export namespace Rev {
 
@@ -81,6 +84,11 @@ export namespace Rev {
             Escape, Space, Tab, Enter, Backspace,
             CapsLock, NumLock, ScrollLock,
             PrintScreen, Pause,
+
+            // Punctuation (US-layout positions)
+            Minus, Equals, Comma, Period, Slash,
+            Semicolon, Apostrophe, Grave, Backslash,
+            LeftBracket, RightBracket,
         };
 
         // Win32 keycode -> key enum map
@@ -139,6 +147,13 @@ export namespace Rev {
             { VK_SCROLL,    Key::ScrollLock },
             { VK_SNAPSHOT,  Key::PrintScreen },
             { VK_PAUSE,     Key::Pause },
+
+            { VK_OEM_MINUS,  Key::Minus },     { VK_OEM_PLUS,   Key::Equals },
+            { VK_OEM_COMMA,  Key::Comma },     { VK_OEM_PERIOD, Key::Period },
+            { VK_OEM_2,      Key::Slash },     { VK_OEM_1,      Key::Semicolon },
+            { VK_OEM_7,      Key::Apostrophe },{ VK_OEM_3,      Key::Grave },
+            { VK_OEM_5,      Key::Backslash },
+            { VK_OEM_4,      Key::LeftBracket },{ VK_OEM_6,     Key::RightBracket },
         };
 
         const char* keyToString(int key) { return keyToString(Key(key)); }
@@ -486,10 +501,20 @@ export namespace Rev {
         float scale = 1.0f;
 
         Appearance::Cursor cursor;
+        HCURSOR hCursor = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW); // this window's own cursor, applied on WM_SETCURSOR
 
         bool dirty = false;
         bool invalidatePending = false;
         bool destroyed = false;
+
+        // Frame rate cap (0 = unlimited, the default). A request sooner than
+        // 1/maxFrameRate after the last paint began arms a one-shot timer for the
+        // remainder; requests while it is armed coalesce into that one frame.
+        // See setMaxFrameRate(), deferForFrameRate(), WM_TIMER.
+        int maxFrameRate = 0;
+        bool frameTimerArmed = false;  // a Process wake (owner: this) is pending
+        bool inSizeMove = false;       // OS modal size/move loop: Process is not pumped, so no cap
+        LONGLONG lastPaintBegan = 0;   // QueryPerformanceCounter ticks
 
         // Number of mouse buttons currently held. Used to drive mouse capture:
         // capture on the first press, release on the last release. Capture keeps
@@ -696,7 +721,7 @@ export namespace Rev {
                 .style          = CS_HREDRAW | CS_VREDRAW,
                 .lpfnWndProc    = eventHandler,
                 .hInstance      = GetModuleHandleW(nullptr),
-                .hCursor        = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW),
+                .hCursor        = nullptr, // shared class: each window sets its own cursor on WM_SETCURSOR
                 .hbrBackground  = (HBRUSH)(COLOR_WINDOW + 1),
                 .lpszClassName  = kClassName
             };
@@ -778,6 +803,9 @@ export namespace Rev {
             if (!handle) {
                 throw std::runtime_error("[NativeWindow] Failed to create window");
             }
+
+            // Accept files dropped from the shell (WM_DROPFILES; no OLE/COM).
+            DragAcceptFiles(handle, TRUE);
 
             // Some style paths finish non-client initialization after
             // CreateWindowExW returns; make the requested caption explicit once
@@ -888,6 +916,9 @@ export namespace Rev {
 
         ~NativeWindow() {
             //dbg("[NativeWindow] destroying");
+
+            // The deferred-frame wake captures this; never let it outlive us.
+            if (frameTimerArmed) { Rev::Core::Process::instance().unschedule(this); }
 
             if (hIconBig)   { DestroyIcon(hIconBig);   hIconBig = nullptr; }
             if (hIconSmall) { DestroyIcon(hIconSmall); hIconSmall = nullptr; }
@@ -1011,13 +1042,6 @@ export namespace Rev {
 
             cursor = newCursor; // cache
 
-            // Hidden cursor: clear the class cursor and hide it.
-            if (newCursor == Appearance::Cursor::None) {
-                SetClassLongPtrW(handle, GCLP_HCURSOR, reinterpret_cast<LONG_PTR>(nullptr));
-                SetCursor(nullptr);
-                return;
-            }
-
             LPCWSTR cursorId = IDC_ARROW; // default fallback
         
             // Directly match enum to Win32 cursor
@@ -1078,14 +1102,14 @@ export namespace Rev {
                     break;
             }
         
-            // Load and set the Win32 cursor
-            HCURSOR hCur = LoadCursorW(nullptr, cursorId);
-        
-            // Update class cursor (for when mouse re-enters)
-            SetClassLongPtrW(handle, GCLP_HCURSOR, reinterpret_cast<LONG_PTR>(hCur));
-        
-            // Immediately update the visible cursor
-            SetCursor(hCur);
+            // This window's own cursor (None hides it here only); WM_SETCURSOR applies it
+            hCursor = (newCursor == Appearance::Cursor::None) ? nullptr : LoadCursorW(nullptr, cursorId);
+
+            // Apply now if the pointer is over this window's client area
+            POINT pt;
+            if (GetCursorPos(&pt) && WindowFromPoint(pt) == handle &&
+                SendMessageW(handle, WM_NCHITTEST, 0, MAKELPARAM(pt.x, pt.y)) == HTCLIENT)
+                SetCursor(hCursor);
         }
         
 
@@ -1096,8 +1120,58 @@ export namespace Rev {
                 return;
             }
 
+            if (deferForFrameRate()) { return; }
+
             dirty = true;
 
+            InvalidateRect(handle, nullptr, FALSE);
+        }
+
+        // hz <= 0 means unlimited (today's behaviour).
+        void setMaxFrameRate(int hz) {
+            maxFrameRate = hz > 0 ? hz : 0;
+            if (maxFrameRate == 0) { releaseDeferredFrame(); }
+        }
+
+        // True when the request was absorbed by the cap: a one-shot Process
+        // wake is (now) armed and will issue the frame. Never drops a request.
+        //
+        // Why Process and not SetTimer: SetTimer clamps to USER_TIMER_MINIMUM
+        // (10 ms), so a 5 ms wait becomes 10+ ms. Process wakes come from the
+        // Application loop's MsgWaitForMultipleObjects timeout, which runs at
+        // 1 ms resolution (timeBeginPeriod(1), Application.win.ixx run()).
+        bool deferForFrameRate() {
+            if (maxFrameRate <= 0 || !handle || inSizeMove) { return false; }
+            if (frameTimerArmed) { return true; }
+
+            LARGE_INTEGER now, freq;
+            QueryPerformanceCounter(&now);
+            QueryPerformanceFrequency(&freq);
+            const LONGLONG interval = freq.QuadPart / maxFrameRate;
+            const LONGLONG elapsed = now.QuadPart - lastPaintBegan;
+            if (elapsed >= interval) { return false; }
+
+            // Process counts whole ms. Round to nearest (not up): the error is
+            // then +/-0.5 ms per frame and averages out, so the achieved rate
+            // centres on the cap instead of sitting below it.
+            const LONGLONG remaining = interval - elapsed;
+            uint64_t ms = (uint64_t)((remaining * 1000 + freq.QuadPart / 2) / freq.QuadPart);
+            if (ms == 0) { ms = 1; }
+
+            auto& process = Rev::Core::Process::instance();
+            process.schedule(this, ms, [this](uint64_t) { releaseDeferredFrame(); });
+            process.rescheduleNext(this, ms);   // schedule() fires at once; delay it
+            frameTimerArmed = true;
+            return true;
+        }
+
+        // Issue the deferred frame now (wake fired, cap removed, size/move loop
+        // entered, or resize). No-op when none is pending.
+        void releaseDeferredFrame() {
+            if (!frameTimerArmed) { return; }
+            Rev::Core::Process::instance().unschedule(this);
+            frameTimerArmed = false;
+            dirty = true;
             InvalidateRect(handle, nullptr, FALSE);
         }
 
@@ -1131,6 +1205,8 @@ export namespace Rev {
 
             invalidatePending = false;
 
+            if (deferForFrameRate()) { return; }
+
             InvalidateRect(handle, nullptr, FALSE);
         }
 
@@ -1144,9 +1220,49 @@ export namespace Rev {
             // coordinates using its own screen origin and DPI scale. We no longer
             // divide here — screen space must stay in physical px so it lines up
             // with SetWindowPos / setPos for window drag + resize.
+            if (
+                event.type == WinEvent::Type::MouseMove ||
+                event.type == WinEvent::Type::MouseButton ||
+                event.type == WinEvent::Type::MouseWheel ||
+                event.type == WinEvent::Type::Keyboard
+            ) {
+                event.inputUs = inputTimeUs();
+            }
+
             if (callback) { callback(event); }
-            
+
             return event;
+        }
+
+        // When the message being processed was generated, in QPC microseconds.
+        // GetMessageTime() is the input's own time but on the tick clock (ms,
+        // advancing in system-tick steps, typically 1-15.6 ms); its age against
+        // GetTickCount() is subtracted from QPC "now" at retrieval. Result:
+        // monotonic, sub-ms precise, but only as accurate as the tick step.
+        // Never made to decrease; equal stamps are reported as equal, not faked.
+        uint64_t lastInputUs = 0;
+
+        uint64_t inputTimeUs() {
+
+            LARGE_INTEGER now, frequency;
+            QueryPerformanceCounter(&now);
+            QueryPerformanceFrequency(&frequency);
+
+            const uint64_t ticks = static_cast<uint64_t>(now.QuadPart);
+            const uint64_t perSecond = static_cast<uint64_t>(frequency.QuadPart);
+            const uint64_t nowUs =
+                (ticks / perSecond) * 1000000ull +
+                (ticks % perSecond) * 1000000ull / perSecond;
+
+            // Signed 32-bit difference survives the 49.7-day tick wrap.
+            const LONG ageMs = static_cast<LONG>(GetTickCount() - static_cast<DWORD>(GetMessageTime()));
+            const uint64_t ageUs = ageMs > 0 ? static_cast<uint64_t>(ageMs) * 1000ull : 0;
+
+            uint64_t stamp = nowUs > ageUs ? nowUs - ageUs : 0;
+            if (stamp < lastInputUs) { stamp = lastInputUs; }
+            lastInputUs = stamp;
+
+            return stamp;
         }
         
         // Translate Win32 keycode to unified Key enum
@@ -1255,6 +1371,15 @@ export namespace Rev {
                     });
                     
                     return TRUE; // tell Windows creation may continue
+                }
+
+                // Per-window cursor over the client area; non-client (resize edges) falls to DefWindowProc
+                case (WM_SETCURSOR): {
+                    if (self && LOWORD(lp) == HTCLIENT) {
+                        SetCursor(self->hCursor);
+                        return TRUE;
+                    }
+                    break;
                 }
 
                 case (WM_CLOSE): {
@@ -1427,6 +1552,9 @@ export namespace Rev {
                     // frame edge smoothly. Gated on hglrc so it never fires before
                     // the GL context / canvas exist (e.g. the creation-time WM_SIZE).
                     if (self->nativeFrameless && self->hglrc) {
+                        // Resize outranks the frame rate cap: release a deferred
+                        // frame so UpdateWindow has something to paint.
+                        self->releaseDeferredFrame();
                         UpdateWindow(h);
                     }
 
@@ -1489,7 +1617,27 @@ export namespace Rev {
                     return 0;
                 }
 
+                // The OS modal size/move loop does not pump Process, so a
+                // deferred frame would wait for the loop to end: release it and
+                // paint uncapped until the loop exits.
+                case (WM_ENTERSIZEMOVE): {
+                    self->inSizeMove = true;
+                    self->releaseDeferredFrame();
+                    break;
+                }
+
+                case (WM_EXITSIZEMOVE): {
+                    self->inSizeMove = false;
+                    break;
+                }
+
                 case (WM_PAINT): {
+
+                    {
+                        LARGE_INTEGER began;
+                        QueryPerformanceCounter(&began);
+                        self->lastPaintBegan = began.QuadPart;
+                    }
 
                     self->dirty = true;
 
@@ -1518,6 +1666,34 @@ export namespace Rev {
 
                     self->dirty = false;
                     self->flushPendingInvalidate();
+
+                    return 0;
+                }
+
+                // Files dropped from the shell. Paths and the client drop
+                // point (sent as screen coordinates, like WM_MOUSEMOVE).
+                case (WM_DROPFILES): {
+
+                    HDROP drop = (HDROP)wp;
+                    std::vector<std::wstring> paths;
+
+                    const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+                    for (UINT i = 0; i < count; i++) {
+                        const UINT length = DragQueryFileW(drop, i, nullptr, 0);
+                        std::wstring path(length, L'\0');
+                        DragQueryFileW(drop, i, path.data(), length + 1);
+                        paths.push_back(std::move(path));
+                    }
+
+                    POINT pt = { 0, 0 };
+                    DragQueryPoint(drop, &pt);
+                    ClientToScreen(h, &pt);
+
+                    DragFinish(drop);
+
+                    WinEvent event { WinEvent::Type::FileDrop, 0, 0, pt.x, pt.y };
+                    event.data = &paths;
+                    self->notifyEvent(event);
 
                     return 0;
                 }

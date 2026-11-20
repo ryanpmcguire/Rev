@@ -3,6 +3,7 @@ module;
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <ctime>
 #include <chrono>
@@ -187,9 +188,24 @@ export namespace Rev::Element {
         Mouse mouse;
         Keyboard keyboard;
 
+        // Files dropped onto the window (read only in fileDrop).
+        // (Not named File: Clever treats File("...") as its resource marker.)
+        struct DroppedFiles {
+            std::vector<std::wstring> paths;
+            Pos pos;
+        };
+
+        DroppedFiles file;
+
         bool propagate = true;
         bool causedRefresh = false;
         uint64_t firstTime = 0; uint64_t time = 0;
+
+        // When the OS generated the current input (mouse move/button/wheel, key),
+        // in microseconds on a monotonic clock; non-decreasing across inputs.
+        // `time` above is the dispatch time in ms. Use inputUs for speed (delta
+        // position over delta inputUs). 0 = the platform does not stamp it yet.
+        uint64_t inputUs = 0;
         int id = 0;
 
         Graphics::Canvas* canvas;
